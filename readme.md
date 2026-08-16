@@ -1,6 +1,6 @@
 # PortfoliFLOW
 
-AI-native platform for institutional portfolio management — built for allocators such as Versorgungswerke, family offices, endowments, asset managers and fund-of-funds boutiques. Private-markets and fund-of-funds structures are first-class; the platform is not limited to them.
+AI-native platform for institutional portfolio management — built for allocators such as pension funds, family offices, endowments, asset managers and fund-of-funds boutiques. Private-markets and fund-of-funds structures are first-class; the platform is not limited to them.
 
 **What it does, how it looks and who it is for is explained on the homepage: [portfoliflow.com](https://portfoliflow.com).** This README covers only what you need to get a local instance running.
 

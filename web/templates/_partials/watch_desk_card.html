@@ -1,0 +1,115 @@
+{# One Briefing card (ADR-0089). Fixed order:
+     Trigger → computed materiality → options → action → derivation.
+   The card is BAND-coloured (data-band + modifier class); the raw 1–10
+   urgency is never rendered as a badge. The grounded figure (basis) sits
+   with/above any options so the recommendation never stands without its
+   deterministic figure. The "Open case →" affordance is band-gated
+   (`card.case_affordance`, ADR-0120 §1) and renders exactly once: inside
+   the Possible-moves block when that block is present, in the card footer
+   beneath the action row otherwise. Derivation is collapsible so the audit
+   path is always reachable without cluttering the glance view. Context:
+   `card` (projected dict), `csrf_token`. #}
+<article class="pf-dc-card pf-dc-card--{{ card.band or 'informational' }}"
+         id="dc-card-{{ card.id }}"
+         data-band="{{ card.band }}"
+         data-subject-key="{{ card.subject_key }}">
+
+    {# 1. Trigger #}
+    <header class="pf-dc-card__head">
+        <span class="pf-dc-card__band">{{ (card.band or 'informational')|capitalize }}</span>
+        <h3 class="pf-dc-card__trigger">{{ card.trigger }}</h3>
+    </header>
+    {% if card.finding %}
+        <p class="pf-dc-card__finding">{{ card.finding }}</p>
+    {% endif %}
+
+    {# 2. Computed materiality — the grounded figure, beside any options #}
+    {% if card.basis %}
+        <p class="pf-dc-card__materiality">
+            <span class="pf-dc-card__materiality-label">Computed materiality</span>
+            <span class="pf-dc-card__materiality-figure">{{ card.basis }}</span>
+        </p>
+    {% endif %}
+
+    {# 3. Possible moves — the re-told options payload (band-gated upstream).
+       Rendered as a short prose block, not a list: 1–3 connected sentences
+       interpreting the computed basis. Present only on higher-band cards; an
+       informational card arrives with options already dropped by the beat. #}
+    {% if card.options %}
+        <div class="pf-dc-card__starting">
+            <span class="pf-dc-card__starting-label">Possible moves</span>
+            <p class="pf-dc-card__starting-text">{{ card.options_prose }}</p>
+            {# Open case → : with the Possible-moves block present, placement
+               stays inside it (binding decision 4, preserved by ADR-0120 §2). #}
+            {% if card.case_affordance %}
+                <div class="pf-dc-card__starting-foot">
+                    {% include "_partials/watch_desk_opencase_form.html" %}
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {# 4. Action — Acted / Dismissed / Acknowledged (persisted lowercase) #}
+    <form class="pf-dc-card__actions"
+          hx-post="/api/watch-desk/findings/{{ card.id }}/resolve"
+          hx-target="#dc-briefing-feed"
+          hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" name="resolution" value="acted"
+                class="pf-dc-btn pf-dc-btn--acted">Acted</button>
+        <button type="submit" name="resolution" value="dismissed"
+                class="pf-dc-btn pf-dc-btn--dismissed">Dismissed</button>
+        <button type="submit" name="resolution" value="acknowledged"
+                class="pf-dc-btn pf-dc-btn--acknowledged">Acknowledged</button>
+    </form>
+
+    {# 4b. Open case → , standalone (ADR-0120 §2). `options` is optional in
+       the ADR-0088 contract, so a noteworthy/critical card may arrive
+       without a Possible-moves block — and case-worthiness follows the band,
+       not whether Irene authored advisory prose. The same form, same
+       endpoint, same target/swap, rendered slim in the card footer beneath
+       the resolution row. Informational cards render nothing (ADR-0107 D1:
+       acknowledged-only; the manual "New case" path covers the rest). #}
+    {% if card.case_affordance and not card.options %}
+        <div class="pf-dc-card__foot">
+            {% include "_partials/watch_desk_opencase_form.html" %}
+        </div>
+    {% endif %}
+
+    {# 5. Derivation — collapsible: basis + evidence_refs (audit path) #}
+    <details class="pf-dc-card__derivation">
+        <summary class="pf-dc-card__derivation-summary">
+            Derivation &amp; evidence
+        </summary>
+        {% if card.basis %}
+            <p class="pf-dc-card__derivation-basis">{{ card.basis }}</p>
+        {% endif %}
+        {% if card.members %}
+            <ul class="pf-dc-card__members">
+                {% for member in card.members %}
+                    <li class="pf-dc-card__member">
+                        <a href="{{ member.url }}" target="_blank"
+                           rel="noopener noreferrer">
+                            {{ member.title or member.url }}
+                        </a>
+                        {% if member.source_name %}
+                            <span class="pf-dc-card__member-source">
+                                {{ member.source_name }}
+                            </span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if card.evidence_refs %}
+            <ul class="pf-dc-card__evidence">
+                {% for ref in card.evidence_refs %}
+                    <li class="pf-dc-card__evidence-ref">{{ ref }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if not card.basis and not card.members and not card.evidence_refs %}
+            <p class="pf-dc-card__derivation-empty">No derivation recorded.</p>
+        {% endif %}
+    </details>
+</article>

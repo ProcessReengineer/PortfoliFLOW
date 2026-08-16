@@ -1,0 +1,69 @@
+{# One shock builder card — the shared form shape (mockup ⑤, ADR-0104 §2/§6).
+
+   Rendered twice from planning_desk_shock_builders.html, once per shock kind,
+   differing only in field vocabulary: the two cards are one shape —
+   Scope → Operator → Magnitude → Timing → Add — so they are one partial with a
+   `card` parameter rather than two that could drift apart.
+
+   Submission is the hypothetical-transaction form's idiom (planning_desk_hyp_
+   form.html): an HTMX GET re-issuing the whole parameter set (`card.base_query`)
+   with the card's Scope and Magnitude appended. The server merges and re-emits
+   the canonical `t{n}_…` encoding — the UI never formats an overlay key.
+
+   **Operator and Timing are the fixed v1 options** (E6): each renders as its
+   only, disabled option — a fixed choice, not a free one, and a disabled control
+   submits no value, which is exactly right since the encoding has no field for
+   either. Richer regimes are #034 / ADR-E territory.
+
+   Context: card (see `_build_shock_context`), section_url. #}
+<div class="pd-shock__card">
+    <p class="pd-shock__title">Shock builder — {{ card.title }}</p>
+
+    {% if card.scope_options %}
+        <form class="pd-shock__form"
+              hx-get="{{ section_url }}?{{ card.base_query }}">
+            <label class="pd-shock__field">
+                <span>Scope</span>
+                <select name="{{ card.scope_field }}" required>
+                    {% for option in card.scope_options %}
+                        <option value="{{ option.value }}">
+                            {{ option.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="pd-shock__field">
+                <span>Operator</span>
+                <select disabled aria-label="Operator (fixed in v1)">
+                    <option selected>{{ card.operator_label }}</option>
+                </select>
+            </label>
+
+            <label class="pd-shock__field">
+                <span>Magnitude</span>
+                <span class="pd-shock__mag">
+                    <input type="number"
+                           name="{{ card.magnitude_field }}"
+                           step="any"
+                           placeholder="0"
+                           required>
+                    <span class="pd-shock__unit">%</span>
+                </span>
+            </label>
+
+            <label class="pd-shock__field">
+                <span>Timing</span>
+                <select disabled aria-label="Timing (fixed in v1)">
+                    <option selected>{{ card.timing_label }}</option>
+                </select>
+            </label>
+
+            <div class="pd-shock__actions">
+                <button type="submit" class="btn btn--primary">Add shock</button>
+            </div>
+        </form>
+    {% else %}
+        <p class="pd-shock__empty">{{ card.scope_empty }}</p>
+    {% endif %}
+</div>

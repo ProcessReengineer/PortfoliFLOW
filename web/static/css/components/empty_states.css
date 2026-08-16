@@ -1,0 +1,16 @@
+/*
+ * Canonical empty-state class. Used program-wide for short prose
+ * messages that occupy the space where data would otherwise be —
+ * "No investments yet", "Select an SAA configuration to see...",
+ * "No investment-vs-benchmark rows available", etc.
+ *
+ * Defined once here per ADR-0062 §5. Surface-specific stylesheets
+ * must not redefine .pf-empty-state.
+ */
+
+.pf-empty-state {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    padding: 16px 0;
+    margin: 0;
+}

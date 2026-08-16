@@ -1,0 +1,28 @@
+{# The two shock builders, delivered out of band into the Scenario Analysis
+   section (mockup ⑤, ADR-0104 §2/§6).
+
+   Included at the foot of the Cash Flow Planning response and swapped into
+   `#pd-sa-builders` **out of band**: the cards' Scope options are the plan
+   world's archetypes and currencies, which only the section endpoint holds, so
+   the builders travel with its response the way the parameter strip does — one
+   response, one more swap.
+
+   Each card re-issues the whole parameter set and appends its own shock; the
+   server re-emits the `t{n}_` encoding (the UI never formats an overlay key,
+   ADR-0104 §4). The forms target `#pd-cfp-body` — a shock changes the projected
+   world, so adding one re-renders the timeline and re-emits the strip's chips.
+
+   Context (from web/routes/planning_desk.py, `_build_shock_context`):
+     shock.market / shock.fx — one card each (see planning_desk_shock_card.html).
+     section_url             — the endpoint every control re-issues. #}
+<div class="pd-sa__builders" id="pd-sa-builders"
+     hx-swap-oob="outerHTML"
+     hx-target="#pd-cfp-body"
+     hx-swap="outerHTML">
+    {% with card=shock.market %}
+        {% include "_partials/planning_desk_shock_card.html" %}
+    {% endwith %}
+    {% with card=shock.fx %}
+        {% include "_partials/planning_desk_shock_card.html" %}
+    {% endwith %}
+</div>

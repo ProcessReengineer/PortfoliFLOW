@@ -1,0 +1,17 @@
+{# Benchmarks & Attribution section lazy-load shell.
+
+   Pattern 1:1 with limits_section_lazy.html: render a skeleton
+   placeholder; on first visibility HTMX fetches the section body
+   and replaces this wrapper via ``hx-swap="outerHTML"``. The lazy
+   container must not survive past the swap so the loaded body does
+   not inherit the wrapper's layout. #}
+
+<div class="pf-section__lazy"
+     hx-get="/api/back-office/benchmarks-attribution/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading benchmarks &amp; attribution&hellip;
+    </p>
+</div>

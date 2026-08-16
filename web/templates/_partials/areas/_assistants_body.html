@@ -1,0 +1,30 @@
+{# Assistants area body. #}
+<div class="pf-area" data-area="assistants">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Assistants</h1>
+        <p class="pf-area__subtitle">
+            AI-powered automation — Shirley (the chat assistant),
+            report scraping for GP quarterly reports, and AI
+            configuration.
+        </p>
+    </header>
+
+    {% with section_slug="shirley",
+            section_title="Shirley",
+            section_body_template="_partials/shirley_section.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="report-scraper",
+            section_title="Report Scraper",
+            section_body_template="_partials/scraper_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="providers-credentials",
+            section_title="Providers & Credentials",
+            section_pill="moved",
+            section_body='<p class="pf-section__placeholder">Provider credentials and AI configuration live under <a href="/admin#providers-credentials">Admin → Providers &amp; Credentials</a>.</p>' %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

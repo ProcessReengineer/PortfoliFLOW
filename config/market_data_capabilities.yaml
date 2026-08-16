@@ -1,0 +1,224 @@
+# PortfoliFLOW — Market-Data Capability Matrix (ADR-0091)
+#
+# This file is the authoritative, declarative coverage declaration for the
+# market-data layer: it states, per provider, which identifier schemes and
+# which series kinds that provider can serve, and in what routing priority.
+# It is the third seam of provider-agnosticism (after the async port and the
+# normalised DTO): adding a new provider — Bloomberg, Preqin, PitchBook — is
+# one adapter file under services/market_data/adapters/ PLUS one entry here,
+# and nothing downstream (DTO, ingest write path, analytics) changes.
+#
+# It is also the source of truth for ADR-0091 property 2 ("explicit
+# non-availability"): a kind that a provider genuinely cannot supply is simply
+# ABSENT from that provider's `kinds` list — never a silent None inside a
+# fetched series. The factory reads this file and routes; a request no entry
+# covers raises UnsupportedCapabilityError.
+#
+# This is the structural analogue of config/web_research.yaml (a documented,
+# load-validated, audit-relevant declarative fixture); YAML is used over JSON
+# specifically so coverage decisions can carry inline rationale like the notes
+# below — an empirical Yahoo-coverage finding belongs next to the entry it
+# constrains.
+#
+# -----------------------------------------------------------------------------
+# Schema
+# -----------------------------------------------------------------------------
+#
+# Top-level:
+#   providers  (list, required, non-empty) — one entry per adapter.
+#
+# Each entry:
+#   name      (string, required) — the provider key. Must have an adapter
+#                builder registered in services/market_data/factory.py.
+#   priority  (int, required) — routing priority. Providers are tried in
+#                DESCENDING priority order; the first whose `schemes` AND
+#                `kinds` both cover the request wins. Higher number = tried
+#                first. Immaterial for a `routing: forced_only` provider, which
+#                the unforced path never consults.
+#   schemes   (list of strings, required, non-empty) — supported identifier
+#                schemes; each must be one of the ADR-0090 closed set
+#                (isin, ticker, figi, cusip, internal).
+#   kinds     (list of strings, required, non-empty) — supported SeriesKind
+#                values; each must be a member of
+#                services.market_data.dto.SeriesKind.
+#   routing   (string, optional, default `normal`) — routing policy. `normal`
+#                participates in unforced priority routing (the factory picks it
+#                by priority). `forced_only` is EXCLUDED from unforced routing
+#                entirely and reachable ONLY through the `--provider` forced
+#                path (`portfoliflow market-data-tick --provider <name>`); the
+#                factory rejects any other value at load. `synthetic` is
+#                `forced_only` (see its entry below).
+#
+# No aspirational entries: every (provider, scheme, kind) declared here has
+# adapter code AND a test. If an adapter cannot yet serve a kind, the kind is
+# omitted here rather than promised.
+#
+# -----------------------------------------------------------------------------
+
+providers:
+
+  # Yahoo Finance — free, keyless, HTTP/JSON (native async httpx).
+  #
+  # Coverage encoded here reflects what the adapter actually implements
+  # against Yahoo's public v8 chart endpoint, not what Yahoo might expose:
+  #
+  #   * schemes: `ticker` only. The chart endpoint is addressed by exchange
+  #     ticker symbol. It does NOT accept an ISIN, so `isin` is deliberately
+  #     absent — ISIN→ticker/FIGI resolution is OpenFIGI's job
+  #     (services/market_data/normalisation.py), a separate seam.
+  #   * kinds: `nav_price` (unadjusted EOD close as the statement-day value)
+  #     and `dividend` (the chart endpoint's dividend events). Bond metrics
+  #     (coupon, YTM, duration) and composition weights are NOT available from
+  #     this endpoint and are omitted — an empirical narrowing recorded per
+  #     ADR-0091 §"Adapters bridge locally" and the slice-3 handover.
+  - name: yahoo
+    priority: 100
+    schemes:
+      - ticker
+    kinds:
+      - nav_price
+      - dividend
+
+  # Bloomberg — Desktop API (//blp/refdata via a locally running Terminal).
+  #
+  # DISABLED BY DEFAULT (enabled: false). A disabled provider is skipped
+  # ENTIRELY by the factory — "disabled" means "not declared" for routing
+  # purposes — so this entry ships fixture-validated but inert. Flip to `true`
+  # ONLY on a machine that has BOTH a running, entitled Bloomberg Terminal AND
+  # the `blpapi` package installed from Bloomberg's OWN pip index (it is NOT on
+  # public PyPI). Until both exist a bloomberg fetch would raise
+  # MarketDataConfigurationError with an install hint; keeping it disabled means
+  # routing never reaches it. First activation should be a `--tenant`-scoped
+  # manual tick run while watching the log (see the deploy README).
+  #
+  # Coverage the adapter ACTUALLY implements (no aspirational entries):
+  #   * schemes: `figi` and `isin` — Bloomberg security topics /bbgid/<FIGI>
+  #     and /isin/<ISIN> (a FIGI IS Bloomberg's BBGID). `ticker` is deliberately
+  #     ABSENT: a plain Bloomberg ticker needs the yellow-key suffix
+  #     ("… US Equity"), which the identifier model does not store — guessing it
+  #     would break the key-forming discipline. Bloomberg's coverage is
+  #     therefore DISJOINT from Yahoo's (ticker): it extends routing to
+  #     ISIN/FIGI-primary investments, it does not compete for tickers.
+  #   * kinds: `nav_price` only (daily PX_LAST history; the series currency is
+  #     read from the CRNCY reference field, never guessed). `dividend` is NOT
+  #     shipped this slice — the DVD_HIST_ALL dividend-amount currency
+  #     (currency-of-declaration vs. CRNCY) is a material ambiguity unresolved
+  #     from the official docs without a live Terminal (#036 §1.5); it is
+  #     deferred rather than guessed, per the honesty gate.
+  #
+  # Priority ABOVE yahoo so an institutional-grade source wins if schemes ever
+  # overlap in future; today they do not (disjoint scheme sets).
+  - name: bloomberg
+    priority: 200
+    enabled: false
+    schemes:
+      - figi
+      - isin
+    kinds:
+      - nav_price
+
+  # Synthetic — fixture-driven, fully deterministic test-event provider.
+  #
+  # `routing: forced_only` — EXCLUDED from unforced priority routing entirely.
+  # Its purpose is controlled test-event injection: an operator points the
+  # live-import tick at it explicitly (`--provider synthetic`) to generate
+  # deltas Irene reacts to, without faking anything downstream. That is the
+  # forced path, and the only way synthetic is reached.
+  #
+  # This SUPERSEDES the earlier "lowest priority so it never shadows a real
+  # provider" rationale: lowest-priority proved insufficient. Synthetic
+  # declares full scheme coverage and every INGESTABLE kind, so for a
+  # (scheme, kind) that no real provider serves — e.g. (ticker, coupon), or any
+  # kind while bloomberg is disabled — priority routing had nothing above it and
+  # fell through to synthetic, whose adapter build then RAISED
+  # MarketDataConfigurationError when MARKET_DATA_SYNTHETIC_FIXTURE was unset.
+  # Because the live-refresh per-investment try wraps the whole kind loop, that
+  # errored every eligible investment (errors=1, refreshed=0) even after its
+  # nav_price series had ingested. `forced_only` fixes this at the routing seam:
+  # the unforced path skips synthetic, so such a request cleanly yields no route
+  # (the kind loop `continue`s) instead of building an unconfigured adapter.
+  # Priority is retained (0) but immaterial — the unforced path never consults a
+  # forced_only provider. The full coverage below stays authoritative for the
+  # FORCED path (`serves()` is routing-blind), so `--provider synthetic` is
+  # unchanged. The fixture path is supplied via the MARKET_DATA_SYNTHETIC_FIXTURE
+  # environment variable (ADR-0091 §"Factory & config layering" — wiring here,
+  # the concrete file path in the env).
+  #
+  # The five `weight_*` kinds are deliberately OMITTED (slice-5 cleanup): the
+  # ingest write path cannot route a weight series yet — the NormalizedSeries
+  # DTO carries only (as_of_date, value) per point, with no bucket dimension
+  # naming WHICH sector/region/... a weight belongs to
+  # (services/investments/investment_service.py raises NotImplementedError,
+  # the slice-4 finding). Advertising a kind the ingest cannot absorb would
+  # let the refresh route it and fail; coverage must not outrun the write
+  # path. Re-add the weight kinds here once a successor ADR extends the DTO
+  # with a bucket dimension.
+  - name: synthetic
+    priority: 0
+    routing: forced_only
+    schemes:
+      - isin
+      - ticker
+      - figi
+      - cusip
+      - internal
+    kinds:
+      - nav_price
+      - dividend
+      - coupon
+      - distribution
+      - capital_call
+      - fee
+      - carry
+      - other
+
+# -----------------------------------------------------------------------------
+# Credential policy (ADR-0095 §2)
+# -----------------------------------------------------------------------------
+#
+# Per-provider credential-source policy: whether a provider takes credentials
+# at all, and — if it does — whether an environment-sourced value may serve it.
+# It lives here, next to the coverage declaration, because it is versioned,
+# reviewable capability metadata just like `schemes`/`kinds`.
+#
+# This is a FIXED INVARIANT per provider class, NOT a deployment knob (the same
+# posture as Excel precedence, ADR-0092). A deployment may not loosen a
+# `forbidden` policy to serve tenant-licensed data (Bloomberg / Preqin /
+# PitchBook) from an operator-global key — that would violate the per-mandate
+# data-sourcing attribution BAIT/VAIT expects. The resolver
+# (`services/investments/credential_resolver.py`, ADR-0095 §1) reads this
+# section; the market-data adapters stay credential-source-blind.
+#
+# `openfigi` appears here even though it is NOT a routing provider (FIGI
+# resolution is not a `SeriesKind`, so it has no entry in `providers` above):
+# the credential policy is orthogonal to series routing, so a non-series
+# provider still declares its policy here. This is the minimal, deliberately
+# separate section that keeps the routing table free of a non-series entry.
+#
+# Grammar — each provider maps to either the literal `none` or a policy block:
+#   none                    — the provider takes no credentials.
+#   env_fallback: allowed   — an environment-sourced credential may serve it
+#                             (Stage 1's only source; ADR-0095 §3).
+#   env_fallback: forbidden — tenant-licensed; only a tenant vault entry
+#                             (Stage 2) may serve it — env is never a fallback.
+#   optional: true          — an absent credential is NOT an error; the provider
+#                             works without one (e.g. OpenFIGI keyless at the
+#                             lower anonymous rate limit). Defaults to false.
+#
+# Env variable NAMES are declared in the resolver module (one place, ADR-0095
+# §3), not here: this section declares policy, the resolver declares source.
+credentials:
+  yahoo: none
+  synthetic: none
+  # Bloomberg Desktop API declares `none`: the local Terminal session is the
+  # authentication AND entitlement boundary, and host/port are connection
+  # settings the FACTORY reads from the environment (BLPAPI_HOST / BLPAPI_PORT)
+  # — the adapter stays credential-source-blind (ADR-0095 §1), exactly like the
+  # synthetic fixture path. The CREDENTIALED Bloomberg variants — Server API /
+  # B-PIPE / Data License — are per-tenant-licensed with `env_fallback:
+  # forbidden` and are gated on roadmap #037 Stage 2; they are FUTURE, SEPARATE
+  # adapters, not modes of this Desktop-API one.
+  bloomberg: none
+  openfigi:
+    env_fallback: allowed
+    optional: true

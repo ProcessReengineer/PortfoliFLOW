@@ -1,0 +1,27 @@
+{# Market Data section body — embedded in /admin#market-data (ADR-0093).
+
+   The live-import schedule surface: a thin CRUD over the tenant's
+   market_data_schedule row plus a "Refresh now" action that only sets the
+   schedule due (next_due_at := now) — no provider work runs in the request.
+   Both the save form and the refresh-now form HTMX-swap the panel below in
+   a single round-trip (the container's hx-target="this" is inherited).
+
+   Context (from areas/_section.html via the area template, built by
+   web.routes.market_data._panel_context):
+     csrf_token       — session-bound CSRF token.
+     cadence_choices  — v0 cadence vocabulary ("daily").
+     hours            — 0..23 for the preferred-hour select.
+     current          — {cadence, preferred_hour, timezone, enabled,
+                         next_due_at, last_run_at, configured}.
+     schedule_saved   — flash after a successful save.
+     schedule_error   — inline error after a rejected save.
+     refresh_message  — flash after a Refresh-now action. #}
+
+<div class="pf-market-data" id="pf-market-data-root">
+    <div class="pf-market-data__panel"
+         id="pf-market-data-panel"
+         hx-target="this"
+         hx-swap="innerHTML">
+        {% include "_partials/market_data_panel.html" with context %}
+    </div>
+</div>

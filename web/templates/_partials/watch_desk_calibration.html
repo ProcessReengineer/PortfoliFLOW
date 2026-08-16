@@ -1,0 +1,46 @@
+{# Calibration section body (ADR-0089; renamed from Watchlist per DC4/D5;
+   grown into the tenant calibration editor per ADR-0116 §7).
+
+   Three panels, in this order: the calibration editor (what the beat is
+   calibrated to), the watchpoint list (what it watches), and the cadence
+   panel (when it runs). The three read-only `calib-cell` facts that used to
+   sit on top are superseded by the editor — they stated three of the values
+   it now renders editable, and keeping them would be a second, staler view
+   of the same numbers.
+
+   Each panel posts to its own endpoint and swaps its own target, so none of
+   them can clobber another.
+
+   The cadence caption states only the instruction. Its earlier wording also
+   carried the ADR-0086 rationale — that cadence is a domain calibration
+   interface for the heartbeat, not a deployment artifact — which is
+   background the operator does not need on screen while setting one; it is
+   kept in ``save_cadence``'s docstring and in the ADR, so do not restore it
+   here as a missing rationale.
+
+   Context: the editor context (see _calibration_context), the watchpoint
+   list context (see _watchpoint_list_context) and the cadence-panel context
+   (see _cadence_context). #}
+<div class="pf-dc-calibration">
+    <p class="pf-dc-calibration__note">
+        What the beat considers material, for this tenant. Fields show the
+        value in force; “default” means no override is stored, so a later
+        change to the platform default still reaches you.
+    </p>
+
+    {% include "_partials/watch_desk_calibration_editor.html" %}
+
+    <section class="pf-dc-calibration__watchpoints">
+        {% include "_partials/watch_desk_watchpoint_list.html" %}
+    </section>
+
+    <section class="pf-dc-calibration__cadence">
+        <h3 class="pf-dc-calibration__cadence-heading">Cadence</h3>
+        <p class="pf-dc-calibration__note">
+            Set the timeframe for the analysis beat.
+        </p>
+        <div id="dc-cadence-panel">
+            {% include "_partials/watch_desk_cadence_panel.html" %}
+        </div>
+    </section>
+</div>

@@ -1,0 +1,38 @@
+{# Reusable section block — one per module within an area template.
+
+   Parameters (passed via ``{% with %}`` in the area template):
+     section_slug          — the module's ``module_name`` slug. Used as
+                              the HTML id; 6F-2 binds anchor scrolling
+                              and the section indicator to it.
+     section_title         — human-readable section heading.
+     section_pill          — short status pill (e.g. "in progress",
+                              "polish in 6F-3"); optional.
+     section_body          — pre-rendered HTML to drop into the body.
+     section_body_template — optional path to a Jinja partial included
+                              inside the body. When set, it wins over
+                              section_body and section_placeholder.
+                              The partial inherits the current template
+                              context, so any extra variables exposed by
+                              the area template's ``{% with %}`` block
+                              are visible to the included partial.
+     section_placeholder   — optional placeholder string when neither a
+                              body nor a body template is supplied. #}
+<section class="pf-section" id="{{ section_slug }}" aria-labelledby="{{ section_slug }}-title">
+    <header class="pf-section__header">
+        <h2 class="pf-section__title" id="{{ section_slug }}-title">
+            {{ section_title }}
+        </h2>
+        {% if section_pill %}
+            <span class="pf-section__pill">{{ section_pill }}</span>
+        {% endif %}
+    </header>
+    <div class="pf-section__body">
+        {% if section_body_template %}
+            {% include section_body_template with context %}
+        {% elif section_body %}
+            {{ section_body | safe }}
+        {% elif section_placeholder %}
+            <p class="pf-section__placeholder">{{ section_placeholder }}</p>
+        {% endif %}
+    </div>
+</section>

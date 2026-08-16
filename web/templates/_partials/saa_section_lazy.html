@@ -1,0 +1,18 @@
+{# SAA section lazy-load shell — embedded in /back-office#saa.
+
+   Renders a skeleton placeholder. On first visibility, HTMX
+   fetches /api/saa/section and replaces this wrapper with the
+   response. ``hx-swap="outerHTML"`` is load-bearing:
+   ``.pf-section__lazy`` is a flex container (centred skeleton
+   copy) and must not survive past the swap, otherwise the loaded
+   section body becomes a flex-row item. #}
+
+<div class="pf-section__lazy"
+     hx-get="/api/saa/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading strategic asset allocation&hellip;
+    </p>
+</div>

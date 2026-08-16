@@ -1,0 +1,21 @@
+{# Cash Flow Planning section lazy-load shell (ADR-0104 §6).
+
+   Pattern 1:1 with limits_section_lazy.html: render a skeleton; on first
+   visibility HTMX fetches the section body and replaces this wrapper via
+   ``hx-swap="outerHTML"``.
+
+   The one thing this shell does that its siblings do not: it carries the
+   **area page's own query string** into the section request. A scenario is
+   reproducible from *(book, URL)* (ADR-0104 §4), and the URL a scenario link
+   opens is the area page's — so the ``t{n}_…`` set (and the timeline toggles)
+   have to reach the endpoint that renders them. Foreign keys are ignored by
+   ``parse_overlay``, so passing the query string through wholesale is safe. #}
+<div class="pf-section__lazy"
+     hx-get="/api/planning-desk/cash-flow-planning{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading cash flow planning&hellip;
+    </p>
+</div>

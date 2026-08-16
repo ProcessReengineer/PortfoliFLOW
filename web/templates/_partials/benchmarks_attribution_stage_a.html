@@ -1,0 +1,252 @@
+{# Stage a — Investments vs. Benchmarks block body (Phase 1b polish).
+
+   Renders the per-investment metrics as a Tabulator table with
+   sortable columns, heatmap-style tinting on performance columns
+   (Excess p.a., Alpha p.a., IR) via the data-magnitude-bucket
+   attribute selectors in components/benchmarks_attribution.css,
+   and inline master-detail row expansion: clicking a row fetches
+   the per-investment detail chart and renders it directly beneath
+   the row. Only one row expands at a time.
+
+   Per ADR-0062 conventions §1 (Tabulator for sortable tables),
+   §2 (heatmap tints on performance columns), and §4 (inline
+   master-detail expansion). #}
+
+{% if stage_a_rows %}
+    <script type="application/json" id="ba-stage-a-data">{{ stage_a_rows | tojson | safe }}</script>
+
+    <button type="button"
+            class="ba-toggle-secondary"
+            id="ba-stage-a-toggle"
+            data-secondary-visible="false">
+        Show all metrics
+    </button>
+
+    <div id="ba-stage-a-table" class="ba-stage-a-table"></div>
+
+    {% if stage_a_investments_without_benchmark %}
+        <aside class="ba-block__aside">
+            <p>
+                Investments without benchmark mapping
+                (excluded from the comparison):
+                {{ stage_a_investments_without_benchmark | join(", ") }}.
+            </p>
+        </aside>
+    {% endif %}
+{% else %}
+    <p class="pf-empty-state">
+        No investment-vs-benchmark rows available. Either there are
+        no active investments yet, or no asset class carries a
+        benchmark mapping. Import benchmarks via the
+        <a href="/admin#data-import">Data Import</a> section &mdash;
+        see ADR-0061 for the expected Excel format.
+    </p>
+    {% if stage_a_investments_without_benchmark %}
+        <aside class="ba-block__aside">
+            <p>
+                Investments without benchmark mapping:
+                {{ stage_a_investments_without_benchmark | join(", ") }}.
+            </p>
+        </aside>
+    {% endif %}
+{% endif %}
+
+{% if stage_a_rows %}
+<script>
+(function () {
+    "use strict";
+
+    var dataScript = document.getElementById("ba-stage-a-data");
+    if (!dataScript) return;
+    var rows;
+    try { rows = JSON.parse(dataScript.textContent || "[]"); }
+    catch (e) { return; }
+
+    var SECONDARY_FIELDS = [
+        "alpha_annualised",
+        "beta",
+        "r_squared",
+        "tracking_error_annualised",
+        "up_capture_ratio",
+        "down_capture_ratio"
+    ];
+
+    // Magnitude buckets per ADR-0062 §2. The scale is the value at
+    // which the tint reaches full strength; values beyond it stay at
+    // the strong bucket. NaN / null → neutral (no tint).
+    function magnitudeBucket(value, scale) {
+        if (value === null || value === undefined
+                || typeof value !== "number" || Number.isNaN(value)) {
+            return "neutral";
+        }
+        var ratio = value / scale;
+        if (ratio >= 0.5) return "pos-strong";
+        if (ratio > 0) return "pos-mild";
+        if (ratio <= -0.5) return "neg-strong";
+        if (ratio < 0) return "neg-mild";
+        return "neutral";
+    }
+
+    function fmtPct(value, digits) {
+        if (value === null || value === undefined
+                || typeof value !== "number" || Number.isNaN(value)) {
+            return "&mdash;";
+        }
+        var d = (typeof digits === "number") ? digits : 2;
+        return (value * 100).toFixed(d) + "%";
+    }
+
+    function fmtNum(value, digits) {
+        if (value === null || value === undefined
+                || typeof value !== "number" || Number.isNaN(value)) {
+            return "&mdash;";
+        }
+        var d = (typeof digits === "number") ? digits : 2;
+        return value.toFixed(d);
+    }
+
+    function makeHeatmapFormatter(scale, kind) {
+        // kind: "pct" or "num"
+        return function (cell) {
+            var v = cell.getValue();
+            var bucket = magnitudeBucket(v, scale);
+            cell.getElement().setAttribute("data-magnitude-bucket", bucket);
+            return kind === "pct" ? fmtPct(v) : fmtNum(v);
+        };
+    }
+
+    function plainPctFormatter(cell) {
+        return fmtPct(cell.getValue());
+    }
+
+    function plainNumFormatter(cell) {
+        return fmtNum(cell.getValue());
+    }
+
+    function plainIntFormatter(cell) {
+        var v = cell.getValue();
+        if (v === null || v === undefined || Number.isNaN(v)) return "&mdash;";
+        return String(v);
+    }
+
+    var columns = [
+        { title: "Investment", field: "investment_name",
+          sorter: "string", widthGrow: 2 },
+        { title: "Asset Class", field: "asset_class_code",
+          sorter: "string", widthGrow: 1 },
+        { title: "Benchmark", field: "benchmark_display_name",
+          sorter: "string", widthGrow: 1 },
+        { title: "Excess p.a.", field: "excess_return_annualised",
+          sorter: "number", width: 110, hozAlign: "right",
+          formatter: makeHeatmapFormatter(0.20, "pct") },
+        { title: "IR", field: "information_ratio",
+          sorter: "number", width: 80, hozAlign: "right",
+          formatter: makeHeatmapFormatter(1.0, "num") },
+        { title: "n", field: "n_observations",
+          sorter: "number", width: 60, hozAlign: "right",
+          formatter: plainIntFormatter },
+        // Secondary columns — hidden by default.
+        { title: "Alpha p.a.", field: "alpha_annualised",
+          sorter: "number", width: 110, hozAlign: "right",
+          visible: false,
+          formatter: makeHeatmapFormatter(0.20, "pct") },
+        { title: "Beta", field: "beta",
+          sorter: "number", width: 80, hozAlign: "right",
+          visible: false, formatter: plainNumFormatter },
+        { title: "R²", field: "r_squared",
+          sorter: "number", width: 80, hozAlign: "right",
+          visible: false, formatter: plainNumFormatter },
+        { title: "TE p.a.", field: "tracking_error_annualised",
+          sorter: "number", width: 110, hozAlign: "right",
+          visible: false, formatter: plainPctFormatter },
+        { title: "Up Cap.", field: "up_capture_ratio",
+          sorter: "number", width: 90, hozAlign: "right",
+          visible: false, formatter: plainNumFormatter },
+        { title: "Down Cap.", field: "down_capture_ratio",
+          sorter: "number", width: 90, hozAlign: "right",
+          visible: false, formatter: plainNumFormatter }
+    ];
+
+    var expandedInvestmentId = null;
+
+    function collapseExpandedDetail() {
+        var existing = document.querySelector(".ba-detail-row");
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+        expandedInvestmentId = null;
+    }
+
+    function fetchAndInsertDetail(rowComponent) {
+        var rowData = rowComponent.getData();
+        var rowElem = rowComponent.getElement();
+        var investmentId = rowData.investment_id;
+        var url = "/api/back-office/benchmarks-attribution/stage-a/"
+            + "investment-detail?investment_id="
+            + encodeURIComponent(investmentId);
+        return fetch(url, {
+            credentials: "same-origin",
+            headers: { "HX-Request": "true" }
+        }).then(function (response) {
+            return response.text();
+        }).then(function (html) {
+            var container = document.createElement("div");
+            container.className = "ba-detail-row";
+            container.innerHTML = html;
+            rowElem.parentNode.insertBefore(container, rowElem.nextSibling);
+            if (typeof window.__baRenderPlotlyTargets === "function") {
+                window.__baRenderPlotlyTargets(container);
+            }
+            expandedInvestmentId = investmentId;
+        });
+    }
+
+    var table = new Tabulator("#ba-stage-a-table", {
+        data: rows,
+        layout: "fitColumns",
+        index: "investment_id",
+        placeholder: "No investments.",
+        initialSort: [
+            { column: "excess_return_annualised", dir: "desc" }
+        ],
+        columns: columns,
+        rowFormatter: function (row) {
+            // Marker so CSS can render the row as clickable. The
+            // actual click handling is bound below.
+            row.getElement().classList.add("ba-stage-a-row");
+        }
+    });
+
+    table.on("rowClick", function (_e, row) {
+        var rowData = row.getData();
+        if (expandedInvestmentId === rowData.investment_id) {
+            collapseExpandedDetail();
+            return;
+        }
+        collapseExpandedDetail();
+        fetchAndInsertDetail(row);
+    });
+
+    var toggle = document.getElementById("ba-stage-a-toggle");
+    if (toggle) {
+        toggle.addEventListener("click", function () {
+            var visible = toggle.getAttribute("data-secondary-visible") === "true";
+            SECONDARY_FIELDS.forEach(function (field) {
+                var col = table.getColumn(field);
+                if (!col) return;
+                if (visible) {
+                    col.hide();
+                } else {
+                    col.show();
+                }
+            });
+            toggle.setAttribute("data-secondary-visible", visible ? "false" : "true");
+            toggle.textContent = visible ? "Show all metrics" : "Hide secondary metrics";
+            // Collapse the expanded detail so it doesn't end up
+            // misaligned after the column-set change.
+            collapseExpandedDetail();
+        });
+    }
+})();
+</script>
+{% endif %}

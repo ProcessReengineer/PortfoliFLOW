@@ -1,0 +1,107 @@
+{# Market-data live-import schedule panel (ADR-0093). Swapped into
+   #pf-market-data-panel by both the save form (POST /api/market-data/schedule)
+   and the refresh-now form (POST /api/market-data/refresh-now). Both inherit
+   the container's hx-target="this" / hx-swap="innerHTML".
+
+   Context (via web.routes.market_data._panel_context): csrf_token,
+   cadence_choices, hours, current{cadence,preferred_hour,timezone,enabled,
+   next_due_at,last_run_at,configured}, schedule_saved, schedule_error,
+   refresh_message. #}
+<div class="pf-market-data-panel">
+    <p class="pf-market-data-panel__intro">
+        Live import augments listed instruments (with a primary ISIN /
+        ticker / FIGI) from external providers. It never overwrites Excel
+        data. Fetching runs out-of-process on the market-data tick — this
+        panel only sets the cadence and queues an out-of-cadence run.
+    </p>
+
+    {% if schedule_saved %}
+        <p class="pf-market-data-panel__flash" role="status">
+            Schedule saved.
+        </p>
+    {% endif %}
+    {% if refresh_message %}
+        <p class="pf-market-data-panel__flash" role="status">
+            {{ refresh_message }}
+        </p>
+    {% endif %}
+    {% if schedule_error %}
+        <p class="pf-market-data-panel__error" role="alert">
+            {{ schedule_error }}
+        </p>
+    {% endif %}
+
+    <form class="pf-market-data-panel__form" hx-post="/api/market-data/schedule">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="pf-market-data-panel__fields">
+            <label class="pf-market-data-panel__field">
+                <span class="pf-market-data-panel__label">Cadence</span>
+                <select name="cadence">
+                    {% for choice in cadence_choices %}
+                        <option value="{{ choice }}"
+                            {% if choice == current.cadence %}selected{% endif %}>
+                            {{ choice|capitalize }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="pf-market-data-panel__field">
+                <span class="pf-market-data-panel__label">Preferred hour</span>
+                <select name="preferred_hour">
+                    {% for hour in hours %}
+                        <option value="{{ hour }}"
+                            {% if hour == current.preferred_hour %}selected{% endif %}>
+                            {{ '%02d:00'|format(hour) }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="pf-market-data-panel__field">
+                <span class="pf-market-data-panel__label">Timezone</span>
+                <input type="text" name="timezone" value="{{ current.timezone }}">
+            </label>
+
+            <label class="pf-market-data-panel__field pf-market-data-panel__field--check">
+                <input type="checkbox" name="enabled"
+                       {% if current.enabled %}checked{% endif %}>
+                <span class="pf-market-data-panel__label">Enabled</span>
+            </label>
+        </div>
+
+        <button type="submit" class="pf-btn pf-btn--primary">
+            Save schedule
+        </button>
+    </form>
+
+    <div class="pf-market-data-panel__status">
+        {% if current.next_due_at %}
+            <span class="pf-market-data-panel__next">
+                Next refresh due:
+                {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }}
+            </span>
+        {% elif current.configured %}
+            <span class="pf-market-data-panel__next">Next refresh scheduled.</span>
+        {% else %}
+            <span class="pf-market-data-panel__next">Not yet configured.</span>
+        {% endif %}
+        {% if current.last_run_at %}
+            <span class="pf-market-data-panel__last">
+                Last run:
+                {{ current.last_run_at.strftime('%Y-%m-%d %H:%M %Z') }}
+            </span>
+        {% else %}
+            <span class="pf-market-data-panel__last">No run yet.</span>
+        {% endif %}
+    </div>
+
+    {% if current.configured and current.enabled %}
+        <form class="pf-market-data-panel__refresh"
+              hx-post="/api/market-data/refresh-now">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="pf-btn">Refresh now</button>
+        </form>
+    {% endif %}
+</div>

@@ -1,0 +1,55 @@
+{# Asset-class catalogue modal — fetched by HTMX into
+   #saa-asset-classes-dialog and opened from saa_section.js.
+
+   Context (from web/routes/saa_section.py::saa_asset_classes_modal):
+     csrf_token            — session CSRF token.
+     asset_classes         — [{id, code, display_name, description,
+                              usage_count, updated_at}, …]. #}
+
+<form id="saa-asset-classes-modal-body" method="dialog">
+    <header class="saa-modal__header">
+        <h2>Asset Class Catalogue</h2>
+        <button type="button"
+                class="btn btn--ghost saa-modal__close-btn"
+                data-action="close-asset-classes"
+                aria-label="Close">&times;</button>
+    </header>
+    <p class="saa-section__hint">
+        Per-tenant catalogue referenced by SAA configurations. Codes
+        are immutable; display names and descriptions can be edited
+        inline. Asset classes referenced by any configuration cannot
+        be deleted.
+    </p>
+
+    <div id="saa-asset-classes-table" aria-label="Asset class catalogue"></div>
+
+    <section class="saa-modal__create">
+        <h3 class="saa-section__title">New Asset Class</h3>
+        <form id="saa-new-ac-form" class="saa-modal__create-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">
+                <span>Code (immutable)</span>
+                <input type="text" name="code" required maxlength="64"
+                       pattern="[a-zA-Z0-9_\-]+"
+                       placeholder="e.g. global_equity">
+            </label>
+            <label class="field">
+                <span>Display Name</span>
+                <input type="text" name="display_name" required maxlength="200"
+                       placeholder="e.g. Global Listed Equities">
+            </label>
+            <label class="field">
+                <span>Description (optional)</span>
+                <textarea name="description" maxlength="2000" rows="2"></textarea>
+            </label>
+            <p id="saa-new-ac-error" class="saa-dialog__error" hidden></p>
+            <div class="dialog-actions">
+                <button type="submit" class="btn btn--primary">Create</button>
+            </div>
+        </form>
+    </section>
+
+    <script id="saa-asset-classes-bootstrap" type="application/json">
+        {{ asset_classes | tojson }}
+    </script>
+</form>

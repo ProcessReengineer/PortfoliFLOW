@@ -1,0 +1,56 @@
+{# Super-admin users table — also returned standalone by
+   GET /super-admin/users/partial. #}
+<div id="sa-users-table" class="sa-table-wrapper">
+{% if super_admins %}
+<table class="sa-table">
+    <thead>
+        <tr>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Last Login</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for u in super_admins %}
+        <tr class="sa-table__row{% if not u.is_active %} sa-table__row--inactive{% endif %}">
+            <td>{{ u.email }}</td>
+            <td>
+                {% if u.is_active %}
+                    <span class="sa-pill sa-pill--active">Active</span>
+                {% else %}
+                    <span class="sa-pill sa-pill--inactive">Inactive</span>
+                {% endif %}
+            </td>
+            <td>{{ u.created_at.strftime("%Y-%m-%d") }}</td>
+            <td>
+                {% if u.last_login_at %}
+                    {{ u.last_login_at.strftime("%Y-%m-%d %H:%M") }}
+                {% else %}
+                    <span class="sa-empty-marker">—</span>
+                {% endif %}
+            </td>
+            <td class="sa-table__actions">
+                {% if u.is_active %}
+                    <form method="POST"
+                          action="/super-admin/users/{{ u.id }}/deactivate"
+                          class="sa-inline-form"
+                          onsubmit="return confirm('Deactivate {{ u.email }}? Their sessions will be terminated.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+                        <button type="submit" class="sa-button sa-button--secondary">
+                            Deactivate
+                        </button>
+                    </form>
+                {% else %}
+                    <span class="sa-empty-marker">(deactivated)</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p class="sa-empty-state">No super-admins. Create one with the form above.</p>
+{% endif %}
+</div>

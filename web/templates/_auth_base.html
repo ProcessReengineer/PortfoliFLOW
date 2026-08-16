@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+{# Auth-surface base template — used by every page that is rendered
+   before a session exists (``login.html`` today; password-reset and
+   logout-confirmation slot in here too when they arrive).
+
+   The authenticated shell (``base.html``) embeds the area sidebar
+   and a tenant-aware status bar. Neither belongs on an anonymous
+   surface: the operator has no tenant context yet, and exposing
+   the area navigation to an unauthenticated visitor would either
+   leak the IA or render in a disabled state that just adds noise.
+   So the auth base is intentionally minimal — logo on top, the
+   page content centred underneath, a status bar that carries only
+   the build SHA and the config flag. #}
+<html lang="en" data-surface="auth">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% if csrf_token is defined and csrf_token %}
+        <meta name="csrf-token" content="{{ csrf_token }}">
+    {% endif %}
+    <title>{% block title %}PortfoliFLOW{% endblock %}</title>
+
+    {# Favicons — same set as ``base.html``; duplicated here so the
+       login page also shows the brand icon in the browser tab. #}
+    <link rel="icon" type="image/svg+xml" href="/static/favicons/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicons/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicons/favicon-16.png">
+    <link rel="shortcut icon" href="/static/favicons/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/favicons/apple-touch-icon.png">
+    <link rel="manifest" href="/static/favicons/site.webmanifest">
+    <meta name="theme-color" content="#dc1e1e">
+
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    {% block extra_css %}{% endblock %}
+
+    {% block head %}{% endblock %}
+</head>
+<body data-theme="{{ data_theme or '' }}">
+    <a class="skip-link" href="#auth-main">Skip to main content</a>
+
+    <div class="pf-auth-shell" data-auth-shell>
+        <header class="pf-auth__brand-bar">
+            <div class="pf-auth__brand">
+                {% include "_partials/logo.html" %}
+            </div>
+        </header>
+
+        <main id="auth-main" class="pf-auth__main" tabindex="-1">
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="pf-auth__statusbar" role="contentinfo">
+            <a class="pf-statusbar__source"
+               href="https://github.com/ProcessReengineer/PortfoliFLOW{% if build_sha and build_sha != 'dev' %}/tree/{{ build_sha }}{% endif %}"
+               target="_blank" rel="noopener"
+               title="Corresponding source (AGPL §13)">Source code</a>
+            <span class="pf-statusbar__build" title="Build SHA">
+                {{ build_sha or "dev" }}
+            </span>
+            <span class="pf-statusbar__config"
+                  data-status="{% if config_ok %}ok{% else %}error{% endif %}"
+                  title="{% if config_ok %}Configuration loaded{% else %}Configuration error{% endif %}">
+                {% if config_ok %}✓ config{% else %}✗ config{% endif %}
+            </span>
+        </footer>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

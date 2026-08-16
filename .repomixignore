@@ -1,0 +1,42 @@
+# === Build/cache artifacts ===
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.pyc
+**/htmlcov/
+**/.coverage
+**/coverage.xml
+
+# === Virtual envs ===
+.venv/
+venv/
+
+# === Build outputs ===
+dist/
+build/
+*.egg-info/
+
+# === Logs ===
+**/*.log
+
+# === Lockfiles ===
+poetry.lock
+uv.lock
+package-lock.json
+yarn.lock
+
+# === OS / Editor ===
+.DS_Store
+.idea/
+.vscode/
+
+# === ADR retrofit reports (historical, no current value) ===
+docs/adr/0000-*.md
+
+# === Old phase reports (phases 3 & 4 completed) ===
+docs/phase-3-*.md
+docs/phase-4-*.md
+
+# === ADR template (non-architectural) ===
+docs/adr/template.md

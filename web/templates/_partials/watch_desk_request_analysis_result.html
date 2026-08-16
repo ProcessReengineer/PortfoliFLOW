@@ -1,0 +1,43 @@
+{# Confirmation swapped into #dc-briefing-toolbar after "Request analysis".
+   Enqueue-only (ADR-0086/0089): no synthesis runs inline, so the copy states
+   *when* the beat runs rather than implying it already has — "the next tick"
+   is the scheduler's 60-second poll (ADR-0117), not the next cadence
+   occurrence.
+
+   The next-beat label rides along as an out-of-band fragment: HTMX pulls it
+   out to refresh the fourth status tile (now "due now"), and the toolbar
+   receives the confirmation line alone.
+
+   Context: no_schedule (bool), tiles.next_beat, poll_since (encoded ISO
+   8601 — the server's enqueue instant). #}
+{% if no_schedule %}
+    <p class="pf-dc-request-result pf-dc-request-result--warn" role="status">
+        No cadence is configured yet — set one in the Calibration section first.
+    </p>
+    {# No poller here on purpose: nothing was enqueued, so there is no beat
+       to wait for and a poll would run its full horizon out for nothing. #}
+{% else %}
+    <p class="pf-dc-request-result" role="status">
+        Queued — the beat runs on the next tick (typically within a minute).
+    </p>
+    {% with next_beat_oob = True %}{% include "_partials/watch_desk_briefing_next_beat.html" %}{% endwith %}
+
+    {# The confirmation was the last thing the operator saw: the beat runs a
+       tick later in the scheduler and the rendered page never learned. This
+       element waits for it — every 15s, asking only "has a beat landed since
+       the enqueue". While the answer is no the endpoint returns 204 and HTMX
+       swaps nothing; when it is yes it returns 286 with the refreshed
+       Briefing body, which both cancels the poll and replaces the markup this
+       element sits in. Nothing else on the page polls, and this one starts
+       only here — never on load.
+
+       `since` is the *server's* enqueue instant, handed down by the route; a
+       client clock minutes off would make the done condition fire on the
+       first tick or never. The timeout is the server's horizon too (10
+       minutes), so there is no JavaScript here beyond these attributes. #}
+    <span class="pf-dc-request-poll" hidden
+          hx-get="/api/watch-desk/briefing/poll?since={{ poll_since }}"
+          hx-trigger="every 15s"
+          hx-target="#dc-briefing"
+          hx-swap="outerHTML"></span>
+{% endif %}

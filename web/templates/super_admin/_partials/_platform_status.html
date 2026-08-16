@@ -1,0 +1,76 @@
+{# Platform status — the tick scheduler's health (ADR-0117 §5).
+
+   Visibility, not editability: which tick source runs is deployment-scope
+   environment configuration (ADR-0117 §4), so nothing here is a control.
+   The facts are read from in-process state when the page renders, and a
+   page reload is the refresh — deliberately no polling, no auto-refresh.
+
+   Wording is operator-facing and names no internal component: this
+   surface talks about the "tick scheduler" and its "heartbeat" only. #}
+<dl class="sa-status">
+    <div class="sa-status__item">
+        <dt class="sa-status__label">Tick source</dt>
+        <dd class="sa-status__value">
+            {% if platform_status.mode == 'internal' %}
+                Built-in scheduler
+            {% else %}
+                External
+            {% endif %}
+        </dd>
+    </div>
+
+    {% if platform_status.mode == 'internal' %}
+        <div class="sa-status__item">
+            <dt class="sa-status__label">Heartbeat</dt>
+            <dd class="sa-status__value">
+                {% if platform_status.alive %}
+                    <span class="sa-pill sa-pill--active">Running</span>
+                {% else %}
+                    <span class="sa-pill sa-pill--inactive">Stopped</span>
+                {% endif %}
+            </dd>
+        </div>
+
+        <div class="sa-status__item">
+            <dt class="sa-status__label">Last completed tick</dt>
+            <dd class="sa-status__value">
+                {% if platform_status.last_tick_at %}
+                    {{ platform_status.last_tick_at.strftime('%Y-%m-%d %H:%M %Z') }}
+                {% else %}
+                    <span class="sa-empty-marker">No tick yet</span>
+                {% endif %}
+            </dd>
+        </div>
+
+        <div class="sa-status__item">
+            <dt class="sa-status__label">Interval</dt>
+            <dd class="sa-status__value">
+                Every {{ platform_status.interval_seconds }} seconds
+            </dd>
+        </div>
+    {% endif %}
+</dl>
+
+{% if platform_status.mode == 'internal' %}
+    <p class="sa-status__note">
+        The scheduler runs inside this web process and asks every interval
+        which tenants are due. Per-tenant rhythms are unaffected by it —
+        those stay in each tenant's own cadence settings. Configured by
+        <code>TICK_SCHEDULER_ENABLED</code> and
+        <code>TICK_SCHEDULER_INTERVAL_SECONDS</code> in the deployment
+        environment, deliberately not editable here (ADR-0117 §4).
+    </p>
+{% else %}
+    <p class="sa-status__note">
+        No scheduler is running inside this web process, so an external
+        tick source — a systemd timer, cron, or equivalent running
+        <code>portfoliflow irene-tick</code> and
+        <code>portfoliflow market-data-tick</code> — is expected. Without
+        one, no tenant is ever due-checked and scheduled work never runs.
+        If you expected the built-in scheduler here, check that
+        <code>TICK_SCHEDULER_ENABLED</code> is true and that the
+        deployment has a superuser database URL, then restart — the
+        startup log names whichever of the two kept it down (ADR-0117 §4).
+        Running both sources at once is safe.
+    </p>
+{% endif %}

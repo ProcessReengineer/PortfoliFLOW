@@ -1,0 +1,174 @@
+{
+    "_comment": "PortfoliFLOW Chart Theme — Print (Greyscale) variant. Near-monochrome palette suitable for greyscale printing or sober report output.",
+    "_version": "1.0.0",
+    "_display_name": "Print (Greyscale)",
+
+    "font": {
+        "family": ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
+        "title_size": 11,
+        "axis_label_size": 9,
+        "tick_label_size": 8,
+        "label_size": 8,
+        "legend_size": 8,
+        "weight_title": "bold",
+        "weight_axis_label": "normal",
+        "weight_tick_label": "normal"
+    },
+
+    "colours": {
+        "background": "#FFFFFF",
+        "plot_area": "#FFFFFF",
+        "text": "#000000",
+        "grid": "#CCCCCC",
+        "axis_line": "#666666",
+        "primary": "#000000",
+        "primary_alt": "#555555",
+        "accent_line": "#333333",
+        "secondary": "#555555",
+        "tertiary": "#777777",
+        "quaternary": "#222222",
+        "quinary": "#888888",
+        "senary": "#444444",
+        "septenary": "#999999",
+        "neutral": "#AAAAAA",
+        "muted": "#BBBBBB",
+        "series_palette": [
+            "#000000", "#555555", "#999999", "#333333",
+            "#777777", "#BBBBBB", "#222222", "#888888"
+        ],
+        "positive_bar": "#444444",
+        "negative_bar": "#000000",
+        "calls": "#000000",
+        "distributions": "#666666",
+        "nav_line": "#333333",
+        "ncg_line": "#555555",
+        "net_capital_gain_line": "#555555",
+        "dpi_bar": "#666666",
+        "rvpi_bar": "#999999",
+        "tvpi_label": "#000000",
+        "irr_line": "#222222"
+    },
+
+    "line": {
+        "width_primary": 1.0,
+        "width_secondary": 0.8,
+        "width_grid": 0.3,
+        "width_axis": 0.6,
+        "width_px": 1.2,
+        "style_primary": "solid",
+        "style_secondary": "solid",
+        "style_grid": "dotted",
+        "alpha_line": 1.0,
+        "alpha_grid": 0.4
+    },
+
+    "bar": {
+        "width": 0.8,
+        "alpha": 0.85,
+        "edge_width": 0.0,
+        "edge_colour": "none"
+    },
+
+    "chart": {
+        "area_alpha": 0.65,
+        "treemap_palette": [
+            "primary",
+            "primary_alt",
+            "accent_line",
+            "positive_bar",
+            "negative_bar",
+            "neutral",
+            "muted"
+        ]
+    },
+
+    "legend": {
+        "location": "upper left",
+        "frame_on": false,
+        "frame_alpha": 0.0,
+        "columns": 1,
+        "marker_scale": 0.8
+    },
+
+    "layout": {
+        "figure_dpi": 100,
+        "chart_height_px": 280,
+        "chart_spacing_px": 12,
+        "padding_top": 0.92,
+        "padding_bottom": 0.15,
+        "padding_left": 0.12,
+        "padding_right": 0.88,
+        "title_pad": 8,
+        "y_label_padding_chars": 18
+    },
+
+    "axis": {
+        "tick_direction": "out",
+        "tick_length": 3,
+        "tick_width": 0.6,
+        "spine_visible_top": false,
+        "spine_visible_right": false,
+        "spine_visible_bottom": true,
+        "spine_visible_left": true,
+        "x_label_rotation": 45,
+        "x_label_ha": "right",
+        "y_format_decimals": 2,
+        "auto_scale": true
+    },
+
+    "table": {
+        "header_bg": "#EAEAEA",
+        "header_fg": "#000000",
+        "cell_bg_even": "#FFFFFF",
+        "cell_bg_odd": "#F5F5F5",
+        "cell_fg": "#000000",
+        "border_colour": "#CCCCCC",
+        "header_font_weight": "bold",
+        "cell_font_size": 9,
+        "header_font_size": 9,
+        "row_height": 28
+    },
+
+    "optimization": {
+        "cloud_alpha": 0.10,
+        "cloud_marker_size": 3,
+        "cloud_colour": "#CCCCCC",
+        "frontier_linewidth": 2.0,
+        "cml_linewidth": 1.5,
+        "cml_dash_pattern": [8, 4],
+        "tangency_marker_size": 200,
+        "tangency_marker": "*",
+        "min_var_marker_size": 80,
+        "min_var_marker": "D",
+        "asset_marker": "x",
+        "asset_marker_size": 100,
+        "asset_label_offset_x": 8,
+        "asset_label_offset_y": 8,
+        "chart_height_px": 500,
+        "rf_line_alpha": 0.3,
+        "current_portfolio_marker": "o",
+        "current_portfolio_marker_size": 120,
+        "current_portfolio_colour": "#555555"
+    },
+
+    "pf": {
+        "_comment": "PortfoliFLOW shell tokens — print variant. Monochrome backgrounds, neutral accent overlays.",
+        "sidebar": {
+            "width_expanded": "200px",
+            "width_collapsed": "56px"
+        },
+        "statusbar": {
+            "height": "28px"
+        },
+        "bg": {
+            "deepest": "#FFFFFF",
+            "surface": "#F0F0F0",
+            "elevated": "#F8F8F8",
+            "hover": "#E8E8E8"
+        },
+        "accent": {
+            "soft": "rgba(0, 0, 0, 0.08)",
+            "glow": "rgba(0, 0, 0, 0.20)"
+        }
+    }
+}

@@ -1,0 +1,316 @@
+/* Report Scraper section — embedded under /assistants#report-scraper.
+ *
+ * PDF upload, keyword editor, model dropdown, and the run-time
+ * progress / results panel. Visual style mirrors the Providers &
+ * Credentials surface (ADR-0112 §6) so the two sections feel like
+ * siblings — as it did the ADR-0052 AI Settings surface before it.
+ */
+
+.scraper {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Informational notice, not a warning — a subtle neutral background.
+ * These rules were the `.ai-settings__notice` the template used to
+ * borrow alongside this class; they moved here when ADR-0112 §6 (strand
+ * F3) retired ai_settings.css. */
+.scraper__no-models {
+    margin: 0;
+    padding: 10px 14px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    color: var(--ui-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+.scraper__no-models code {
+    padding: 0 4px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+.scraper__form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 640px;
+}
+
+.scraper__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.scraper__label {
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* The resolved-model line. A read-only value, not an input: the model is a
+   tenant setting (ADR-0123), so it reads at input weight without the
+   affordance of one. */
+.scraper__value {
+    padding: 8px 10px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.9rem;
+}
+
+.scraper__input,
+.scraper__select {
+    padding: 8px 10px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.95rem;
+}
+
+.scraper__input:focus,
+.scraper__select:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.scraper__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.scraper__hint code {
+    padding: 0 4px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+}
+
+.scraper__keywords {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    margin: 0;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.scraper__legend {
+    padding: 0 4px;
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.scraper__keyword-row {
+    display: grid;
+    grid-template-columns: 1fr 160px auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.scraper__keyword-name,
+.scraper__keyword-type {
+    padding: 6px 8px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.9rem;
+}
+
+.scraper__keyword-name:focus,
+.scraper__keyword-type:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.scraper__keyword-remove {
+    min-width: 32px;
+    padding: 4px 8px;
+}
+
+.scraper__keyword-add {
+    align-self: flex-start;
+    margin-top: 4px;
+}
+
+.scraper__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.scraper__run {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.scraper__run:empty {
+    display: none;
+}
+
+.scraper__form-error {
+    margin: 0;
+    padding: 10px 14px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-semantic-error);
+    border-radius: 6px;
+    color: var(--ui-semantic-error);
+    font-size: 0.875rem;
+}
+
+/* ---------- Progress ---------- */
+
+.scraper-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.scraper-progress__line {
+    display: flex;
+    justify-content: space-between;
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+}
+
+.scraper-progress__bar {
+    position: relative;
+    width: 100%;
+    height: 8px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.scraper-progress__bar-fill {
+    height: 100%;
+    background-color: var(--ui-accent-primary);
+    transition: width 200ms ease-out;
+}
+
+.scraper-progress__actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+/* ---------- Results ---------- */
+
+.scraper-result {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.scraper-result__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.scraper-result__filename {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.scraper-result__fund,
+.scraper-result__period {
+    color: var(--ui-text-secondary);
+    font-size: 0.875rem;
+}
+
+.scraper-result__error {
+    padding: 8px 10px;
+    background-color: var(--ui-background-primary);
+    border: 1px solid var(--ui-semantic-error);
+    border-radius: 4px;
+    color: var(--ui-semantic-error);
+    font-size: 0.875rem;
+}
+
+.scraper-result__findings {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.scraper-result__findings th,
+.scraper-result__findings td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--ui-border-default);
+    vertical-align: top;
+}
+
+.scraper-result__findings th {
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+}
+
+.scraper-result__findings td {
+    color: var(--ui-text-primary);
+}
+
+.scraper-result__cancelled {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+/* ---------- Confidence pills ---------- */
+
+.scraper-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.scraper-pill--high {
+    background-color: var(--ui-semantic-success);
+    color: var(--ui-background-primary);
+}
+
+.scraper-pill--medium {
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+}
+
+.scraper-pill--low {
+    background-color: var(--ui-semantic-warning);
+    color: var(--ui-background-primary);
+}
+
+.scraper-pill--not_found {
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-disabled);
+}

@@ -1,0 +1,25 @@
+{# Section indicator strip — Sub-stream 6F-2.
+
+   Renders a fixed-position vertical strip of dots on the right edge of
+   the viewport, one per section in the active area. Each dot is an
+   anchor link to the section's ``id``; hovering reveals a label
+   tooltip; the IntersectionObserver in ``section_nav.js`` toggles
+   ``is-active`` as the user scrolls.
+
+   The indicator is rendered inside both the full layout (``base.html``)
+   and the HTMX area-swap fragment (``_partials/area_fragment.html``) so
+   it stays consistent across navigation modes. Guard with
+   ``{% if section_index %}`` to suppress empty strips on shell-only
+   surfaces.
+
+   Context: ``section_index`` — list of {"slug": str, "title": str}. #}
+<nav class="pf-section-indicator" aria-label="Section navigation">
+    {% for entry in section_index %}
+        <a class="pf-section-indicator__dot"
+           href="#{{ entry.slug }}"
+           data-section="{{ entry.slug }}"
+           aria-label="{{ entry.title }}">
+            <span class="pf-section-indicator__label">{{ entry.title }}</span>
+        </a>
+    {% endfor %}
+</nav>

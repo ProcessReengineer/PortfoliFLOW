@@ -1,0 +1,7 @@
+{# Plotly chart partial. Embeds the spec JSON in an inline <script
+   type="application/json"> tag and renders into the target div via
+   Plotly.newPlot. The detail page's main <script> reads the JSON and
+   re-renders when the NAV table changes (after add / delete). #}
+
+<div id="nav-chart" class="plotly-target"
+     data-spec='{{ chart_spec | tojson }}'></div>

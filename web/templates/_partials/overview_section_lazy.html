@@ -1,0 +1,16 @@
+{# Overview section lazy-load shell (ADR-0067).
+
+   Renders a skeleton placeholder. On first visibility, HTMX fetches
+   /api/overview/section and replaces this wrapper with the response.
+   ``hx-swap="outerHTML"`` is load-bearing: the lazy container must not
+   survive past the swap. #}
+
+<div class="pf-section__lazy"
+     hx-get="/api/overview/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading overview&hellip;
+    </p>
+</div>

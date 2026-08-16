@@ -1,0 +1,20 @@
+{# "Open case →" — hands this finding to a Case (ADR-0107, C4). The endpoint
+   composes the case creation and the opened_case resolution in one
+   transaction and freezes materiality live; on success it HX-Redirects to
+   the pre-filled case. Targets the card itself so a stale card is calmly
+   replaced.
+
+   One form, two placements (ADR-0120 §2): inside the Possible-moves block
+   when that block renders, in the card footer otherwise. The *gate* is the
+   caller's (`card.case_affordance`); this partial only draws the control, so
+   the two placements can never drift apart. Context: `card`, `csrf_token`. #}
+<form class="pf-dc-opencase-form"
+      hx-post="/api/watch-desk/findings/{{ card.id }}/open-case"
+      hx-target="#dc-card-{{ card.id }}"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="pf-dc-opencase"
+            title="Turns this finding into a case — analysis, discussion, engagement">
+        Open case →
+    </button>
+</form>

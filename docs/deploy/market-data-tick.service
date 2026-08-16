@@ -1,0 +1,54 @@
+# Example systemd service unit for the market-data live-import tick
+# (ADR-0093).
+#
+# This is a TEMPLATE, not an installed unit. The operator copies it into
+# /etc/systemd/system/ (or a user unit dir), edits the paths / user /
+# environment for the deployment, then enables the companion .timer:
+#
+#     sudo cp docs/deploy/market-data-tick.service /etc/systemd/system/
+#     sudo cp docs/deploy/market-data-tick.timer   /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now market-data-tick.timer
+#
+# The tick is a one-shot: it refreshes every due tenant's live-eligible
+# investments and exits. The .timer (not this unit) controls how often it
+# fires. See README-market-data-tick.md.
+#
+# Unlike irene-tick, this command has NO AI dependency: it reaches no LLM
+# and no OpenRouter, so it carries none of Irene's credential preamble.
+
+[Unit]
+Description=PortfoliFLOW market-data live-import tick (refresh every due tenant)
+# Only run once the database is reachable. Adjust to your DB unit name
+# (e.g. postgresql.service, or a podman-compose target).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# --- Operator MUST edit these for the deployment -------------------------
+# The service account the app runs as (never root).
+User=portfoliflow
+Group=portfoliflow
+# The repo / install root, so the CLI can find the .env and Alembic tree.
+WorkingDirectory=/opt/portfoliflow
+# The console script installed by `pip install -e .`
+# ([project.scripts] portfoliflow = "cli:app"). Use the absolute path to
+# the venv's bin so systemd does not depend on PATH.
+ExecStart=/opt/portfoliflow/.venv/bin/portfoliflow market-data-tick
+# Credentials are read from the repo .env by the CLI:
+#   DATABASE_URL_SUPERUSER  — required (the cross-tenant due read).
+#   OPENFIGI_API_KEY        — optional (raises OpenFIGI's anonymous rate
+#                             limit). Yahoo needs no credentials.
+# If you prefer systemd-managed env, point EnvironmentFile at it:
+# EnvironmentFile=/opt/portfoliflow/.env
+# -------------------------------------------------------------------------
+
+# The tick isolates per-tenant refresh failures, so a non-zero exit means
+# the tick itself failed (e.g. the DB was unreachable) — surface it rather
+# than swallowing it.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

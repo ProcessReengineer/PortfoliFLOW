@@ -1,0 +1,23 @@
+{# Stage b — Asset-Class Composites vs. Benchmarks small-multiples.
+
+   The chart spec is always built (the spec function itself renders
+   an empty-state annotation when there are no rows), so the
+   container is always present. The greyed-out asset-class list
+   below the chart reports asset classes that exist in the
+   catalogue but lack a benchmark mapping. #}
+
+<div class="ba-chart-container">
+    <div class="pf-plotly-target"
+         id="benchmarks-stage-b-chart"
+         data-plotly-spec='{{ stage_b_chart_spec | tojson | safe }}'></div>
+</div>
+
+{% if stage_b_asset_classes_without_benchmark %}
+    <aside class="ba-block__aside">
+        <p>
+            Asset classes without benchmark mapping
+            (excluded from comparison):
+            {{ stage_b_asset_classes_without_benchmark | join(", ") }}.
+        </p>
+    </aside>
+{% endif %}

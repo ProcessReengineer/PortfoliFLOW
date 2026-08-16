@@ -1,0 +1,131 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfoliflow"
+version = "0.1.0"
+description = "AI-assisted portfolio management platform for institutional investors (incl. fund-of-funds and alternatives)"
+requires-python = ">=3.11"
+readme = "readme.md"
+license = {text = "AGPL-3.0-only"}
+authors = [{ name = "Sönke Pinkernelle", email = "ProcessReengineer@happycomputercollective.org" }]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "matplotlib>=3.8",
+    "openpyxl>=3.1",
+    "python-dotenv>=1.0",
+    "openai>=1.30",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "trafilatura>=1.12",
+    "feedparser>=6.0",
+    "python-dateutil>=2.8",
+    "squarify",
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "argon2-cffi>=23.1",
+    "cryptography>=42",
+    "typer>=0.12",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.urls]
+Homepage = "https://portfoliflow.com"
+Repository = "https://github.com/ProcessReengineer/PortfoliFLOW"
+Issues = "https://github.com/ProcessReengineer/PortfoliFLOW/issues"
+Security = "https://github.com/ProcessReengineer/PortfoliFLOW/blob/main/SECURITY.md"
+
+[project.scripts]
+portfoliflow = "cli:app"
+portfoliflow-web = "web.main:run"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-httpx>=0.35",
+    "pytest-asyncio>=0.23",
+    "ruff==0.15.12",
+    "pyright>=1.1",
+]
+bot = [
+    "aiogram>=3.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["core*", "modules*", "services*", "cli*", "web*", "bot*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# Rule families deliberately outside the selected set but referenced by
+# existing intent-documenting `# noqa` directives; listing them here keeps
+# RUF100 from flagging those directives as unused. ADR-0109 §1.
+external = ["ARG", "BLE", "PL", "PT", "SLF"]
+ignore = [
+    # Over the >50-hit threshold at adoption time — staged adoption, ADR-0109 §1.
+    "RUF002", # 276 hits — staged adoption, ADR-0109 §1
+    "UP017",  # 235 hits — staged adoption, ADR-0109 §1
+    "I001",   # 155 hits — staged adoption, ADR-0109 §1
+    "E501",   # 131 hits — staged adoption, ADR-0109 §1
+    "B008",   # 130 hits — staged adoption, ADR-0109 §1
+    "RUF003", # 96 hits — staged adoption, ADR-0109 §1
+    "RUF001", # 89 hits — staged adoption, ADR-0109 §1
+    # Under the threshold, but the fix demands restructuring or a per-site
+    # semantic decision rather than a mechanical edit — staged on the same
+    # mechanism, ADR-0109 §1, so the adoption commit stays reviewable.
+    "F811",   # 34 hits — pytest fixture-injection idiom: the fixture is imported so
+              # pytest can resolve it, then shadowed as a test parameter. Ruff's fix
+              # deletes the import and breaks resolution.
+    "B905",   # 21 hits — the correct `strict=` value is a per-site invariant
+              # judgement; a blanket `strict=False` would freeze the loose behaviour.
+    "B904",   # 11 hits — `from exc` vs `from None` is a per-site chaining decision,
+              # and most sites need an `as exc` binding added to the except clause.
+    "RUF043", # 8 hits — escaping a `match=` pattern changes what the assertion
+              # accepts; a test-semantics change, not a mechanical one.
+    "B017",   # 3 hits — narrowing `pytest.raises(Exception)` requires deciding the
+              # intended exception type.
+    "B023",   # 2 hits — binding the loop variable needs a default argument (a
+              # signature change) or hoisting the closure out of the loop.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The DataStore-coupled surface is scheduled for decommission, not
+# modernisation (#035, ADR-0094 §5). Findings here are recorded, not fixed.
+"core/data_store.py" = []                            # all findings already covered by staged adoption
+"modules/**" = ["RUF022", "RUF100", "SIM102", "SIM910"]
+"services/reporting/**" = ["RUF022", "SIM103", "SIM108"]
+
+[tool.pyright]
+# Typing islands per ADR-0109 §3 as amended by ADR-0110; analytics enters
+# via pandas-stubs (#054 post-release typing note).
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+include = [
+    "services/overlay",
+    "services/market_data",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Integration tests call a live external service (the model routing eval),
+# so they are deselected by default — run them deliberately with
+# `pytest -m integration` (ADR-0070 Stage 2). A trailing `-m integration`
+# on the command line overrides this default selection.
+addopts = "-m 'not integration'"
+markers = [
+    "timing: tests that depend on wall-clock timings; flaky in CI, run manually",
+    "integration: tests that call a live external service (e.g. the model routing eval); skipped without credentials, run deliberately",
+]

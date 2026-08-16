@@ -1,0 +1,105 @@
+{# Sidebar — area selector. Rendered both inline in base.html and as
+   an HTMX out-of-band fragment via _partials/sidebar_oob.html. The
+   ``active_area`` context variable controls which entry carries the
+   ``is-active`` class.
+
+   The eight areas are listed in web/shell.py `_AREAS` order:
+   front_office → back_office → assistants → planning_desk →
+   investor_communication → watch_desk → cases → admin. Order is hardcoded
+   here because the area set is part of the architectural decision (ADR-0046,
+   ADR-0089, ADR-0104, ADR-0107, ADR-0122) and not derived at render time;
+   keep it in step with `_AREAS`, which carries the rationale for the order.
+
+   The id ``pf-sidebar`` is the OOB swap target — when the
+   ``sidebar_oob`` flag is set, the rendered <aside> carries
+   ``hx-swap-oob="outerHTML"`` so HTMX replaces the live sidebar in
+   place with this rendering. #}
+{% set _areas = [
+    ("front_office", "Front Office", "/front-office"),
+    ("back_office", "Back Office", "/back-office"),
+    ("assistants", "Assistants", "/assistants"),
+    ("planning_desk", "Planning Desk", "/planning-desk"),
+    ("investor_communication", "Investor Communication", "/investor-communication"),
+    ("watch_desk", "Watch Desk", "/watch-desk"),
+    ("cases", "Cases", "/cases"),
+    ("admin", "Admin", "/admin"),
+] %}
+<aside id="pf-sidebar"
+       class="pf-sidebar"
+       aria-label="Areas"
+       {% if sidebar_oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="pf-sidebar__brand">
+        {% include "_partials/logo.html" %}
+    </div>
+    <nav class="pf-sidebar__nav" aria-label="Area navigation">
+        {% for slug, label, url in _areas %}
+            <a class="pf-sidebar__item{% if active_area == slug %} is-active{% endif %}"
+               href="{{ url }}"
+               data-area="{{ slug }}"
+               hx-get="{{ url }}"
+               hx-target="#shell-main"
+               hx-swap="innerHTML"
+               hx-push-url="true"
+               aria-current="{% if active_area == slug %}page{% else %}false{% endif %}">
+                <span class="pf-sidebar__glyph" aria-hidden="true">{{ label[0] }}</span>
+                <span class="pf-sidebar__label">{{ label }}</span>
+            </a>
+        {% endfor %}
+        {% if show_super_admin_link %}
+            {# Platform Admin entry — only rendered for super-admins.
+               Standard browser navigation (no hx-get) so the whole
+               document re-renders against the super-admin base
+               layout, which has its own nav and styling. #}
+            <a class="pf-sidebar__item pf-sidebar__item--platform{% if active_area == 'super_admin' %} is-active{% endif %}"
+               href="/super-admin/tenants"
+               data-area="super_admin">
+                <span class="pf-sidebar__glyph" aria-hidden="true">P</span>
+                <span class="pf-sidebar__label">Platform Admin</span>
+            </a>
+        {% endif %}
+    </nav>
+    <div class="pf-sidebar__footer">
+        {% if user_email %}
+            <span class="pf-sidebar__user" title="{{ user_email }}">
+                {{ user_email }}
+            </span>
+        {% endif %}
+        <form class="pf-sidebar__collapse-form"
+              method="post"
+              action="/shell/sidebar/toggle">
+            {% if csrf_token %}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% endif %}
+            <input type="hidden" name="redirect_to"
+                   value="{{ redirect_to or '/' }}">
+            <button type="submit"
+                    class="pf-sidebar__collapse-button"
+                    aria-label="{% if sidebar_collapsed %}Expand sidebar{% else %}Collapse sidebar{% endif %}">
+                <span class="pf-sidebar__collapse-label-expanded">
+                    « Collapse
+                </span>
+                <span class="pf-sidebar__collapse-label-collapsed">
+                    »
+                </span>
+            </button>
+        </form>
+        {% if user_email %}
+            <form class="pf-sidebar__signout"
+                  method="post"
+                  action="/logout">
+                {% if csrf_token %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% endif %}
+                <button type="submit"
+                        class="pf-sidebar__signout-button">
+                    <span class="pf-sidebar__signout-label-expanded">
+                        Sign out
+                    </span>
+                    <span class="pf-sidebar__signout-label-collapsed">
+                        ⏻
+                    </span>
+                </button>
+            </form>
+        {% endif %}
+    </div>
+</aside>

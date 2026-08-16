@@ -1,0 +1,11 @@
+{# Successful case-creation response (ADR-0107, C2).
+
+   The main swap target is #cases-new-case-slot (innerHTML): this template's
+   only top-level element is the OOB open-cases list, so HTMX pulls it out
+   for the out-of-band refresh and the slot receives empty content — the
+   form disappears and the new case appears at the top of the list.
+
+   The out-of-band refresh resets the list to the unfiltered "All open"
+   view (oob renders mine=False), which is where the newly created row is
+   guaranteed to be visible. #}
+{% include "_partials/cases_open.html" %}

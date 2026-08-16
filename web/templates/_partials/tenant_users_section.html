@@ -1,0 +1,209 @@
+{# Users section body — /admin#users (ADR-0121 §6).
+
+   The tenant owner's own user list. Every form POSTs to its endpoint and
+   swaps this whole block in place via ``hx-target="closest .pf-users"`` +
+   ``hx-swap="outerHTML"``, so a write replaces list, form and banner with
+   a freshly rendered set — the ADR-0112 §6 render idiom, one path for the
+   GET and every POST.
+
+   The list is grouped **active** then **deactivated**, following the
+   Cases open/closed row idiom (``pf-case-list`` / ``pf-case-row`` /
+   ``state``): a flat stack of framed rows, the closed group muted, a
+   state chip per row, and ``pf-empty-state`` prose when a group is empty.
+   Deactivation is reversible here, so the two groups live in one section
+   rather than in two, and only the deactivated group's own action —
+   Reactivate — is offered on its rows: a deactivated account has no
+   session to end and passes no gate, so a reset or a re-role there would
+   be an action without an effect to show for it.
+
+   Required context (assembled by
+   :func:`web.routes.tenant_users._render_section`):
+     csrf_token       — for every form
+     create_endpoint  — POST target for the create form
+     active_users     — list of row views, oldest first
+     deactivated_users — same shape, the deactivated group
+     role_options     — [(value, label)] — owner and member only
+     success / error  — Optional[str] inline banners
+
+   Passwords are set here and never displayed: the create form and the
+   reset form both carry write-only inputs, and no rendered row ever
+   carries a hash, a hint, or any trace of a credential.
+
+   The self-targeting warnings are static template copy compared against
+   ``is_self`` — no JS, and no confirmation dialog. The route is what
+   actually decides; these lines exist so the decision is not a surprise. #}
+
+{% macro role_form(user, csrf_token, role_options) %}
+    <form class="pf-users__action"
+          hx-post="{{ user.role_url }}"
+          hx-target="closest .pf-users"
+          hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="pf-users__field" for="role-{{ user.id }}">
+            <span class="pf-users__field-label">Role</span>
+            <select id="role-{{ user.id }}" name="new_role" class="pf-users__select">
+                {% for value, label in role_options %}
+                    <option value="{{ value }}"
+                            {% if value == user.current_role %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit" class="btn btn--ghost">Change role</button>
+        {% if user.is_self %}
+            <span class="pf-users__warning">You will lose access to this area immediately.</span>
+        {% endif %}
+    </form>
+{% endmacro %}
+
+{% macro reset_form(user, csrf_token) %}
+    <form class="pf-users__action"
+          hx-post="{{ user.reset_password_url }}"
+          hx-target="closest .pf-users"
+          hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="pf-users__field" for="reset-{{ user.id }}">
+            <span class="pf-users__field-label">New password</span>
+            <input type="password"
+                   id="reset-{{ user.id }}"
+                   name="new_password"
+                   class="pf-users__input"
+                   autocomplete="new-password">
+        </label>
+        <button type="submit" class="btn btn--ghost">Reset password</button>
+        {% if user.is_self %}
+            <span class="pf-users__warning">You will be signed out immediately.</span>
+        {% endif %}
+    </form>
+{% endmacro %}
+
+{% macro state_form(endpoint, csrf_token, label) %}
+    <form class="pf-users__action"
+          hx-post="{{ endpoint }}"
+          hx-target="closest .pf-users"
+          hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--ghost">{{ label }}</button>
+    </form>
+{% endmacro %}
+
+{% macro user_row(user, csrf_token, role_options) %}
+    <div class="pf-user-row{% if not user.is_active %} pf-user-row--deactivated{% endif %}"
+         data-user-email="{{ user.email }}">
+        <div class="pf-user-row__identity">
+            <span class="pf-user-row__email">{{ user.email }}</span>
+            <span class="pf-user-row__name">
+                {% if user.display_name %}{{ user.display_name }}{% else %}&mdash;{% endif %}
+                {% if user.is_self %}<span class="pf-user-row__self">you</span>{% endif %}
+            </span>
+        </div>
+        <span class="pf-user-row__role">{{ user.roles }}</span>
+        {% if user.is_active %}
+            <span class="pf-user-state pf-user-state--active">Active</span>
+        {% else %}
+            <span class="pf-user-state pf-user-state--deactivated">Deactivated</span>
+        {% endif %}
+        <div class="pf-user-row__actions">
+            {% if user.is_active %}
+                {{ role_form(user, csrf_token, role_options) }}
+                {{ reset_form(user, csrf_token) }}
+                {{ state_form(user.deactivate_url, csrf_token, 'Deactivate') }}
+            {% else %}
+                {{ state_form(user.reactivate_url, csrf_token, 'Reactivate') }}
+            {% endif %}
+        </div>
+    </div>
+{% endmacro %}
+
+<div class="pf-users">
+    {% if success %}
+        <p class="pf-users__success">{{ success }}</p>
+    {% endif %}
+    {% if error %}
+        <p class="pf-users__error">{{ error }}</p>
+    {% endif %}
+
+    <section class="pf-users__group">
+        <header class="pf-users__group-header">
+            <h3 class="pf-users__group-title">Active</h3>
+            <span class="pf-users__scope">{{ active_users | length }} of this tenant's users</span>
+        </header>
+        {% if active_users %}
+            <div class="pf-user-list">
+                {% for user in active_users %}
+                    {{ user_row(user, csrf_token, role_options) }}
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="pf-empty-state">No active users.</p>
+        {% endif %}
+    </section>
+
+    {% if deactivated_users %}
+        <section class="pf-users__group">
+            <header class="pf-users__group-header">
+                <h3 class="pf-users__group-title">Deactivated</h3>
+                <span class="pf-users__scope">
+                    Sign-in is blocked and every session was ended. Reactivating
+                    restores access; it does not restore a session.
+                </span>
+            </header>
+            <div class="pf-user-list">
+                {% for user in deactivated_users %}
+                    {{ user_row(user, csrf_token, role_options) }}
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    <section class="pf-users__group">
+        <header class="pf-users__group-header">
+            <h3 class="pf-users__group-title">Add a user</h3>
+            <span class="pf-users__scope">
+                You set the initial password and pass it on yourself — there is
+                no invitation email.
+            </span>
+        </header>
+        <form class="pf-users__create"
+              hx-post="{{ create_endpoint }}"
+              hx-target="closest .pf-users"
+              hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="pf-users__field" for="new-user-email">
+                <span class="pf-users__field-label">Email</span>
+                <input type="email"
+                       id="new-user-email"
+                       name="email"
+                       class="pf-users__input"
+                       autocomplete="off"
+                       required>
+            </label>
+            <label class="pf-users__field" for="new-user-display-name">
+                <span class="pf-users__field-label">Display name</span>
+                <input type="text"
+                       id="new-user-display-name"
+                       name="display_name"
+                       class="pf-users__input"
+                       autocomplete="off">
+            </label>
+            <label class="pf-users__field" for="new-user-password">
+                <span class="pf-users__field-label">Initial password</span>
+                <input type="password"
+                       id="new-user-password"
+                       name="password"
+                       class="pf-users__input"
+                       autocomplete="new-password"
+                       required>
+            </label>
+            <label class="pf-users__field" for="new-user-role">
+                <span class="pf-users__field-label">Role</span>
+                <select id="new-user-role" name="role" class="pf-users__select">
+                    {% for value, label in role_options %}
+                        <option value="{{ value }}"
+                                {% if value == 'member' %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="btn btn--primary">Create user</button>
+        </form>
+    </section>
+</div>

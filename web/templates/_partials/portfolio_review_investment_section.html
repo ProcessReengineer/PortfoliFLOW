@@ -1,0 +1,135 @@
+{# Per-investment Portfolio Review fragment — returned by
+   GET /api/portfolio-review/investment/{investment_id}/section.
+
+   Swapped into a .pr-investment-stack__item placeholder
+   (hx-swap="innerHTML") when it scrolls into view. After the swap the
+   fragment-scoped script renders only this fragment's own Plotly
+   targets (scoped to the .pr-investment root), so stacked fragments
+   never re-render or clobber one another's charts.
+
+   Per ADR-0073: tile 4 is the Total Return index (rebased to 100 at
+   inception), which is where the single-investment tile set differs
+   from the portfolio-aggregate set.
+
+   Context (from web/routes/portfolio_review.py):
+     investment           — InvestmentDTO, or None when the review is
+                            unavailable (unknown / cross-tenant id).
+     header_metrics       — InvestmentHeaderMetrics or None.
+     tile_specs           — six dicts {id, title, spec, has_data}, or [].
+     as_of_date_display   — resolved as-of date (ISO) or "". #}
+
+{% if investment is none %}
+
+    <p class="pr-investment-stack__unavailable">
+        This review is currently unavailable.
+    </p>
+
+{% else %}
+
+<div class="pr-investment" data-investment-id="{{ investment.id }}">
+
+    <header class="pr-investment__header">
+        <h4 class="pr-investment__title">{{ investment.name }}</h4>
+        <p class="pr-investment__subtitle">
+            {{ investment.currency }}
+            {% if investment.manager_name %} &middot; {{ investment.manager_name }}{% endif %}
+            {% if investment.vintage_year %} &middot; Vintage {{ investment.vintage_year }}{% endif %}
+            {% if as_of_date_display %} &middot; As-of date {{ as_of_date_display }}{% endif %}
+        </p>
+    </header>
+
+    <section class="pr-strip" aria-label="Headline metrics">
+        <article class="pr-strip__card">
+            <div class="pr-strip__label">NAV</div>
+            <div class="pr-strip__value">
+                {# The single-investment review does not convert (ADR-0099 §4
+                   converts at the *portfolio* seam), so this NAV is in the
+                   investment's own position currency — which is what the
+                   label must say (ADR-0101 §3). #}
+                {% if header_metrics.nav_eur is not none %}
+                    {{ "{:,.0f}".format(header_metrics.nav_eur) }} {{ investment.currency }}
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </div>
+        </article>
+        <article class="pr-strip__card">
+            <div class="pr-strip__label">IRR</div>
+            <div class="pr-strip__value">
+                {% if header_metrics.irr is not none %}
+                    {{ "%.2f"|format(header_metrics.irr * 100.0) }}%
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </div>
+        </article>
+        <article class="pr-strip__card">
+            <div class="pr-strip__label">TVPI</div>
+            <div class="pr-strip__value">
+                {% if header_metrics.tvpi is not none %}
+                    {{ "%.2f"|format(header_metrics.tvpi) }}x
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </div>
+        </article>
+        <article class="pr-strip__card">
+            <div class="pr-strip__label">DPI</div>
+            <div class="pr-strip__value">
+                {% if header_metrics.dpi is not none %}
+                    {{ "%.2f"|format(header_metrics.dpi) }}x
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </div>
+        </article>
+    </section>
+
+    <section class="pr-grid" aria-label="Single investment review tiles">
+        {% for tile in tile_specs %}
+            {% set dom_id = tile.id ~ "-" ~ investment.id %}
+            <article class="pr-tile" aria-labelledby="{{ dom_id }}-title">
+                <header class="pr-tile__header">
+                    <h5 id="{{ dom_id }}-title" class="pr-tile__title">
+                        {{ tile.title }}
+                    </h5>
+                </header>
+                {% if tile.has_data %}
+                    <div id="{{ dom_id }}"
+                         class="pr-tile__chart pf-plotly-target"
+                         data-spec='{{ tile.spec | tojson }}'>
+                    </div>
+                {% else %}
+                    <p class="pr-tile__empty">No data available.</p>
+                {% endif %}
+            </article>
+        {% endfor %}
+    </section>
+
+</div>
+
+<script>
+(function () {
+    "use strict";
+    var root = document.querySelector(
+        ".pr-investment[data-investment-id='{{ investment.id }}']"
+    );
+    if (!root) return;
+    root.querySelectorAll(".pf-plotly-target[data-spec]").forEach(function (target) {
+        if (target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    });
+})();
+</script>
+
+{% endif %}

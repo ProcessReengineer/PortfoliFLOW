@@ -1,0 +1,232 @@
+/* Users section — /admin#users (ADR-0121 §6).
+ *
+ * The tenant owner's user list. Deliberately thin, like
+ * provider_credentials.css beside it: `.btn` / `.btn--primary` /
+ * `.btn--ghost` come from base.css and `.pf-empty-state` from
+ * empty_states.css; only the group/row/state scaffolding is stated here.
+ * Colour comes from the design tokens, never from literals.
+ *
+ * The row treatment follows the Cases list idiom (cases.css): framed
+ * rows in a flat stack, a pill state chip, and a muted variant for the
+ * group that is not the working set — there "closed", here
+ * "deactivated". The classes are this block's own, because the Cases
+ * rules are all scoped under `.pf-cases` and reach nothing outside it.
+ */
+
+.pf-users {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.pf-users__success {
+    margin: 0;
+    color: var(--ui-semantic-success);
+    font-size: 0.875rem;
+}
+
+.pf-users__error {
+    margin: 0;
+    color: var(--ui-semantic-error);
+    font-size: 0.875rem;
+}
+
+/* -- groups ------------------------------------------------------------ */
+
+.pf-users__group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pf-users__group-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pf-users__group-title {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+/* The line under a group title: what the group *is*, not how many rows
+ * happen to be in it. Same muted treatment as the credentials scope
+ * indicator next door. */
+.pf-users__scope {
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+/* -- rows -------------------------------------------------------------- */
+
+.pf-user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pf-user-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 110px 110px;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 12px 16px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.pf-user-row__identity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pf-user-row__email {
+    color: var(--ui-text-primary);
+    font-size: 0.92rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.pf-user-row__name {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+}
+
+/* The "you" marker beside the caller's own display name — the quiet
+ * half of the self-targeting story the action warnings finish. */
+.pf-user-row__self {
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    color: var(--ui-text-secondary);
+    font-size: 0.7rem;
+}
+
+.pf-user-row__role {
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+/* Actions span the row's full width on their own line: each carries a
+ * labelled control, so sharing the identity row's baseline would crush
+ * all three columns. */
+.pf-user-row__actions {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pf-users__action {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pf-users__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pf-users__field-label {
+    color: var(--ui-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.pf-users__input,
+.pf-users__select {
+    padding: 8px 10px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.95rem;
+}
+
+.pf-users__input {
+    width: 240px;
+    max-width: 100%;
+}
+
+.pf-users__input:focus,
+.pf-users__select:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+/* A static consequence line beside a self-targeting action. Warning
+ * coloured rather than error coloured: the act is allowed, and the owner
+ * is being told what it costs, not stopped. */
+.pf-users__warning {
+    align-self: center;
+    color: var(--ui-semantic-warning);
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+/* -- state chip -------------------------------------------------------- */
+
+.pf-user-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    padding: 2px 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.pf-user-state::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.pf-user-state--active {
+    color: var(--ui-semantic-success);
+    border-color: color-mix(in srgb, var(--ui-semantic-success) 45%, transparent);
+}
+
+.pf-user-state--deactivated {
+    color: var(--ui-text-disabled);
+    border-color: var(--ui-border-default);
+}
+
+/* Muted variant for the deactivated group — the distinction rides on
+ * weight and colour, as it does for a closed case row. */
+.pf-user-row--deactivated .pf-user-row__email {
+    color: var(--ui-text-secondary);
+    font-weight: 500;
+}
+
+/* -- create form ------------------------------------------------------- */
+
+.pf-users__create {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 16px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}

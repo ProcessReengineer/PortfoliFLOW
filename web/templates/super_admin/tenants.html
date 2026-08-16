@@ -1,0 +1,20 @@
+{% extends "super_admin/base.html" %}
+
+{% set active_sa_tab = 'tenants' %}
+
+{% block sa_content %}
+    <section class="sa-section">
+        <h2 class="sa-section__title">Platform</h2>
+        {% include "super_admin/_partials/_platform_status.html" %}
+    </section>
+
+    <section class="sa-section">
+        <h2 class="sa-section__title">Create Tenant</h2>
+        {% include "super_admin/_partials/_create_tenant_form.html" %}
+    </section>
+
+    <section class="sa-section">
+        <h2 class="sa-section__title">Existing Tenants</h2>
+        {% include "super_admin/_partials/_tenants_table.html" %}
+    </section>
+{% endblock %}

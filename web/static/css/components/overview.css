@@ -1,0 +1,270 @@
+/* Front-Office Overview section — ADR-0067.
+ *
+ * Embedded as the first section under /front-office#overview. Classes are
+ * prefixed .ov- to avoid cascade collisions with other section components.
+ * The hero carries the dominant AUM (or invested-capital) figure; the
+ * metric grid mirrors the look of the Portfolio Review .pr-strip cards using
+ * the same theme tokens, so the surface is visually native.
+ *
+ * The .visually-hidden helper is supplied by components/portfolio_review.css,
+ * which base.html always links ahead of this sheet. */
+
+.ov-section {
+    /* Match .pr-section: bound the width so the strip does not stretch
+     * absurdly on ultrawide displays. */
+    max-width: 1400px;
+}
+
+.ov-meta {
+    color: var(--ui-text-secondary);
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+    text-align: right;
+}
+
+/* Hero — a single full-width surface card. Its value is the dominant
+ * figure on the page (≈2.5× the metric-card value size). */
+.ov-hero {
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 10px;
+    padding: 1.75rem 2rem;
+    margin-bottom: 1rem;
+}
+
+.ov-hero__label {
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.ov-hero__value {
+    font-size: 3.5rem;
+    line-height: 1.1;
+    font-weight: 700;
+    margin-top: 0.35rem;
+    color: var(--ui-text-secondary);
+}
+
+.ov-hero__sub,
+.ov-hero__hint {
+    margin: 0.6rem 0 0 0;
+    font-size: 0.95rem;
+    color: var(--ui-text-secondary);
+}
+
+.ov-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+/* Metric cards — same look as .pr-strip__card / __label / __value. */
+.ov-card {
+    padding: 0.75rem 1rem;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.ov-card__label {
+    font-size: 0.8rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.ov-card__value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+    color: var(--ui-text-secondary);
+}
+
+.ov-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--ui-text-secondary);
+}
+
+/* FX-cash card — ADR-0101 §2. One line per explicit foreign-currency cash
+ * balance. Full-width under the metric grid; absent entirely for a
+ * functional-currency-only book, so it costs single-currency tenants
+ * nothing. Reuses .ov-card for the surface, so it is visually native. */
+.ov-fx {
+    margin-top: 12px;
+}
+
+.ov-fx__list {
+    list-style: none;
+    margin: 0.5rem 0 0 0;
+    padding: 0;
+}
+
+/* Name | native | functional | as-of. The name column flexes; the money
+ * columns are right-aligned so digits line up down the card. */
+.ov-fx__row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.35rem 0;
+    border-top: 1px solid var(--ui-border-default);
+}
+
+.ov-fx__row:first-child {
+    border-top: none;
+}
+
+.ov-fx__name {
+    color: var(--ui-text-secondary);
+}
+
+/* The position currency, spelled out next to the name. */
+.ov-fx__code {
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-secondary);
+    opacity: 0.7;
+}
+
+/* The native balance is the figure a treasurer reads first — give it the
+ * card's value weight; the functional equivalent stays subordinate. */
+.ov-fx__native {
+    font-weight: 600;
+    text-align: right;
+    color: var(--ui-text-secondary);
+}
+
+.ov-fx__functional {
+    text-align: right;
+    color: var(--ui-text-secondary);
+    opacity: 0.8;
+}
+
+.ov-fx__asof {
+    text-align: right;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+    /* Stack the four columns rather than crushing the money figures. */
+    .ov-fx__row {
+        grid-template-columns: 1fr auto;
+    }
+}
+
+/* Overview chart row — ADR-0072. Mirrors the .pr-grid / .pr-tile sizing
+ * so the embedded Plotly tiles are visually native to the surface. */
+.ov-charts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+/* Four tiles — the ADR-0101 §1 currency-exposure tile is present. Wrap to
+ * 2×2 rather than squeezing four across: at the section's 1400px cap four
+ * columns leave each tile ~340px, too narrow for the NAV-by-fund bars' value
+ * labels. The three-tile row (single-currency tenants, and every tenant
+ * before this block) keeps repeat(3, 1fr) untouched. */
+.ov-charts--four {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.ov-chart {
+    padding: 0.75rem;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+}
+
+.ov-chart__header {
+    margin-bottom: 0.5rem;
+}
+
+.ov-chart__title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--ui-text-secondary);
+}
+
+.ov-chart__target {
+    flex: 1 1 auto;
+    min-height: 320px;
+}
+
+.ov-chart__empty {
+    color: var(--ui-text-secondary);
+    padding: 2rem 1rem;
+    text-align: center;
+    flex: 1 1 auto;
+}
+
+/* The narrow-width rules must name .ov-charts--four too: it carries the same
+ * specificity as .ov-charts, so a bare .ov-charts selector here would lose to
+ * the modifier above and strand a four-tile row at two columns on mobile. */
+@media (max-width: 1024px) {
+    .ov-charts,
+    .ov-charts--four {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .ov-charts,
+    .ov-charts--four {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .ov-hero__value {
+        font-size: 2.5rem;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Front-Office welcome header — ADR-0068.
+ *
+ * Server-rendered above the Overview section (in the .pf-area__header,
+ * which supplies the flex-column layout and bottom border). The greeting
+ * is the page headline — the largest text on the area. Its base colour is
+ * --ui-text-secondary, NOT --ui-text-primary (which is the brand accent
+ * #E8304A), so the accented tenant name stands clearly apart. The tenant
+ * accent tracks config/chart_theme.json via --chart-colours-primary
+ * (ADR-0021), re-theming with the charts; the hex is a last-resort
+ * fallback, never the primary value.
+ * ------------------------------------------------------------------------- */
+.fo-welcome__kicker {
+    margin: 0;
+    font-size: 0.8125rem; /* ~13px */
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.fo-welcome__title {
+    margin: 0;
+    font-size: 2.5rem;
+    line-height: 1.15;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--ui-text-secondary);
+}
+
+.fo-welcome__tenant {
+    color: var(--chart-colours-primary, var(--ui-accent-primary, #E8304A));
+}
+
+@media (max-width: 640px) {
+    .fo-welcome__title {
+        font-size: 1.875rem;
+    }
+}

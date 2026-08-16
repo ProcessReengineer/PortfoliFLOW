@@ -1,0 +1,191 @@
+/* Statistics component sheet — embedded surface (sub-stream 6F-3b).
+ *
+ * Loaded globally via base.html so the embedded Statistics section
+ * under /front-office#statistics receives its styling on first
+ * visibility. The outer .pf-section wrapper comes from the parent
+ * area template; this sheet covers only the inner blocks (KPI
+ * cards, correlation container, the four Tabulator detail tables).
+ *
+ * Theme tokens come from theme.css; the .stats- prefix avoids
+ * cascade collisions with the Investments and SAA component sheets.
+ */
+
+.stats-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    padding: 24px 0;
+}
+
+.stats-block {
+    margin-bottom: 24px;
+}
+
+.stats-block:last-child {
+    margin-bottom: 0;
+}
+
+.stats-block__title {
+    margin: 0 0 12px;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+/* KPI strip — auto-wrapping grid; the track owns sizing,
+ * so individual cards must not set min-width or flex sizing. */
+.stats-kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+/* KPI cards reuse the cross-surface palette (plot-area background,
+ * axis-line border) so they read as one system with the Benchmarks
+ * (.ba-kpi-strip__card) and Limits (.lim-strip__card) surfaces. */
+.stats-kpi-card {
+    padding: 12px 14px;
+    background: var(--chart-colours-plot-area);
+    border: 1px solid var(--chart-colours-axis-line);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stats-kpi-card__name {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--chart-colours-text);
+}
+
+.stats-kpi-card__metrics {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 8px;
+    font-size: 0.85rem;
+}
+
+.stats-kpi-card__metrics dt {
+    font-size: 0.75rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.stats-kpi-card__metrics dd {
+    margin: 0;
+    font-weight: 500;
+    color: var(--chart-colours-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.stats-kpi-card__sparkline {
+    height: 36px;
+    width: 100%;
+}
+
+/* Correlation matrix container */
+.stats-correlation {
+    background: var(--ui-surface-primary, transparent);
+    border-radius: 4px;
+    padding: 0;
+}
+
+/* Sub-blocks inside the Details block — one per Distribution /
+ * Risk / Risk-Return / Autocorrelation. Each carries a heading and
+ * a Tabulator detail table flowing directly below it. */
+.stats-block__sub {
+    margin-top: 16px;
+    padding-top: 8px;
+    border-top: 1px solid var(--ui-border, #2c2c2c);
+}
+
+.stats-block__sub:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+.stats-block__subtitle {
+    margin: 0 0 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ui-text-primary, #e8e8e8);
+}
+
+/* Collapsible detail sub-blocks (ADR-0062). The four Details tables
+ * are native <details>; the summary carries the existing subtitle
+ * styling plus a click affordance and a rotating chevron. */
+details.stats-subblock > summary.stats-subblock__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    list-style: none;           /* suppress the default disclosure triangle */
+    user-select: none;
+}
+
+details.stats-subblock > summary.stats-subblock__summary::-webkit-details-marker {
+    display: none;
+}
+
+.stats-subblock__chevron {
+    font-size: 0.8em;
+    color: var(--ui-text-secondary, #9a9a9a);
+    transition: transform 0.15s ease;
+}
+
+details.stats-subblock[open] > summary .stats-subblock__chevron {
+    transform: rotate(180deg);
+}
+
+/* Detail tables (Tabulator) -------------------------------------- */
+
+.stats-detail-table {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+/* The Tabulator-rendered cells carry data-magnitude-bucket via the
+ * per-column formatter callback (Step 4). The tinting rules mirror
+ * the .ba-* and .lim-coverage-table implementations exactly so the
+ * visual language is consistent across surfaces. */
+
+.stats-detail-table .tabulator-cell[data-magnitude-bucket="pos-strong"] {
+    background-color: var(--ui-semantic-table-pos-bg-dark);
+}
+
+.stats-detail-table .tabulator-cell[data-magnitude-bucket="pos-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-pos-bg-dark) 50%, transparent
+    );
+}
+
+.stats-detail-table .tabulator-cell[data-magnitude-bucket="neg-strong"] {
+    background-color: var(--ui-semantic-table-neg-bg-dark);
+}
+
+.stats-detail-table .tabulator-cell[data-magnitude-bucket="neg-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-neg-bg-dark) 50%, transparent
+    );
+}
+
+.stats-detail-table .tabulator-cell[data-magnitude-bucket="neutral"] {
+    /* no override — Tabulator default cell background */
+}
+
+/* The Investment-name column anchors the row visually: left-aligned,
+ * primary text colour, slightly heavier weight than the numeric cells. */
+.stats-detail-table .tabulator-cell.stats-detail-table__name-cell {
+    color: var(--ui-text-primary);
+    font-weight: 500;
+}
+
+.stats-meta {
+    margin: 12px 0 0;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}

@@ -1,0 +1,46 @@
+{# Reusable NAV form partial.
+
+   Used inside a <dialog> on the detail page. Fields:
+   - as_of_date (date)
+   - nav_kind (plan|actual)
+   - nav_value (number)
+   - currency (3-letter ISO)
+   - source (optional free-form)
+#}
+
+<form id="nav-form" class="inv-mini-form">
+    <h3>Add NAV</h3>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label class="field">
+        <span>As-of Date</span>
+        <input type="date" name="as_of_date" required>
+    </label>
+    <label class="field">
+        <span>Kind</span>
+        <select name="nav_kind" required>
+            {% for k in nav_kinds %}
+                <option value="{{ k }}">{{ k }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="field">
+        <span>NAV Value</span>
+        <input type="number" name="nav_value" step="0.01" required>
+    </label>
+    <label class="field">
+        <span>Currency</span>
+        <input type="text" name="currency" minlength="3" maxlength="3"
+               pattern="[A-Za-z]{3}" required
+               value="{{ investment.currency }}">
+    </label>
+    <label class="field">
+        <span>Source (optional)</span>
+        <input type="text" name="source" maxlength="200">
+    </label>
+
+    <div class="dialog-actions">
+        <button type="button" class="btn" data-dismiss="nav-dialog">Cancel</button>
+        <button type="submit" class="btn btn--primary">Add NAV</button>
+    </div>
+</form>

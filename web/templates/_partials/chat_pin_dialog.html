@@ -1,0 +1,100 @@
+{# Consultation pin dialog (ADR-0107 C6, Step 2) — a chat-side surface swapped
+   into #chat-pin-dialog by a completed assistant bubble's "Pin to case…"
+   affordance.
+
+   The excerpt textarea is prefilled server-side from the identified assistant
+   message and is editable: the PM trims it to what belongs on the record, and
+   the POST carries that curated text — the client never scrapes bubble HTML
+   (binding decision 2). The picker is the tenant's open cases, newest first,
+   preselected to the active brief's case. With no open cases the dialog says so
+   and links to Cases rather than offering a dead dropdown. A message no longer
+   in history (trimmed, or a stale id) shows the calm "no longer available"
+   state and offers no prefill.
+
+   Cancel clears the slot (the composer-cancel idiom: a GET with ?cancel=1
+   returns an empty body). On a gate failure the POST re-renders this same
+   partial with an inline error, the picked case, the comment and the edited
+   excerpt preserved.
+
+   Context:
+     csrf_token, pin_url, cases_area_url
+     message_id  — the assistant message's server-side id (hidden input).
+     cases       — [{id, label}] open cases, newest first (may be empty).
+     preselect   — the case id to preselect, or None.
+     excerpt     — the server-prefilled (or PM-edited) excerpt text.
+     unavailable — True when the message is no longer in history.
+     comment     — echoed back on a re-render.
+     error       — an inline error message, or None. #}
+<form class="chat-pin-dialog"
+      hx-post="{{ pin_url }}"
+      hx-target="#chat-pin-dialog"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="message_id" value="{{ message_id }}">
+
+    <h4 class="chat-pin-dialog__title">Pin this answer to a case</h4>
+    {% if error %}
+        <p class="chat-pin-dialog__error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    {% if unavailable %}
+        {# The message left the session history (trimmed or a stale id): no
+           prefill rather than the wrong one (Step 2). #}
+        <p class="chat-pin-dialog__empty">
+            That message is no longer available to pin — it has scrolled out of
+            this session's memory. Ask again, then pin the fresh answer.
+        </p>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Close</button>
+        </div>
+    {% elif not cases %}
+        {# No open cases to pin into — no dead dropdown (Step 2). #}
+        <p class="chat-pin-dialog__empty">
+            There are no open cases to pin into. Open a case first, then return
+            here to pin this answer.
+        </p>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <a class="btn" href="{{ cases_area_url }}">Go to Cases</a>
+        </div>
+    {% else %}
+        <label class="chat-pin-dialog__field">
+            <span class="chat-pin-dialog__label">Case</span>
+            <select class="chat-pin-dialog__input" name="case_id">
+                {% for case in cases %}
+                    <option value="{{ case.id }}"
+                            {{ 'selected' if case.id == preselect }}>
+                        {{ case.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="chat-pin-dialog__field">
+            <span class="chat-pin-dialog__label">Excerpt — Shirley's words, trimmed to what belongs on the record</span>
+            <textarea class="chat-pin-dialog__input chat-pin-dialog__excerpt"
+                      name="excerpt"
+                      rows="6">{{ excerpt }}</textarea>
+        </label>
+        <label class="chat-pin-dialog__field">
+            <span class="chat-pin-dialog__label">Why pin this?</span>
+            <textarea class="chat-pin-dialog__input"
+                      name="comment"
+                      rows="2"
+                      required
+                      placeholder="The curation comment — why this belongs on the case record.">{{ comment or '' }}</textarea>
+        </label>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <button type="submit" class="btn btn--primary">Pin to case</button>
+        </div>
+    {% endif %}
+</form>

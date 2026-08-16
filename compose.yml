@@ -1,0 +1,44 @@
+# Postgres for PortfoliFLOW local development.
+#
+# Engine-neutral Compose Specification — works with both `podman compose`
+# and `docker compose`. The repo standardises on Podman (rootless), but
+# Docker users can drop in without changes.
+#
+# Usage:
+#   podman compose up -d        # start in background
+#   podman compose ps           # check status
+#   podman compose down         # stop, keep data
+#   podman compose down -v      # stop AND wipe the data volume (full reset)
+#
+# Environment is read from .env (gitignored). See .env.example for the
+# required keys (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB).
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16
+    container_name: portfoliflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Bind to loopback only — never expose to the LAN by accident.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    name: portfoliflow_postgres_data

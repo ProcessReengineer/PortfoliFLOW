@@ -1,0 +1,8 @@
+{
+  "vision_capable_models": [
+    { "pattern": "anthropic/claude-*" },
+    { "pattern": "openai/gpt-4o*" },
+    { "pattern": "openai/gpt-4.1*" },
+    { "pattern": "google/gemini-*" }
+  ]
+}

@@ -1,0 +1,33 @@
+{# Add-note composer (ADR-0107, C3b). Opened into #case-composer-slot by the
+   rail's "Add note" action; posts to /api/cases/{id}/note. On success the route
+   clears this slot and OOB-refreshes the timeline; on validation failure it
+   re-renders this form carrying ``error`` and the entered text (the C2
+   inline-error idiom).
+
+   Context: case_id, csrf_token, error (optional), text (echoed on error). #}
+<form class="pf-case-composer"
+      hx-post="/api/cases/{{ case_id }}/note"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Add note</h3>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert">{{ error }}</p>
+    {% endif %}
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Note</span>
+        <textarea class="pf-cases__field-input"
+                  name="text"
+                  rows="4"
+                  required
+                  autofocus
+                  placeholder="What happened, decided, or needs recording?">{{ text or '' }}</textarea>
+    </label>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Add note</button>
+    </div>
+</form>

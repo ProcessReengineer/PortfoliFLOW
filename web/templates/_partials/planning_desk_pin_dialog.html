@@ -1,0 +1,78 @@
+{# Pin-scenario dialog (ADR-0107 C5, Step 2) — a Desk-side surface swapped into
+   #pd-pin-dialog by the results region's "Pin to case…" affordance.
+
+   A snapshot freezes exactly the state on screen: the current page state travels
+   as hidden inputs (state_pairs), so the POST round-trips what the page renders
+   — the client never fabricates a figure, only says *which* state to freeze. The
+   picker is the tenant's open cases, newest first, preselected to the capturing
+   marker's case when present. With no open cases the dialog says so calmly and
+   links to the Cases area rather than offering a dead dropdown.
+
+   Cancel clears the slot (the composer-cancel idiom: a GET with ?cancel=1 returns
+   an empty body). On a gate failure the POST re-renders this same partial with an
+   inline error, the picked case and the comment preserved.
+
+   Context:
+     csrf_token, pin_scenario_url, cases_area_url
+     cases        — [{id, label}] open cases, newest first (may be empty).
+     preselect    — the case id to preselect (the marker's case), or None.
+     state_pairs  — [(key, value)] the page state, as hidden inputs (no marker).
+     comment      — echoed back on a re-render.
+     error        — an inline error message, or None. #}
+<form class="pd-pin-dialog"
+      hx-post="{{ pin_scenario_url }}"
+      hx-target="#pd-pin-dialog"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% for key, value in state_pairs %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {% endfor %}
+
+    <h4 class="pd-pin-dialog__title">Pin this scenario to a case</h4>
+    {% if error %}
+        <p class="pd-pin-dialog__error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    {% if not cases %}
+        {# No open cases to capture into — no dead dropdown (Step 2). #}
+        <p class="pd-pin-dialog__empty">
+            There are no open cases to capture into. Open a case first, then
+            return to the Desk to pin this scenario.
+        </p>
+        <div class="pd-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_scenario_url }}?cancel=1"
+                    hx-target="#pd-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <a class="btn" href="{{ cases_area_url }}">Go to Cases</a>
+        </div>
+    {% else %}
+        <label class="pd-pin-dialog__field">
+            <span class="pd-pin-dialog__label">Case</span>
+            <select class="pd-pin-dialog__input" name="case_id">
+                {% for case in cases %}
+                    <option value="{{ case.id }}"
+                            {{ 'selected' if case.id == preselect }}>
+                        {{ case.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="pd-pin-dialog__field">
+            <span class="pd-pin-dialog__label">Why capture this scenario?</span>
+            <textarea class="pd-pin-dialog__input"
+                      name="comment"
+                      rows="3"
+                      required
+                      autofocus
+                      placeholder="The curation comment — what this scenario shows and why it is kept.">{{ comment or '' }}</textarea>
+        </label>
+        <div class="pd-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_scenario_url }}?cancel=1"
+                    hx-target="#pd-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <button type="submit" class="btn btn--primary">Pin to case</button>
+        </div>
+    {% endif %}
+</form>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}New Investment — PortfoliFLOW{% endblock %}
+
+{% block tagline %}Front Office · Investments · New{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/investments.css">
+{% endblock %}
+
+{% block content %}
+<section class="inv-page" aria-labelledby="inv-new-title">
+    <header class="inv-header">
+        <h1 id="inv-new-title" class="inv-header__title">New Investment</h1>
+        <p class="inv-header__subtitle">
+            Create an investment row in the active tenant. The name
+            must be unique across the tenant; choose an asset class
+            from the per-tenant catalogue.
+        </p>
+    </header>
+
+    {% with form_action="/investments",
+            form_method="POST",
+            submit_label="Create Investment",
+            investment={} %}
+        {% include "investments/_form.html" %}
+    {% endwith %}
+</section>
+{% endblock %}

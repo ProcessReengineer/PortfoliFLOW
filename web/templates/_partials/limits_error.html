@@ -1,0 +1,63 @@
+{# Engine-error state for the Investment Limits section.
+
+   Rendered by web/routes/limits.py when the coverage engine raises
+   LimitSetNotEffective, CoverageInputMissing, or
+   CoverageInputOutOfRange. The filter form is still present so the
+   operator can correct the date range without leaving the page.
+
+   Context:
+     error_type        — exception class name.
+     error_message     — exception message.
+     from_date_input   — ISO date echoed into the from-form input.
+     to_date_input     — ISO date echoed into the to-form input. #}
+
+<div class="lim-section lim-section--error" id="lim-section-body">
+
+    <form class="lim-controls"
+          hx-get="/api/back-office/limits/section"
+          hx-target="closest .pf-section__body"
+          hx-swap="innerHTML">
+        <label class="lim-controls__field">
+            <span>From</span>
+            <input type="date"
+                   name="from_date"
+                   value="{{ from_date_input }}">
+        </label>
+        <label class="lim-controls__field">
+            <span>To</span>
+            <input type="date"
+                   name="to_date"
+                   value="{{ to_date_input }}">
+        </label>
+        <button type="submit" class="btn btn--primary">Apply</button>
+    </form>
+
+    <div class="lim-error alert alert--error" role="alert">
+        <h4 class="lim-error__title">{{ error_type }}</h4>
+        <p class="lim-error__message">{{ error_message }}</p>
+        <p class="lim-error__hint">
+            {% if error_type == 'LimitSetNotEffective' %}
+                Configure a limit set effective on or before this as-of date
+                via the
+                <a href="/admin#data-import">Data Import</a>, or widen the
+                range to cover only dates with an effective set.
+            {% elif error_type == 'CoverageInputMissing' %}
+                AUM data is missing for the earliest as-of date in this
+                range. Check the AUM import for gaps in the
+                <a href="/admin#data-import">Data Import</a>.
+            {% elif error_type == 'MissingFxRateError' %}
+                A foreign-currency position needs an FX rate this portfolio
+                cannot supply, and rates are never defaulted to 1:1
+                (ADR-0099 &sect;3). Add the missing rate to the
+                <code>FX rates</code> sheet and re-import via the
+                <a href="/admin#data-import">Data Import</a>.
+            {% else %}
+                The NAV import does not cover the selected range. Check
+                the NAV import in the
+                <a href="/admin#data-import">Data Import</a>, or restrict
+                the range to imported NAV dates.
+            {% endif %}
+        </p>
+    </div>
+
+</div>

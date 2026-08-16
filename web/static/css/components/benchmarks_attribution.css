@@ -1,0 +1,355 @@
+/* Benchmarks & Attribution section — Phase 1b Quick Wins polish.
+ *
+ * Embedded under /back-office#benchmarks-attribution. Classes are
+ * prefixed .ba- to avoid cascade collisions with the other section
+ * components (.lim-, .stats-, .saa-, ...).
+ *
+ * Pilot implementation of the ADR-0062 program-wide visual
+ * conventions: Tabulator for sortable tables, heatmap-style
+ * background tints on performance columns via data-magnitude-bucket
+ * attribute selectors, dimmed empty tiles in small-multiples grids
+ * (handled by the chart spec, not by this sheet), and inline
+ * master-detail row expansion.
+ */
+
+.ba-section {
+    max-width: 1400px;
+}
+
+.ba-block {
+    margin-bottom: 24px;
+}
+
+.ba-block__header {
+    margin-bottom: 12px;
+}
+
+.ba-block__title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--chart-colours-text);
+}
+
+.ba-block__intro {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.ba-block__aside {
+    margin-top: 8px;
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+.ba-block__aside p {
+    margin: 0;
+}
+
+.ba-controls {
+    display: flex;
+    flex-wrap: wrap;
+    /* Stage-c carries a segmented-control fieldset (legend stacked
+     * above a horizontal option track) alongside a single <select>.
+     * Aligning to flex-start keeps both controls' top edges flush;
+     * the .ba-controls__field wrapper gives the <select> a matching
+     * legend-style label. */
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.ba-controls__field {
+    display: flex;
+    flex-direction: column;
+}
+
+.ba-controls__field > label {
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    margin-bottom: 4px;
+}
+
+.ba-chart-container {
+    background: transparent;
+    padding: 0;
+}
+
+/* The Plotly target carries no intrinsic height. On an HTMX
+ * configuration-switch the chart div is injected at height 0, so
+ * Plotly's responsive autosize draws the SVG at its fallback height
+ * and the canvas overflows into the following section. Pin a
+ * definite height so Plotly sizes to the container — matches the
+ * .ch-chart / .ov-chart__target / .pr-tile__chart convention. */
+.ba-chart-container .pf-plotly-target {
+    width: 100%;
+    min-height: 440px;
+}
+
+/* Stage-C SAA-hypothetical board chart. config.responsive=true makes
+ * the post-render Plotly.Plots.resize() re-measure the container and
+ * override the spec's layout.height; min-height alone let the box grow
+ * to a transiently-tall column, so Plotly drew an oversized SVG that
+ * overflowed the card into Investment Limits (title/legend/headline and
+ * the "Cumulative Return" y-axis title ended up below the plot). A fixed
+ * height pins the measurement to the spec's 480px. */
+#benchmarks-stage-c-plot {
+    height: 480px;
+}
+
+/* Self-hosted copy of plotly.js's critical layer-overlay rules, scoped
+ * to the stage-c chart. Plotly scopes these to .js-plotly-plot, a class
+ * it adds at render time; htmx's settle attribute flip can strip it
+ * (UI-026), and a future CSP may block the injected stylesheet entirely
+ * (ADR-0037 deployment pass). Without the overlay the three main-svg
+ * layers stack in document flow and overflow the card. */
+#benchmarks-stage-c-plot .svg-container {
+    position: relative;
+}
+#benchmarks-stage-c-plot .main-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+/* Blast-radius limit: whatever happens inside the stage-c chart stays
+ * inside its card and cannot bleed into Investment Limits below. */
+#benchmarks-stage-c-chart .ba-chart-container {
+    overflow: hidden;
+}
+
+.ba-chart-meta {
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+    margin: 4px 0 0;
+}
+
+.ba-chart-caption {
+    color: var(--chart-colours-text);
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+}
+
+.ba-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 8px;
+}
+
+/* KPI strip ------------------------------------------------------- */
+
+.ba-kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.ba-kpi-strip__card {
+    background: var(--chart-colours-plot-area);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 12px 14px;
+}
+
+.ba-kpi-strip__label {
+    font-size: 0.75rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ba-kpi-strip__value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--chart-colours-text);
+    margin-top: 4px;
+}
+
+.ba-kpi-strip__card--positive .ba-kpi-strip__value {
+    color: var(--chart-colours-positive-bar);
+}
+
+.ba-kpi-strip__card--negative .ba-kpi-strip__value {
+    color: var(--chart-colours-negative-bar);
+}
+
+.ba-kpi-strip__card--neutral .ba-kpi-strip__value {
+    color: var(--chart-colours-text);
+}
+
+/* Stage-a Tabulator and heatmap tinting --------------------------- */
+
+.ba-stage-a-table {
+    margin-bottom: 8px;
+}
+
+.ba-stage-a-table .tabulator-row {
+    cursor: pointer;
+}
+
+.ba-toggle-secondary {
+    background: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    margin-bottom: 8px;
+}
+
+.ba-toggle-secondary:hover {
+    color: var(--chart-colours-text);
+    border-color: var(--chart-colours-text);
+}
+
+/* Heatmap tints — per ADR-0062 §2. The cell renderer sets a
+ * data-magnitude-bucket attribute; the rules below pick it up.
+ * Diagnostic columns (Beta, R², TE, Up/Down Cap.) do NOT carry the
+ * attribute, so they remain untinted. */
+
+.ba-stage-a-table .tabulator-cell[data-magnitude-bucket="pos-strong"] {
+    background-color: var(--ui-semantic-table-pos-bg-dark);
+}
+
+.ba-stage-a-table .tabulator-cell[data-magnitude-bucket="pos-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-pos-bg-dark) 50%, transparent
+    );
+}
+
+.ba-stage-a-table .tabulator-cell[data-magnitude-bucket="neg-strong"] {
+    background-color: var(--ui-semantic-table-neg-bg-dark);
+}
+
+.ba-stage-a-table .tabulator-cell[data-magnitude-bucket="neg-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-neg-bg-dark) 50%, transparent
+    );
+}
+
+.ba-stage-a-table .tabulator-cell[data-magnitude-bucket="neutral"] {
+    /* no override — falls through to the standard row background */
+}
+
+/* Master-detail row expansion ------------------------------------- */
+
+.ba-detail-row {
+    width: 100%;
+}
+
+.ba-detail-row__inner {
+    padding: 12px 16px;
+    background-color: var(--ui-background-secondary);
+    border-top: 1px solid var(--ui-border-default);
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.ba-row-toggle {
+    display: inline-block;
+    width: 12px;
+    text-align: center;
+    color: var(--ui-text-secondary);
+    cursor: pointer;
+    transition: transform 0.15s ease-out;
+}
+
+.ba-row-toggle--expanded {
+    transform: rotate(90deg);
+    color: var(--chart-colours-text);
+}
+
+/* Segmented control --------------------------------------------------
+ *
+ * ADR-0062 §1 companion pattern for fixed-cardinality choices. Used
+ * in Stage c for the weight-set selector (three options; a <select>
+ * would be overkill). The native radio inputs are visually hidden
+ * via the .visually-hidden technique; the surrounding <label> is
+ * the clickable surface, and the checked state is driven by the
+ * :has() selector — no JS required.
+ */
+
+.ba-segmented {
+    /* The fieldset is a wrapping flex row: the legend takes a full
+     * first row (flex-basis: 100%), and the options flow on the
+     * second row as a horizontal segmented track. */
+    display: flex;
+    flex-wrap: wrap;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.ba-segmented__legend {
+    flex: 0 0 100%;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    padding: 0;
+    margin-bottom: 4px;
+}
+
+.ba-segmented__option {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 14px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    user-select: none;
+    transition: background-color 120ms, color 120ms, border-color 120ms;
+    position: relative;
+}
+
+.ba-segmented__option:first-of-type {
+    border-radius: 4px 0 0 4px;
+}
+
+.ba-segmented__option:last-of-type {
+    border-radius: 0 4px 4px 0;
+}
+
+.ba-segmented__option + .ba-segmented__option {
+    border-left: none;
+}
+
+.ba-segmented__option:hover:not(.ba-segmented__option--disabled) {
+    background: var(--ui-background-section);
+    color: var(--chart-colours-text);
+}
+
+.ba-segmented__option input[type="radio"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.ba-segmented__option:has(input[type="radio"]:checked) {
+    background: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    z-index: 1;
+}
+
+.ba-segmented__option--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ba-segmented__hint {
+    font-size: 0.85rem;
+    margin-left: 4px;
+    color: var(--ui-text-disabled);
+}
+

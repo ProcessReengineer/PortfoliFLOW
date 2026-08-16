@@ -1,0 +1,80 @@
+{# Briefing section body (ADR-0089) — status tiles plus the calm-by-default
+   card feed.
+
+   Structure: four status tiles, then a toolbar (which now only receives the
+   "Request analysis" confirmation — the button itself lives in the fourth
+   tile), then the feed fragment. The feed fragment is a separate include so
+   a resolution POST can swap just the feed (#dc-briefing-feed) and leave the
+   rest in place. Context:
+     tiles            — the four derived status tiles (see _build_tiles).
+     cards            — list of projected card dicts (may be empty → calm).
+     schedule_exists  — whether the "Request analysis" button renders.
+     monitor          — the live "What Irene watches" projection (DC2).
+     csrf_token       — session CSRF token for the action forms. #}
+<div id="dc-briefing" class="pf-dc-briefing">
+    {# Status tiles. Every figure is derived at request time from existing
+       tables — no summary row is persisted. #}
+    <div class="pf-dc-tiles">
+        <div class="pf-dc-tile">
+            <span class="pf-dc-tile__label">Last beat</span>
+            {% if tiles.last_beat.ran %}
+                <span class="pf-dc-tile__value"><span class="dot"></span>{{ tiles.last_beat.time }}</span>
+                <span class="pf-dc-tile__sub">{{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }}</span>
+            {% else %}
+                {# Never-ran state: no dot, no findings count — a beat that
+                   has not happened surfaced nothing, and must not look as
+                   though it ran and found nothing. #}
+                <span class="pf-dc-tile__value">Never ran yet</span>
+                <span class="pf-dc-tile__sub">No analysis beat has completed for this tenant yet.</span>
+            {% endif %}
+        </div>
+
+        <div class="pf-dc-tile">
+            <span class="pf-dc-tile__label">Subjects watched</span>
+            <span class="pf-dc-tile__value">{{ tiles.subjects.value }}</span>
+            <span class="pf-dc-tile__sub">{{ tiles.subjects.sub }}</span>
+        </div>
+
+        <div class="pf-dc-tile">
+            <span class="pf-dc-tile__label">Open findings</span>
+            <span class="pf-dc-tile__value">{{ tiles.open_findings.total }}</span>
+            {% if tiles.open_findings.bands %}
+                <span class="pf-dc-tile__sub">
+                    {%- for band in tiles.open_findings.bands -%}
+                        {% if not loop.first %} · {% endif %}
+                        <span class="{{ band.css }}">{{ band.text }}</span>
+                    {%- endfor -%}
+                </span>
+            {% endif %}
+        </div>
+
+        <div class="pf-dc-tile pf-dc-tile--action">
+            {# Included rather than inlined so the "Request analysis" enqueue
+               can swap this label out of band by id. #}
+            {% include "_partials/watch_desk_briefing_next_beat.html" %}
+            {% if schedule_exists %}
+                <form hx-post="/api/watch-desk/request-analysis"
+                      hx-target="#dc-briefing-toolbar"
+                      hx-swap="innerHTML">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="pf-dc-request">
+                        Request analysis now
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Kept as the swap target for the "Request analysis" confirmation; the
+       button it used to hold now lives in the fourth tile. DC5 reconciles
+       this container with the tile layout. #}
+    <div id="dc-briefing-toolbar" class="pf-dc-briefing__toolbar"></div>
+
+    {% include "_partials/watch_desk_briefing_feed.html" %}
+
+    {# The live monitor sits beneath the cards (DC2): what Irene watches,
+       computed now via the limits engine rather than read from the beat's
+       snapshot. Part of the Briefing body, so it lazy-loads in the same
+       request and the same tenant context. #}
+    {% include "_partials/watch_desk_monitor.html" %}
+</div>

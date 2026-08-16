@@ -1,0 +1,49 @@
+{# Recently-closed surface (ADR-0107, C2) — the reviewer's view.
+
+   Up to five most-recently-closed cases (the repository caps and orders;
+   the route never re-sorts). Each row: badge, title, owner (closed_by),
+   closed date, and a closing-note excerpt truncated here in the template
+   (never in the data — the full note lives on the DTO). Each row links to
+   its detail view (C3a) and carries a Journal deep link (C4, binding
+   decision 2) back to the Watch Desk's Journal section.
+
+   The detail link wraps the row's content as a ``display:contents`` anchor
+   so the Journal link can be a valid sibling (a nested ``<a>`` inside an
+   ``<a>`` is invalid HTML); the whole row still reads as one card.
+
+   Context: cases — list of projected closed-case dicts (badge, title,
+   owner, closed_date, closing_note, href); journal_href — the deep-link
+   target. #}
+<div class="pf-cases__list-wrap">
+    {% if cases %}
+        <div class="pf-case-list">
+            {% for case in cases %}
+                <div class="pf-case-row pf-case-row--closed"
+                     data-case-number="{{ case.badge }}">
+                    <a class="pf-case-row__link" href="{{ case.href }}">
+                        <span class="pf-case-row__id">{{ case.badge }}</span>
+                        <div class="pf-case-row__main">
+                            <div class="pf-case-row__title">{{ case.title }}</div>
+                            <div class="pf-case-row__origin">
+                                closed {{ case.closed_date }}
+                                {% if case.closing_note %}
+                                    · &ldquo;{{ case.closing_note | truncate(90, True, '…') }}&rdquo;
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="state state--closed">Closed</span>
+                    </a>
+                    <span class="pf-case-row__meta">
+                        <span class="owner">{{ case.owner }}</span>
+                        {% include "_partials/cases_journal_link.html" %}
+                    </span>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="pf-empty-state">
+            No cases closed yet — closed cases land here as you work the open
+            ones to a documented close.
+        </p>
+    {% endif %}
+</div>

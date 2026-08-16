@@ -1,0 +1,35 @@
+# Secrets
+.env
+
+# Data files
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code settings — session permission logs and local filesystem paths
+.claude/settings.json
+**/.claude/settings.local.json
+
+# Repomix snapshots (generated for architecture reviews — never committed)
+repomix-output.xml
+repomix-output.*.xml
+repomix-output.xml
+repomix-output.tar.gz
+node_modules/

@@ -1,0 +1,29 @@
+{# Back Office area body. See _front_office_body.html for the
+   pattern. #}
+<div class="pf-area" data-area="back_office">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Back Office</h1>
+        <p class="pf-area__subtitle">
+            Operations and reporting — strategic asset allocation,
+            benchmarks &amp; attribution, and investment limits.
+        </p>
+    </header>
+
+    {% with section_slug="saa",
+            section_title="Strategic Asset Allocation",
+            section_body_template="_partials/saa_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="benchmarks-attribution",
+            section_title="Benchmarks & Attribution",
+            section_body_template="_partials/benchmarks_attribution_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="limits",
+            section_title="Investment Limits",
+            section_body_template="_partials/limits_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

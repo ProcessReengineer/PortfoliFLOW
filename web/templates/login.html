@@ -1,0 +1,42 @@
+{% extends "_auth_base.html" %}
+
+{% block title %}Sign in — PortfoliFLOW{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/login.css">
+{% endblock %}
+
+{% block content %}
+    <section class="login-page" aria-labelledby="login-title">
+        <div class="login-card">
+            <h1 id="login-title" class="login-card__title">PortfoliFLOW</h1>
+            <p class="login-card__subtitle">Sign in to continue.</p>
+
+            {% if error %}
+                <div class="alert alert--error" role="alert">{{ error }}</div>
+            {% endif %}
+
+            <form method="post" action="/login" autocomplete="on">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <div class="field">
+                    <label class="field__label" for="email">Email</label>
+                    <input class="field__input" type="email" id="email" name="email"
+                           required autocomplete="username"
+                           value="{{ email or '' }}">
+                </div>
+
+                <div class="field">
+                    <label class="field__label" for="password">Password</label>
+                    <input class="field__input" type="password" id="password"
+                           name="password" required autocomplete="current-password">
+                </div>
+
+                <button type="submit"
+                        class="btn btn--primary login-card__submit">
+                    Sign in
+                </button>
+            </form>
+        </div>
+    </section>
+{% endblock %}

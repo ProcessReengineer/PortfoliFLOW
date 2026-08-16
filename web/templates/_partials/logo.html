@@ -1,0 +1,23 @@
+{# PortfoliFLOW logo — canonical PNG asset (mark plus wordmark).
+
+   Emits the inner content only; the caller provides the wrapper
+   element and its layout class (e.g. ``pf-sidebar__brand`` in the
+   authenticated shell, ``pf-auth__brand`` on the auth surface). That
+   way the same logo treatment can sit in different layouts without
+   duplicating the markup.
+
+   Variants:
+     ``full``      — mark + wordmark (default). Used in the expanded
+                     sidebar brand block and the auth-surface brand bar.
+     ``mark-only`` — same image today; visual refinement (e.g.
+                     ``object-fit: cover`` cropping to the eye-mark)
+                     is deferred. Used by the collapsed sidebar.
+
+   The wordmark is baked into the PNG, so this partial renders a
+   single ``<img>``; the ``alt`` text carries the brand name for
+   assistive tech, and the variant class is exposed for any future
+   per-state CSS treatment. #}
+{% set _variant = variant | default("full") %}
+<img class="pf-logo__img pf-logo__img--{{ _variant }}"
+     src="/static/img/portfoliflow-logo.png"
+     alt="PortfoliFLOW">

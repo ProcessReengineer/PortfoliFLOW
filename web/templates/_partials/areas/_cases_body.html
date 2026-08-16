@@ -1,0 +1,52 @@
+{# Cases area body — the eighth Area (ADR-0107). See
+   _watch_desk_body.html for the pattern: a pf-area header plus one
+   section block per surface, each lazy-loading its body over HTMX.
+
+   Three surfaces (ADR-0107, C2), in list order: Open cases (the to-do
+   list), Recently closed (the reviewer's view), Archive (closed-case
+   search). Rows link through to the case detail view (C3a, /cases/{id}).
+
+   "New case" (top-right, per the mock) opens the manual-creation form into
+   the always-present #cases-new-case-slot below the header; the slot is
+   static (not inside a lazy section) so the header button can target it
+   reliably regardless of section-reveal timing. #}
+<div class="pf-area pf-cases" data-area="cases">
+    <header class="pf-area__header">
+        <div>
+            <h1 class="pf-area__title">Cases</h1>
+            <p class="pf-area__subtitle">
+                Open questions about the portfolio, worked to a documented
+                close — your to-do list in front, your decision log behind.
+            </p>
+        </div>
+        <button type="button"
+                class="pf-cases__new-btn"
+                hx-get="/api/cases/new"
+                hx-target="#cases-new-case-slot"
+                hx-swap="innerHTML">
+            New case
+        </button>
+    </header>
+
+    {# The manual-creation form renders here; empty until "New case" is
+       clicked, and cleared again once a case is created. #}
+    <div id="cases-new-case-slot"></div>
+
+    {% with section_slug="open-cases",
+            section_title="Open Cases",
+            section_body_template="_partials/cases_open_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="recently-closed",
+            section_title="Recently Closed",
+            section_body_template="_partials/cases_recently_closed_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="archive",
+            section_title="Archive",
+            section_body_template="_partials/cases_archive_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

@@ -1,0 +1,16 @@
+{# Report Scraper section lazy-load shell.
+
+   Mirrors charts_section_lazy.html: on first visibility, HTMX fetches
+   /scraper/section and replaces this wrapper with the rendered form.
+   ``hx-swap="outerHTML"`` is load-bearing — the lazy container must
+   not survive the swap. #}
+
+<div class="pf-section__lazy"
+     hx-get="/scraper/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading scraper&hellip;
+    </p>
+</div>

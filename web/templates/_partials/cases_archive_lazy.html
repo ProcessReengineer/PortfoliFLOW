@@ -1,0 +1,14 @@
+{# Archive section lazy-load shell (ADR-0107). On reveal HTMX fetches the
+   collapsed search panel (GET /api/cases/archive with no ``q``) and replaces
+   this wrapper via ``hx-swap="outerHTML"``. Entering a query then hits the
+   same endpoint with ``q`` set and renders result rows into the panel's
+   results container. See cases_open_lazy.html for the pattern. #}
+<div class="pf-section__lazy"
+     hx-get="/api/cases/archive"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading archive&hellip;
+    </p>
+</div>

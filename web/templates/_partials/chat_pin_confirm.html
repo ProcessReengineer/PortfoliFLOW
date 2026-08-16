@@ -1,0 +1,19 @@
+{# Pin confirmation (ADR-0107 C6; shared with ADR-0114's chart pin) — swapped
+   into #chat-pin-dialog on a successful pin. A quiet confirmation in place, not
+   a navigation away: the conversation stays where it is so the PM can keep
+   consulting. The link opens the case the artefact now lives on.
+
+   Context: pinned_label ("Excerpt" / "Chart"), case_badge, case_href, pin_url.
+   ``pin_url`` is the flow's own endpoint, so Dismiss cancels the dialog it
+   came from. #}
+<div class="chat-pin-confirm" role="status">
+    <span class="chat-pin-confirm__icon" aria-hidden="true">&#10003;</span>
+    <span class="chat-pin-confirm__text">
+        {{ pinned_label or 'Excerpt' }} pinned to
+        <a class="chat-pin-confirm__case" href="{{ case_href }}">{{ case_badge }}</a>.
+    </span>
+    <button type="button" class="btn btn--ghost chat-pin-confirm__dismiss"
+            hx-get="{{ pin_url }}?cancel=1"
+            hx-target="#chat-pin-dialog"
+            hx-swap="innerHTML">Dismiss</button>
+</div>

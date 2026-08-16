@@ -1,0 +1,62 @@
+{# Base layout for the super-admin surface.
+
+   The platform-admin surface is distinct from the five operational
+   Areas — it has no sidebar nav (super-admins are not tenant users),
+   no tenant context, and a slim header that names the operator and
+   reminds them of the no-tenant-data invariant from ADR-0064 §1.
+
+   The shell's sidebar still renders (via base.html), but the sidebar
+   only shows tenant-area links to tenant users; for super-admin
+   sessions it shows the conditional "Platform Admin" link. The body
+   of every super-admin page extends this template via
+   ``{% extends "super_admin/base.html" %}``. #}
+{% extends "base.html" %}
+
+{% block title %}Platform Administration — PortfoliFLOW{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/super_admin.css">
+{% endblock %}
+
+{% block content %}
+<div class="sa-area" data-area="super_admin">
+    <header class="sa-header">
+        <h1 class="sa-header__title">Platform Administration</h1>
+        {% if user_email %}
+            <span class="sa-header__user" title="{{ user_email }}">
+                {{ user_email }}
+            </span>
+        {% endif %}
+        <p class="sa-header__subtitle">
+            Tenant management and super-admin user administration.
+            Per ADR-0064 §1, this surface does not expose tenant data —
+            the only sanctioned tenant-data access path is the
+            <code>portfoliflow inspect-tenant</code> CLI.
+        </p>
+    </header>
+
+    <nav class="sa-nav" aria-label="Super-admin sections">
+        <a href="/super-admin/tenants"
+           class="sa-nav__link{% if active_sa_tab == 'tenants' %} sa-nav__link--active{% endif %}">
+            Tenants
+        </a>
+        <a href="/super-admin/users"
+           class="sa-nav__link{% if active_sa_tab == 'users' %} sa-nav__link--active{% endif %}">
+            Super-Admins
+        </a>
+    </nav>
+
+    {% if error %}
+        <div class="sa-banner sa-banner--error" role="alert">
+            {{ error }}
+        </div>
+    {% endif %}
+    {% if message %}
+        <div class="sa-banner sa-banner--success" role="status">
+            {{ message }}
+        </div>
+    {% endif %}
+
+    {% block sa_content %}{% endblock %}
+</div>
+{% endblock %}

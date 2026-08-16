@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Investments — PortfoliFLOW{% endblock %}
+
+{% block tagline %}Front Office · Investments{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/investments.css">
+{% endblock %}
+
+{% block content %}
+<section class="inv-page" aria-labelledby="inv-list-title">
+    <header class="inv-header">
+        <h1 id="inv-list-title" class="inv-header__title">Investments</h1>
+        <p class="inv-header__subtitle">
+            Per-tenant catalogue of investments with their NAV history
+            and cashflow events. The Excel-import workflow is the
+            primary entry point; this page is the developer and
+            maintenance surface for individual edits.
+        </p>
+    </header>
+
+    <form id="inv-filter-form" class="inv-filter-row" method="GET" action="/investments">
+        <label class="inv-filter-row__field">
+            <span>Type</span>
+            <select name="type">
+                <option value="">All types</option>
+                {% for t in investment_types %}
+                    <option value="{{ t }}" {% if filter.type == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="inv-filter-row__field">
+            <span>Asset Class</span>
+            <select name="asset_class_id">
+                <option value="">All asset classes</option>
+                {% for ac in asset_classes %}
+                    <option value="{{ ac.id }}"
+                        {% if filter.asset_class_id == ac.id %}selected{% endif %}>
+                        {{ ac.display_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="inv-filter-row__field inv-filter-row__field--check">
+            <input type="checkbox" name="active_only" value="true"
+                   {% if filter.active_only %}checked{% endif %}>
+            <span>Active only</span>
+        </label>
+        <button type="submit" class="btn">Apply filters</button>
+        <a href="/investments" class="btn btn--ghost">Reset</a>
+    </form>
+
+    <div class="inv-list-actions">
+        <a href="/investments/new" class="btn btn--primary">+ New Investment</a>
+    </div>
+
+    {% if investments %}
+        <div id="investments-table" aria-label="Investments"></div>
+    {% else %}
+        <p class="inv-empty">
+            No investments match the current filters. Use
+            <strong>+ New Investment</strong> to create one.
+        </p>
+    {% endif %}
+</section>
+
+<script>
+(function () {
+    "use strict";
+
+    function getCSRFToken() {
+        const meta = document.querySelector("meta[name='csrf-token']");
+        return meta ? meta.getAttribute("content") : "";
+    }
+
+    async function deleteInvestment(id) {
+        if (!confirm("Delete this investment? NAVs and cashflows will be removed too.")) return;
+        const response = await fetch("/investments/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": getCSRFToken() },
+        });
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            let body = null;
+            try { body = await response.json(); } catch (e) {}
+            alert("Deletion failed: " + ((body && body.detail) || response.status));
+        }
+    }
+
+    async function setActive(id, isActive) {
+        const verb = isActive ? "Reactivate" : "Soft-delete (mark inactive)";
+        if (!confirm(verb + " this investment?")) return;
+        const response = await fetch(
+            "/investments/" + encodeURIComponent(id) + "/active",
+            {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify({ is_active: isActive }),
+            }
+        );
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            alert("Action failed (" + response.status + ").");
+        }
+    }
+
+    {% if investments %}
+    const data = {{ investments | tojson }};
+    new Tabulator("#investments-table", {
+        data: data,
+        layout: "fitColumns",
+        placeholder: "No investments.",
+        columns: [
+            {
+                title: "Name",
+                field: "name",
+                sorter: "string",
+                widthGrow: 2,
+                formatter: function (cell) {
+                    const id = cell.getRow().getData().id;
+                    const name = String(cell.getValue() || "");
+                    const safe = name
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                    return '<a href="/investments/' + id + '">' + safe + "</a>";
+                },
+            },
+            {
+                title: "Type",
+                field: "investment_type",
+                sorter: "string",
+                width: 150,
+            },
+            {
+                title: "Asset Class",
+                field: "asset_class_name",
+                sorter: "string",
+                widthGrow: 1,
+            },
+            {
+                title: "Currency",
+                field: "currency",
+                sorter: "string",
+                width: 100,
+                hozAlign: "center",
+            },
+            {
+                title: "Vintage",
+                field: "vintage_year",
+                sorter: "number",
+                width: 90,
+                hozAlign: "right",
+            },
+            {
+                title: "Active",
+                field: "is_active",
+                sorter: "boolean",
+                width: 100,
+                hozAlign: "center",
+                formatter: function (cell) {
+                    return cell.getValue()
+                        ? '<span class="badge-active">Active</span>'
+                        : '<span class="badge-inactive">Inactive</span>';
+                },
+            },
+            {
+                title: "Actions",
+                field: "_actions",
+                width: 240,
+                hozAlign: "center",
+                headerSort: false,
+                formatter: function (cell) {
+                    const row = cell.getRow().getData();
+                    const buttons = [];
+                    buttons.push(
+                        '<a class="btn btn--ghost inv-row-action-btn"'
+                        + ' href="/investments/' + row.id + '/edit">Edit</a>'
+                    );
+                    if (row.is_active) {
+                        buttons.push(
+                            '<button type="button"'
+                            + ' class="inv-row-action-btn inv-row-action-btn--deactivate"'
+                            + ' data-id="' + row.id + '"'
+                            + ' data-action="deactivate">Deactivate</button>'
+                        );
+                    } else {
+                        buttons.push(
+                            '<button type="button"'
+                            + ' class="inv-row-action-btn inv-row-action-btn--activate"'
+                            + ' data-id="' + row.id + '"'
+                            + ' data-action="activate">Activate</button>'
+                        );
+                    }
+                    buttons.push(
+                        '<button type="button"'
+                        + ' class="inv-row-action-btn inv-row-action-btn--delete"'
+                        + ' data-id="' + row.id + '"'
+                        + ' data-action="delete">Delete</button>'
+                    );
+                    return buttons.join(" ");
+                },
+                cellClick: function (e, cell) {
+                    const target = e.target;
+                    if (target.tagName === "A") return;
+                    if (!target.classList.contains("inv-row-action-btn")) return;
+                    const action = target.getAttribute("data-action");
+                    const id = target.getAttribute("data-id");
+                    if (!action || !id) return;
+                    if (action === "delete") deleteInvestment(id);
+                    else if (action === "activate") setActive(id, true);
+                    else if (action === "deactivate") setActive(id, false);
+                },
+            },
+        ],
+        initialSort: [
+            { column: "is_active", dir: "desc" },
+            { column: "name", dir: "asc" },
+        ],
+    });
+    {% endif %}
+})();
+</script>
+{% endblock %}

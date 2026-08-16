@@ -1,0 +1,368 @@
+/* Investment Limits section — Kickoff #3b.
+ *
+ * Embedded under /back-office#limits. Classes are prefixed .lim- to
+ * avoid cascade collisions with the other section components. Status
+ * badge variants ride the canonical chart-colour palette via the
+ * theme.css custom-property bridge — see config/chart_theme.json. */
+
+.lim-section {
+    max-width: 1400px;
+}
+
+.lim-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.lim-controls__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.lim-controls__field input[type="date"] {
+    padding: 4px 6px;
+    background: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    min-width: 160px;
+}
+
+/* KPI strip ------------------------------------------------------- */
+
+.lim-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.lim-strip__card {
+    background: var(--chart-colours-plot-area);
+    border: 1px solid var(--chart-colours-axis-line);
+    border-radius: 4px;
+    padding: 12px 14px;
+}
+
+.lim-strip__label {
+    font-size: 0.75rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.lim-strip__value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--chart-colours-text);
+    margin-top: 4px;
+}
+
+.lim-strip__card--warn .lim-strip__value {
+    color: var(--chart-colours-quaternary);
+}
+
+.lim-strip__card--breach .lim-strip__value {
+    color: var(--chart-colours-primary);
+}
+
+.lim-meta {
+    margin: 0 0 16px;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Family blocks --------------------------------------------------- */
+
+.lim-family {
+    margin-bottom: 32px;
+}
+
+.lim-family__title {
+    font-size: 1.1rem;
+    margin: 0 0 12px;
+    color: var(--chart-colours-text);
+}
+
+.lim-family__empty,
+.lim-chart__empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    margin: 8px 0;
+}
+
+/* Coverage tables (Tabulator) ------------------------------------ */
+
+.lim-coverage-table {
+    margin-bottom: 16px;
+}
+
+/* The Tabulator-rendered Coverage cell carries data-magnitude-bucket
+ * via the formatter callback (Step 4 in the migration prompt). The
+ * tinting rules below mirror the .ba-* heatmap implementation
+ * exactly so the visual language is identical across surfaces. */
+
+.lim-coverage-table .tabulator-cell[data-magnitude-bucket="pos-strong"] {
+    background-color: var(--ui-semantic-table-pos-bg-dark);
+}
+
+.lim-coverage-table .tabulator-cell[data-magnitude-bucket="pos-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-pos-bg-dark) 50%, transparent
+    );
+}
+
+.lim-coverage-table .tabulator-cell[data-magnitude-bucket="neg-strong"] {
+    background-color: var(--ui-semantic-table-neg-bg-dark);
+}
+
+.lim-coverage-table .tabulator-cell[data-magnitude-bucket="neg-mild"] {
+    background-color: color-mix(
+        in srgb, var(--ui-semantic-table-neg-bg-dark) 50%, transparent
+    );
+}
+
+.lim-coverage-table .tabulator-cell[data-magnitude-bucket="neutral"] {
+    /* no override — inherits Tabulator default cell background */
+}
+
+/* Row modifier shading for UNALLOCATED / NO_LIMIT rows. Tabulator
+ * fires rowFormatter on every render; the formatter adds the
+ * .lim-row--unallocated / .lim-row--no-limit classes to the row
+ * element. The selectors below apply the visual treatment without
+ * fighting Tabulator's zebra-stripe defaults. */
+
+.lim-coverage-table .tabulator-row.lim-row--unallocated {
+    border-top: 2px solid var(--chart-colours-axis-line);
+}
+
+.lim-coverage-table .tabulator-row.lim-row--unallocated .tabulator-cell,
+.lim-coverage-table .tabulator-row.lim-row--no-limit .tabulator-cell {
+    color: var(--ui-text-secondary);
+}
+
+/* Status cell padding inside Tabulator — the parent .tabulator-cell
+ * already has padding; the badge should sit at full height without
+ * adding more. */
+.lim-coverage-table .tabulator-cell:has(.lim-badge) {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+/* Status badges --------------------------------------------------- */
+
+.lim-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.lim-badge--ok {
+    color: var(--chart-colours-tertiary);
+    background-color: color-mix(
+        in srgb, var(--chart-colours-tertiary) 25%, transparent
+    );
+}
+
+.lim-badge--warn {
+    color: var(--chart-colours-quaternary);
+    background-color: color-mix(
+        in srgb, var(--chart-colours-quaternary) 25%, transparent
+    );
+}
+
+.lim-badge--breach {
+    color: var(--chart-colours-primary);
+    background-color: color-mix(
+        in srgb, var(--chart-colours-primary) 25%, transparent
+    );
+}
+
+.lim-badge--no-limit {
+    color: var(--chart-colours-neutral);
+    background-color: color-mix(
+        in srgb, var(--chart-colours-neutral) 25%, transparent
+    );
+}
+
+.lim-badge--unallocated {
+    color: var(--chart-colours-muted);
+    background-color: color-mix(
+        in srgb, var(--chart-colours-muted) 25%, transparent
+    );
+}
+
+/* Coverage chart -------------------------------------------------- */
+
+.lim-chart {
+    width: 100%;
+    /* Height is controlled by the Plotly figure layout.height
+       computed in build_limits_coverage_spec; do not clamp here. */
+}
+
+/* History browser ------------------------------------------------- */
+
+.lim-history {
+    margin-top: 24px;
+    border: 1px solid var(--chart-colours-axis-line);
+    border-radius: 4px;
+    padding: 8px 12px;
+}
+
+.lim-history > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--chart-colours-text);
+}
+
+.lim-history__family {
+    margin-top: 12px;
+}
+
+.lim-history__family h4 {
+    margin: 8px 0;
+    font-size: 0.95rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.lim-history__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.lim-history__item details {
+    border-top: 1px solid var(--chart-colours-axis-line);
+    padding: 6px 0;
+}
+
+.lim-history__item > details > summary {
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.lim-history__effective {
+    color: var(--ui-text-secondary);
+    font-variant-numeric: tabular-nums;
+    min-width: 96px;
+}
+
+.lim-history__label {
+    color: var(--chart-colours-text);
+}
+
+.lim-history__detail {
+    padding: 8px 12px;
+    background: var(--chart-colours-background);
+}
+
+.lim-history__detail-skeleton {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+.lim-history__empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+/* Set-detail partial --------------------------------------------- */
+
+.lim-set-detail__header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.lim-set-detail__family {
+    font-weight: 700;
+    color: var(--chart-colours-primary);
+}
+
+.lim-set-detail__effective {
+    color: var(--ui-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.lim-set-detail__title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--chart-colours-text);
+}
+
+.lim-set-detail__notes {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    margin: 4px 0;
+}
+
+.lim-set-detail__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.lim-set-detail__table th,
+.lim-set-detail__table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--chart-colours-axis-line);
+}
+
+.lim-set-detail__table td.num,
+.lim-set-detail__table th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Error state ----------------------------------------------------- */
+
+.lim-section--error .lim-error {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--chart-colours-primary);
+    border-radius: 4px;
+    background-color: color-mix(
+        in srgb, var(--chart-colours-primary) 12%, transparent
+    );
+}
+
+.lim-error__title {
+    margin: 0 0 4px;
+    color: var(--chart-colours-primary);
+    font-size: 1rem;
+}
+
+.lim-error__message {
+    margin: 0 0 8px;
+    color: var(--chart-colours-text);
+}
+
+.lim-error__hint {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+/* Empty state ----------------------------------------------------- */
+
+.lim-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    margin: 16px 0;
+}

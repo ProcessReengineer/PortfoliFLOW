@@ -1,0 +1,1132 @@
+/* Planning Desk — the seventh Area (ADR-0104 §4/§6).
+ *
+ * Two idioms live here, both translated from
+ * docs/handover/planning-desk-mockup-v2.html into the house conventions:
+ *
+ *   .pd-paramstrip   — the sticky scenario parameter strip: the parameter set
+ *                      made visible, as removable chips.
+ *   .pd-tl-*, .pd-tl — the Cash Flow Planning lens: controls row, chart frame,
+ *                      balance table with the amber actual/plan seam.
+ *
+ * Reused rather than restated: `.btn` / `.btn--ghost` and `.alert` /
+ * `.alert--error` (base.css), `.pf-plotly-target` and the `.pf-section__lazy`
+ * skeleton (the shared section idiom). The mockup's `.btn`, `.chip`, `.toggle`
+ * and `table.tl` are unprefixed; everything genuinely new here carries the
+ * `.pd-` prefix so it cannot collide across sections — the `.pf-dc-` discipline
+ * of the Watch Desk.
+ *
+ * Colours come from the shell tokens, never from the mockup's literals: its
+ * --accent is --ui-accent-primary, its --warn (the seam) is
+ * --ui-semantic-warning (#FFC107, the same amber), its --muted is
+ * --ui-semantic-muted.
+ */
+
+/* --- The scenario parameter strip ------------------------------------ */
+
+.pd-paramstrip {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 22px;
+    padding: 10px 14px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.pd-paramstrip__label {
+    margin-right: 4px;
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.pd-paramstrip__empty {
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+.pd-paramstrip__empty--unreadable {
+    color: var(--ui-semantic-warning);
+}
+
+.pd-paramstrip__spacer {
+    flex: 1;
+}
+
+/* --- Chips: one per overlay transformation --------------------------- */
+
+.pd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px 3px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 14px;
+    background: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    font-size: 0.78rem;
+}
+
+.pd-chip--txn {
+    border-color: #25384a;
+    background: #161d26;
+    color: #b6d4f0;
+}
+
+.pd-chip--pacing {
+    border-color: #254a30;
+    background: #16211a;
+    color: #b6f0c4;
+}
+
+/* Both shock kinds share one chip — the mockup's chip--shock. Accent-tinted
+ * from the shell tokens (never the mockup's rose literal): a shock is the
+ * surface's own transformation, so it wears the surface's accent. */
+.pd-chip--shock {
+    border-color: var(--ui-accent-primary);
+    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    color: var(--ui-accent-primary);
+}
+
+/* Baseline view: the set is still the page state, it is simply not applied. */
+.pd-chip.is-muted {
+    opacity: 0.45;
+}
+
+.pd-chip__x {
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--ui-semantic-muted);
+    font: inherit;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.pd-chip__x:hover {
+    color: var(--ui-accent-primary);
+}
+
+/* --- Toggles (Baseline/Scenario, periodisation, horizon, currency) ---- */
+
+.pd-toggle {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.pd-toggle__opt {
+    padding: 4px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--ui-text-secondary);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.pd-toggle__opt:hover:not(.is-on) {
+    background: var(--pf-bg-hover, #222222);
+    color: var(--ui-text-primary);
+}
+
+.pd-toggle__opt.is-on {
+    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    color: var(--ui-accent-primary);
+    font-weight: 600;
+    cursor: default;
+}
+
+.pd-toggle--disabled {
+    opacity: 0.45;
+}
+
+.pd-toggle--disabled .pd-toggle__opt {
+    cursor: default;
+}
+
+/* --- The Cash Flow Planning lens -------------------------------------- */
+
+.pd-cfp {
+    max-width: 1100px;
+}
+
+.pd-tl-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.pd-tl-note {
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+}
+
+.pd-tl-chart {
+    margin-bottom: 14px;
+    padding: 14px 14px 8px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+}
+
+.pd-tl-tablewrap {
+    overflow-x: auto;
+}
+
+/* --- The balance table ------------------------------------------------ */
+
+table.pd-tl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+table.pd-tl th,
+table.pd-tl td {
+    padding: 7px 10px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+table.pd-tl th:first-child,
+table.pd-tl td:first-child {
+    text-align: left;
+    font-weight: 400;
+    color: var(--ui-text-secondary);
+}
+
+table.pd-tl thead th {
+    color: var(--ui-text-secondary);
+    font-weight: 500;
+    font-size: 0.75rem;
+}
+
+.pd-tl__kind {
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+}
+
+.pd-tl__hint {
+    color: var(--ui-text-secondary);
+    font-size: 0.72rem;
+}
+
+/* The seam: one amber rule, actuals left, plan right (ADR-0104 §6). It is
+ * drawn on the first *plan* column, so it lands exactly between the two sides
+ * — the same rule the chart draws as a dashed vline. */
+table.pd-tl th.pd-seam-l,
+table.pd-tl td.pd-seam-l {
+    border-left: 2px solid var(--ui-semantic-warning);
+}
+
+.pd-actcell {
+    color: var(--ui-text-primary);
+}
+
+/* Plan cells read as projections, not as statements. */
+.pd-plancell {
+    color: #9fb2c2;
+    font-style: italic;
+}
+
+table.pd-tl tr.pd-rowgroup th,
+table.pd-tl tr.pd-rowgroup td {
+    background: #101418;
+    color: #cfd6dd;
+    font-weight: 600;
+}
+
+.pd-badge-cur {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 5px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    color: var(--ui-text-secondary);
+    font-size: 0.68rem;
+}
+
+.pd-fnote {
+    max-width: 90ch;
+    margin-top: 8px;
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+/* --- Drawdown pacing rows (mockup ③) ---------------------------------- */
+
+.pd-pace {
+    margin-top: 24px;
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 16px;
+}
+
+.pd-pace__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.pd-pace__title {
+    margin: 0;
+    font-size: 0.94rem;
+}
+
+.pd-pace__hint {
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+}
+
+.pd-pace__row {
+    display: grid;
+    grid-template-columns: 220px 1fr 150px 90px;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--ui-border-default);
+    padding: 10px 0;
+}
+
+.pd-pace__row:last-child {
+    border-bottom: 0;
+}
+
+.pd-pace__name {
+    font-weight: 600;
+}
+
+.pd-pace__meta,
+.pd-pace__note {
+    color: var(--ui-text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.4;
+}
+
+/* The off-slider case: the set says something no slider position states. */
+.pd-pace__note {
+    margin-top: 2px;
+    color: var(--ui-accent-primary);
+}
+
+.pd-pace__slider {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pd-slider {
+    width: 100%;
+    accent-color: var(--ui-accent-primary);
+    cursor: pointer;
+}
+
+.pd-slider.is-off {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+.pd-pace__scale {
+    display: flex;
+    justify-content: space-between;
+    color: var(--ui-text-secondary);
+    font-size: 0.66rem;
+}
+
+.pd-pace__val {
+    text-align: right;
+    font-size: 0.8rem;
+}
+
+.pd-pace__val.is-muted {
+    color: var(--ui-text-secondary);
+}
+
+.pd-pace__factor {
+    display: block;
+    color: var(--ui-text-secondary);
+    font-size: 0.7rem;
+}
+
+.pd-pace__reset {
+    text-align: right;
+}
+
+@media (max-width: 900px) {
+    .pd-pace__row {
+        grid-template-columns: 1fr;
+    }
+
+    .pd-pace__val,
+    .pd-pace__reset {
+        text-align: left;
+    }
+}
+
+/* --- Hypothetical transactions (mockup ④) ------------------------------ */
+
+.pd-hyp {
+    margin-top: 24px;
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 16px;
+}
+
+/* Beside a refusal notice the block carries the form alone — there is no rule
+ * to draw under an error the operator is already looking at. */
+.pd-hyp--refused {
+    margin-top: 16px;
+    border-top: 0;
+    padding-top: 0;
+}
+
+.pd-hyp__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.pd-hyp__title {
+    margin: 0;
+    font-size: 0.94rem;
+}
+
+.pd-hyp__hint {
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+}
+
+.pd-hyp__empty {
+    margin: 6px 0 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+.pd-hyp__tablewrap {
+    overflow-x: auto;
+}
+
+/* --- The entry form: a native disclosure, opened by the server ---------- */
+
+.pd-hyp__add {
+    align-self: center;
+}
+
+/* The mockup's "+ Add hypothetical transaction" button *is* the disclosure's
+ * summary: one control, no JS state to keep in step with the server's. The
+ * marker is dropped — a button with a triangle reads as neither. */
+.pd-hyp__summary {
+    display: inline-block;
+    padding: 5px 12px;
+    border: 1px solid var(--ui-accent-primary);
+    border-radius: 6px;
+    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    color: var(--ui-accent-primary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+}
+
+.pd-hyp__summary::-webkit-details-marker {
+    display: none;
+}
+
+.pd-hyp__summary:hover {
+    background: var(--ui-accent-primary);
+    color: var(--ui-background-primary);
+}
+
+.pd-hyp__form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+    padding: 14px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    text-align: left;
+}
+
+.pd-hyp__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.78rem;
+}
+
+.pd-hyp__field > span {
+    color: var(--ui-text-secondary);
+}
+
+.pd-hyp__field input,
+.pd-hyp__field select {
+    padding: 5px 7px;
+    background: var(--ui-background-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    color: var(--ui-text-primary);
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+.pd-hyp__field input[readonly] {
+    color: var(--ui-text-secondary);
+    cursor: not-allowed;
+}
+
+.pd-hyp__hint {
+    color: var(--ui-semantic-muted);
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.pd-hyp__actions {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+}
+
+/* --- The row table: the set's transactions, as the set states them ------ */
+
+table.pd-hyp__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+table.pd-hyp__table th,
+table.pd-hyp__table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    text-align: left;
+    white-space: nowrap;
+}
+
+table.pd-hyp__table th.r,
+table.pd-hyp__table td.r {
+    text-align: right;
+}
+
+table.pd-hyp__table thead th {
+    color: var(--ui-text-secondary);
+    font-weight: 500;
+    font-size: 0.72rem;
+}
+
+/* Cash out of the settling position — the mockup's --err. Cash *in* (a sale)
+ * carries no colour: a balance rising needs no warning. */
+.pd-hyp__out {
+    color: var(--ui-semantic-error);
+}
+
+.pd-hyp__x {
+    padding: 0 6px;
+    line-height: 1.2;
+}
+
+/* The type pill. A type the form cannot enter but a URL may carry renders
+ * unstyled — the set states it, and the table does not censor it. */
+.pd-pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.pd-pill--buy {
+    background: #1a3f1f;
+    color: #8affa0;
+}
+
+.pd-pill--sell {
+    background: #3f1a1f;
+    color: #ff8a8a;
+}
+
+/* AUM invariance is a construction property of the executor (ADR-0104 §2), so
+ * the badge is inert by design: no state, no colour that could ever read as a
+ * computed check that passed. */
+.pd-delta--zero {
+    color: var(--ui-semantic-muted);
+    font-size: 0.72rem;
+}
+
+@media (max-width: 900px) {
+    .pd-hyp__actions {
+        justify-content: flex-start;
+    }
+}
+
+/* --- Error state ------------------------------------------------------- */
+
+.pd-error__title {
+    margin: 0 0 6px;
+    font-size: 0.9rem;
+}
+
+.pd-error__message {
+    margin: 0 0 8px;
+}
+
+.pd-error__hint {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+/* --- Scenario Analysis: the two shock builders + the result region ------ */
+
+.pd-sa {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.pd-sa__lede {
+    max-width: 760px;
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+/* Two cards side by side, folding to one column when the section is narrow —
+ * the mockup's `.shock` grid, made responsive rather than fixed 1fr 1fr. */
+.pd-sa__builders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+}
+
+.pd-shock__card {
+    padding: 14px 16px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+}
+
+.pd-shock__title {
+    margin: 0 0 12px;
+    color: var(--ui-text-primary);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.pd-shock__form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* The mockup's `.field`: a fixed label column, the control filling the rest. */
+.pd-shock__field {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 10px;
+    align-items: center;
+    font-size: 0.78rem;
+}
+
+.pd-shock__field > span {
+    color: var(--ui-text-secondary);
+}
+
+.pd-shock__field select,
+.pd-shock__field input {
+    width: 100%;
+    padding: 5px 7px;
+    background: var(--ui-background-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    color: var(--ui-text-primary);
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+/* Operator and Timing are the single fixed v1 option (E6): muted, un-editable,
+ * plainly not a choice the operator is being asked to make. */
+.pd-shock__field select:disabled {
+    color: var(--ui-text-secondary);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.pd-shock__mag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pd-shock__unit {
+    color: var(--ui-text-secondary);
+}
+
+.pd-shock__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 2px;
+}
+
+.pd-shock__empty {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+/* The result region: filled out of band by the Cash Flow Planning response
+ * (S34.5). A solid border now — it holds a finished surface, not reserved
+ * space; the skeleton line below it stands until the first response arrives. */
+.pd-sa__results {
+    padding: 16px;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+}
+
+.pd-sa__results-title {
+    margin: 0 0 6px;
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.pd-sa__results-empty {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.82rem;
+}
+
+.pd-sa__results-notice {
+    margin: 8px 0 0;
+}
+
+/* --- Scenario Analysis: the impact chart pair ------------------------- */
+
+/* Two panels side by side; they stack on a narrow viewport, where the ghost
+ * line in the scenario panel is what keeps the gap readable. */
+.pd-impact__pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 10px;
+}
+
+.pd-impact__panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 10px 12px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.pd-impact__panel-title {
+    color: var(--ui-text-primary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.pd-impact__chart {
+    width: 100%;
+    min-height: 300px;
+}
+
+.pd-impact__foot {
+    margin: 6px 0 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.78rem;
+}
+
+.pd-impact__foot b {
+    color: var(--ui-text-primary);
+}
+
+.pd-impact__subhead {
+    margin: 18px 0 8px;
+    color: var(--ui-text-primary);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+/* --- The KPI strip: the ADR-0067 pair, always a pair ------------------ */
+
+.pd-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.pd-kpi {
+    padding: 10px 12px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.pd-kpi__label {
+    color: var(--ui-text-secondary);
+    font-size: 0.72rem;
+    margin-bottom: 4px;
+}
+
+.pd-kpi__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Baseline struck through, scenario bold — the pair idiom made visible. */
+.pd-kpi__base {
+    color: var(--ui-text-secondary);
+    font-size: 0.82rem;
+    text-decoration: line-through;
+}
+
+.pd-kpi__scen {
+    color: var(--ui-text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+/* --- The delta badge -------------------------------------------------- */
+
+.pd-delta {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pd-delta--pos {
+    background: var(--ui-semantic-table-pos-bg-dark);
+    color: var(--ui-semantic-success);
+}
+
+.pd-delta--neg {
+    background: var(--ui-semantic-table-neg-bg-dark);
+    color: var(--ui-semantic-error);
+}
+
+.pd-delta--zero {
+    background: var(--ui-background-primary);
+    color: var(--ui-semantic-muted);
+}
+
+/* --- The headroom deltatable ----------------------------------------- */
+
+.pd-deltatable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-top: 6px;
+}
+
+.pd-deltatable th,
+.pd-deltatable td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    text-align: left;
+}
+
+.pd-deltatable th {
+    color: var(--ui-text-secondary);
+    font-weight: 500;
+    font-size: 0.72rem;
+}
+
+.pd-deltatable td {
+    color: var(--ui-text-primary);
+}
+
+.pd-deltatable__r {
+    text-align: right;
+}
+
+.pd-deltatable__empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+/* The utilisation bar: width is the scenario utilisation, colour the engine's
+ * status — a token per status, never a raw hex. */
+.pd-bar {
+    position: relative;
+    height: 8px;
+    min-width: 90px;
+    background: var(--ui-background-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pd-bar__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 4px;
+}
+
+.pd-bar__fill--ok {
+    background: var(--ui-semantic-success);
+}
+
+.pd-bar__fill--warn {
+    background: var(--ui-semantic-warning);
+}
+
+.pd-bar__fill--breach {
+    background: var(--ui-semantic-error);
+}
+
+.pd-bar__fill--muted {
+    background: var(--ui-semantic-muted);
+}
+
+/* The Δ column reads as plain coloured text (not a badge) — the table is dense
+ * enough that a badge per row would fight the bars. */
+.pd-delta-text--pos {
+    color: var(--ui-semantic-success);
+}
+
+.pd-delta-text--neg {
+    color: var(--ui-semantic-error);
+}
+
+.pd-delta-text--zero {
+    color: var(--ui-semantic-muted);
+}
+
+/* --- The composition drill-down (the lazy second partial) ------------- */
+
+.pd-comp {
+    margin-top: 6px;
+}
+
+.pd-comp__detail {
+    margin-top: 4px;
+}
+
+.pd-comp__notice {
+    margin: 6px 0 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+/* A composition share moving up or down is directionless — neither good nor
+ * bad — so its Δ stays muted, distinct from the KPI/headroom judgment colours. */
+.pd-comp__delta {
+    color: var(--ui-text-secondary);
+}
+
+@media (max-width: 900px) {
+    .pd-impact__pair {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* --- Scenario-snapshot capture (ADR-0107 C5) -------------------------- */
+
+/* The results head carries the title on the left and, when a case marker is in
+ * force, the "Capturing for" chip on the right. */
+.pd-sa__results-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* The "Capturing for CASE-NNNN" chip — an accent-tinted pill; navigation
+ * context, so it reads as a quiet banner rather than a scenario parameter. */
+.pd-capturing {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 5px 3px 11px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    color: var(--ui-text-secondary);
+    background: color-mix(in srgb, var(--ui-accent-primary) 10%, transparent);
+    border: 1px solid
+        color-mix(in srgb, var(--ui-accent-primary) 40%, transparent);
+}
+
+.pd-capturing__case {
+    font-weight: 600;
+    color: var(--ui-accent-primary);
+    text-decoration: none;
+}
+
+.pd-capturing__case:hover {
+    text-decoration: underline;
+}
+
+.pd-capturing__title {
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ui-text-disabled);
+}
+
+.pd-capturing__dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    color: var(--ui-text-secondary);
+    background: transparent;
+    border: none;
+    font-size: 0.7rem;
+    line-height: 1;
+}
+
+.pd-capturing__dismiss:hover {
+    color: var(--ui-text-primary);
+    background: color-mix(in srgb, var(--ui-accent-primary) 18%, transparent);
+}
+
+/* The "Pin to case…" affordance sits below the composition drill-down; the
+ * dialog swaps into #pd-pin-dialog beside the button, which stays put so a
+ * success confirmation leaves it in place. */
+.pd-pin {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.pd-pin__dialog:not(:empty) {
+    align-self: stretch;
+}
+
+/* The dialog — the Desk's framed-form look (mirrors .pd-shock__card), reusing
+ * the field grid the shock builders established. */
+.pd-pin-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+}
+
+.pd-pin-dialog__title {
+    margin: 0;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--ui-text-primary);
+}
+
+.pd-pin-dialog__error {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--ui-semantic-error);
+}
+
+.pd-pin-dialog__empty {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+    line-height: 1.4;
+}
+
+.pd-pin-dialog__field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 0.78rem;
+}
+
+.pd-pin-dialog__label {
+    color: var(--ui-text-secondary);
+}
+
+.pd-pin-dialog__input {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--ui-background-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    color: var(--ui-text-primary);
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+textarea.pd-pin-dialog__input {
+    resize: vertical;
+}
+
+.pd-pin-dialog__input:focus {
+    border-color: var(--ui-accent-primary);
+}
+
+.pd-pin-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* The quiet in-place confirmation that replaces the dialog on a successful
+ * pin — a success tint, a link to the case, and a dismiss. */
+.pd-pin-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+    background: color-mix(in srgb, var(--ui-semantic-success) 8%, transparent);
+    border: 1px solid
+        color-mix(in srgb, var(--ui-semantic-success) 35%, transparent);
+}
+
+.pd-pin-confirm__icon {
+    color: var(--ui-semantic-success);
+    font-weight: 700;
+}
+
+.pd-pin-confirm__text {
+    flex: 1;
+}
+
+.pd-pin-confirm__case {
+    font-weight: 600;
+    color: var(--ui-accent-primary);
+    text-decoration: none;
+}
+
+.pd-pin-confirm__case:hover {
+    text-decoration: underline;
+}

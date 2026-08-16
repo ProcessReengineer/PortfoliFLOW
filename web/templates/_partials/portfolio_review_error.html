@@ -1,0 +1,42 @@
+{# FX-error state for the Portfolio Review section.
+
+   Rendered by web/routes/portfolio_review.py when the ADR-0099 §4
+   conversion boundary raises MissingFxRateError — a foreign-currency
+   position has no FX rate at or before a date it needs, and the system
+   never defaults a rate to 1:1. The as-of-date form stays present so the
+   operator can narrow the range without leaving the page.
+
+   Context:
+     error_type        — exception class name.
+     error_message     — exception message.
+     as_of_date_input  — ISO date echoed back into the form input. #}
+
+<div class="pr-section pr-section--error" id="pr-section-body">
+
+    <form class="pr-controls"
+          hx-get="/api/portfolio-review/section"
+          hx-target="closest .pf-section__body"
+          hx-swap="innerHTML">
+        <label class="pr-controls__field">
+            <span>As-of date</span>
+            <input type="date"
+                   name="as_of_date"
+                   value="{{ as_of_date_input }}">
+        </label>
+        <button type="submit" class="btn btn--primary">Apply</button>
+    </form>
+
+    <div class="pr-error alert alert--error" role="alert">
+        <h4 class="pr-error__title">{{ error_type }}</h4>
+        <p class="pr-error__message">{{ error_message }}</p>
+        <p class="pr-error__hint">
+            A foreign-currency position needs an FX rate this portfolio
+            cannot supply, and rates are never defaulted to 1:1
+            (ADR-0099 §3). Add the missing rate to the
+            <code>FX rates</code> sheet and re-import via the
+            <a href="/admin#data-import">Data Import</a>, or restrict the
+            as-of date to a range your FX rates already cover.
+        </p>
+    </div>
+
+</div>

@@ -1,0 +1,74 @@
+[
+  {
+    "code": "equities",
+    "display_name": "Listed Equities (broad)",
+    "description": "Listed equities — global developed-market mandates without explicit emerging-market carve-out.",
+    "sort_order": 10
+  },
+  {
+    "code": "equities_em",
+    "display_name": "Listed Equities Emerging Markets",
+    "description": "Listed equities with an emerging-market mandate.",
+    "sort_order": 20
+  },
+  {
+    "code": "gov_bonds_dm",
+    "display_name": "Government Bonds DM",
+    "description": "Developed-market government and supranational bonds.",
+    "sort_order": 30
+  },
+  {
+    "code": "ig_credit",
+    "display_name": "Investment Grade Credit",
+    "description": "Investment-grade corporate and covered bonds.",
+    "sort_order": 40
+  },
+  {
+    "code": "hy_credit",
+    "display_name": "High Yield Credit",
+    "description": "Sub-investment-grade corporate credit.",
+    "sort_order": 50
+  },
+  {
+    "code": "private_equity",
+    "display_name": "Private Equity",
+    "description": "Unlisted equity investments including buyout, growth, and venture strategies.",
+    "sort_order": 60
+  },
+  {
+    "code": "private_debt",
+    "display_name": "Private Debt",
+    "description": "Direct lending, mezzanine, and other private credit strategies.",
+    "sort_order": 70
+  },
+  {
+    "code": "infra_equity",
+    "display_name": "Infrastructure Equity",
+    "description": "Equity investments in infrastructure assets (core, core-plus, value-add).",
+    "sort_order": 80
+  },
+  {
+    "code": "infra_debt",
+    "display_name": "Infrastructure Debt",
+    "description": "Senior and subordinated debt investments in infrastructure assets.",
+    "sort_order": 90
+  },
+  {
+    "code": "real_estate",
+    "display_name": "Real Estate",
+    "description": "Direct and indirect real estate investments across core, core-plus, and value-add strategies.",
+    "sort_order": 100
+  },
+  {
+    "code": "hedge_funds",
+    "display_name": "Hedge Funds",
+    "description": "Hedge-fund and absolute-return strategies.",
+    "sort_order": 110
+  },
+  {
+    "code": "cash",
+    "display_name": "Cash & Money Market",
+    "description": "Cash positions, money-market instruments, and equivalents.",
+    "sort_order": 120
+  }
+]

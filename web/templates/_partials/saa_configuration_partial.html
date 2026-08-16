@@ -1,0 +1,121 @@
+{# SAA configuration body — header + inputs table + correlation
+   matrix + run-optimisation button.
+
+   Context (from web/routes/saa_section.py):
+     csrf_token            — session CSRF token.
+     current_config        — {id, name, is_active, risk_free_rate,
+                              n_frontier_points} for this configuration.
+     inputs                — initial input rows.
+     correlations          — initial correlation pairs.
+     asset_class_lookup    — {id: {id, code, display_name}, …}.
+     asset_class_count     — int. #}
+
+<section class="saa-config" aria-labelledby="saa-config-title-{{ current_config.id }}"
+         data-config-id="{{ current_config.id }}"
+         data-config-is-active="{{ 'true' if current_config.is_active else 'false' }}">
+
+    <header class="saa-header">
+        <h1 id="saa-config-title-{{ current_config.id }}" class="saa-header__title">
+            <input id="saa-config-name"
+                   class="saa-header__name-input"
+                   type="text"
+                   maxlength="200"
+                   value="{{ current_config.name }}"
+                   aria-label="Configuration name">
+            {% if current_config.is_active %}
+                <span class="badge-active" aria-label="Active configuration">Active</span>
+            {% endif %}
+        </h1>
+        <div class="saa-meta-row">
+            <label class="saa-meta-row__field">
+                <span>Risk-Free Rate (%):</span>
+                <input id="saa-risk-free-rate"
+                       type="number"
+                       step="0.01"
+                       min="-5"
+                       max="20"
+                       value="{{ '%.2f' | format(current_config.risk_free_rate * 100) }}"
+                       aria-label="Risk-free rate in percent">
+            </label>
+            <label class="saa-meta-row__field">
+                <span>Frontier Points:</span>
+                <input id="saa-frontier-points"
+                       type="number"
+                       step="10"
+                       min="20"
+                       max="500"
+                       value="{{ current_config.n_frontier_points }}"
+                       aria-label="Number of frontier points">
+            </label>
+            {# The asset-class count is rendered server-side here for the initial
+               paint, then re-computed and updated client-side by
+               buildCorrelationMatrix() on every input-row mutation. The two paths
+               converge after Tabulator's tableBuilt event fires. #}
+            <span>Asset Classes: <strong id="saa-asset-class-count">{{ asset_class_count }}</strong></span>
+        </div>
+    </header>
+
+    <section class="saa-subsection" aria-labelledby="saa-inputs-title-{{ current_config.id }}">
+        <h2 id="saa-inputs-title-{{ current_config.id }}" class="saa-section__title">Asset Class Inputs</h2>
+        <p class="saa-section__hint">
+            Forward-looking expectations and weight bounds. Click any
+            cell to edit. Use the buttons below the table to add or
+            remove rows.
+        </p>
+        <div id="saa-asset-class-inputs-table"></div>
+        <div class="saa-section__actions">
+            <button id="saa-add-input-row-btn" type="button" class="btn">+ Add Asset Class</button>
+        </div>
+    </section>
+
+    <section class="saa-subsection" aria-labelledby="saa-correlations-title-{{ current_config.id }}">
+        <h2 id="saa-correlations-title-{{ current_config.id }}" class="saa-section__title">Correlation Matrix</h2>
+        <p class="saa-section__hint">
+            Pairwise correlations between asset classes. Edit the
+            upper triangle — the lower triangle mirrors automatically.
+            The diagonal is fixed at 1.00.
+        </p>
+        <div id="saa-correlation-matrix-table"></div>
+    </section>
+
+    <section class="saa-subsection" aria-labelledby="saa-opt-title-{{ current_config.id }}">
+        <h2 id="saa-opt-title-{{ current_config.id }}" class="saa-section__title">Optimisation</h2>
+        <div class="saa-actions">
+            <button id="saa-run-optimization-btn"
+                    type="button"
+                    class="btn btn--primary"
+                    hx-get="/api/saa/configuration/{{ current_config.id }}/optimization"
+                    hx-target="#saa-optimization-output"
+                    hx-swap="innerHTML"
+                    hx-indicator="#saa-optimization-loading">
+                Run Optimization
+            </button>
+            <span id="saa-optimization-loading"
+                  class="saa-loading htmx-indicator">
+                Computing efficient frontier &hellip;
+            </span>
+        </div>
+        <div id="saa-optimization-output" aria-live="polite"></div>
+    </section>
+
+    <div class="save-bar" role="region" aria-label="Save controls">
+        <button id="saa-save-config-btn"
+                type="button"
+                class="btn btn--primary"
+                disabled>
+            <span class="save-bar__label">Save Configuration</span>
+            <span class="save-bar__indicator" aria-hidden="true"></span>
+        </button>
+        <span id="saa-save-bar-status" class="save-bar__status muted">No changes</span>
+    </div>
+
+</section>
+
+<script id="saa-config-bootstrap" type="application/json">
+{
+  "config_id": {{ current_config.id | tojson }},
+  "inputs": {{ inputs | tojson }},
+  "correlations": {{ correlations | tojson }},
+  "asset_class_lookup": {{ asset_class_lookup | tojson }}
+}
+</script>

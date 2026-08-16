@@ -1,0 +1,16 @@
+{# Investor Communication area body. #}
+<div class="pf-area" data-area="investor_communication">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Investor Communication</h1>
+        <p class="pf-area__subtitle">
+            Investor-facing reporting and correspondence — portfolio
+            reviews, factsheets, and quarterly letters.
+        </p>
+    </header>
+
+    {% with section_slug="portfolio-review",
+            section_title="Portfolio Review",
+            section_body_template="_partials/portfolio_review_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

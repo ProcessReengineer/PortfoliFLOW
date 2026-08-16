@@ -1,0 +1,76 @@
+{# HTMX partial: rendered into #saa-optimization-output below the
+   Run Optimization button. Carries a Plotly target div + the
+   optimal-weights Tabulator table. #}
+
+<section class="saa-subsection">
+    <div class="saa-result-summary">
+        <article class="saa-result-card">
+            <div class="saa-result-card__title">Tangency Portfolio</div>
+            <div class="saa-result-card__metrics">
+                <span><small>Return</small>{{ "%.2f"|format(tangency_summary.expected_return * 100) }}%</span>
+                <span><small>Volatility</small>{{ "%.2f"|format(tangency_summary.volatility * 100) }}%</span>
+                <span><small>Sharpe</small>{{ "%.2f"|format(tangency_summary.sharpe_ratio) }}</span>
+            </div>
+        </article>
+        <article class="saa-result-card">
+            <div class="saa-result-card__title">Min-Variance Portfolio</div>
+            <div class="saa-result-card__metrics">
+                <span><small>Return</small>{{ "%.2f"|format(min_var_summary.expected_return * 100) }}%</span>
+                <span><small>Volatility</small>{{ "%.2f"|format(min_var_summary.volatility * 100) }}%</span>
+            </div>
+        </article>
+    </div>
+
+    <h3 class="saa-section__title">Efficient Frontier</h3>
+    <div class="chart-container">
+        <div id="saa-frontier-chart" class="plotly-target"></div>
+    </div>
+</section>
+
+<section class="saa-subsection">
+    <h3 class="saa-section__title">Optimal Weights</h3>
+    <div id="saa-weights-table"></div>
+</section>
+
+<script>
+    (function () {
+        const spec = {{ spec | tojson }};
+        Plotly.newPlot(
+            document.getElementById("saa-frontier-chart"),
+            spec.data,
+            spec.layout,
+            spec.config
+        );
+
+        const weights = {{ weights_payload | tojson }};
+        const pctFormatter = function (cell) {
+            const v = cell.getValue();
+            if (v === null || v === undefined) return "";
+            return Number(v).toFixed(1) + "%";
+        };
+        new Tabulator("#saa-weights-table", {
+            data: weights,
+            layout: "fitColumns",
+            columns: [
+                { title: "Asset Class", field: "asset_class", sorter: "string" },
+                {
+                    title: "Tangency Weight",
+                    field: "tangency_pct",
+                    formatter: pctFormatter,
+                    hozAlign: "right",
+                    bottomCalc: "sum",
+                    bottomCalcFormatter: pctFormatter,
+                },
+                {
+                    title: "Min-Variance Weight",
+                    field: "min_var_pct",
+                    formatter: pctFormatter,
+                    hozAlign: "right",
+                    bottomCalc: "sum",
+                    bottomCalcFormatter: pctFormatter,
+                },
+            ],
+            initialSort: [{ column: "tangency_pct", dir: "desc" }],
+        });
+    })();
+</script>

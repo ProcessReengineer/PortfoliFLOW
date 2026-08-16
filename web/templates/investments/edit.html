@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ investment.name }} — PortfoliFLOW{% endblock %}
+
+{% block tagline %}Front Office · Investments · Edit{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/investments.css">
+{% endblock %}
+
+{% block content %}
+<section class="inv-page" aria-labelledby="inv-edit-title">
+    <header class="inv-header">
+        <h1 id="inv-edit-title" class="inv-header__title">
+            Edit: {{ investment.name }}
+        </h1>
+        <p class="inv-header__subtitle">
+            Updates are persisted via PUT and will overwrite the
+            current row. NAVs and cashflows are managed on the
+            detail page.
+        </p>
+    </header>
+
+    {% with form_action="/investments/" + investment.id,
+            form_method="PUT",
+            submit_label="Save changes" %}
+        {% include "investments/_form.html" %}
+    {% endwith %}
+</section>
+
+<script>
+(function () {
+    "use strict";
+
+    // PUT cannot be expressed as a plain form submission, so the edit
+    // form intercepts submit and posts the body as JSON. The
+    // create-mode (POST) path keeps the regular form submission so
+    // the redirect-to-detail flow stays simple.
+
+    const form = document.getElementById("investment-form");
+    if (!form || form.getAttribute("data-mode") !== "PUT") return;
+
+    function getCSRFToken() {
+        const meta = document.querySelector("meta[name='csrf-token']");
+        return meta ? meta.getAttribute("content") : "";
+    }
+
+    function readForm() {
+        const fd = new FormData(form);
+        const out = {};
+        fd.forEach(function (value, key) {
+            if (key === "csrf_token") return;
+            const trimmed = typeof value === "string" ? value.trim() : value;
+            if (key === "vintage_year" || key === "commitment_amount") {
+                out[key] = trimmed === "" ? null : trimmed;
+            } else {
+                out[key] = trimmed === "" ? null : trimmed;
+            }
+        });
+        return out;
+    }
+
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const investmentId = "{{ investment.id }}";
+        const payload = readForm();
+        const response = await fetch(
+            "/investments/" + encodeURIComponent(investmentId),
+            {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+        if (response.ok) {
+            window.location.href = "/investments/" + encodeURIComponent(investmentId);
+            return;
+        }
+        let body = null;
+        try { body = await response.json(); } catch (err) {}
+        const message = (body && body.error)
+            || (body && body.detail)
+            || ("Save failed (" + response.status + ").");
+        alert(message);
+    });
+})();
+</script>
+{% endblock %}

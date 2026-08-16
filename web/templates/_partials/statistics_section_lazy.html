@@ -1,0 +1,18 @@
+{# Statistics section lazy-load shell.
+
+   Renders a skeleton placeholder. On first visibility, HTMX
+   fetches /api/statistics/section and replaces this wrapper
+   with the response. ``hx-swap="outerHTML"`` is load-bearing:
+   ``.pf-section__lazy`` is a flex container (centred skeleton
+   copy) and must not survive past the swap, otherwise the
+   loaded ``.stats-block`` siblings become flex-row items. #}
+
+<div class="pf-section__lazy"
+     hx-get="/api/statistics/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading statistics&hellip;
+    </p>
+</div>

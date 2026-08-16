@@ -1,0 +1,703 @@
+/* Shell layout — sidebar plus content plus status bar.
+ *
+ * Tokens are sourced exclusively from theme.css (--pf-*, --ui-*).
+ * No hardcoded colours, sizes or font families in this file.
+ *
+ * Geometry:
+ *
+ *   +-------------------+----------------------------------+
+ *   |  sidebar          |  shell-main                      |
+ *   |                   |    (per-area content fragment)   |
+ *   +-------------------+----------------------------------+
+ *   |              status bar                              |
+ *   +------------------------------------------------------+
+ */
+
+/* Shell grid ------------------------------------------------------- */
+
+.pf-shell {
+    display: grid;
+    grid-template-columns: var(--pf-sidebar-width-expanded) 1fr;
+    grid-template-rows: 1fr var(--pf-statusbar-height);
+    grid-template-areas:
+        "sidebar main"
+        "statusbar statusbar";
+    min-height: 100vh;
+    background-color: var(--pf-bg-deepest);
+    color: var(--ui-text-secondary);
+}
+
+.pf-shell[data-sidebar-collapsed="true"] {
+    grid-template-columns: var(--pf-sidebar-width-collapsed) 1fr;
+}
+
+/* Sidebar ---------------------------------------------------------- */
+
+.pf-sidebar {
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--pf-bg-surface);
+    border-right: 1px solid var(--ui-border-default);
+    overflow: hidden;
+}
+
+.pf-sidebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ui-border-default);
+    color: var(--ui-text-primary);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.pf-logo__img {
+    flex: 0 0 auto;
+    display: block;
+    height: 160px;
+    width: auto;
+    max-width: 100%;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-logo__img {
+    height: 32px;
+}
+
+.pf-sidebar__nav {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 0;
+    gap: 2px;
+    overflow-y: auto;
+}
+
+.pf-sidebar__item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 16px;
+    color: var(--ui-text-secondary);
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    font-size: 0.92rem;
+    line-height: 1.25;
+    cursor: pointer;
+    background-color: transparent;
+    transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear;
+}
+
+.pf-sidebar__item:hover,
+.pf-sidebar__item:focus-visible {
+    background-color: var(--pf-bg-hover);
+    color: var(--ui-text-on-sidebar);
+    text-decoration: none;
+    outline: none;
+}
+
+.pf-sidebar__item.is-active {
+    color: var(--ui-accent-primary);
+    background-color: var(--pf-accent-soft);
+    border-left-color: var(--ui-accent-primary);
+    font-weight: 600;
+}
+
+.pf-sidebar__glyph {
+    flex: 0 0 auto;
+    width: 18px;
+    text-align: center;
+    font-size: 0.95rem;
+    color: inherit;
+    opacity: 0.85;
+    display: none;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__glyph {
+    display: inline-block;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__label {
+    display: none;
+}
+
+.pf-sidebar__footer {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--ui-border-default);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pf-sidebar__user {
+    color: var(--ui-text-secondary);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__user {
+    display: none;
+}
+
+.pf-sidebar__collapse-form {
+    margin: 0;
+}
+
+.pf-sidebar__collapse-button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--ui-text-secondary);
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pf-sidebar__collapse-button:hover,
+.pf-sidebar__collapse-button:focus-visible {
+    background-color: var(--pf-bg-hover);
+    color: var(--ui-text-on-sidebar);
+    outline: none;
+    border-color: var(--ui-border-default);
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-button {
+    text-align: center;
+    padding: 6px 0;
+}
+
+.pf-sidebar__collapse-label-expanded {
+    display: inline;
+}
+
+.pf-sidebar__collapse-label-collapsed {
+    display: none;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-expanded {
+    display: none;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-collapsed {
+    display: inline;
+}
+
+/* Sign-out form sits beside the collapse toggle. */
+.pf-sidebar__signout {
+    margin: 0;
+}
+
+.pf-sidebar__signout-button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--ui-text-secondary);
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pf-sidebar__signout-button:hover,
+.pf-sidebar__signout-button:focus-visible {
+    background-color: var(--pf-bg-hover);
+    color: var(--ui-text-on-sidebar);
+    outline: none;
+    border-color: var(--ui-border-default);
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-button {
+    text-align: center;
+    padding: 6px 0;
+}
+
+.pf-sidebar__signout-label-expanded {
+    display: inline;
+}
+
+.pf-sidebar__signout-label-collapsed {
+    display: none;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-label-expanded {
+    display: none;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-label-collapsed {
+    display: inline;
+}
+
+/* Main content area ------------------------------------------------ */
+
+.pf-main {
+    grid-area: main;
+    overflow: auto;
+    padding: 24px 32px;
+    background-color: var(--pf-bg-deepest);
+}
+
+.pf-area {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.pf-area__header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.pf-area__title {
+    color: var(--ui-text-primary);
+    font-size: 1.5rem;
+    margin: 0;
+    letter-spacing: 0.02em;
+}
+
+.pf-area__subtitle {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.pf-section {
+    background-color: var(--pf-bg-surface);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    /* Headroom for the sticky section header on anchor-scroll navigation:
+     * leave the sticky strip clear of the section's first body line. */
+    scroll-margin-top: 56px;
+}
+
+.pf-section__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    /* Sticky section header — pins to the top of the scrolling content
+     * area as the user scrolls past the section's first row. The blur
+     * separates the header from content sliding underneath. */
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    margin: -20px -24px 0 -24px;
+    padding: 14px 24px;
+    background-color: var(--pf-sticky-header-bg);
+    backdrop-filter: blur(var(--pf-sticky-header-blur));
+    -webkit-backdrop-filter: blur(var(--pf-sticky-header-blur));
+    border-bottom: 1px solid var(--ui-border-default);
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+.pf-section__title {
+    color: var(--ui-text-primary);
+    font-size: 1.05rem;
+    margin: 0;
+}
+
+.pf-section__pill {
+    color: var(--ui-text-secondary);
+    background-color: var(--pf-bg-elevated);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pf-section__body {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.pf-section__placeholder {
+    color: var(--ui-text-disabled);
+    font-style: italic;
+}
+
+/* Lazy-load shell — shared across sections that fetch their body
+ * on first visibility (hx-trigger="revealed"). The 240px min-height
+ * keeps the IntersectionObserver from re-firing as content drops in. */
+.pf-section__lazy {
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pf-section__lazy-skeleton {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+/* Section indicator (6F-2) ----------------------------------------- *
+ *
+ * Fixed-position vertical strip of dots on the right edge of the
+ * viewport, one per section in the active area. Hover reveals a
+ * label tooltip; click anchor-scrolls; ``section_nav.js`` toggles
+ * ``is-active`` via IntersectionObserver.
+ */
+
+.pf-section-indicator {
+    position: fixed;
+    right: var(--pf-section-indicator-right);
+    top: 50%;
+    transform: translateY(-50%);
+    width: var(--pf-section-indicator-width);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pf-section-indicator-dot-gap);
+    z-index: 10;
+    pointer-events: none;
+}
+
+.pf-section-indicator__dot {
+    pointer-events: auto;
+    width: var(--pf-section-indicator-dot-size);
+    height: var(--pf-section-indicator-dot-size);
+    border-radius: 50%;
+    background-color: var(--ui-text-disabled);
+    position: relative;
+    display: block;
+    text-decoration: none;
+    transition: background-color 120ms linear, transform 120ms linear;
+}
+
+.pf-section-indicator__dot:hover,
+.pf-section-indicator__dot:focus-visible {
+    background-color: var(--ui-accent-primary);
+    transform: scale(1.35);
+    outline: none;
+}
+
+.pf-section-indicator__dot.is-active {
+    background-color: var(--ui-accent-primary);
+}
+
+.pf-section-indicator__dot:focus-visible {
+    box-shadow: 0 0 0 2px var(--pf-accent-glow);
+}
+
+.pf-section-indicator__label {
+    position: absolute;
+    right: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: var(--pf-section-indicator-label-bg);
+    color: var(--ui-text-on-sidebar);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms linear;
+}
+
+.pf-section-indicator__dot:hover .pf-section-indicator__label,
+.pf-section-indicator__dot:focus-visible .pf-section-indicator__label {
+    opacity: 1;
+}
+
+/* Command palette (6F-2) ------------------------------------------- *
+ *
+ * Native ``<dialog>`` overlay triggered by Cmd+K / Ctrl+K. ``::backdrop``
+ * carries the page-darkening tone; the panel itself is centred at the
+ * top-third of the viewport.
+ */
+
+dialog.pf-palette {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    color: inherit;
+    z-index: 1000;
+    /* Centre horizontally at top-18vh — overrides the user-agent's
+     * default centred placement so the palette sits where users
+     * expect a command bar. */
+    position: fixed;
+    inset: 0;
+}
+
+dialog.pf-palette::backdrop {
+    background-color: var(--pf-palette-overlay-bg);
+}
+
+.pf-palette__panel {
+    position: fixed;
+    left: 50%;
+    top: 18vh;
+    transform: translateX(-50%);
+    width: var(--pf-palette-panel-width);
+    max-width: calc(100vw - 32px);
+    max-height: var(--pf-palette-panel-max-height);
+    background-color: var(--pf-palette-panel-bg);
+    border: 1px solid var(--pf-palette-panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.pf-palette__input {
+    flex: 0 0 auto;
+    border: 0;
+    border-bottom: 1px solid var(--ui-border-default);
+    background-color: transparent;
+    color: var(--ui-text-on-sidebar);
+    font-size: 0.95rem;
+    padding: 14px 18px;
+    outline: none;
+    font-family: inherit;
+}
+
+.pf-palette__input::placeholder {
+    color: var(--ui-text-disabled);
+}
+
+.pf-palette__results {
+    flex: 1 1 auto;
+    list-style: none;
+    margin: 0;
+    padding: 6px 0;
+    overflow-y: auto;
+}
+
+.pf-palette__group-heading {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ui-text-disabled);
+    padding: 8px 18px 4px;
+    pointer-events: none;
+}
+
+.pf-palette__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 18px;
+    color: var(--ui-text-secondary);
+    cursor: pointer;
+    transition: background-color 60ms linear, color 60ms linear;
+}
+
+.pf-palette__row:hover,
+.pf-palette__row.is-active {
+    background-color: var(--pf-palette-row-active-bg);
+    color: var(--ui-text-on-sidebar);
+}
+
+.pf-palette__row:hover {
+    background-color: var(--pf-palette-row-hover-bg);
+}
+
+.pf-palette__row.is-active {
+    background-color: var(--pf-palette-row-active-bg);
+}
+
+.pf-palette__row-label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pf-palette__row-meta {
+    flex: 0 0 auto;
+    color: var(--ui-text-disabled);
+    font-size: 0.75rem;
+}
+
+.pf-palette__empty {
+    padding: 12px 18px;
+    color: var(--ui-text-disabled);
+    font-style: italic;
+}
+
+/* Status bar ------------------------------------------------------- */
+
+.pf-statusbar {
+    grid-area: statusbar;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    background-color: var(--pf-bg-surface);
+    border-top: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+    font-size: 11px;
+    height: var(--pf-statusbar-height);
+}
+
+.pf-statusbar__group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.pf-statusbar__group--right {
+    gap: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.pf-statusbar__area {
+    color: var(--ui-accent-primary);
+    font-weight: 600;
+}
+
+.pf-statusbar__sep {
+    color: var(--ui-text-disabled);
+}
+
+.pf-statusbar__tenant {
+    color: var(--ui-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pf-statusbar__shortcut {
+    color: var(--ui-text-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pf-statusbar__shortcut-key {
+    background-color: var(--pf-bg-hover);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.pf-statusbar__shortcut-label {
+    margin-left: 2px;
+    color: var(--ui-text-disabled);
+}
+
+/* AGPL §13 "corresponding source" link. Anchors do not inherit colour
+   or text-decoration from the bar, so both are restated to match
+   ``.pf-statusbar__build``; font size and family still inherit, which
+   keeps the link visually identical on the shell bar (monospace, 11px)
+   and on the auth footer (0.78rem). Underline on hover only. */
+.pf-statusbar__source {
+    color: var(--ui-text-disabled);
+    text-decoration: none;
+}
+
+.pf-statusbar__source:hover,
+.pf-statusbar__source:focus-visible {
+    text-decoration: underline;
+}
+
+.pf-statusbar__build {
+    color: var(--ui-text-disabled);
+}
+
+.pf-statusbar__config {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pf-statusbar__config[data-status="ok"] {
+    color: var(--ui-semantic-success);
+}
+
+.pf-statusbar__config[data-status="error"] {
+    color: var(--ui-semantic-warning);
+}
+
+/* Auth-surface shell ----------------------------------------------- *
+ * Used by ``_auth_base.html`` for /login and any other pre-session
+ * surface. Three flex rows: brand bar, centred content, minimal
+ * status bar. No sidebar and no tenant context.
+ */
+
+.pf-auth-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--pf-bg-deepest);
+    color: var(--ui-text-secondary);
+}
+
+.pf-auth__brand-bar {
+    flex: 0 0 auto;
+    padding: 32px 32px 16px 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: transparent;
+    border-bottom: none;
+}
+
+.pf-auth__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ui-text-primary);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    font-size: 1rem;
+}
+
+.pf-auth__brand .pf-logo__img {
+    height: clamp(160px, 22vh, 360px);
+}
+
+.pf-auth__main {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.pf-auth__statusbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+    padding: 0 16px;
+    background-color: var(--pf-bg-elevated);
+    border-top: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+    font-size: 0.78rem;
+    height: var(--pf-statusbar-height);
+}

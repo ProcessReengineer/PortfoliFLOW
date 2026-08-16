@@ -1,0 +1,39 @@
+{# Manual case-creation form (ADR-0107, C2). Rendered into
+   #cases-new-case-slot by the "New case" button; posts to /api/cases/new,
+   which on success clears this slot and refreshes the open-cases list out
+   of band, and on validation failure re-renders this form with ``error``
+   set (the inline-error idiom).
+
+   Context: csrf_token, error (optional), title (echoed back on error). #}
+<form class="pf-cases__new-form"
+      hx-post="/api/cases/new"
+      hx-target="#cases-new-case-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-cases__new-form-title">New case</h3>
+    {% if error %}
+        <p class="pf-cases__new-form-error" role="alert">{{ error }}</p>
+    {% endif %}
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Title</span>
+        <input class="pf-cases__field-input"
+               type="text"
+               name="title"
+               value="{{ title or '' }}"
+               required
+               autofocus
+               placeholder="What question needs working?">
+    </label>
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Description <span class="pf-cases__field-optional">(optional)</span></span>
+        <textarea class="pf-cases__field-input"
+                  name="description"
+                  rows="3"
+                  placeholder="Context, decision type, anything that frames the case."></textarea>
+    </label>
+    <div class="pf-cases__new-form-actions">
+        <button type="submit" class="pf-cases__new-btn pf-cases__new-btn--primary">
+            Create case
+        </button>
+    </div>
+</form>

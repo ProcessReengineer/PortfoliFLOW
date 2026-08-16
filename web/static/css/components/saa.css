@@ -1,0 +1,558 @@
+/* SAA pages — list, detail, optimisation output, asset-class management. */
+
+.saa-page {
+    flex: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 16px 96px;
+    width: 100%;
+}
+
+.saa-header {
+    margin-bottom: 18px;
+}
+
+.saa-header__title {
+    margin: 0 0 4px;
+    font-size: 1.4rem;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.saa-header__name-input {
+    flex: 1 1 auto;
+    min-width: 200px;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--ui-text-primary);
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+.saa-header__name-input:hover,
+.saa-header__name-input:focus {
+    border-color: var(--ui-border-default);
+    background-color: var(--ui-background-secondary);
+    outline: none;
+}
+
+.saa-header__subtitle {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.saa-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.saa-meta-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    color: var(--ui-text-secondary);
+    font-size: 0.92rem;
+    align-items: center;
+}
+
+.saa-meta-row strong {
+    color: var(--ui-text-primary);
+    font-weight: 600;
+}
+
+.saa-meta-row__field {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.saa-meta-row__field input[type="number"] {
+    width: 88px;
+    padding: 4px 6px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    font-size: 0.92rem;
+}
+
+.saa-meta-row__field input[type="number"]:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.saa-section {
+    margin: 24px 0;
+}
+
+.saa-section__title {
+    font-size: 1.1rem;
+    margin: 0 0 12px;
+}
+
+.saa-section__hint {
+    margin: 0 0 12px;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.saa-section__actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.saa-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+.saa-empty code {
+    background-color: var(--ui-background-section);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--ui-text-primary);
+    font-style: normal;
+}
+
+.saa-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 16px 0;
+}
+
+.saa-loading {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.saa-loading.htmx-indicator {
+    display: none;
+}
+
+.saa-loading.htmx-indicator.htmx-request {
+    display: inline-flex;
+}
+
+.saa-result-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.saa-result-card {
+    background-color: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    padding: 12px 14px;
+}
+
+.saa-result-card__title {
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.saa-result-card__metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--ui-text-primary);
+    font-size: 0.95rem;
+}
+
+.saa-result-card__metrics span small {
+    color: var(--ui-text-secondary);
+    margin-right: 6px;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Inline alert for the optimisation error partial. */
+.saa-error {
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-semantic-error);
+    color: var(--ui-semantic-error);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 16px 0;
+}
+
+.saa-error__title {
+    font-weight: 600;
+    margin: 0 0 4px;
+}
+
+/* ------------------------------------------------------------------- */
+/* Editable-state cell decorations (Sub-Strang 3d).                    */
+/* ------------------------------------------------------------------- */
+
+.tabulator .tabulator-cell.saa-correlation-cell {
+    font-variant-numeric: tabular-nums;
+}
+
+.tabulator .tabulator-cell.saa-cell-diagonal {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    cursor: not-allowed;
+}
+
+.tabulator .tabulator-cell.saa-cell-mirror {
+    color: var(--ui-text-secondary);
+    cursor: not-allowed;
+    font-style: italic;
+}
+
+.tabulator .tabulator-cell.saa-cell-upper {
+    cursor: cell;
+}
+
+.tabulator .tabulator-cell.saa-cell-validation-error,
+.tabulator .tabulator-cell.tabulator-validation-fail {
+    background-color: rgba(229, 75, 75, 0.18);
+    border: 1px solid var(--ui-semantic-error);
+}
+
+.tabulator .tabulator-row.saa-row-validation-error {
+    background-color: rgba(229, 75, 75, 0.1);
+}
+
+.saa-row-delete-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.saa-row-delete-btn:hover {
+    background-color: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-semantic-error);
+}
+
+/* ------------------------------------------------------------------- */
+/* Save bar — sticky bottom, dirty-state indicator.                    */
+/* ------------------------------------------------------------------- */
+
+.save-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: var(--ui-background-secondary);
+    border-top: 2px solid var(--ui-border-default);
+    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 50;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.save-bar__label {
+    margin-right: 8px;
+}
+
+.save-bar__indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--ui-semantic-success);
+    transition: background-color 80ms linear;
+}
+
+.save-bar__indicator.dirty {
+    background-color: var(--ui-semantic-warning, #F5A623);
+}
+
+.save-bar__status {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    flex: 1;
+}
+
+.save-bar__status--dirty {
+    color: var(--ui-semantic-warning, #F5A623);
+}
+
+.save-bar__status--error {
+    color: var(--ui-semantic-error);
+}
+
+/* ------------------------------------------------------------------- */
+/* List-view actions and "New Configuration" dialog.                   */
+/* ------------------------------------------------------------------- */
+
+.saa-list-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 16px;
+}
+
+.saa-row-action-btn {
+    margin: 0 4px;
+    padding: 3px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.saa-row-action-btn:hover {
+    background-color: var(--ui-background-section);
+}
+
+.saa-row-action-btn--activate {
+    border-color: var(--ui-semantic-success);
+    color: var(--ui-semantic-success);
+}
+
+.saa-row-action-btn--delete {
+    border-color: var(--ui-semantic-error);
+    color: var(--ui-semantic-error);
+}
+
+dialog.saa-dialog {
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    padding: 20px 24px;
+    max-width: 520px;
+    width: 90vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+dialog.saa-dialog::backdrop {
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+dialog.saa-dialog h2 {
+    margin: 0 0 12px;
+}
+
+dialog.saa-dialog .field {
+    margin-bottom: 12px;
+}
+
+dialog.saa-dialog .field span,
+dialog.saa-dialog label > span {
+    display: block;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+}
+
+dialog.saa-dialog input[type="text"],
+dialog.saa-dialog input[type="number"],
+dialog.saa-dialog textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+}
+
+dialog.saa-dialog .dialog-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.saa-dialog__error {
+    color: var(--ui-semantic-error);
+    background-color: rgba(229, 75, 75, 0.08);
+    border: 1px solid var(--ui-semantic-error);
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin: 0 0 8px;
+    font-size: 0.88rem;
+}
+
+/* ------------------------------------------------------------------- */
+/* Section-embedded surface (Roadmap A5 / ADR-0054).                   */
+/* ------------------------------------------------------------------- */
+
+.saa-section-root {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.saa-picker {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    background-color: var(--ui-background-secondary);
+}
+
+.saa-picker__summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.saa-picker__summary::-webkit-details-marker {
+    display: none;
+}
+
+.saa-picker__current {
+    font-weight: 600;
+    color: var(--ui-text-primary);
+}
+
+.saa-picker__chevron {
+    margin-left: auto;
+    color: var(--ui-text-secondary);
+    transition: transform 80ms linear;
+}
+
+.saa-picker[open] .saa-picker__chevron {
+    transform: rotate(180deg);
+}
+
+.saa-picker__drawer {
+    border-top: 1px solid var(--ui-border-default);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.saa-picker__field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ui-text-secondary);
+    font-size: 0.92rem;
+}
+
+.saa-picker__field select {
+    flex: 1 1 auto;
+    max-width: 480px;
+    padding: 6px 8px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+}
+
+.saa-picker__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Configuration body container — minimal wrapper so HTMX swaps land
+   in a stable selector. */
+.saa-config-body {
+    display: block;
+}
+
+/* Subsection inside a configuration; replaces the legacy .saa-section
+   utility (which is now used by the section-level container) for
+   blocks inside the configuration body. */
+.saa-subsection {
+    margin: 18px 0;
+}
+
+/* Empty-state for the section. */
+.saa-empty-state {
+    padding: 32px 18px;
+    border: 1px dashed var(--ui-border-default);
+    border-radius: 6px;
+    text-align: center;
+    color: var(--ui-text-secondary);
+}
+
+.saa-empty-state__title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ui-text-primary);
+    margin: 0 0 6px;
+}
+
+.saa-empty-state__hint {
+    margin: 0 0 14px;
+}
+
+.saa-empty-state__cli-hint {
+    margin: 14px 0 0;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.saa-empty-state__cli-hint code {
+    background-color: var(--ui-background-section);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--ui-text-primary);
+}
+
+/* Larger dialog variant for the asset-classes catalogue modal. */
+dialog.saa-dialog--large {
+    max-width: 920px;
+    width: 92vw;
+}
+
+.saa-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.saa-modal__close-btn {
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0 6px;
+    background: transparent;
+}
+
+.saa-modal__create {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--ui-border-default);
+}
+
+.saa-modal__create-form .field {
+    margin-bottom: 10px;
+}
+
+/* The section's save-bar must stay inside the back-office shell — when
+   the section is embedded, position: fixed is too aggressive (the
+   sidebar overlaps it). Override to sticky bottom of the surrounding
+   scroll context. */
+.saa-section-root .save-bar {
+    position: sticky;
+    bottom: 0;
+    margin-top: 18px;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.18);
+}

@@ -1,0 +1,11 @@
+{# Calibration section lazy-load shell (ADR-0089; renamed from Watchlist per
+   DC4/D5). See watch_desk_briefing_lazy.html for the pattern. #}
+<div class="pf-section__lazy"
+     hx-get="/api/watch-desk/calibration"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading calibration&hellip;
+    </p>
+</div>

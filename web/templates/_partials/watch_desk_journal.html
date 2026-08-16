@@ -1,0 +1,95 @@
+{# Journal section body (ADR-0089 / ADR-0107, C4) — the merged, read-only
+   resolution history. Two render-time sources interleaved newest-first: the
+   resolved findings (finding rows, existing anatomy) and the closed cases
+   (case rows, new anatomy). No action buttons — findings are immutable once
+   resolved (ADR-0085) and closed cases are immutable (ADR-0107 §4). It stays
+   a projection: no journal table, no entry numbers; every "Journal reference"
+   on the Cases side is a deep link back here, never an id.
+
+   Context: entries — list of projected row dicts, each carrying ``row_type``
+   ('finding' | 'case'). #}
+<div class="pf-dc-journal">
+    {% if entries %}
+        <table class="pf-dc-journal__table">
+            <thead>
+                <tr>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Trigger</th>
+                    <th scope="col">Band</th>
+                    <th scope="col">Resolution</th>
+                    <th scope="col">Actor</th>
+                    <th scope="col">Surfaced</th>
+                    <th scope="col">Resolved</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                    {% if entry.row_type == 'case' %}
+                        {# Closed-case row — a sibling of the finding rows: the
+                           badge links to the case, the title carries a
+                           closing-note excerpt, Surfaced/Resolved map to
+                           opened/closed. #}
+                        <tr class="pf-dc-journal__row pf-dc-journal__row--case"
+                            data-row-type="case">
+                            <td class="pf-dc-journal__subject">
+                                <a class="pf-dc-journal__caselink" href="{{ entry.case_href }}">
+                                    {{ entry.badge }}
+                                </a>
+                            </td>
+                            <td>
+                                {{ entry.title }}
+                                {% if entry.closing_note %}
+                                    <span class="pf-dc-journal__excerpt">
+                                        &ldquo;{{ entry.closing_note | truncate(90, True, '…') }}&rdquo;
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td><span class="pf-dc-journal__casemark">Case</span></td>
+                            <td>
+                                <a class="pf-dc-res-tag pf-dc-res-tag--closed"
+                                   href="{{ entry.case_href }}">Closed</a>
+                            </td>
+                            <td class="pf-dc-journal__actor">{{ entry.actor or '—' }}</td>
+                            <td>{{ entry.created_at.strftime('%Y-%m-%d %H:%M') if entry.created_at else '—' }}</td>
+                            <td>{{ entry.resolved_at.strftime('%Y-%m-%d %H:%M') if entry.resolved_at else '—' }}</td>
+                        </tr>
+                    {% else %}
+                        {# Finding row (existing anatomy). An opened_case row
+                           shows the hand-over: the "Opened case" label links to
+                           its case. #}
+                        <tr class="pf-dc-journal__row"
+                            data-row-type="finding"
+                            data-band="{{ entry.band }}"
+                            data-resolution="{{ entry.resolution }}">
+                            <td class="pf-dc-journal__subject">{{ entry.subject_key }}</td>
+                            <td>{{ entry.trigger }}</td>
+                            <td>
+                                <span class="pf-dc-band-tag pf-dc-band-tag--{{ entry.band }}">
+                                    {{ entry.band|capitalize }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if entry.case_href %}
+                                    <a class="pf-dc-res-tag pf-dc-res-tag--{{ entry.resolution }}"
+                                       href="{{ entry.case_href }}">{{ entry.resolution_label }}</a>
+                                {% else %}
+                                    <span class="pf-dc-res-tag pf-dc-res-tag--{{ entry.resolution }}">
+                                        {{ entry.resolution_label }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="pf-dc-journal__actor">{{ entry.actor or '—' }}</td>
+                            <td>{{ entry.created_at.strftime('%Y-%m-%d %H:%M') if entry.created_at else '—' }}</td>
+                            <td>{{ entry.resolved_at.strftime('%Y-%m-%d %H:%M') if entry.resolved_at else '—' }}</td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="pf-dc-journal__empty">
+            No resolved findings or closed cases yet — they will appear here as
+            you work the briefing.
+        </p>
+    {% endif %}
+</div>

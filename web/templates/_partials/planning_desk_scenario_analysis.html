@@ -1,0 +1,41 @@
+{# Scenario Analysis section body (ADR-0104 §2/§6; Feature #034 anchor).
+
+   The seventh Area's second lens: shocks on top of the plan-world baseline. It
+   shares the Area's one parameter set with Cash Flow Planning — a shock added
+   here is a chip in the strip above, and the same overlay both Sections read.
+
+   Two regions:
+
+   * **The builders** (`#pd-sa-builders`) — the two shock cards. They are filled
+     **out of band** by the Cash Flow Planning response, exactly as the sticky
+     parameter strip is: the archetypes and currencies a card offers come from
+     the plan world, which only the section endpoint (with DB access) holds, so
+     this section renders a skeleton and the endpoint's response swaps the cards
+     in (see planning_desk_shock_builders.html). Until then the skeleton stands.
+   * **The result region** (`#pd-sa-results`) — filled **out of band** by the
+     Cash Flow Planning response, exactly as the builders are: the impact chart
+     pair, the KPI strip and the headroom table are the deltas-first score of
+     the same overlay, which only the section endpoint holds. Until that
+     response arrives the skeleton stands; the composition drill-down below the
+     table is a lazy second partial (S34.5). #}
+<div class="pd-sa" id="pd-sa-body">
+    <p class="pd-sa__lede">
+        Play a prospective change against the current book — a market move over a
+        class of holdings, or an FX move over a currency — and preview how it
+        shifts the plan world. Each shock adds a chip to the scenario strip above;
+        nothing entered here ever touches the book.
+    </p>
+
+    <div class="pd-sa__builders" id="pd-sa-builders">
+        <p class="pf-section__lazy-skeleton" aria-live="polite">
+            Loading shock builders&hellip;
+        </p>
+    </div>
+
+    <div class="pd-sa__results" id="pd-sa-results">
+        <h3 class="pd-sa__results-title">Impact — scenario vs baseline</h3>
+        <p class="pd-sa__results-empty">
+            The projection appears here as soon as the plan world loads.
+        </p>
+    </div>
+</div>

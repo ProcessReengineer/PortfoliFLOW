@@ -1,0 +1,9 @@
+{# Out-of-band sidebar fragment — appended to HTMX-partial responses
+   so the active-state highlighting follows the area switch without a
+   full page reload.
+
+   Re-uses _partials/sidebar.html with the ``sidebar_oob`` flag set
+   so the rendered <aside> carries ``hx-swap-oob="outerHTML"`` and
+   replaces the live sidebar (matched by id ``pf-sidebar``). #}
+{% set sidebar_oob = True %}
+{% include "_partials/sidebar.html" %}

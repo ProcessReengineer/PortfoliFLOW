@@ -1,0 +1,177 @@
+{# Portfolio Analysis section body — embedded in
+   /front-office#portfolio-optimizer.
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in
+   the lazy shell). The Compute form is persistent; the chart
+   container below is HTMX-swapped on form submit so the form's
+   current inputs stay intact across recomputes.
+
+   Context (from web/routes/portfolio_analysis.py):
+     csrf_token                  — session-bound CSRF token.
+     min_n_points / max_n_points / default_n_points
+                                 — Frontier-points form bounds.
+     min_risk_free_rate_pct /
+       max_risk_free_rate_pct /
+       default_risk_free_rate_pct
+                                 — Risk-free rate form bounds (percent).
+     chart_payload               — Always None on initial render
+                                   (chart container shows empty-state).
+                                   The compute endpoint's response
+                                   replaces only the chart container. #}
+
+<div class="pa-section" id="pf-portfolio-analysis-root">
+
+    <form class="pa-controls"
+          hx-post="/api/portfolio-analysis/section/compute"
+          hx-target="#pa-chart-container"
+          hx-swap="innerHTML"
+          hx-indicator="#pa-status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label class="pa-controls__field">
+            <span>Frontier points</span>
+            <input type="number"
+                   name="frontier_points"
+                   min="{{ min_n_points }}"
+                   max="{{ max_n_points }}"
+                   step="1"
+                   value="{{ default_n_points }}"
+                   required>
+        </label>
+
+        <label class="pa-controls__field">
+            <span>Risk-free rate (%)</span>
+            <input type="number"
+                   name="risk_free_rate"
+                   min="{{ min_risk_free_rate_pct }}"
+                   max="{{ max_risk_free_rate_pct }}"
+                   step="0.01"
+                   value="{{ '%.2f' % default_risk_free_rate_pct }}"
+                   required>
+        </label>
+
+        <button type="submit" class="btn btn--primary">Compute</button>
+
+        <span id="pa-status"
+              class="pa-controls__status htmx-indicator"
+              role="status"
+              aria-live="polite">
+            Computing&hellip;
+        </span>
+    </form>
+
+    <div id="pa-chart-container" class="pa-chart-container">
+        {% include "_partials/portfolio_analysis_chart_partial.html" %}
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        const raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        let spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        const config = Object.assign({}, spec.config || {}, {
+            responsive: true,
+        });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+
+    // Single Tabulator instance for the weights table, recreated on
+    // each Compute swap. Held here so the <details> toggle handler
+    // can redraw it (a Tabulator initialised inside a closed
+    // container mis-measures its column widths).
+    var weightsTable = null;
+
+    function fmtPct(cell) {
+        var v = cell.getValue();
+        if (v === null || v === undefined || Number.isNaN(v)) return "N/A";
+        return v.toFixed(1) + "%";
+    }
+
+    function initWeightsTable() {
+        var mount = document.getElementById("pa-weights-table");
+        var dataEl = document.getElementById("pa-weights-data");
+        if (!mount || !dataEl) return;
+        var rows;
+        try { rows = JSON.parse(dataEl.textContent || "[]"); }
+        catch (e) { return; }
+        if (!Array.isArray(rows) || rows.length === 0) return;
+
+        var hasCurrent = mount.getAttribute("data-has-current") === "true";
+
+        var columns = [
+            { title: "Asset", field: "name", sorter: "string",
+              widthGrow: 2, frozen: true,
+              formatter: function (cell) { return cell.getValue() || ""; },
+              bottomCalc: function () { return "Total"; },
+              cssClass: "pa-weights-table__name-cell" },
+        ];
+        if (hasCurrent) {
+            columns.push({
+                title: "Current", field: "current_pct", sorter: "number",
+                hozAlign: "right", widthGrow: 1, formatter: fmtPct,
+                bottomCalc: "sum", bottomCalcFormatter: fmtPct,
+            });
+        }
+        columns.push({
+            title: "Tangency", field: "tangency_pct", sorter: "number",
+            hozAlign: "right", widthGrow: 1, formatter: fmtPct,
+            bottomCalc: "sum", bottomCalcFormatter: fmtPct,
+        });
+        columns.push({
+            title: "Min-Variance", field: "min_var_pct", sorter: "number",
+            hozAlign: "right", widthGrow: 1, formatter: fmtPct,
+            bottomCalc: "sum", bottomCalcFormatter: fmtPct,
+        });
+
+        // Idempotent re-swap: clear any prior Tabulator DOM so an HTMX
+        // re-fetch replaces the table cleanly rather than stacking.
+        mount.replaceChildren();
+        weightsTable = new Tabulator(mount, {
+            data: rows,
+            layout: "fitColumns",
+            placeholder: "No weights to display.",
+            columns: columns,
+        });
+
+        // Redraw when the sub-block is (re)opened — Tabulator inside a
+        // closed <details> measures a zero-width container.
+        var block = document.getElementById("pa-weights-block");
+        if (block) {
+            block.addEventListener("toggle", function () {
+                if (!block.open || !weightsTable) return;
+                if (typeof weightsTable.redraw === "function") {
+                    weightsTable.redraw(true);
+                }
+            });
+        }
+    }
+
+    // Initial reveal — the chart container holds the empty-state
+    // partial, so the selectors find no targets. The handler below
+    // re-runs after every Compute swap.
+    document.querySelectorAll(
+        "#portfolio-optimizer .plotly-target[data-spec]"
+    ).forEach(renderTarget);
+    initWeightsTable();
+
+    document.body.addEventListener("htmx:afterSwap", function (evt) {
+        if (!evt || !evt.target) return;
+        if (evt.target.id !== "pa-chart-container") return;
+        evt.target.querySelectorAll(".plotly-target[data-spec]")
+            .forEach(function (t) { delete t.dataset.pfRendered; });
+        evt.target.querySelectorAll(".plotly-target[data-spec]")
+            .forEach(renderTarget);
+        initWeightsTable();
+    });
+})();
+</script>

@@ -1,0 +1,41 @@
+{# Archive surface (ADR-0107, C2) — closed-case search, collapsed by default.
+
+   A <details> disclosure holding a search form over titles and closing
+   notes ONLY — never attachment contents (the DMS boundary, ADR-0107 §7;
+   the repository's search_archive enforces the scope, so the form offers no
+   other fields). The mock's "Opened by / From / To" inputs are illustrative
+   only — capabilities search_archive does not provide — and are omitted.
+
+   The form is a GET whose ``q`` input HTMX serialises to a query string; the
+   endpoint always receives ``q`` (present, possibly empty) and returns
+   result rows into #cases-archive-results. A whitespace query renders the
+   idle state, not "no results". No pagination in v1 — the archive list is
+   bounded by tenant reality for now. #}
+<details class="pf-archive">
+    <summary class="pf-archive__summary">
+        <span class="pf-archive__chevron" aria-hidden="true">▶</span>
+        Search all closed cases
+    </summary>
+    <div class="pf-archive__body">
+        <form class="pf-archive__form"
+              hx-get="/api/cases/archive"
+              hx-target="#cases-archive-results"
+              hx-swap="innerHTML">
+            <input class="pf-archive__input pf-archive__input--wide"
+                   type="text"
+                   name="q"
+                   placeholder="Title or closing note contains …"
+                   aria-label="Search closed cases by title or closing note">
+            <button type="submit" class="pf-cases__new-btn">Search</button>
+        </form>
+        <p class="pf-archive__hint">
+            Searches case titles and closing notes — never attachment
+            contents (the DMS boundary holds here too).
+        </p>
+        <div id="cases-archive-results">
+            {% with idle=True %}
+                {% include "_partials/cases_archive_results.html" %}
+            {% endwith %}
+        </div>
+    </div>
+</details>

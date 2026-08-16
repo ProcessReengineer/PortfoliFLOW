@@ -1,0 +1,464 @@
+/* Investments pages — list, detail, edit/new forms.
+ *
+ * Phase-4 Sub-Strang 4b. Mirrors the SAA component styles
+ * (web/static/css/components/saa.css) for consistency; classes are
+ * prefixed with .inv- to avoid cascade collisions. Reuses the
+ * `.badge-active` token from tables.css for the Active label and
+ * adds an `.badge-inactive` complement.
+ */
+
+.inv-page {
+    flex: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 16px 96px;
+    width: 100%;
+}
+
+.inv-header {
+    margin-bottom: 18px;
+}
+
+.inv-header__title {
+    margin: 0 0 4px;
+    font-size: 1.4rem;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.inv-header__subtitle {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.inv-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* Stammdaten meta block on the detail page. */
+.inv-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 24px;
+    margin: 12px 0;
+}
+
+.inv-meta div {
+    display: flex;
+    gap: 8px;
+    font-size: 0.92rem;
+}
+
+.inv-meta dt {
+    color: var(--ui-text-secondary);
+    font-weight: 500;
+    min-width: 80px;
+}
+
+.inv-meta dd {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-weight: 500;
+}
+
+/* Filter row on the list page. */
+.inv-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: end;
+    margin: 12px 0 16px;
+    padding: 12px;
+    background-color: var(--ui-background-section);
+    border-radius: 6px;
+}
+
+.inv-filter-row__field {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.inv-filter-row__field--check {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.inv-filter-row select,
+.inv-filter-row input[type="text"] {
+    padding: 4px 6px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    font-size: 0.92rem;
+}
+
+.inv-list-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.inv-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+.inv-section {
+    margin: 24px 0;
+}
+
+.inv-section__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.inv-section__title {
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+.inv-section__details {
+    margin-top: 8px;
+}
+
+.inv-section__details > summary {
+    cursor: pointer;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    padding: 4px 0;
+}
+
+/* Plotly target container shared with charts.css conventions. */
+#nav-chart {
+    width: 100%;
+    min-height: 360px;
+}
+
+/* Status pills inside Tabulator NAV / cashflow tables. */
+.inv-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.inv-pill--actual {
+    background-color: var(--ui-semantic-success);
+    color: var(--ui-button-fg);
+}
+
+.inv-pill--plan {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+}
+
+/* Neutral badge for an identifier scheme (isin / ticker / preqin / …). */
+.inv-pill--scheme {
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    text-transform: lowercase;
+}
+
+/* Primary-identifier marker — reads as the "active" affirmative. */
+.inv-pill--primary {
+    background-color: var(--ui-semantic-success);
+    color: var(--ui-button-fg);
+}
+
+/* Inactive badge — complement to .badge-active in tables.css. */
+.badge-inactive {
+    display: inline-block;
+    padding: 2px 8px;
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+}
+
+/* Action buttons inside the list-view Tabulator row. */
+.inv-row-action-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    line-height: 1.2;
+}
+
+.inv-row-action-btn:hover {
+    background-color: var(--ui-background-section);
+}
+
+.inv-row-action-btn--delete:hover {
+    background-color: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-semantic-error);
+}
+
+.inv-row-action-btn--activate:hover {
+    background-color: var(--ui-semantic-success);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-semantic-success);
+}
+
+.inv-row-delete-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.inv-row-delete-btn:hover {
+    background-color: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-semantic-error);
+}
+
+/* Form layout (new + edit). */
+.inv-form {
+    background-color: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    padding: 18px 20px;
+}
+
+.inv-form__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px 20px;
+}
+
+.inv-form__actions {
+    margin-top: 18px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Dialogs (NAV / cashflow add forms). */
+dialog.inv-dialog {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    padding: 18px 20px;
+    max-width: 460px;
+    width: 90%;
+}
+
+dialog.inv-dialog::backdrop {
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+dialog.inv-dialog h3 {
+    margin: 0 0 12px;
+    font-size: 1.05rem;
+}
+
+.inv-mini-form .field {
+    margin-bottom: 10px;
+}
+
+.inv-mini-form .field span {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+    margin-bottom: 4px;
+}
+
+.inv-mini-form input[type="text"],
+.inv-mini-form input[type="number"],
+.inv-mini-form input[type="date"],
+.inv-mini-form select {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    font-size: 0.92rem;
+}
+
+.inv-mini-form .dialog-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+/* btn--danger lives only in this surface today; promote to base.css
+ * if a second consumer surfaces. */
+.btn--danger {
+    background-color: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    border: 1px solid var(--ui-semantic-error);
+}
+
+.btn--danger:hover:not(:disabled) {
+    filter: brightness(1.05);
+}
+
+/* ------------------------------------------------------------------ */
+/* Positions panel (ADR-0097 / ADR-0098)                               */
+/* ------------------------------------------------------------------ */
+
+/* Valuation-mode badges. 'unitised' reads as the active, computed state;
+   'reported' as the neutral default the whole book carried before. */
+.inv-pill--unitised {
+    background-color: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+}
+
+.inv-pill--reported {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+}
+
+/* `basis='computed'` provenance badge. Distinct from the origin text
+   beside it: basis states how the number was formed, origin which writer
+   produced the row (ADR-0098 §1). */
+.inv-pill--computed {
+    background-color: var(--ui-semantic-info);
+    color: var(--ui-button-fg);
+    text-transform: lowercase;
+}
+
+/* Ledger transaction-type badges. */
+.inv-pill--opening {
+    background-color: var(--ui-semantic-info);
+    color: var(--ui-button-fg);
+    text-transform: lowercase;
+}
+
+.inv-pill--buy {
+    background-color: var(--ui-semantic-success);
+    color: var(--ui-button-fg);
+    text-transform: lowercase;
+}
+
+.inv-pill--sell {
+    background-color: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    text-transform: lowercase;
+}
+
+.inv-pill--transfer {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    text-transform: lowercase;
+}
+
+/* Header action cluster — the add-transaction and flip buttons. */
+.inv-section__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* The sentence beneath a disabled flip button, naming the unmet
+   precondition (ADR-0097 §6). */
+.inv-flip-blocked {
+    margin: 0 0 12px;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.inv-positions__summary {
+    margin-bottom: 16px;
+}
+
+/* Date / origin qualifier trailing a value in the summary. */
+.inv-provenance {
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+/* Row-level edit button — the neutral complement to .inv-row-delete-btn. */
+.inv-row-edit-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.inv-row-edit-btn:hover {
+    background-color: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-accent-primary);
+}
+
+/* Inline form feedback — a validation error from the service layer, and
+   the Excel book-of-record warning on an 'excel'-origin ledger row. */
+.inv-form-error {
+    margin: 4px 0 0;
+    color: var(--ui-semantic-error);
+    font-size: 0.85rem;
+}
+
+.inv-form-warning {
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.field__hint {
+    display: block;
+    margin-top: 2px;
+    color: var(--ui-text-secondary);
+    font-size: 0.76rem;
+}
+
+/* Mode-flip confirmation dialog. */
+.inv-dialog__lead {
+    margin: 0 0 10px;
+    color: var(--ui-text-primary);
+}
+
+.inv-dialog__consequences {
+    margin: 0 0 12px;
+    padding-left: 18px;
+    color: var(--ui-text-secondary);
+    font-size: 0.88rem;
+}
+
+.inv-dialog__consequences li {
+    margin-bottom: 6px;
+}

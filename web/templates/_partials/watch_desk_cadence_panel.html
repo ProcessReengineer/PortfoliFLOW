@@ -1,0 +1,77 @@
+{# Cadence settings panel (ADR-0089) — the one editable calibration
+   surface in v0. Posts to /api/watch-desk/cadence and swaps back
+   into #dc-cadence-panel. Context (via _cadence_context): csrf_token,
+   cadence_choices, cadence_labels, hours,
+   current{cadence,preferred_hour,timezone,enabled,next_due_at,configured},
+   cadence_saved, cadence_error. #}
+<form class="pf-dc-cadence"
+      hx-post="/api/watch-desk/cadence"
+      hx-target="#dc-cadence-panel"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    {% if cadence_saved %}
+        <p class="pf-dc-cadence__flash" role="status">Cadence saved.</p>
+    {% endif %}
+    {% if cadence_error %}
+        <p class="pf-dc-cadence__error" role="alert">{{ cadence_error }}</p>
+    {% endif %}
+
+    <div class="pf-dc-cadence__fields">
+        <label class="pf-dc-cadence__field">
+            <span class="pf-dc-cadence__label">Cadence</span>
+            <select name="cadence">
+                {% for choice in cadence_choices %}
+                    <option value="{{ choice }}"
+                        {% if choice == current.cadence %}selected{% endif %}>
+                        {{ cadence_labels[choice] }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label class="pf-dc-cadence__field">
+            <span class="pf-dc-cadence__label">Anchor hour</span>
+            <select name="preferred_hour">
+                {% for hour in hours %}
+                    <option value="{{ hour }}"
+                        {% if hour == current.preferred_hour %}selected{% endif %}>
+                        {{ '%02d:00'|format(hour) }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label class="pf-dc-cadence__field">
+            <span class="pf-dc-cadence__label">Timezone</span>
+            <input type="text" name="timezone" value="{{ current.timezone }}">
+        </label>
+
+        <label class="pf-dc-cadence__field pf-dc-cadence__field--check">
+            <input type="checkbox" name="enabled"
+                   {% if current.enabled %}checked{% endif %}>
+            <span class="pf-dc-cadence__label">Enabled</span>
+        </label>
+    </div>
+
+    <p class="pf-dc-cadence__hint">
+        Sub-daily cadences beat at the anchor hour and every interval from
+        it — an anchor of 08:00 on “Every 6 hours” means 02:00, 08:00,
+        14:00 and 20:00 in the timezone set here.
+    </p>
+
+    <div class="pf-dc-cadence__footer">
+        <button type="submit" class="pf-dc-btn pf-dc-btn--primary">
+            Save cadence
+        </button>
+        {% if current.next_due_at %}
+            <span class="pf-dc-cadence__next">
+                Next beat due: {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }}
+            </span>
+        {% elif current.configured %}
+            <span class="pf-dc-cadence__next">Next beat scheduled.</span>
+        {% else %}
+            <span class="pf-dc-cadence__next">Not yet configured.</span>
+        {% endif %}
+    </div>
+</form>

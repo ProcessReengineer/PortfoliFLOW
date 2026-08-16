@@ -1,0 +1,52 @@
+{# Origin embed (ADR-0107, C3a) — a read-only record of the immutable finding
+   the case was opened from, per the mock. A record, not a control (ADR-0107
+   §3): no navigation into the Watch Desk, no options list, no resolve
+   affordances. Rendered only when the case carries a finding.
+
+   Band and resolution reuse the Watch Desk tag classes
+   (pf-dc-band-tag / pf-dc-res-tag) rather than inventing new ones.
+
+   Context: origin — {band, subject_key, surfaced, trigger, finding, basis,
+   resolution, materiality_lines}. #}
+<div class="pf-origin">
+    <span class="pf-origin__label">
+        Originating finding
+        <span class="lock">· immutable — the case references it, never edits it (ADR-0085)</span>
+    </span>
+
+    <span class="pf-origin__meta">
+        <span class="pf-dc-band-tag pf-dc-band-tag--{{ origin.band }}">
+            {{ origin.band|capitalize }}
+        </span>
+        <span class="mono">{{ origin.subject_key }}</span>
+        {% if origin.surfaced %}· surfaced {{ origin.surfaced }}{% endif %}
+        <span class="pf-dc-res-tag pf-dc-res-tag--{{ origin.resolution }}">
+            {{ origin.resolution_label }}
+        </span>
+    </span>
+
+    {% if origin.trigger %}
+        <span class="pf-origin__trigger">{{ origin.trigger }}</span>
+    {% endif %}
+    {% if origin.finding %}
+        <p class="pf-origin__finding">{{ origin.finding }}</p>
+    {% endif %}
+    {% if origin.basis %}
+        {# The materiality as Irene phrased it, at finding time. #}
+        <span class="pf-origin__materiality">{{ origin.basis }}</span>
+    {% endif %}
+
+    {# "At case opening" — the presentation strings frozen at case opening
+       (binding decision 2). Rendered verbatim, one line per string, only when
+       present; nothing (no placeholder) when absent. Today's manually opened
+       cases carry an empty payload; C4's open-from-finding endpoint writes
+       these via the coverage service. #}
+    {% if origin.materiality_lines %}
+        <div class="pf-origin__opening">
+            <span class="pf-origin__opening-label">At case opening</span>
+            {% for line in origin.materiality_lines %}
+                <span class="pf-origin__opening-line">{{ line }}</span>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

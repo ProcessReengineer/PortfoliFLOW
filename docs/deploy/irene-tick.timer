@@ -1,0 +1,35 @@
+# Example systemd timer unit for the Irene heartbeat tick (ADR-0086).
+#
+# This is a TEMPLATE, not an installed unit. See irene-tick.service and
+# README-irene-tick.md for installation.
+
+[Unit]
+Description=Fire the PortfoliFLOW Irene tick on a fixed interval
+
+[Timer]
+# Tick interval — fire every 15 minutes, on the quarter hour.
+#
+# Rationale (ADR-0086 §"open detail: tick interval"): the tick source is
+# a DUMB fixed interval; per-tenant cadence lives in irene_schedule and is
+# honoured by find_due_tenants + compute_next_due_at, not by this timer.
+# The interval only needs to be fine enough to honour the FINEST cadence.
+# v0's finest cadence is "daily at a preferred hour", so a 15-minute tick
+# lands each tenant's beat within 15 minutes of its preferred hour — more
+# than precise enough for a daily rhythm. It is also cheap: a tick on an
+# empty due-set is a single indexed SELECT plus (for any due tenant) one
+# advisory-lock claim, so over-ticking costs almost nothing. If a future
+# cadence needs finer granularity (e.g. hourly), tighten this interval;
+# the domain logic does not change.
+OnCalendar=*:0/15
+
+# If the machine was asleep/off when a tick was due, run one catch-up tick
+# on boot rather than silently skipping — Irene should not miss a whole
+# window because the host was down.
+Persistent=true
+
+# Small randomised delay so many hosts (or co-scheduled timers) don't all
+# fire on the exact same second.
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

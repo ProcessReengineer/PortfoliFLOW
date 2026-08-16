@@ -1,0 +1,45 @@
+{# One watchpoint identity's version history (ADR-0116 §7).
+
+   Read-only, newest first, and deliberately **without a diff engine**: the
+   historised rows *are* the story. Each version states the complete
+   calibration in force from its `effective_from`, so one row answers "what
+   was this set to then" without replaying its predecessors — which is the
+   whole reason the table is versioned rather than updated in place. A
+   computed diff would add a second, derived account of the same change and
+   would have to be trusted; the rows themselves need not be.
+
+   Context: display_name, versions (newest first). #}
+<div class="pf-dc-wphistory">
+    <p class="pf-dc-wphistory__head">Versions of “{{ display_name }}”</p>
+    <table class="pf-dc-wplist__table">
+        <thead>
+            <tr>
+                <th scope="col">Effective from</th>
+                <th scope="col">Name</th>
+                <th scope="col">Parameters</th>
+                <th scope="col">Approaching mark</th>
+                <th scope="col">Re-trigger &Delta;</th>
+                <th scope="col">Muted</th>
+                <th scope="col">Note</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for version in versions %}
+                <tr>
+                    <td class="mono">
+                        {{ version.effective_from.strftime('%d %b %Y %H:%M') }}
+                        {% if version.retired %}
+                            <span class="tag tag--nodata">retired</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ version.display_name }}</td>
+                    <td>{{ version.parameters }}</td>
+                    <td>{{ version.warn_threshold_pct }}</td>
+                    <td>{{ version.re_trigger_delta }}</td>
+                    <td>{{ 'yes' if version.muted else 'no' }}</td>
+                    <td class="irene-note">{{ version.notes }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

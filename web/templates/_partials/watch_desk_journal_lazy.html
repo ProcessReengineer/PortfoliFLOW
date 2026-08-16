@@ -1,0 +1,11 @@
+{# Journal section lazy-load shell (ADR-0089). See
+   watch_desk_briefing_lazy.html for the pattern. #}
+<div class="pf-section__lazy"
+     hx-get="/api/watch-desk/journal"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading journal&hellip;
+    </p>
+</div>

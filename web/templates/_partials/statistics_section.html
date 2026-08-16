@@ -1,0 +1,486 @@
+{# Statistics section body — embedded in /front-office#statistics.
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed"
+   in the parent section's placeholder). Renders the KPI strip,
+   correlation heatmap and the four Tabulator detail tables.
+
+   Context (from web/routes/statistics.py):
+     investment_names    — alphabetical order; empty list = empty universe.
+     key_metrics_rows    — list of dicts with name / NAV / return /
+                            Sharpe / sparkline_spec / has_sparkline.
+     has_correlation     — True when ≥ 2 investments have non-empty
+                            return series.
+     correlation_spec    — Plotly spec dict; empty when has_correlation is False.
+     distribution_rows   — list of one dict per investment carrying the
+                            ten Distribution metric fields flattened as
+                            fields (investments-as-rows pivot, ADR-0062).
+     risk_rows           — list of one dict per investment carrying the
+                            13 RiskMetrics fields (var_90_daily, …,
+                            sharpe_ratio, sortino_ratio,
+                            lag_1_autocorrelation, …). Shared across the
+                            Risk / Risk-Return / Autocorrelation tables.
+     risk_free_rate_pct  — percentage form for display.
+     as_of_date          — ISO string or empty. #}
+
+{% if not investment_names %}
+    <p class="stats-empty">
+        No statistics to display. Import investments via the
+        <a href="/admin#data-import">Data Import</a> section in
+        Admin or create one from the
+        <a href="/investments">Investments</a> list.
+    </p>
+{% else %}
+
+    {# KPI strip — sparkline + name + NAV + annualised return + Sharpe per investment. #}
+    <section class="stats-block" aria-labelledby="stats-kpi-title">
+        <h3 id="stats-kpi-title" class="stats-block__title">Key Metrics</h3>
+        <div class="stats-kpi-strip">
+            {% for row in key_metrics_rows %}
+                <article class="stats-kpi-card" aria-label="{{ row.name }}">
+                    <header class="stats-kpi-card__header">
+                        <h4 class="stats-kpi-card__name">{{ row.name }}</h4>
+                    </header>
+                    <dl class="stats-kpi-card__metrics">
+                        <div>
+                            <dt>NAV</dt>
+                            <dd>
+                                {% if row.latest_nav is not none %}
+                                    {{ "{:,.2f}".format(row.latest_nav) }} {{ row.currency }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Return p.a.</dt>
+                            <dd>
+                                {% if row.annualised_return is not none %}
+                                    {{ "%+.1f"|format(row.annualised_return * 100) }}%
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Sharpe</dt>
+                            <dd>
+                                {% if row.sharpe_ratio is not none %}
+                                    {{ "%.2f"|format(row.sharpe_ratio) }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </dd>
+                        </div>
+                    </dl>
+                    <div class="stats-kpi-card__sparkline plotly-target"
+                         id="stats-spark-{{ loop.index0 }}"
+                         data-spec='{{ row.sparkline_spec | tojson }}'
+                         {% if not row.has_sparkline %}data-empty="true"{% endif %}>
+                    </div>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {# Correlation matrix. #}
+    <section class="stats-block" aria-labelledby="stats-corr-title">
+        <h3 id="stats-corr-title" class="stats-block__title">Correlation Matrix</h3>
+        {% if has_correlation %}
+            <div id="stats-correlation"
+                 class="stats-correlation plotly-target"
+                 data-spec='{{ correlation_spec | tojson }}'
+                 style="min-height: 480px;">
+            </div>
+        {% else %}
+            <p class="stats-empty">
+                Need at least two investments with non-empty return
+                series to compute correlations.
+            </p>
+        {% endif %}
+    </section>
+
+    {# Distribution, Risk, Risk/Return, Autocorrelation blocks.
+
+       Each block is an investments-as-rows Tabulator (ADR-0062 §1)
+       with per-column heatmap tinting (ADR-0062 §2 / §2.1 / §2.2).
+       The three risk-derived tables share a single embedded JSON
+       data block (stats-riskmetrics-data); each Tabulator presents a
+       different column subset over the same rows. #}
+    <section class="stats-block" aria-labelledby="stats-details-title">
+        <h3 id="stats-details-title" class="stats-block__title">Details</h3>
+
+        {# Shared data block for the Risk / Risk-Return / Autocorrelation
+           tables — emitted once to avoid triplicating the payload. #}
+        <script type="application/json" id="stats-riskmetrics-data">
+            {{ risk_rows | tojson }}
+        </script>
+
+        {# --- Distribution --- #}
+        <details class="stats-block__sub stats-subblock" aria-labelledby="stats-dist-title">
+            <summary id="stats-dist-title" class="stats-block__subtitle stats-subblock__summary">
+                <span class="stats-subblock__label">Distribution</span>
+                <span class="stats-subblock__chevron" aria-hidden="true">&#9662;</span>
+            </summary>
+            <script type="application/json" id="stats-distribution-data">
+                {{ distribution_rows | tojson }}
+            </script>
+            <div id="stats-dist-table"
+                 class="stats-detail-table"
+                 aria-label="Distribution statistics table"></div>
+        </details>
+
+        {# --- Risk --- #}
+        <details class="stats-block__sub stats-subblock" aria-labelledby="stats-risk-title">
+            <summary id="stats-risk-title" class="stats-block__subtitle stats-subblock__summary">
+                <span class="stats-subblock__label">Risk</span>
+                <span class="stats-subblock__chevron" aria-hidden="true">&#9662;</span>
+            </summary>
+            <div id="stats-risk-table"
+                 class="stats-detail-table"
+                 aria-label="Risk metrics table"></div>
+        </details>
+
+        {# --- Risk / Return --- #}
+        <details class="stats-block__sub stats-subblock" aria-labelledby="stats-rr-title">
+            <summary id="stats-rr-title" class="stats-block__subtitle stats-subblock__summary">
+                <span class="stats-subblock__label">Risk / Return</span>
+                <span class="stats-subblock__chevron" aria-hidden="true">&#9662;</span>
+            </summary>
+            <div id="stats-rr-table"
+                 class="stats-detail-table"
+                 aria-label="Risk / Return metrics table"></div>
+        </details>
+
+        {# --- Autocorrelation --- #}
+        <details class="stats-block__sub stats-subblock" aria-labelledby="stats-ac-title">
+            <summary id="stats-ac-title" class="stats-block__subtitle stats-subblock__summary">
+                <span class="stats-subblock__label">Autocorrelation</span>
+                <span class="stats-subblock__chevron" aria-hidden="true">&#9662;</span>
+            </summary>
+            <div id="stats-ac-table"
+                 class="stats-detail-table"
+                 aria-label="Autocorrelation table"></div>
+        </details>
+
+        <p class="stats-meta">
+            Risk-free rate {{ "%.2f"|format(risk_free_rate_pct) }}%
+            {% if as_of_date %} · As of {{ as_of_date }}{% endif %}
+        </p>
+    </section>
+
+{% endif %}
+
+{# Section bootstrap — runs after HTMX swaps this fragment in. Two
+   concerns live in the IIFE below:
+
+   1. The four detail tables initialise as Tabulator instances with
+      per-column heatmap tinting (ADR-0062 §2.2). The bucket logic,
+      format helpers and column catalogue mirror the canonical
+      convention; diagnostic columns (Skewness, Kurtosis, the four
+      Autocorrelation lags) emit no data-magnitude-bucket.
+   2. The Plotly targets (sparklines + correlation heatmap) render
+      idempotently — only .plotly-target[data-spec] elements that
+      haven't been rendered yet are touched. #}
+<script>
+(function () {
+    "use strict";
+
+    /* --------------------------------------------------------------
+     * ADR-0062 §2.2 heatmap bucket assignment.
+     * Returns "pos-strong" | "pos-mild" | "neg-strong" | "neg-mild" | "neutral".
+     * Inputs: value (number | null), and a four-tuple { direction, magnitude,
+     * cap, pivot } describing the column's heatmap parameters.
+     * -------------------------------------------------------------- */
+    function statsMagnitudeBucket(value, params) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "neutral";
+        }
+        var pivot = (params.pivot === undefined) ? 0 : params.pivot;
+        var cap = params.cap;
+        var ratio = (value - pivot) / cap;
+        var dir = params.direction;
+
+        if (params.magnitude === "one-sided") {
+            // One-sided: the gradient runs from neutral at the pivot to a
+            // strong tint at the cap, on the *unfavourable* side only.
+            // lower-better → large positive ratio is bad (red); a value
+            // below the pivot stays neutral. higher-better → large
+            // positive ratio is good (green).
+            if (dir === "lower-better") {
+                if (ratio >= 1.0) return "neg-strong";
+                if (ratio >= 0.7) return "neg-mild";
+                return "neutral";
+            }
+            if (ratio >= 1.0) return "pos-strong";
+            if (ratio >= 0.7) return "pos-mild";
+            return "neutral";
+        }
+
+        // two-sided: positive ratio tints green, negative tints red.
+        // For lower-better, flip the sign first so "good" reads green.
+        if (dir === "lower-better") {
+            ratio = -ratio;
+        }
+        if (ratio >=  0.5) return "pos-strong";
+        if (ratio >   0)   return "pos-mild";
+        if (ratio <= -0.5) return "neg-strong";
+        if (ratio <   0)   return "neg-mild";
+        return "neutral";
+    }
+
+    /* --------------------------------------------------------------
+     * Format helpers reused across columns.
+     * -------------------------------------------------------------- */
+    function statsFmtPct(value, decimals) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "N/A";
+        }
+        var d = (decimals === undefined) ? 4 : decimals;
+        return (value * 100).toFixed(d) + "%";
+    }
+
+    function statsFmtSignedPct(value, decimals) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "N/A";
+        }
+        var d = (decimals === undefined) ? 4 : decimals;
+        var pct = value * 100;
+        var sign = pct > 0 ? "+" : (pct < 0 ? "−" : "");
+        return sign + Math.abs(pct).toFixed(d) + "%";
+    }
+
+    function statsFmtNumber(value, decimals) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "N/A";
+        }
+        var d = (decimals === undefined) ? 4 : decimals;
+        return value.toFixed(d);
+    }
+
+    function statsFmtSignedNumber(value, decimals) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "N/A";
+        }
+        var d = (decimals === undefined) ? 4 : decimals;
+        var sign = value > 0 ? "+" : (value < 0 ? "−" : "");
+        return sign + Math.abs(value).toFixed(d);
+    }
+
+    /* --------------------------------------------------------------
+     * Column-formatter factory. Given the four-tuple, returns a
+     * formatter callback compatible with Tabulator. The formatter
+     * sets the data-magnitude-bucket on the cell element and returns
+     * the display string from the provided text formatter.
+     * -------------------------------------------------------------- */
+    function statsHeatmapFormatter(params, textFmt) {
+        return function (cell) {
+            var value = cell.getValue();
+            var bucket = statsMagnitudeBucket(value, params);
+            cell.getElement().setAttribute("data-magnitude-bucket", bucket);
+            return textFmt(value);
+        };
+    }
+
+    function statsPlainFormatter(textFmt) {
+        return function (cell) {
+            // Explicitly clear any inherited attribute from a previous
+            // render so re-sorts don't carry stale buckets.
+            cell.getElement().removeAttribute("data-magnitude-bucket");
+            return textFmt(cell.getValue());
+        };
+    }
+
+    /* --------------------------------------------------------------
+     * Column catalogue — mirrors ADR-0062 §2.2 Statistics catalogue.
+     * Each entry: { title, field, params? (heatmap), text (formatter) }.
+     * params: null  →  no heatmap (diagnostic).
+     * -------------------------------------------------------------- */
+    var STATS_DIST_COLUMNS = [
+        { title: "Mean (daily)", field: "mean_daily",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.0008 },
+          text: function (v) { return statsFmtSignedPct(v, 4); } },
+        { title: "Mean (ann.)", field: "mean_annualised",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.20 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "Std (daily)", field: "std_daily",
+          params: { direction: "lower-better", magnitude: "one-sided", cap: 0.025 },
+          text: function (v) { return statsFmtPct(v, 4); } },
+        { title: "Std (ann.)", field: "std_annualised",
+          params: { direction: "lower-better", magnitude: "one-sided", cap: 0.40 },
+          text: function (v) { return statsFmtPct(v, 2); } },
+        { title: "Variance", field: "variance_daily",
+          params: { direction: "lower-better", magnitude: "one-sided", cap: 0.0006 },
+          text: function (v) { return statsFmtNumber(v, 6); } },
+        { title: "Skewness", field: "skewness",
+          params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+        { title: "Kurtosis", field: "kurtosis_excess",
+          params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+        { title: "Median", field: "median",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.0008 },
+          text: function (v) { return statsFmtSignedPct(v, 4); } },
+        { title: "Min", field: "min_return",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "Max", field: "max_return",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+    ];
+
+    var STATS_RISK_COLUMNS = [
+        { title: "VaR 90", field: "var_90_daily",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "VaR 95", field: "var_95_daily",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "VaR 99", field: "var_99_daily",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "CVaR 95", field: "cvar_95_daily",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.05 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "Max DD", field: "max_drawdown",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 0.50 },
+          text: function (v) { return statsFmtSignedPct(v, 2); } },
+        { title: "Ulcer", field: "ulcer_index",
+          params: { direction: "lower-better", magnitude: "one-sided", cap: 15.0 },
+          text: function (v) { return statsFmtNumber(v, 2); } },
+        { title: "Downside Dev", field: "downside_deviation",
+          params: { direction: "lower-better", magnitude: "one-sided", cap: 0.02 },
+          text: function (v) { return statsFmtPct(v, 4); } },
+    ];
+
+    var STATS_RR_COLUMNS = [
+        { title: "Sharpe", field: "sharpe_ratio",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 2.0 },
+          text: function (v) { return statsFmtSignedNumber(v, 2); } },
+        { title: "Sortino", field: "sortino_ratio",
+          params: { direction: "higher-better", magnitude: "two-sided", cap: 3.0 },
+          text: function (v) { return statsFmtSignedNumber(v, 2); } },
+    ];
+
+    var STATS_AC_COLUMNS = [
+        { title: "Lag 1", field: "lag_1_autocorrelation", params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+        { title: "Lag 2", field: "lag_2_autocorrelation", params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+        { title: "Lag 3", field: "lag_3_autocorrelation", params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+        { title: "Lag 4", field: "lag_4_autocorrelation", params: null,
+          text: function (v) { return statsFmtSignedNumber(v, 4); } },
+    ];
+
+    function statsBuildColumns(catalogue) {
+        var cols = [
+            { title: "Investment", field: "name", sorter: "string",
+              widthGrow: 2, frozen: true,
+              formatter: function (cell) { return cell.getValue() || ""; },
+              cssClass: "stats-detail-table__name-cell" },
+        ];
+        for (var i = 0; i < catalogue.length; i++) {
+            var entry = catalogue[i];
+            cols.push({
+                title: entry.title,
+                field: entry.field,
+                sorter: "number",
+                hozAlign: "right",
+                widthGrow: 1,
+                formatter: entry.params
+                    ? statsHeatmapFormatter(entry.params, entry.text)
+                    : statsPlainFormatter(entry.text),
+            });
+        }
+        return cols;
+    }
+
+    function statsInitTable(mountId, dataId, columns, initialSortField, initialSortDir) {
+        var dataEl = document.getElementById(dataId);
+        var mountEl = document.getElementById(mountId);
+        if (!dataEl || !mountEl) return;
+        var rows;
+        try { rows = JSON.parse(dataEl.textContent || "[]"); }
+        catch (e) { return; }
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        // Idempotent re-swap: clear any prior Tabulator DOM so an HTMX
+        // re-fetch replaces the table cleanly rather than stacking.
+        mountEl.replaceChildren();
+        return new Tabulator(mountEl, {
+            data: rows,
+            layout: "fitColumns",
+            placeholder: "No data.",
+            columns: columns,
+            initialSort: initialSortField ? [
+                { column: initialSortField, dir: initialSortDir || "desc" },
+            ] : [],
+        });
+    }
+
+    var STATS_TABLE_REGISTRY = {};
+    STATS_TABLE_REGISTRY["stats-dist-table"] = statsInitTable(
+        "stats-dist-table", "stats-distribution-data",
+        statsBuildColumns(STATS_DIST_COLUMNS),
+        "mean_annualised", "desc"
+    );
+    STATS_TABLE_REGISTRY["stats-risk-table"] = statsInitTable(
+        "stats-risk-table", "stats-riskmetrics-data",
+        statsBuildColumns(STATS_RISK_COLUMNS),
+        "max_drawdown", "desc"   // descending = closest to zero = best on top
+    );
+    STATS_TABLE_REGISTRY["stats-rr-table"] = statsInitTable(
+        "stats-rr-table", "stats-riskmetrics-data",
+        statsBuildColumns(STATS_RR_COLUMNS),
+        "sharpe_ratio", "desc"
+    );
+    STATS_TABLE_REGISTRY["stats-ac-table"] = statsInitTable(
+        "stats-ac-table", "stats-riskmetrics-data",
+        statsBuildColumns(STATS_AC_COLUMNS),
+        "lag_1_autocorrelation", "desc"
+    );
+
+    /* Collapsible detail sub-blocks (ADR-0062). Each table uses
+       layout:"fitColumns"; a Tabulator initialised inside a closed
+       <details> measures a zero-width container and mis-sizes its
+       columns, so redraw the table the first time (and any time) its
+       sub-block is opened. */
+    document.querySelectorAll("#statistics details.stats-subblock").forEach(function (det) {
+        det.addEventListener("toggle", function () {
+            if (!det.open) return;
+            var mount = det.querySelector(".stats-detail-table");
+            if (!mount) return;
+            var table = STATS_TABLE_REGISTRY[mount.id];
+            if (table && typeof table.redraw === "function") {
+                table.redraw(true);
+            }
+        });
+    });
+
+    /* --------------------------------------------------------------
+     * Plotly bootstrap — idempotent; only acts on
+     * .plotly-target[data-spec] elements not yet rendered.
+     * -------------------------------------------------------------- */
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        if (target.getAttribute("data-empty") === "true") {
+            target.dataset.pfRendered = "1";
+            return;
+        }
+        Plotly.newPlot(target, spec.data, spec.layout, spec.config);
+        target.dataset.pfRendered = "1";
+        // Plotly occasionally measures the container before layout
+        // settles after an HTMX swap; nudging a resize on the next
+        // frame ensures the heatmap fills its sub-block.
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+    document.querySelectorAll("#statistics .plotly-target[data-spec]")
+        .forEach(renderTarget);
+})();
+</script>

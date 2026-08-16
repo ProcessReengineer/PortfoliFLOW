@@ -1,0 +1,28 @@
+{# The "+ Add watchpoint" affordance on a signal group header (ADR-0116 §6).
+
+   Its own fragment because the asymmetry it embodies is worth a place to
+   write down: **the saa / anlv / rss groups get nothing like this, ever.**
+   For those families a watchpoint is a *sensitivity overlay only* — the
+   subject and its ceiling belong to the effective limit set (or to the
+   curated tag vocabulary), and there is never a second edit point for
+   limits (ADR-0116 §3). A future hand looking for "where do I add the add
+   button for SAA" should find this comment instead: the answer is that
+   there is no such button, and the schema's per-family CHECKs would refuse
+   the row it would try to write. Ceilings are managed in Limits, which is
+   what those group headers already link to.
+
+   The two singleton families are absent for a different reason: their group
+   only renders when a live singleton already exists, and a second one is
+   refused by the repository. Adding one happens from the section footer's
+   empty-state line, which is the only state in which it is possible.
+
+   Context: group (see _build_signal_group). #}
+{% if group.can_add %}
+    · <button type="button"
+              class="pf-dc-group__add"
+              hx-get="/api/watch-desk/watchpoints/new?family={{ group.family }}"
+              hx-target="#dc-watchpoint-new"
+              hx-swap="innerHTML">
+        + Add watchpoint
+    </button>
+{% endif %}

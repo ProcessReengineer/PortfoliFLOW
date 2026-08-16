@@ -1,0 +1,34 @@
+# PortfoliFLOW pre-commit hooks.
+#
+# Install once with `pre-commit install`. Hooks run in the order below.
+#
+# 1. ruff and ruff-format enforce the lint and format contract of
+#    ADR-0109 §1/§2 before a commit is written. The `rev` below is
+#    pinned to the same version as the `ruff==` entry in the dev extras
+#    of pyproject.toml, which is also the version CI runs — bump the
+#    two together, never one alone.
+# 2. The artefact hooks regenerate a committed artefact from its single
+#    source of truth, so generated artefacts can never drift past code
+#    review:
+#      * theme.css   <- config/ui_theme*.json + chart_theme.json (ADR-0037 §7)
+#      * docs/tools.md <- the ToolRegistry (ADR-0012, B8)
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: generate-theme-artifacts
+        name: regenerate web/static/css/theme.css
+        entry: python -m scripts.generate_theme_artifacts
+        language: system
+        files: ^config/(ui_theme.*|chart_theme).*\.json$
+        pass_filenames: false
+      - id: generate-tool-docs
+        name: regenerate docs/tools.md
+        entry: python -m scripts.generate_tool_docs
+        language: system
+        files: ^services/(tool_registry\.py|ai_service_core\.py|tools/.*\.py)$
+        pass_filenames: false

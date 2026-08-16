@@ -1,0 +1,32 @@
+{# Reusable security-identifier form partial (ADR-0096).
+
+   Used inside a <dialog> on the detail page. Fields:
+   - scheme (one of the closed IDENTIFIER_SCHEMES set)
+   - value (free-form; normalised trim + upper-case on write)
+
+   A new identifier is never primary on creation — promotion is a
+   separate per-row action in the panel.
+#}
+
+<form id="identifier-form" class="inv-mini-form">
+    <h3>Add Identifier</h3>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label class="field">
+        <span>Scheme</span>
+        <select name="scheme" required>
+            {% for s in identifier_schemes %}
+                <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="field">
+        <span>Value</span>
+        <input type="text" name="value" maxlength="200" required>
+    </label>
+
+    <div class="dialog-actions">
+        <button type="button" class="btn" data-dismiss="identifier-dialog">Cancel</button>
+        <button type="submit" class="btn btn--primary">Add Identifier</button>
+    </div>
+</form>

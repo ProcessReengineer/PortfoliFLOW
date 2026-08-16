@@ -1,0 +1,22 @@
+{# HTMX area-fragment template — used when ``HX-Request: true`` is
+   set on the request. Renders only the area's body (no <html>,
+   <head> or <body> wrapper) plus the out-of-band sidebar fragment
+   so the active-state highlighting follows the area switch.
+
+   Context variables:
+     active_area        — slug of the area being rendered.
+     area_body_partial  — path of the area's body partial under
+                          _partials/areas/.
+     user_email         — for the (OOB) sidebar's footer.
+     csrf_token         — for the OOB sidebar's collapse / sign-out
+                          forms.
+
+   The OOB fragments must come AFTER the main content so HTMX swaps
+   the area body into ``#shell-main`` first, then performs the OOB
+   swaps on ``#pf-sidebar`` and ``#pf-statusbar``. #}
+{% include area_body_partial %}
+{% if section_index %}
+    {% include "_partials/section_indicator.html" %}
+{% endif %}
+{% include "_partials/sidebar_oob.html" %}
+{% include "_partials/statusbar_oob.html" %}

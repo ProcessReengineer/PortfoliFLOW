@@ -1,0 +1,14 @@
+{# Inline chat-error fragment for a rejected image upload (ADR-0075).
+
+   Dropped into ``#chat-history`` via the composer's ``hx-swap="beforeend"``
+   so a validation failure (non-vision model, unsupported type, oversize)
+   surfaces a clear message rather than a bare 4xx.
+
+   Context:
+       message — the human-readable error copy.
+#}
+<article class="chat-message chat-message--assistant">
+    <div class="chat-message__bubble">
+        <span class="chat-error">{{ message }}</span>
+    </div>
+</article>

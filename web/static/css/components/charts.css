@@ -1,0 +1,186 @@
+/* Chart container — visual frame for every chart in the web variant.
+ *
+ * Used today by Plotly target divs (Phase 3+); reserved for the
+ * matplotlib `<img>` Shirley dynamic-chart output planned in
+ * Phase 5+ (per ADR-0042 §5). Both renderers sit inside the same
+ * frame so visual identity is owned by this CSS, not by the engine.
+ *
+ * All colours are read from the canonical chart theme via the
+ * generated CSS variables in /static/css/theme.css.
+ */
+
+.chart-container {
+    background-color: var(--chart-colours-background);
+    border: 1px solid var(--chart-colours-grid);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 16px 0;
+    min-height: 420px;
+    position: relative;
+}
+
+.chart-container > .plotly-target {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+}
+
+.chart-container > img.matplotlib-output {
+    /* Phase 5+ usage. Reserved here so the future addition is purely
+     * additive (no edit to the surrounding rules). */
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.chart-container__loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--chart-colours-background);
+    color: var(--chart-colours-text);
+    font-size: 0.9rem;
+    z-index: 10;
+}
+
+.chart-container__loading.htmx-request {
+    display: flex;
+}
+
+/* ------------------------------------------------------------------
+ * Universe-wide charts section (sub-stream 6F-4).
+ *
+ * The Charts section under /front-office#charts is a scrollable
+ * "wall" of investments — one article per active investment, each
+ * with three Plotly charts loaded lazily on scroll. The outer
+ * .pf-section wrapper comes from the parent area template; this
+ * block covers the inner article list and the chart-triplet grid.
+ *
+ * The .ch- prefix avoids cascade collisions with the Statistics and
+ * Portfolio-Analysis component sheets and with the legacy
+ * .chart-container family above.
+ * ------------------------------------------------------------------ */
+
+.ch-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    padding: 24px 0;
+}
+
+.ch-meta {
+    margin: 0 0 16px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.ch-articles {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.ch-article {
+    padding: 16px;
+    background: var(--ui-surface-secondary, #161616);
+    border: 1px solid var(--ui-border, #2c2c2c);
+    border-radius: 4px;
+}
+
+.ch-article__header {
+    margin: 0 0 12px;
+}
+
+.ch-article__title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ui-text-primary, #e8e8e8);
+}
+
+.ch-article__lazy {
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ch-article__skeleton {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    margin: 0;
+}
+
+/* Three-chart grid per article — same shape as
+ * investments/charts.html for visual consistency between the
+ * single-investment surface and the universe-wide briefing. */
+.ch-triplet {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.ch-chart {
+    min-height: 320px;
+    width: 100%;
+}
+
+/* Single-tile archetypes (NAV-only) and the neutral empty state span
+ * the full row instead of leaving two empty grid columns (ADR-0082). */
+.ch-triplet[data-tile-count="1"] .ch-chart {
+    grid-column: 1 / -1;
+}
+
+.ch-triplet--empty {
+    grid-template-columns: 1fr;
+}
+
+/* Narrow-viewport fallback. Below 720px wide, stacking is more
+ * legible than three squashed columns. The 320px chart height
+ * remains. */
+@media (max-width: 720px) {
+    .ch-triplet {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ------------------------------------------------------------------
+ * KPI caption strip (ADR-0082 §5).
+ *
+ * Rendered beneath the per-investment tile-set for the three rich
+ * archetypes (Capital-Account, Total-Return-Equity, Fixed-Income).
+ * One pill per KPI, each a label/value pair, in the same surface +
+ * border visual language as the article cards above.
+ * ------------------------------------------------------------------ */
+
+.ch-kpi-caption {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.ch-kpi-caption__pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 12px;
+    background: var(--ui-surface-secondary, #161616);
+    border: 1px solid var(--ui-border, #2c2c2c);
+    border-radius: 999px;
+    font-size: 0.8rem;
+}
+
+.ch-kpi-caption__label {
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+}
+
+.ch-kpi-caption__value {
+    color: var(--ui-text-primary, #e8e8e8);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,34 @@
+# Example systemd timer unit for the market-data live-import tick
+# (ADR-0093).
+#
+# This is a TEMPLATE, not an installed unit. See market-data-tick.service
+# and README-market-data-tick.md for installation.
+
+[Unit]
+Description=Fire the PortfoliFLOW market-data tick on a fixed interval
+
+[Timer]
+# Tick interval — fire every 15 minutes, on the quarter hour.
+#
+# Rationale (ADR-0093, mirroring ADR-0086): the tick source is a DUMB fixed
+# interval; per-tenant cadence lives in market_data_schedule and is honoured
+# by the DB-side due read (enabled AND next_due_at <= now()), not by this
+# timer. The interval only needs to be fine enough to honour the FINEST
+# cadence. v0's finest cadence is "daily at a preferred hour", so a
+# 15-minute tick lands each tenant's refresh within 15 minutes of its
+# preferred hour. It is also cheap: a tick on an empty due-set is a single
+# indexed SELECT; only enabled, due tenants do provider work. If a future
+# cadence needs finer granularity, tighten this interval; the domain logic
+# does not change.
+OnCalendar=*:0/15
+
+# If the machine was asleep/off when a tick was due, run one catch-up tick
+# on boot rather than silently skipping a whole window.
+Persistent=true
+
+# Small randomised delay so many hosts (or co-scheduled timers — e.g. the
+# irene-tick timer) don't all fire on the exact same second.
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

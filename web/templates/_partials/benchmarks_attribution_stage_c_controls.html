@@ -1,0 +1,57 @@
+{# Stage c controls (SAA configuration + weight set) plus the chart
+   container. Rendered both as a sub-include of the section body and
+   as a standalone partial for the configuration-switch endpoint. #}
+
+{% if not saa_configuration_options %}
+    <p class="pf-empty-state">
+        No SAA configurations. Create one in the
+        <a href="#saa">Strategic Asset Allocation</a> section above
+        before running a hypothetical comparison.
+    </p>
+{% else %}
+    <form class="ba-controls" autocomplete="off">
+        <div class="ba-controls__field">
+            <label for="benchmarks-stage-c-config">SAA Configuration:</label>
+            <select
+                id="benchmarks-stage-c-config"
+                name="config_id"
+                hx-get="/api/back-office/benchmarks-attribution/stage-c/configuration-switch"
+                hx-trigger="change"
+                hx-target="#benchmarks-stage-c-controls-and-chart"
+                hx-include="this">
+                {% for opt in saa_configuration_options %}
+                    <option
+                        value="{{ opt.saa_configuration_id }}"
+                        {% if opt.saa_configuration_id == selected_configuration_id %}selected{% endif %}>
+                        {{ opt.name }}{% if opt.is_active %} (active){% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <fieldset class="ba-segmented" role="radiogroup" aria-label="Weight Set">
+            <legend class="ba-segmented__legend">Weight Set</legend>
+            {% for opt in weight_set_options %}
+                <label class="ba-segmented__option{% if not opt.available %} ba-segmented__option--disabled{% endif %}">
+                    <input type="radio"
+                           name="weight_set"
+                           value="{{ opt.code }}"
+                           {% if opt.code == selected_weight_set %}checked{% endif %}
+                           {% if not opt.available %}disabled{% endif %}
+                           hx-get="/api/back-office/benchmarks-attribution/stage-c/hypothetical"
+                           hx-trigger="change"
+                           hx-target="#benchmarks-stage-c-chart"
+                           hx-include="closest form">
+                    <span class="ba-segmented__label">{{ opt.display_name }}</span>
+                    {% if not opt.available and opt.unavailable_hint %}
+                        <span class="ba-segmented__hint" title="{{ opt.unavailable_hint }}">&#9432;</span>
+                    {% endif %}
+                </label>
+            {% endfor %}
+        </fieldset>
+    </form>
+
+    <div id="benchmarks-stage-c-chart">
+        {% include "_partials/benchmarks_attribution_stage_c_chart.html" %}
+    </div>
+{% endif %}

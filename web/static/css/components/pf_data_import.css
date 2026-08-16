@@ -1,0 +1,205 @@
+/* Data Import section — sub-stream 6F.
+ *
+ * Single-button workflow: the upload-form fragment renders on
+ * initial load; a successful upload swaps in the preview fragment
+ * (with the dry-run projected counts server-rendered). Only the
+ * final destructive "Apply to Investments" action stays client-side
+ * to keep the inspect-before-commit pause.
+ *
+ * No stage tokens are consumed any more — the prior ``--pf-stepper-*``
+ * theme entries were dropped from config/ui_theme*.json alongside this
+ * rewrite (sub-stream 6F).
+ */
+
+.pf-data-import {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* ---- Panel ------------------------------------------------------- */
+
+.pf-data-import__panel {
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ---- Upload form ------------------------------------------------- */
+
+.pf-data-import__upload-form {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.pf-data-import__heading {
+    margin: 0 0 12px;
+    font-size: 1.05rem;
+    color: var(--ui-text-primary);
+}
+
+.pf-data-import__heading--primary {
+    font-size: 1.15rem;
+}
+
+.pf-data-import__upload .pf-data-import__form {
+    background-color: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    padding: 18px;
+}
+
+.pf-data-import__form .field {
+    margin-bottom: 12px;
+}
+
+.pf-data-import__hint {
+    color: var(--ui-text-secondary);
+    margin: 0 0 12px;
+    font-size: 0.92rem;
+}
+
+/* Clickable recent-uploads rows — hover + focus affordance. */
+.pf-data-import__recent-row {
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.pf-data-import__recent-row:hover,
+.pf-data-import__recent-row:focus {
+    background-color: var(--pf-accent-soft);
+    outline: none;
+}
+
+/* ---- Preview ----------------------------------------------------- */
+
+.pf-data-import__preview {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.pf-data-import__preview-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+}
+
+.pf-data-import__back {
+    color: var(--ui-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.pf-data-import__back:hover,
+.pf-data-import__back:focus {
+    color: var(--ui-text-primary);
+    text-decoration: underline;
+}
+
+.pf-data-import__filename {
+    margin: 0;
+    font-size: 1.2rem;
+    color: var(--ui-text-primary);
+}
+
+.pf-data-import__status {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.95rem;
+}
+
+.pf-data-import__apply {
+    padding: 18px;
+    border: 1px solid rgba(232, 48, 74, 0.25);
+    border-radius: 8px;
+}
+
+/* Hint-icon glyph beside the destructive-action notice. Uses the
+ * semantic-warning token so the colour conveys "be careful" without
+ * borrowing from a now-removed stepper palette. */
+.pf-data-import__hint-icon {
+    color: var(--ui-semantic-warning);
+    margin-right: 4px;
+    font-size: 1.1em;
+}
+
+/* The final destructive primary button — visually unmissable. */
+.btn--prominent {
+    font-size: 1rem;
+    padding: 10px 18px;
+    font-weight: 600;
+}
+
+/* ---- Shared tables / meta / preview ------------------------------ */
+/* Reused inside the upload form (recent uploads) and the preview
+ * (sheet list, metadata, projected-counts). */
+
+.data-import-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-import-table th,
+.data-import-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    font-size: 0.92rem;
+}
+
+.data-import-table th {
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+}
+
+.data-import-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+.data-import-meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 16px;
+    row-gap: 4px;
+    margin: 16px 0 24px;
+}
+
+.data-import-meta dt {
+    color: var(--ui-text-secondary);
+    font-size: 0.88rem;
+}
+
+.data-import-meta dd {
+    margin: 0;
+    font-size: 0.92rem;
+    word-break: break-all;
+}
+
+.import-preview__counts {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 4px 16px;
+    font-size: 0.95rem;
+}
+
+.import-preview__actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+#import-preview-errors-block {
+    margin: 12px 0;
+}
+
+#import-preview-errors-list {
+    margin: 8px 0 0 16px;
+    font-size: 0.88rem;
+    color: var(--ui-text-secondary);
+}

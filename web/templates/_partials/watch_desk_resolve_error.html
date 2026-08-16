@@ -1,0 +1,4 @@
+{# Inline 422 error for an invalid resolution value (ADR-0089). Returned
+   with a 4xx status so default HTMX leaves the card in place; the message
+   is the audit-legible reason. Context: message. #}
+<p class="pf-dc-error" role="alert">{{ message }}</p>

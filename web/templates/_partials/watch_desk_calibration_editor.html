@@ -1,0 +1,190 @@
+{# The tenant calibration editor (ADR-0116 §7). Follows the Back-Office SAA
+   configuration pattern: editable fields, an explicit save bar with dirty
+   state, server-validated on POST.
+
+   Three rules are load-bearing here:
+
+     * Every field shows its **effective** value — defaults ⊕ this tenant's
+       revision — and carries a separate default / customised marker taken
+       from the stored row. Never render a blank for "not overridden": the
+       operator must see what the beat would actually run on.
+     * The form posts the complete desired configuration, defaults
+       included. Reducing it back to deviations (so a field returned to its
+       default is stored as NULL again) belongs to
+       `save_calibration_revision`; this template and its script must never
+       reimplement that, or the two would drift.
+     * The pinned invariants are not editable. `fund_closure` renders as a
+       locked row with **no input at all** — not submittable, rather than
+       an input that is merely styled as disabled — and the three coupling
+       rules render as constraint hints on the fields they bind. The write
+       path enforces all four regardless of what this renders.
+
+   Context (via _calibration_context): csrf_token, calibration_saved,
+   calibration_error, warn_default, band_boundaries, options_gate, floors,
+   caps, deltas, pinned, notes. #}
+<form id="dc-calibration-editor"
+      class="pf-dc-calib"
+      hx-post="/api/watch-desk/calibration"
+      hx-target="#dc-calibration-editor"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    {% if calibration_saved %}
+        <p class="pf-dc-calib__flash" role="status">Calibration saved.</p>
+    {% endif %}
+    {% if calibration_error %}
+        {# A composition failure is about the configuration as a whole, so it
+           has no field to sit beside. The service's wording is reused
+           verbatim — it is written for a human to act on. #}
+        <p class="pf-dc-calib__error" role="alert">
+            {{ calibration_error }} Nothing was saved.
+        </p>
+    {% endif %}
+
+    <section class="pf-dc-calib__block">
+        <h3 class="pf-dc-calib__heading">Thresholds</h3>
+
+        <div class="pf-dc-calib__fields">
+            {% with f = warn_default %}
+                {% include "_partials/watch_desk_calibration_field.html" %}
+            {% endwith %}
+
+            {# One paired control, both or neither — mirroring the schema
+               CHECK that stores the two boundary columns together. #}
+            <div class="pf-dc-calib__field pf-dc-calib__field--pair">
+                <span class="pf-dc-calib__label">
+                    Band boundaries
+                    <span class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if band_boundaries.customised }}">
+                        {{ 'customised' if band_boundaries.customised else 'default' }}
+                    </span>
+                </span>
+                <span class="pf-dc-calib__pair">
+                    <input type="number" step="1" min="1" max="9"
+                           name="{{ band_boundaries.lower.name }}"
+                           value="{{ band_boundaries.lower.value }}"
+                           aria-label="{{ band_boundaries.lower.label }}">
+                    <input type="number" step="1" min="1" max="9"
+                           name="{{ band_boundaries.upper.name }}"
+                           value="{{ band_boundaries.upper.value }}"
+                           aria-label="{{ band_boundaries.upper.label }}">
+                </span>
+                <span class="pf-dc-calib__hint">{{ band_boundaries.hint }}</span>
+                {% for message in [band_boundaries.error, band_boundaries.lower.error, band_boundaries.upper.error] if message %}
+                    <span class="pf-dc-calib__field-error" role="alert">{{ message }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="pf-dc-calib__field">
+                <span class="pf-dc-calib__label">
+                    {{ options_gate.label }}
+                    <span class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if options_gate.customised }}">
+                        {{ 'customised' if options_gate.customised else 'default' }}
+                    </span>
+                </span>
+                <select name="{{ options_gate.name }}">
+                    {% for band in options_gate.choices %}
+                        <option value="{{ band }}"
+                            {% if band == options_gate.value %}selected{% endif %}>
+                            {{ band|capitalize }} and above
+                        </option>
+                    {% endfor %}
+                </select>
+                <span class="pf-dc-calib__hint">{{ options_gate.hint }}</span>
+                {% if options_gate.error %}
+                    <span class="pf-dc-calib__field-error" role="alert">{{ options_gate.error }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="pf-dc-calib__block">
+        <h3 class="pf-dc-calib__heading">Re-trigger &Delta; per family</h3>
+        <p class="pf-dc-calib__note">
+            How far a subject's magnitude must move, within an unchanged
+            band, before it is worth raising again. The four signal families
+            are calibratable before their producers land — the values simply
+            wait.
+        </p>
+        <div class="pf-dc-calib__fields">
+            {% for f in deltas %}
+                {% include "_partials/watch_desk_calibration_field.html" %}
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="pf-dc-calib__block">
+        <h3 class="pf-dc-calib__heading">Floors</h3>
+        <p class="pf-dc-calib__note">
+            The minimum final urgency each trigger raises to, on the 1–10
+            scale.
+        </p>
+        <div class="pf-dc-calib__fields">
+            {% for f in floors %}
+                {% include "_partials/watch_desk_calibration_field.html" %}
+            {% endfor %}
+
+            {# The pinned level. No input element at all: not submittable,
+               rather than submittable-but-styled-as-locked. The write path
+               refuses the key too — it has no column to be stored in. #}
+            <div class="pf-dc-calib__field pf-dc-calib__field--locked">
+                <span class="pf-dc-calib__label">
+                    {{ pinned.label }}
+                    <span class="pf-dc-calib__marker pf-dc-calib__marker--locked">locked</span>
+                </span>
+                <span class="pf-dc-calib__locked-value">
+                    Pinned at {{ pinned.value }} — not calibration
+                </span>
+                <span class="pf-dc-calib__hint">{{ pinned.rationale }}</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="pf-dc-calib__block">
+        <h3 class="pf-dc-calib__heading">Caps</h3>
+        <p class="pf-dc-calib__note">
+            The maximum final urgency, keyed by both source and trigger; a
+            finding's effective cap is the lower of the two.
+        </p>
+        <div class="pf-dc-calib__fields">
+            {% for f in caps %}
+                {% include "_partials/watch_desk_calibration_field.html" %}
+            {% endfor %}
+        </div>
+    </section>
+
+    <label class="pf-dc-calib__notes">
+        <span class="pf-dc-calib__label">Note on this revision</span>
+        <input type="text" name="notes" value="{{ notes }}" maxlength="500"
+               placeholder="Why this calibration was changed (optional)">
+    </label>
+
+    {# The SAA save-bar *pattern* — an explicit save with a dirty state —
+       but not its `.save-bar` class: that one is `position: fixed` and
+       would float a bar over the whole app from inside a long-scroll
+       section. #}
+    <div class="pf-dc-calib__savebar" role="region" aria-label="Save controls">
+        <button type="submit" class="pf-dc-btn pf-dc-btn--primary" disabled>
+            Save calibration
+        </button>
+        <span class="pf-dc-calib__savebar-status">No changes</span>
+    </div>
+</form>
+
+<script>
+/* Dirty-state save bar, mirroring the SAA configuration pattern. Purely a
+   guard against an accidental empty revision — every revision is immutable
+   and audited, so a no-op save is noise in the history. The server decides
+   what is valid; this only decides whether the button is offered. */
+(function () {
+    const form = document.getElementById("dc-calibration-editor");
+    if (!form || form.dataset.dirtyWired === "1") return;
+    form.dataset.dirtyWired = "1";
+    const button = form.querySelector(".pf-dc-calib__savebar button");
+    const status = form.querySelector(".pf-dc-calib__savebar-status");
+    form.addEventListener("input", function () {
+        button.disabled = false;
+        status.textContent = "Unsaved changes";
+        status.classList.add("pf-dc-calib__savebar-status--dirty");
+    });
+})();
+</script>

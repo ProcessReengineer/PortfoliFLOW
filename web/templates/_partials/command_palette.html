@@ -1,0 +1,22 @@
+{# Command palette overlay — Sub-stream 6F-2.
+
+   Document-level element shared across all area pages. The script
+   ``section_nav.js`` binds Cmd+K / Ctrl+K to ``dialog.showModal()``,
+   fetches ``/api/cmd-search``, renders the result list and dispatches
+   on Enter.
+
+   Uses the native ``<dialog>`` element so escape-to-close and the
+   focus trap are browser-managed. #}
+<dialog id="pf-palette" class="pf-palette" aria-label="Command palette">
+    <div class="pf-palette__panel">
+        <input class="pf-palette__input"
+               type="search"
+               autocomplete="off"
+               placeholder="Jump to area, section or action…"
+               aria-controls="pf-palette__results">
+        <ul id="pf-palette__results"
+            class="pf-palette__results"
+            role="listbox"
+            aria-label="Search results"></ul>
+    </div>
+</dialog>

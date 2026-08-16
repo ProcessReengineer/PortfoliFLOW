@@ -1,0 +1,136 @@
+{# Shirley chat surface, embedded inside /assistants#shirley.
+
+   The composer, history, controls and SSE-driven streaming are
+   identical to the retired /chat page (ADR-0051); only the layout
+   chrome is trimmed for the area-section mount. The anchor ids
+   ``chat-history``, ``chat-form``, ``chat-input`` are preserved so
+   ``web/static/js/chat.js`` continues to wire up Enter-to-send,
+   autoscroll, and the one-shot EventSource bootstrap without
+   modification.
+
+   Required context (set by ``assistants_view`` via ``extra_context``):
+     csrf_token    — session-bound CSRF token.
+     model_id      — currently active Shirley model, or ``None``.
+     voice_enabled — True when voice is switched on **per tenant**
+                     (ADR-0076; ADR-0118 §5 made it a per-tenant answer).
+                     Gates the voice toggle and the record/stop/cancel
+                     panel; chat.js drives them via fetch to /chat/voice.
+     brief_banner  — {badge, title, href} when a case brief is active
+                     (ADR-0107 C6), else ``None``. Renders the
+                     "Consulting for CASE-NNNN" banner.
+#}
+<div class="chat-embed">
+    {% if model_id %}
+        <p class="chat-embed__model">Model: {{ model_id }}</p>
+    {% endif %}
+
+    {# "Consulting for CASE-NNNN" banner (ADR-0107 C6, Step 1) — chat furniture,
+       not a message bubble. Present whenever the session's case-brief stash is
+       active; every turn briefs Shirley from that case's live state. Dismiss
+       POSTs to clear the stash and empties this container (next turn unbriefed).
+       Mirrors the C5 capture chip's tone. #}
+    <div id="chat-brief-banner">
+        {% if brief_banner %}
+            <div class="chat-brief" role="status">
+                <span class="chat-brief__label">Consulting for</span>
+                <a class="chat-brief__case" href="{{ brief_banner.href }}">{{ brief_banner.badge }}</a>
+                <span class="chat-brief__title">{{ brief_banner.title }}</span>
+                <button type="button" class="chat-brief__dismiss"
+                        aria-label="Stop consulting for this case"
+                        hx-post="/chat/brief/dismiss"
+                        hx-target="#chat-brief-banner"
+                        hx-swap="innerHTML"
+                        hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Dismiss</button>
+            </div>
+        {% endif %}
+    </div>
+
+    {# The empty-state partial renders synchronously on first paint so
+       the user never sees a flash of blank space; HTMX then replaces
+       the inner HTML with the rehydrated history (or the same empty
+       state, if no history exists) via hx-trigger="load". innerHTML
+       is required — beforeend would leave the placeholder stranded
+       after the hydrated history. See ADR-0050. #}
+    <div id="chat-history"
+         class="chat-history"
+         role="log"
+         aria-live="polite"
+         aria-label="Conversation history"
+         hx-get="/chat/history"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        {% include "_partials/chat_empty.html" %}
+    </div>
+
+    {# The consultation pin dialog swaps in here (ADR-0107 C6, Step 2). A
+       completed assistant bubble's "Pin to case…" affordance hx-GETs
+       /api/chat/pin-consultation into this slot; Cancel and a successful pin
+       both swap it back to empty / a quiet confirmation. Sits below the
+       history so opening it never disturbs the scroll. #}
+    <div id="chat-pin-dialog"></div>
+
+    <div class="chat-controls">
+        <button type="button"
+                class="chat-controls__new"
+                hx-post="/chat/new"
+                hx-target="#chat-history"
+                hx-swap="innerHTML"
+                hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+            New chat
+        </button>
+    </div>
+
+    <div class="chat-composer">
+        <form id="chat-form"
+              hx-post="/chat/messages"
+              hx-target="#chat-history"
+              hx-swap="beforeend"
+              hx-encoding="multipart/form-data"
+              hx-disabled-elt="#chat-send"
+              hx-on::after-request="this.reset()">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="chat-composer__row">
+                {# ``required`` is intentionally absent: an image-only send
+                   (no text) is valid; the server enforces "text or image"
+                   and supplies a default instruction (ADR-0075). #}
+                <textarea id="chat-input"
+                          class="chat-composer__input"
+                          name="message"
+                          placeholder="Ask Shirley about your portfolio…"
+                          aria-label="Message"></textarea>
+                <input type="file" id="chat-attach" name="images"
+                       class="chat-composer__attach"
+                       accept="image/png,image/jpeg,image/webp,image/gif"
+                       capture="environment" multiple
+                       aria-label="Attach image">
+                <button type="submit" id="chat-send"
+                        class="btn btn--primary">
+                    Send
+                </button>
+                {% if voice_enabled %}
+                {# Voice-mode toggle (ADR-0076). type="button" keeps it out of
+                   the hx-post submit path; chat.js reveals the panel below. #}
+                <button type="button" class="chat-composer__voice-toggle"
+                        data-pf-voice-toggle aria-pressed="false"
+                        aria-label="Toggle voice mode" title="Voice mode">🎤</button>
+                {% endif %}
+            </div>
+            {% if voice_enabled %}
+            {# Voice capture panel — record / stop / cancel. Driven by chat.js
+               via MediaRecorder + fetch to /chat/voice; all type="button" so
+               nothing here submits the form. Hidden until the toggle reveals
+               the controls. #}
+            <div class="chat-voice" data-pf-voice-controls hidden>
+                <button type="button" class="chat-voice__record" data-pf-voice-record
+                        aria-label="Start recording">● Record</button>
+                <button type="button" class="chat-voice__stop btn btn--primary" data-pf-voice-stop
+                        aria-label="Stop and send" hidden>■ I'm done</button>
+                <button type="button" class="chat-voice__cancel" data-pf-voice-cancel
+                        aria-label="Cancel recording" hidden>Cancel</button>
+                <span class="chat-voice__status" data-pf-voice-status aria-live="polite"></span>
+            </div>
+            {% endif %}
+            <p class="chat-composer__hint">Enter to send · Shift+Enter for newline · attach a photo to ask about it</p>
+        </form>
+    </div>
+</div>

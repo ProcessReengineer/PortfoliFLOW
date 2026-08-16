@@ -1,0 +1,950 @@
+{% extends "base.html" %}
+
+{% block title %}{{ investment.name }} — Investments — PortfoliFLOW{% endblock %}
+
+{% block tagline %}Front Office · Investments · {{ investment.name }}{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/investments.css">
+{% endblock %}
+
+{% block content %}
+<section class="inv-page" aria-labelledby="inv-detail-title">
+    <header class="inv-header">
+        <h1 id="inv-detail-title" class="inv-header__title">
+            {{ investment.name }}
+            {% if investment.is_active %}
+                <span class="badge-active">Active</span>
+            {% else %}
+                <span class="badge-inactive">Inactive</span>
+            {% endif %}
+        </h1>
+        <dl class="inv-meta">
+            <div><dt>Type</dt><dd>{{ investment.investment_type }}</dd></div>
+            <div><dt>Asset Class</dt><dd>{{ investment.asset_class_name }}</dd></div>
+            <div><dt>Currency</dt><dd>{{ investment.currency }}</dd></div>
+            {% if investment.manager_name %}
+                <div><dt>Manager</dt><dd>{{ investment.manager_name }}</dd></div>
+            {% endif %}
+            {% if investment.region %}
+                <div><dt>Region</dt><dd>{{ investment.region }}</dd></div>
+            {% endif %}
+            {% if investment.vintage_year %}
+                <div><dt>Vintage</dt><dd>{{ investment.vintage_year }}</dd></div>
+            {% endif %}
+            {% if investment.commitment_amount is not none %}
+                <div>
+                    <dt>Commitment</dt>
+                    <dd>{{ "{:,.2f}".format(investment.commitment_amount) }} {{ investment.currency }}</dd>
+                </div>
+            {% endif %}
+        </dl>
+        <div class="inv-header__actions">
+            <a href="/investments" class="btn btn--ghost">&larr; Back to investments</a>
+            <a href="/investments/{{ investment.id }}/charts" class="btn">Charts</a>
+            <a href="/investments/{{ investment.id }}/edit" class="btn">Edit</a>
+            {% if investment.is_active %}
+                <button id="deactivate-btn" type="button" class="btn">Deactivate</button>
+            {% else %}
+                <button id="activate-btn" type="button" class="btn">Reactivate</button>
+            {% endif %}
+            <button id="delete-btn" type="button" class="btn btn--danger">Delete</button>
+        </div>
+    </header>
+
+    <section class="inv-section" aria-labelledby="navs-title">
+        <header class="inv-section__header">
+            <h2 id="navs-title" class="inv-section__title">NAV Time Series</h2>
+            <button id="add-nav-btn" type="button" class="btn">+ Add NAV</button>
+        </header>
+        <div id="nav-chart-target">
+            {% include "investments/_nav_chart_partial.html" %}
+        </div>
+        <details class="inv-section__details">
+            <summary>NAV history table ({{ navs | length }})</summary>
+            <div id="navs-table"></div>
+        </details>
+    </section>
+
+    <section class="inv-section" aria-labelledby="cashflows-title">
+        <header class="inv-section__header">
+            <h2 id="cashflows-title" class="inv-section__title">Cashflows</h2>
+            <button id="add-cashflow-btn" type="button" class="btn">+ Add Cashflow</button>
+        </header>
+        <div id="cashflows-table" aria-label="Cashflows"></div>
+    </section>
+
+    <section class="inv-section" aria-labelledby="identifiers-title">
+        <header class="inv-section__header">
+            <h2 id="identifiers-title" class="inv-section__title">Security Identifiers</h2>
+            <button id="add-identifier-btn" type="button" class="btn">+ Add Identifier</button>
+        </header>
+        <div id="identifiers-table" aria-label="Security identifiers"></div>
+    </section>
+
+    {# Positions panel (ADR-0097 / ADR-0098). Rendered only where a unit
+       ledger is meaningful; a private-markets investment's page is
+       unchanged from its pre-position-model render. #}
+    {% if positions.shows_panel %}
+    <section class="inv-section" aria-labelledby="positions-title">
+        <header class="inv-section__header">
+            <h2 id="positions-title" class="inv-section__title">
+                Positions
+                {% if positions.valuation_mode == "unitised" %}
+                    <span class="inv-pill inv-pill--unitised">unitised</span>
+                {% else %}
+                    <span class="inv-pill inv-pill--reported">reported</span>
+                {% endif %}
+            </h2>
+            <div class="inv-section__actions">
+                <button id="add-position-btn" type="button" class="btn">+ Add Transaction</button>
+                {% if positions.valuation_mode != "unitised" %}
+                    <button id="flip-mode-btn" type="button" class="btn btn--danger"
+                            {% if not positions.can_flip %}disabled{% endif %}>
+                        Switch to unitised
+                    </button>
+                {% endif %}
+            </div>
+        </header>
+
+        {# Always present while the investment is flippable, so an in-place
+           panel refresh can surface a newly-unmet precondition (deleting the
+           opening, say) without a page reload. #}
+        {% if positions.valuation_mode != "unitised" %}
+            <p class="inv-flip-blocked"
+               {% if not positions.flip_blocked_reason %}hidden{% endif %}>
+                {{- positions.flip_blocked_reason or "" -}}
+            </p>
+        {% endif %}
+
+        {# Each value and its unit / currency render on one source line so the
+           server output matches the string the JS re-render produces after a
+           mutation. Holdings trim trailing zeros for the same reason: the '.'
+           stops the first rstrip, so "100.00000000" becomes "100". #}
+        <dl class="inv-meta inv-positions__summary">
+            <div>
+                <dt>Holdings</dt>
+                <dd id="positions-holdings">
+                    {% if positions.holdings_as_of_date %}
+                        {% set units = "{:,.8f}".format(positions.holdings_units).rstrip("0").rstrip(".") %}
+                        {{ units }} units as of {{ positions.holdings_as_of_date }}
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt>Latest Price</dt>
+                <dd id="positions-latest-price">
+                    {% if positions.latest_price %}
+                        {% set p = positions.latest_price %}
+                        {{ "{:,.4f}".format(p.price) }} {{ p.currency }}
+                        <span class="inv-provenance">({{ p.as_of_date }}, origin: {{ p.ingest_origin }})</span>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt>Latest Computed NAV</dt>
+                <dd id="positions-latest-nav">
+                    {% if positions.latest_computed_nav %}
+                        {% set n = positions.latest_computed_nav %}
+                        {{ "{:,.2f}".format(n.nav_value) }} {{ n.currency }}
+                        <span class="inv-pill inv-pill--computed">basis: {{ n.basis }}</span>
+                        <span class="inv-provenance">({{ n.as_of_date }}, origin: {{ n.ingest_origin }})</span>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </dd>
+            </div>
+        </dl>
+
+        <div id="positions-table" aria-label="Position transactions"></div>
+    </section>
+    {% endif %}
+
+    <section class="inv-section" aria-labelledby="region-allocation-title">
+        <header class="inv-section__header">
+            <h2 id="region-allocation-title" class="inv-section__title">Region Allocation</h2>
+        </header>
+        {% if region_allocation %}
+        <table class="inv-allocation-table" aria-describedby="region-allocation-title">
+            <thead>
+                <tr>
+                    <th scope="col">Code</th>
+                    <th scope="col">Region</th>
+                    <th scope="col" class="inv-allocation-table__num">Weight %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in region_allocation %}
+                <tr>
+                    <td><code>{{ row.code }}</code></td>
+                    <td>{{ row.display_name }}</td>
+                    <td class="inv-allocation-table__num">{{ "{:,.2f}".format(row.weight_pct) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="inv-allocation-empty">No region allocation recorded.</p>
+        {% endif %}
+    </section>
+
+    <section class="inv-section" aria-labelledby="sector-allocation-title">
+        <header class="inv-section__header">
+            <h2 id="sector-allocation-title" class="inv-section__title">Sector Allocation</h2>
+        </header>
+        {% if sector_allocation %}
+        <table class="inv-allocation-table" aria-describedby="sector-allocation-title">
+            <thead>
+                <tr>
+                    <th scope="col">Code</th>
+                    <th scope="col">Sector</th>
+                    <th scope="col" class="inv-allocation-table__num">Weight %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in sector_allocation %}
+                <tr>
+                    <td><code>{{ row.code }}</code></td>
+                    <td>{{ row.display_name }}</td>
+                    <td class="inv-allocation-table__num">{{ "{:,.2f}".format(row.weight_pct) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="inv-allocation-empty">No sector allocation recorded.</p>
+        {% endif %}
+    </section>
+</section>
+
+<dialog id="nav-dialog" class="inv-dialog">
+    {% include "investments/_nav_form.html" %}
+</dialog>
+
+<dialog id="cashflow-dialog" class="inv-dialog">
+    {% include "investments/_cashflow_form.html" %}
+</dialog>
+
+<dialog id="identifier-dialog" class="inv-dialog">
+    {% include "investments/_identifier_form.html" %}
+</dialog>
+
+{% if positions.shows_panel %}
+<dialog id="position-dialog" class="inv-dialog">
+    {% include "investments/_position_form.html" %}
+</dialog>
+
+<dialog id="mode-flip-dialog" class="inv-dialog">
+    {% include "investments/_mode_flip_confirm.html" %}
+</dialog>
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+
+    const INVESTMENT_ID = {{ investment.id | tojson }};
+    let navs = {{ navs | tojson }};
+    let cashflows = {{ cashflows | tojson }};
+    let identifiers = {{ identifiers | tojson }};
+    let positions = {{ positions | tojson }};
+
+    function getCSRFToken() {
+        const meta = document.querySelector("meta[name='csrf-token']");
+        return meta ? meta.getAttribute("content") : "";
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    // ===================================================================
+    // Plotly NAV chart
+    // ===================================================================
+
+    function renderChart(spec) {
+        const target = document.getElementById("nav-chart");
+        if (!target) return;
+        Plotly.newPlot(target, spec.data, spec.layout, spec.config);
+    }
+
+    function readChartSpec() {
+        const target = document.getElementById("nav-chart");
+        if (!target) return null;
+        const raw = target.getAttribute("data-spec");
+        if (!raw) return null;
+        try { return JSON.parse(raw); }
+        catch (e) { return null; }
+    }
+
+    const initialSpec = readChartSpec();
+    if (initialSpec) renderChart(initialSpec);
+
+    function rebuildChartFromNavs() {
+        const actualNavs = navs.filter(function (n) { return n.nav_kind === "actual"; })
+            .sort(function (a, b) { return a.as_of_date.localeCompare(b.as_of_date); });
+        const planNavs = navs.filter(function (n) { return n.nav_kind === "plan"; })
+            .sort(function (a, b) { return a.as_of_date.localeCompare(b.as_of_date); });
+
+        const spec = readChartSpec();
+        if (!spec) return;
+        spec.data[0].x = actualNavs.map(function (n) { return n.as_of_date; });
+        spec.data[0].y = actualNavs.map(function (n) { return Number(n.nav_value); });
+        spec.data[1].x = planNavs.map(function (n) { return n.as_of_date; });
+        spec.data[1].y = planNavs.map(function (n) { return Number(n.nav_value); });
+        renderChart(spec);
+    }
+
+    // ===================================================================
+    // NAV table
+    // ===================================================================
+
+    let navsTable = null;
+    function renderNavsTable() {
+        if (navsTable) {
+            navsTable.replaceData(navs);
+            return;
+        }
+        navsTable = new Tabulator("#navs-table", {
+            data: navs,
+            layout: "fitColumns",
+            placeholder: "No NAV data points.",
+            columns: [
+                { title: "As-of Date", field: "as_of_date", sorter: "string", width: 130 },
+                { title: "Kind", field: "nav_kind", width: 100,
+                  formatter: function (cell) {
+                      const v = cell.getValue();
+                      return v === "actual"
+                          ? '<span class="inv-pill inv-pill--actual">actual</span>'
+                          : '<span class="inv-pill inv-pill--plan">plan</span>';
+                  },
+                },
+                { title: "NAV Value", field: "nav_value", hozAlign: "right",
+                  formatter: function (cell) {
+                      const v = cell.getValue();
+                      return v === null || v === undefined ? "" : Number(v).toLocaleString();
+                  },
+                },
+                { title: "Currency", field: "currency", width: 100, hozAlign: "center" },
+                { title: "Source", field: "source", widthGrow: 1 },
+                {
+                    title: "",
+                    field: "_delete",
+                    width: 80,
+                    headerSort: false,
+                    hozAlign: "center",
+                    formatter: function () {
+                        return '<button type="button"'
+                            + ' class="inv-row-delete-btn" data-action="delete-nav">Delete</button>';
+                    },
+                    cellClick: async function (e, cell) {
+                        if (!e.target.classList.contains("inv-row-delete-btn")) return;
+                        const row = cell.getRow().getData();
+                        if (!confirm("Delete this NAV?")) return;
+                        const r = await fetch(
+                            "/investments/" + INVESTMENT_ID + "/navs/" + row.id,
+                            { method: "DELETE", headers: { "X-CSRF-Token": getCSRFToken() } }
+                        );
+                        if (r.ok) {
+                            navs = navs.filter(function (n) { return n.id !== row.id; });
+                            renderNavsTable();
+                            rebuildChartFromNavs();
+                        } else {
+                            alert("Delete failed (" + r.status + ").");
+                        }
+                    },
+                },
+            ],
+            initialSort: [{ column: "as_of_date", dir: "desc" }],
+        });
+    }
+    renderNavsTable();
+
+    // ===================================================================
+    // Cashflows table
+    // ===================================================================
+
+    let cashflowsTable = null;
+    function renderCashflowsTable() {
+        if (cashflowsTable) {
+            cashflowsTable.replaceData(cashflows);
+            return;
+        }
+        cashflowsTable = new Tabulator("#cashflows-table", {
+            data: cashflows,
+            layout: "fitColumns",
+            placeholder: "No cashflows.",
+            columns: [
+                { title: "Timestamp", field: "flow_timestamp", sorter: "string", widthGrow: 1,
+                  formatter: function (cell) {
+                      const raw = cell.getValue();
+                      if (!raw) return "";
+                      const d = new Date(raw);
+                      return isNaN(d.getTime()) ? String(raw) : d.toLocaleString();
+                  },
+                },
+                { title: "Type", field: "flow_type", width: 130 },
+                { title: "Kind", field: "flow_kind", width: 90,
+                  formatter: function (cell) {
+                      const v = cell.getValue();
+                      return v === "actual"
+                          ? '<span class="inv-pill inv-pill--actual">actual</span>'
+                          : '<span class="inv-pill inv-pill--plan">plan</span>';
+                  },
+                },
+                { title: "Amount", field: "amount", hozAlign: "right",
+                  formatter: function (cell) {
+                      const v = cell.getValue();
+                      return v === null || v === undefined ? "" : Number(v).toLocaleString();
+                  },
+                },
+                { title: "Currency", field: "currency", width: 100, hozAlign: "center" },
+                { title: "Description", field: "description", widthGrow: 2 },
+                {
+                    title: "",
+                    field: "_delete",
+                    width: 80,
+                    headerSort: false,
+                    hozAlign: "center",
+                    formatter: function () {
+                        return '<button type="button"'
+                            + ' class="inv-row-delete-btn" data-action="delete-cf">Delete</button>';
+                    },
+                    cellClick: async function (e, cell) {
+                        if (!e.target.classList.contains("inv-row-delete-btn")) return;
+                        const row = cell.getRow().getData();
+                        if (!confirm("Delete this cashflow?")) return;
+                        const r = await fetch(
+                            "/investments/" + INVESTMENT_ID + "/cashflows/" + row.id,
+                            { method: "DELETE", headers: { "X-CSRF-Token": getCSRFToken() } }
+                        );
+                        if (r.ok) {
+                            cashflows = cashflows.filter(function (c) { return c.id !== row.id; });
+                            renderCashflowsTable();
+                        } else {
+                            alert("Delete failed (" + r.status + ").");
+                        }
+                    },
+                },
+            ],
+            initialSort: [{ column: "flow_timestamp", dir: "desc" }],
+        });
+    }
+    renderCashflowsTable();
+
+    // ===================================================================
+    // Security identifiers table (ADR-0096)
+    // ===================================================================
+
+    let identifiersTable = null;
+    function renderIdentifiersTable() {
+        if (identifiersTable) {
+            identifiersTable.replaceData(identifiers);
+            return;
+        }
+        identifiersTable = new Tabulator("#identifiers-table", {
+            data: identifiers,
+            layout: "fitColumns",
+            placeholder: "No security identifiers.",
+            columns: [
+                { title: "Scheme", field: "scheme", width: 130,
+                  formatter: function (cell) {
+                      return '<span class="inv-pill inv-pill--scheme">'
+                          + escapeHtml(cell.getValue()) + "</span>";
+                  },
+                },
+                { title: "Value", field: "value", widthGrow: 2 },
+                { title: "Source", field: "source", width: 120 },
+                { title: "Primary", field: "is_primary", width: 150, hozAlign: "center",
+                  headerSort: false,
+                  formatter: function (cell) {
+                      if (cell.getValue()) {
+                          return '<span class="inv-pill inv-pill--primary">primary</span>';
+                      }
+                      return '<button type="button"'
+                          + ' class="inv-row-action-btn" data-action="set-primary">'
+                          + "Set primary</button>";
+                  },
+                  cellClick: async function (e, cell) {
+                      if (e.target.getAttribute("data-action") !== "set-primary") return;
+                      const row = cell.getRow().getData();
+                      const r = await fetch(
+                          "/investments/" + INVESTMENT_ID + "/identifiers/" + row.id + "/primary",
+                          { method: "POST", headers: { "X-CSRF-Token": getCSRFToken() } }
+                      );
+                      if (r.ok) {
+                          const body = await r.json();
+                          identifiers = body.identifiers;
+                          renderIdentifiersTable();
+                      } else {
+                          alert("Set-primary failed (" + r.status + ").");
+                      }
+                  },
+                },
+                {
+                    title: "",
+                    field: "_delete",
+                    width: 80,
+                    headerSort: false,
+                    hozAlign: "center",
+                    formatter: function () {
+                        return '<button type="button"'
+                            + ' class="inv-row-delete-btn" data-action="delete-identifier">Delete</button>';
+                    },
+                    cellClick: async function (e, cell) {
+                        if (!e.target.classList.contains("inv-row-delete-btn")) return;
+                        const row = cell.getRow().getData();
+                        if (!confirm("Delete this identifier?")) return;
+                        const r = await fetch(
+                            "/investments/" + INVESTMENT_ID + "/identifiers/" + row.id,
+                            { method: "DELETE", headers: { "X-CSRF-Token": getCSRFToken() } }
+                        );
+                        if (r.ok) {
+                            const body = await r.json();
+                            identifiers = body.identifiers;
+                            renderIdentifiersTable();
+                        } else {
+                            alert("Delete failed (" + r.status + ").");
+                        }
+                    },
+                },
+            ],
+            initialSort: [{ column: "scheme", dir: "asc" }],
+        });
+    }
+    renderIdentifiersTable();
+
+    // ===================================================================
+    // Dialog management
+    // ===================================================================
+
+    function openDialog(id) {
+        const dlg = document.getElementById(id);
+        if (!dlg) return;
+        if (typeof dlg.showModal === "function") dlg.showModal();
+        else dlg.setAttribute("open", "");
+    }
+
+    function closeDialog(id) {
+        const dlg = document.getElementById(id);
+        if (!dlg) return;
+        if (typeof dlg.close === "function") dlg.close();
+        else dlg.removeAttribute("open");
+    }
+
+    document.querySelectorAll("[data-dismiss]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            closeDialog(btn.getAttribute("data-dismiss"));
+        });
+    });
+
+    document.getElementById("add-nav-btn").addEventListener("click", function () {
+        openDialog("nav-dialog");
+    });
+    document.getElementById("add-cashflow-btn").addEventListener("click", function () {
+        openDialog("cashflow-dialog");
+    });
+    document.getElementById("add-identifier-btn").addEventListener("click", function () {
+        openDialog("identifier-dialog");
+    });
+
+    // ===================================================================
+    // Submit handlers
+    // ===================================================================
+
+    function readForm(form) {
+        const fd = new FormData(form);
+        const out = {};
+        fd.forEach(function (value, key) {
+            if (key === "csrf_token") return;
+            const trimmed = typeof value === "string" ? value.trim() : value;
+            out[key] = trimmed === "" ? null : trimmed;
+        });
+        return out;
+    }
+
+    document.getElementById("nav-form").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const payload = readForm(e.target);
+        const r = await fetch(
+            "/investments/" + INVESTMENT_ID + "/navs",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+        if (!r.ok) {
+            let body = null;
+            try { body = await r.json(); } catch (err) {}
+            alert("Save failed: " + ((body && (body.error || body.detail)) || r.status));
+            return;
+        }
+        const created = await r.json();
+        // Replace existing NAV with the same natural key (UPSERT) or
+        // append a new row.
+        const idx = navs.findIndex(function (n) {
+            return n.as_of_date === created.as_of_date && n.nav_kind === created.nav_kind;
+        });
+        if (idx >= 0) navs[idx] = created;
+        else navs.push(created);
+        renderNavsTable();
+        rebuildChartFromNavs();
+        closeDialog("nav-dialog");
+        e.target.reset();
+    });
+
+    document.getElementById("cashflow-form").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const payload = readForm(e.target);
+        const r = await fetch(
+            "/investments/" + INVESTMENT_ID + "/cashflows",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+        if (!r.ok) {
+            let body = null;
+            try { body = await r.json(); } catch (err) {}
+            alert("Save failed: " + ((body && (body.error || body.detail)) || r.status));
+            return;
+        }
+        const created = await r.json();
+        cashflows.push(created);
+        renderCashflowsTable();
+        closeDialog("cashflow-dialog");
+        e.target.reset();
+    });
+
+    document.getElementById("identifier-form").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const payload = readForm(e.target);
+        const r = await fetch(
+            "/investments/" + INVESTMENT_ID + "/identifiers",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+        if (!r.ok) {
+            let body = null;
+            try { body = await r.json(); } catch (err) {}
+            alert("Save failed: " + ((body && (body.error || body.detail)) || r.status));
+            return;
+        }
+        const body = await r.json();
+        identifiers = body.identifiers;
+        renderIdentifiersTable();
+        closeDialog("identifier-dialog");
+        e.target.reset();
+    });
+
+    // ===================================================================
+    // Positions panel (ADR-0097 / ADR-0098)
+    //
+    // Mutations return the whole re-read summary, because a ledger write
+    // moves holdings, the latest computed NAV, and the flip's eligibility
+    // together. On a *unitised* investment the write also re-materialises
+    // the NAV rows this page's table and chart are showing, so the honest
+    // response there is a reload; a 'reported' investment triggers no
+    // materialisation and the panel updates in place.
+    // ===================================================================
+
+    if (positions.shows_panel) {
+        const positionForm = document.getElementById("position-form");
+        const positionError = document.getElementById("position-form-error");
+        const excelWarning = document.getElementById("position-form-excel-warning");
+
+        function formatUnits(value) {
+            return Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
+        }
+
+        function showFormError(el, message) {
+            el.textContent = message;
+            el.hidden = false;
+        }
+
+        function clearFormError(el) {
+            el.textContent = "";
+            el.hidden = true;
+        }
+
+        let positionsTable = null;
+        function renderPositionsTable() {
+            if (positionsTable) {
+                positionsTable.replaceData(positions.transactions);
+                return;
+            }
+            positionsTable = new Tabulator("#positions-table", {
+                data: positions.transactions,
+                layout: "fitColumns",
+                placeholder: "No transactions. Add an opening to anchor the ledger.",
+                columns: [
+                    { title: "Trade Date", field: "trade_date", sorter: "string", width: 130 },
+                    { title: "Type", field: "txn_type", width: 110,
+                      formatter: function (cell) {
+                          const v = cell.getValue();
+                          return '<span class="inv-pill inv-pill--' + escapeHtml(v) + '">'
+                              + escapeHtml(v) + '</span>';
+                      },
+                    },
+                    { title: "Units", field: "units", hozAlign: "right",
+                      formatter: function (cell) { return formatUnits(cell.getValue()); },
+                    },
+                    { title: "Price/Unit", field: "price_per_unit", hozAlign: "right",
+                      formatter: function (cell) {
+                          const v = cell.getValue();
+                          return v === null || v === undefined ? "" : Number(v).toLocaleString();
+                      },
+                    },
+                    { title: "Currency", field: "currency", width: 100, hozAlign: "center" },
+                    { title: "Origin", field: "ingest_origin", width: 100, hozAlign: "center" },
+                    { title: "Note", field: "note", widthGrow: 1 },
+                    {
+                        title: "",
+                        field: "_edit",
+                        width: 70,
+                        headerSort: false,
+                        hozAlign: "center",
+                        formatter: function () {
+                            return '<button type="button"'
+                                + ' class="inv-row-edit-btn" data-action="edit-position">Edit</button>';
+                        },
+                        cellClick: function (e, cell) {
+                            if (!e.target.classList.contains("inv-row-edit-btn")) return;
+                            openPositionDialog(cell.getRow().getData());
+                        },
+                    },
+                    {
+                        title: "",
+                        field: "_delete",
+                        width: 80,
+                        headerSort: false,
+                        hozAlign: "center",
+                        formatter: function () {
+                            return '<button type="button"'
+                                + ' class="inv-row-delete-btn" data-action="delete-position">Delete</button>';
+                        },
+                        cellClick: async function (e, cell) {
+                            if (!e.target.classList.contains("inv-row-delete-btn")) return;
+                            const row = cell.getRow().getData();
+                            if (!confirm("Delete this transaction?")) return;
+                            const r = await fetch(
+                                "/investments/" + INVESTMENT_ID + "/positions/" + row.id,
+                                { method: "DELETE", headers: { "X-CSRF-Token": getCSRFToken() } }
+                            );
+                            if (!r.ok) {
+                                let body = null;
+                                try { body = await r.json(); } catch (err) {}
+                                alert("Delete failed: "
+                                    + ((body && (body.error || body.detail)) || r.status));
+                                return;
+                            }
+                            const body = await r.json();
+                            applySummary(body.positions);
+                        },
+                    },
+                ],
+            });
+        }
+
+        // A mutation on a unitised investment rewrote the computed NAV rows;
+        // the NAV table and chart above are stale, so re-render the page.
+        function applySummary(summary) {
+            if (summary.valuation_mode === "unitised") {
+                window.location.reload();
+                return;
+            }
+            positions = summary;
+            renderPositionsTable();
+            const holdingsEl = document.getElementById("positions-holdings");
+            if (holdingsEl) {
+                holdingsEl.textContent = summary.holdings_as_of_date
+                    ? formatUnits(summary.holdings_units)
+                        + " units as of " + summary.holdings_as_of_date
+                    : "—";
+            }
+            const flipBtn = document.getElementById("flip-mode-btn");
+            if (flipBtn) flipBtn.disabled = !summary.can_flip;
+            const blockedEl = document.querySelector(".inv-flip-blocked");
+            if (blockedEl) {
+                blockedEl.textContent = summary.flip_blocked_reason || "";
+                blockedEl.hidden = !summary.flip_blocked_reason;
+            }
+        }
+
+        function openPositionDialog(row) {
+            clearFormError(positionError);
+            positionForm.reset();
+            const typeSelect = document.getElementById("position-txn-type");
+            const title = document.getElementById("position-form-title");
+            const submit = document.getElementById("position-form-submit");
+            if (row) {
+                // Edit: txn_type, currency, and origin are immutable.
+                positionForm.dataset.mode = "edit";
+                positionForm.elements.transaction_id.value = row.id;
+                typeSelect.value = row.txn_type;
+                typeSelect.disabled = true;
+                positionForm.elements.trade_date.value = row.trade_date;
+                positionForm.elements.units.value = row.units;
+                positionForm.elements.price_per_unit.value =
+                    row.price_per_unit === null ? "" : row.price_per_unit;
+                positionForm.elements.consideration.value =
+                    row.consideration === null ? "" : row.consideration;
+                positionForm.elements.currency.value = row.currency;
+                positionForm.elements.note.value = row.note;
+                positionForm.elements.source.value = row.source;
+                excelWarning.hidden = row.ingest_origin !== "excel";
+                title.textContent = "Edit Transaction";
+                submit.textContent = "Save Transaction";
+            } else {
+                positionForm.dataset.mode = "create";
+                positionForm.elements.transaction_id.value = "";
+                typeSelect.disabled = false;
+                positionForm.elements.currency.value = positions.currency;
+                excelWarning.hidden = true;
+                title.textContent = "Add Transaction";
+                submit.textContent = "Add Transaction";
+            }
+            openDialog("position-dialog");
+        }
+
+        document.getElementById("add-position-btn").addEventListener("click", function () {
+            openPositionDialog(null);
+        });
+
+        positionForm.addEventListener("submit", async function (e) {
+            e.preventDefault();
+            clearFormError(positionError);
+            const payload = readForm(e.target);
+            const isEdit = e.target.dataset.mode === "edit";
+            const transactionId = payload.transaction_id;
+            delete payload.transaction_id;
+            if (isEdit) {
+                // A disabled <select> is omitted from FormData; the server
+                // reads txn_type from the persisted row on an edit anyway.
+                delete payload.txn_type;
+            }
+            const url = isEdit
+                ? "/investments/" + INVESTMENT_ID + "/positions/" + transactionId
+                : "/investments/" + INVESTMENT_ID + "/positions";
+            const r = await fetch(url, {
+                method: isEdit ? "PUT" : "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify(payload),
+            });
+            if (!r.ok) {
+                let body = null;
+                try { body = await r.json(); } catch (err) {}
+                showFormError(
+                    positionError,
+                    (body && (body.error || body.detail)) || ("Save failed (" + r.status + ")."),
+                );
+                return;
+            }
+            const body = await r.json();
+            closeDialog("position-dialog");
+            applySummary(body.positions);
+        });
+
+        const flipBtn = document.getElementById("flip-mode-btn");
+        if (flipBtn) {
+            flipBtn.addEventListener("click", function () {
+                clearFormError(document.getElementById("mode-flip-error"));
+                openDialog("mode-flip-dialog");
+            });
+        }
+
+        const flipForm = document.getElementById("mode-flip-form");
+        if (flipForm) {
+            flipForm.addEventListener("submit", async function (e) {
+                e.preventDefault();
+                const flipError = document.getElementById("mode-flip-error");
+                clearFormError(flipError);
+                const r = await fetch(
+                    "/investments/" + INVESTMENT_ID + "/valuation-mode/unitised",
+                    { method: "POST", headers: { "X-CSRF-Token": getCSRFToken() } }
+                );
+                if (!r.ok) {
+                    let body = null;
+                    try { body = await r.json(); } catch (err) {}
+                    showFormError(
+                        flipError,
+                        (body && (body.error || body.detail)) || ("Switch failed (" + r.status + ")."),
+                    );
+                    return;
+                }
+                // The flip deleted live NAV rows and materialised computed
+                // ones: everything on this page is stale.
+                window.location.reload();
+            });
+        }
+
+        renderPositionsTable();
+    }
+
+    // ===================================================================
+    // Header lifecycle buttons (delete / activate / deactivate)
+    // ===================================================================
+
+    async function setActive(isActive) {
+        const verb = isActive ? "Reactivate" : "Soft-delete";
+        if (!confirm(verb + " this investment?")) return;
+        const r = await fetch(
+            "/investments/" + INVESTMENT_ID + "/active",
+            {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCSRFToken(),
+                },
+                body: JSON.stringify({ is_active: isActive }),
+            }
+        );
+        if (r.ok) window.location.reload();
+        else alert("Action failed (" + r.status + ").");
+    }
+
+    const deactivateBtn = document.getElementById("deactivate-btn");
+    if (deactivateBtn) {
+        deactivateBtn.addEventListener("click", function () { setActive(false); });
+    }
+    const activateBtn = document.getElementById("activate-btn");
+    if (activateBtn) {
+        activateBtn.addEventListener("click", function () { setActive(true); });
+    }
+
+    document.getElementById("delete-btn").addEventListener("click", async function () {
+        if (!confirm("Hard-delete this investment? NAVs and cashflows are removed too.")) return;
+        const r = await fetch(
+            "/investments/" + INVESTMENT_ID,
+            { method: "DELETE", headers: { "X-CSRF-Token": getCSRFToken() } }
+        );
+        if (r.ok) window.location.href = "/investments";
+        else alert("Delete failed (" + r.status + ").");
+    });
+})();
+</script>
+{% endblock %}

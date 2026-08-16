@@ -1,0 +1,77 @@
+{# Reusable position-transaction form partial (ADR-0097 §2).
+
+   Used inside a <dialog> on the detail page for both create and edit. The
+   JS seats `data-mode` to "create" or "edit" and, on edit, disables the
+   txn_type select: type, currency, and origin are immutable on an edit —
+   retyping a row is a delete plus a create.
+
+   Currency is rendered read-only at the investment's currency: ADR-0097 §5
+   pins every ledger row to it and rejects rather than converting, so there
+   is nothing for the operator to choose.
+
+   Sign rules (ADR-0097 §2), enforced server-side and mirrored in the hint:
+   opening/buy require units > 0, sell requires units < 0, transfer requires
+   units <> 0. buy/sell require a price; opening/transfer may omit it.
+#}
+
+<form id="position-form" class="inv-mini-form" data-mode="create">
+    <h3 id="position-form-title">Add Transaction</h3>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="transaction_id" value="">
+
+    <p id="position-form-excel-warning" class="inv-form-warning" hidden>
+        This transaction was created by the Excel import. Your edit holds
+        until the next import restates it from the workbook.
+    </p>
+
+    <label class="field">
+        <span>Type</span>
+        <select name="txn_type" id="position-txn-type" required>
+            {% for t in txn_types %}
+                <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="field">
+        <span>Trade Date</span>
+        <input type="date" name="trade_date" required>
+    </label>
+    <label class="field">
+        <span>Units</span>
+        <input type="number" name="units" step="any" required>
+        <small class="field__hint" id="position-units-hint">
+            Positive for opening and buy, negative for sell.
+        </small>
+    </label>
+    <label class="field">
+        <span>Price per Unit</span>
+        <input type="number" name="price_per_unit" step="any" min="0">
+        <small class="field__hint">Required for buy and sell.</small>
+    </label>
+    <label class="field">
+        <span>Consideration</span>
+        <input type="number" name="consideration" step="any">
+        <small class="field__hint">Optional signed cash effect.</small>
+    </label>
+    <label class="field">
+        <span>Currency</span>
+        <input type="text" name="currency" value="{{ positions.currency }}" readonly>
+    </label>
+    <label class="field">
+        <span>Note</span>
+        <input type="text" name="note" maxlength="500">
+    </label>
+    <label class="field">
+        <span>Source</span>
+        <input type="text" name="source" maxlength="200">
+    </label>
+
+    <p id="position-form-error" class="inv-form-error" role="alert" hidden></p>
+
+    <div class="dialog-actions">
+        <button type="button" class="btn" data-dismiss="position-dialog">Cancel</button>
+        <button type="submit" class="btn btn--primary" id="position-form-submit">
+            Add Transaction
+        </button>
+    </div>
+</form>

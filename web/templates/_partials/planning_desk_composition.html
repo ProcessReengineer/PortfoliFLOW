@@ -1,0 +1,48 @@
+{# Scenario composition drill-down (S34.5, ADR-0104 §5/§7).
+
+   The **secondary** result surface, loaded lazily by the result region (its
+   `hx-get` swaps this partial in place of the skeleton on reveal). It diffs the
+   two worlds' NAV-weighted fund composition at the plan horizon — a scenario
+   moves the NAV weights, so the weight delta is the signal.
+
+   A pure consumer of the ScenarioResult's composition pair: the route's view
+   model (`_build_composition_context`) assembles the rows; no figure is computed
+   here.
+
+   Context (the `composition` sub-context):
+     error — a notice string when the drill-down could not be built; then no
+             table is drawn.
+     rows  — [{name, baseline, scenario, delta}], one per fund, scenario-weight
+             order, baseline-only funds appended. #}
+<div class="pd-comp__detail">
+    {% if composition.error %}
+        <p class="pd-comp__notice" role="status">
+            The composition drill-down is unavailable: {{ composition.error }}
+        </p>
+    {% elif not composition.rows %}
+        <p class="pd-comp__notice" role="status">
+            No fund carries a positive NAV at the plan horizon.
+        </p>
+    {% else %}
+        <table class="pd-deltatable">
+            <thead>
+                <tr>
+                    <th scope="col">Fund</th>
+                    <th scope="col" class="pd-deltatable__r">Baseline share</th>
+                    <th scope="col" class="pd-deltatable__r">Scenario share</th>
+                    <th scope="col" class="pd-deltatable__r">&Delta;</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in composition.rows %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td class="pd-deltatable__r">{{ row.baseline }}</td>
+                        <td class="pd-deltatable__r">{{ row.scenario }}</td>
+                        <td class="pd-deltatable__r pd-comp__delta">{{ row.delta }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>

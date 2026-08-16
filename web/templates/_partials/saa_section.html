@@ -1,0 +1,112 @@
+{# SAA section body — top-level container fetched by the lazy
+   shell on first reveal.
+
+   Context (from web/routes/saa_section.py::saa_section):
+     csrf_token            — session-bound CSRF token (also in
+                              base.html's <meta>).
+     configurations        — [{id, name, is_active}, …] for the picker.
+     has_active_config     — bool; False renders the empty-state
+                              partial instead of a configuration body.
+     current_config / inputs / correlations / asset_class_lookup /
+     asset_class_count     — only present when has_active_config is
+                              True; consumed by the configuration
+                              partial included below. #}
+
+<div class="saa-section-root" id="pf-saa-root" data-csrf-token="{{ csrf_token }}">
+
+    {% if configurations %}
+    <details class="saa-picker"
+             {% if not has_active_config %}open{% endif %}>
+        <summary class="saa-picker__summary">
+            <span class="saa-picker__current">
+                {% if current_config is defined and current_config %}
+                    {{ current_config.name }}
+                {% else %}
+                    Select a configuration
+                {% endif %}
+            </span>
+            {% if current_config is defined and current_config and current_config.is_active %}
+                <span class="badge-active">Active</span>
+            {% endif %}
+            <span class="saa-picker__chevron" aria-hidden="true">&#9662;</span>
+        </summary>
+        <div class="saa-picker__drawer">
+            <label class="saa-picker__field">
+                <span>Switch configuration:</span>
+                <select id="saa-config-switcher">
+                    {% for config in configurations %}
+                        <option value="{{ config.id }}"
+                                {% if current_config is defined and current_config and config.id == current_config.id %}selected{% endif %}>
+                            {{ config.name }}{% if config.is_active %} (active){% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="saa-picker__actions">
+                <button type="button"
+                        id="saa-new-config-btn"
+                        class="btn btn--primary">+ New Configuration</button>
+                {% if current_config is defined and current_config and not current_config.is_active %}
+                    <button type="button"
+                            class="btn"
+                            data-action="activate"
+                            data-config-id="{{ current_config.id }}">Activate</button>
+                {% endif %}
+                {% if current_config is defined and current_config %}
+                    <button type="button"
+                            class="btn btn--danger"
+                            data-action="delete"
+                            data-config-id="{{ current_config.id }}">Delete</button>
+                {% endif %}
+                <button type="button"
+                        id="saa-manage-asset-classes-btn"
+                        class="btn">Manage Asset Classes</button>
+            </div>
+        </div>
+    </details>
+    {% endif %}
+
+    <div id="saa-config-body" class="saa-config-body">
+        {% if has_active_config %}
+            {% include "_partials/saa_configuration_partial.html" %}
+        {% else %}
+            {% include "_partials/saa_empty_state.html" %}
+        {% endif %}
+    </div>
+
+    <dialog id="saa-new-config-dialog" class="saa-dialog">
+        <form id="saa-new-config-form">
+            <h2>New SAA Configuration</h2>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">
+                <span>Name</span>
+                <input type="text" name="name" required maxlength="200">
+            </label>
+            <label class="field">
+                <span>Risk-Free Rate (%)</span>
+                <input type="number" name="risk_free_rate_pct"
+                       value="2.50" step="0.01" min="-5" max="20" required>
+            </label>
+            <label class="field">
+                <span>Frontier Points</span>
+                <input type="number" name="n_frontier_points"
+                       value="100" step="10" min="20" max="500" required>
+            </label>
+            <p id="saa-new-config-error" class="saa-dialog__error" hidden></p>
+            <div class="dialog-actions">
+                <button type="button"
+                        class="btn"
+                        data-action="cancel-new-config">Cancel</button>
+                <button type="submit" class="btn btn--primary">Create</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="saa-asset-classes-dialog" class="saa-dialog saa-dialog--large">
+        {# Filled via HTMX from /api/saa/asset-classes when the
+           "Manage Asset Classes" button is clicked. #}
+    </dialog>
+
+</div>
+
+<script src="/static/js/saa_section.js" defer></script>

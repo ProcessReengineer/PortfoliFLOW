@@ -1,0 +1,143 @@
+{# The four defined signal families on the monitor (ADR-0116 §4, §6).
+
+   Split out of watch_desk_monitor.html for one reason worth stating: this
+   fragment must contain **no** quota vocabulary. A signal family renders
+   Calm / Approaching / Triggered and never "breach" — that word is
+   regulatory language reserved for saa/anlv (ADR-0116 §4) — and the
+   liquidity family renders **ratios**, never the internal 100-scale its
+   magnitude is computed on. Both rules are asserted against this fragment's
+   own rendered output, which is only a clean assertion because the quota
+   groups are not in it. That is also why the status pill and gauge carry
+   `--calm/--approaching/--triggered` modifiers rather than the quota
+   `--ok/--warn/--breach` set: the class names are rendered markup too.
+
+   The honesty rules of watch_desk_monitor.html carry over unchanged and
+   must not be "tidied" away here either:
+
+     * Every gauge runs 0 → that subject's **trigger threshold**, with the
+       mark at the subject's effective warn fraction of it. The scale is
+       identical on every row of every family; never rescale per row, never
+       move the mark away from the threshold in force. A crossing clamps
+       the rendered fill while the printed Value and Threshold stay honest.
+     * Irene's note is assembled in the route from the live observation,
+       the subject's acknowledged watch-state and the effective calibration.
+       The template renders the assembled string and composes no claim.
+     * A muted row stays visible, tagged, and counted in its group header.
+
+   And one that is new here, because these families can fail to observe:
+
+     * A **no-data** row draws no gauge at all. A bar at zero would claim
+       calm, which is exactly what the producer refused to say — the reason
+       goes in the note column instead (ADR-0116 §4).
+
+   Freshness renders exception-first: its subjects grow one-for-one with the
+   book, so non-calm and no-data rows are listed openly and the calm
+   remainder is **collapsed, not omitted** — the summary line expands it on
+   demand, and the group header counts both halves.
+
+   The group itself renders **closed** on first load. This is the outer of
+   two disclosures and must not be read as the freshness collapse above:
+   that one folds a calm remainder away *inside* a group already opened,
+   while this one lets the group's own summary line stand in for its body
+   until asked for. The summary is the decision surface — name, badges,
+   muted count, subject count and the measure — and the calm-by-default
+   posture the Watch Desk keeps toward the book applies to its own first
+   screen too. Closed is not hidden: the rows stay in the document, the
+   header counts stay live, and a muted row is still visible, tagged and
+   counted once the group is opened. The honesty rules above are
+   unaffected — this changes disclosure, not content.
+
+   Context: monitor.signal_groups, monitor.signal_footer, csrf_token. #}
+{% for group in monitor.signal_groups %}
+    <details class="pf-dc-group pf-dc-group--signal">
+        <summary>
+            <span class="pf-dc-group__chevron">▶</span>
+            <span class="pf-dc-group__name">{{ group.name }}</span>
+            <span class="pf-dc-group__badges">
+                {%- for badge in group.badges -%}
+                    <span class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
+                {%- endfor -%}
+                {%- if group.muted_count -%}
+                    <span class="tag tag--muted">{{ group.muted_count }} muted</span>
+                {%- endif -%}
+            </span>
+            <span class="pf-dc-group__meta">
+                {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
+                {{ group.measure }}
+                {% include "_partials/watch_desk_watchpoint_add.html" %}
+            </span>
+        </summary>
+        <div class="pf-dc-group__body">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Value</th>
+                        <th scope="col">Threshold</th>
+                        <th scope="col">Proximity</th>
+                        <th scope="col">Note</th>
+                        <th scope="col">Sensitivity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in group.rows %}
+                        {% include "_partials/watch_desk_monitor_signal_row.html" %}
+                    {% endfor %}
+
+                    {% if group.collapsed_rows %}
+                        {# Collapsed, never hidden: the calm remainder is one
+                           click away and is counted in the header above. #}
+                        <tr class="pf-dc-group__collapsed">
+                            <td colspan="7">
+                                <details class="pf-dc-collapse">
+                                    <summary>{{ group.collapsed_summary }}</summary>
+                                    <table>
+                                        <tbody>
+                                            {% for row in group.collapsed_rows %}
+                                                {% include "_partials/watch_desk_monitor_signal_row.html" %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </details>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+{% endfor %}
+
+{% if monitor.signal_footer %}
+    {# The section footer: one compact line per family this tenant watches
+       nothing of. An empty group would be noise, but a silently missing
+       one would hide the capability — so the families are named here with
+       their add affordance beside them, in the house empty-state idiom. #}
+    <div class="pf-dc-monitor__footer">
+        {% for entry in monitor.signal_footer %}
+            <p class="pf-empty-state pf-dc-monitor__footer-line">
+                <span class="pf-dc-monitor__footer-name">{{ entry.name }}</span>
+                {% if entry.watched %}
+                    — watched, but nothing to show yet: {{ entry.measure }}.
+                {% else %}
+                    — not watched: {{ entry.measure }}.
+                {% endif %}
+                {% if entry.can_add %}
+                    <button type="button"
+                            class="pf-dc-sensitivity__open"
+                            hx-get="/api/watch-desk/watchpoints/new?family={{ entry.family }}"
+                            hx-target="#dc-watchpoint-new"
+                            hx-swap="innerHTML">
+                        + Add watchpoint
+                    </button>
+                {% endif %}
+            </p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+{# The one slot every "+ Add watchpoint" affordance targets — group headers
+   and footer lines alike. Always present, so a header button can reach it
+   whether or not any footer line rendered. #}
+<div id="dc-watchpoint-new"></div>

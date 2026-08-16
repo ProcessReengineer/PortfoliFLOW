@@ -1,0 +1,225 @@
+{# "On watch" — the live monitor beneath the Briefing cards
+   (ADR-0089, DC2; edit affordances per ADR-0116 §6).
+
+   Two honesty rules are load-bearing here and must not be "tidied" away:
+
+     * Every gauge runs 0 → ceiling with the WARN tick at that subject's
+       WARN fraction of the ceiling. The *scale* is identical on every row —
+       the scenario-comparison axis rule applied to utilisation — and the
+       mark is never moved to flatter a row. Since ADR-0116 §3 the WARN
+       fraction is per subject (a watchpoint overlay may override the
+       tenant default), so the mark is per-subject **positioned** from
+       `row.warn_threshold_pct`; it is still never *rescaled*, and the row
+       it marks is classified against exactly that threshold. Never
+       rescale per row; never move the mark away from the threshold in
+       force. A breach clamps the rendered fill to 100% while the printed
+       figures stay honest.
+     * Irene's note is assembled in the route from live status + the
+       subject's acknowledged watch-state + the tenant's effective Floor
+       Config. The template renders the assembled string and nothing more —
+       it never composes a claim of its own. The head makes no
+       observation-time claim at all, so a tenant whose beat has never run
+       reads no bogus "last seen" stamp.
+
+   A third rule joins them with the mute affordance: a muted row stays
+   **visible**, tagged, and counted in its group header, and its status
+   keeps rendering live. Mute suppresses finding creation, never truth —
+   so this template must never hide a row, grey out a figure, or drop a
+   muted subject from a count.
+
+   A group renders **closed** on first load. Its summary line is the
+   decision surface — name, badges, muted count, subject count and the
+   effective set — so it already carries what decides whether opening the
+   body is worth it, and the calm-by-default posture the Watch Desk keeps
+   toward the book applies to its own first screen too. Closed is not
+   hidden: every row stays in the document, the header counts stay live,
+   and a muted row is still visible, tagged and counted one click away.
+   The honesty rules above are unaffected — this changes disclosure, not
+   content.
+
+   Class names are the mock's verbatim (decision-console-mockup-B-final-v3)
+   so DC5 can lift the mock CSS cleanly.
+
+   Context: monitor — coverage_available, groups, rss. #}
+<div id="dc-monitor" class="pf-dc-monitor">
+    <div class="pf-dc-monitor__head">
+        <span class="pf-dc-monitor__title">On watch</span>
+    </div>
+
+    {% for group in monitor.groups %}
+        <details class="pf-dc-group">
+            <summary>
+                <span class="pf-dc-group__chevron">▶</span>
+                <span class="pf-dc-group__name">{{ group.name }}</span>
+                <span class="pf-dc-group__badges">
+                    {%- for badge in group.badges -%}
+                        <span class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
+                    {%- endfor -%}
+                    {%- if group.muted_count -%}
+                        <span class="tag tag--muted">{{ group.muted_count }} muted</span>
+                    {%- endif -%}
+                </span>
+                <span class="pf-dc-group__meta">
+                    {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
+                    {% if group.effective_label %}
+                        effective set “{{ group.effective_label }}”
+                    {% else %}
+                        no effective set
+                    {% endif %}
+                    {# No "+ Add watchpoint" here, and there never is one:
+                       for a quota family the watchpoint is a sensitivity
+                       overlay only — the subject and its ceiling belong to
+                       the limit set alone (ADR-0116 §3), which is what this
+                       link goes to. See watch_desk_watchpoint_add.html. #}
+                    · <a href="/back-office#limits">manage in Limits</a>
+                </span>
+            </summary>
+            <div class="pf-dc-group__body">
+                {% if group.rows %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Subject</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Coverage</th>
+                                <th scope="col">Ceiling</th>
+                                <th scope="col">Utilisation</th>
+                                <th scope="col">Note</th>
+                                <th scope="col">Sensitivity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in group.rows %}
+                                <tr>
+                                    <td class="mono">
+                                        {{ row.subject_key }}
+                                        {% if row.muted %}
+                                            <span class="tag tag--muted">muted</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><span class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
+                                    <td>{{ '%.2f'|format(row.coverage_pct) }}%</td>
+                                    <td>{% if row.max_pct is not none %}{{ '%.2f'|format(row.max_pct) }}%{% else %}—{% endif %}</td>
+                                    <td>
+                                        {# Per-subject mark position, clamped fill — see the
+                                           header comment. The inline `left` is the whole
+                                           per-subject affordance; the stylesheet's 90% is
+                                           the fallback for a row without one. #}
+                                        <div class="gauge gauge--{{ row.modifier }}"
+                                             {% if row.utilisation is not none %}title="{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%"{% endif %}>
+                                            <span class="gauge__warnmark"
+                                                  style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span>
+                                            <span class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
+                                        </div>
+                                    </td>
+                                    <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+                                        {{ row.note }}
+                                        {% if row.finding_anchor %}
+                                            <a href="{{ row.finding_anchor }}">▲ open finding</a>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="pf-dc-sensitivity__open"
+                                                hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
+                                                hx-target="#{{ row.editor_id }}"
+                                                hx-swap="innerHTML">
+                                            Adjust sensitivity
+                                        </button>
+                                        {% if row.warn_customised or row.delta_customised %}
+                                            <span class="pf-dc-sensitivity__flag">customised</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr class="pf-dc-sensitivity__slot">
+                                    <td colspan="7" id="{{ row.editor_id }}"></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% elif not monitor.coverage_available %}
+                    <p class="pf-dc-monitor__empty">
+                        No valued positions yet — nothing to monitor.
+                    </p>
+                {% else %}
+                    <p class="pf-dc-monitor__empty">
+                        No constrained classes — nothing carries a ceiling to
+                        watch in this family.
+                    </p>
+                {% endif %}
+            </div>
+        </details>
+    {% endfor %}
+
+    {# The press group is DB-free, so it renders whatever coverage does.
+       Three data columns only: the mock's "Clusters today" column is
+       deferred (D8) and must not be restored — a per-tag cluster count is
+       not recoverable from persisted data, and a silent-cluster note would
+       be an invention. A tag with no corroborating finding carries no note.
+       The fourth column is the mute affordance, which an rss overlay
+       carries alone: a cluster subject is non-scalar, so there is no
+       threshold to move and the schema refuses one. #}
+    <details class="pf-dc-group">
+        <summary>
+            <span class="pf-dc-group__chevron">▶</span>
+            <span class="pf-dc-group__name">{{ monitor.rss.name }}</span>
+            <span class="pf-dc-group__badges">
+                {%- if monitor.rss.muted_count -%}
+                    <span class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
+                {%- endif -%}
+            </span>
+            <span class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
+        </summary>
+        <div class="pf-dc-group__body">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Tag</th>
+                        <th scope="col">Corroborates</th>
+                        <th scope="col">Note</th>
+                        <th scope="col">Sensitivity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in monitor.rss.rows %}
+                        <tr>
+                            <td class="mono">
+                                {{ row.tag }}
+                                {% if row.muted %}
+                                    <span class="tag tag--muted">muted</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ row.corroborates|join(', ') or '—' }}</td>
+                            <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+                                {{ row.note }}
+                                {% if row.finding_anchor %}
+                                    <a href="{{ row.finding_anchor }}">▲ open finding</a>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button type="button"
+                                        class="pf-dc-sensitivity__open"
+                                        hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
+                                        hx-target="#{{ row.editor_id }}"
+                                        hx-swap="innerHTML">
+                                    Adjust sensitivity
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="pf-dc-sensitivity__slot">
+                            <td colspan="4" id="{{ row.editor_id }}"></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+    {# The four defined signal families (ADR-0116 §4). Their own fragment,
+       because its vocabulary is asserted separately: a signal group renders
+       Calm / Approaching / Triggered and never "breach", and the liquidity
+       family renders ratios and never its internal 100-scale. Derived live
+       at request time from the same resolution, the same fetch and the same
+       pure producers the beat runs on — never read from irene_watch_state. #}
+    {% include "_partials/watch_desk_monitor_signals.html" %}
+</div>

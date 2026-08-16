@@ -1,0 +1,54 @@
+{# Create-tenant form. Submits via standard form POST so the success
+   response can re-render the full tenants page (banners + table).
+   HTMX swap of just the table would skip the success/seed-warning
+   banner the route emits on partial-success seed installation. #}
+<form class="sa-form"
+      method="POST"
+      action="/super-admin/tenants">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+
+    <div class="sa-form__field">
+        <label for="tenant-name" class="sa-form__label">Name</label>
+        <input id="tenant-name" name="name" type="text" required
+               class="sa-form__input" maxlength="255"
+               placeholder="Versorgungswerk Beispielland">
+    </div>
+
+    <div class="sa-form__field">
+        <label for="tenant-subdomain" class="sa-form__label">Subdomain</label>
+        <input id="tenant-subdomain" name="subdomain" type="text" required
+               class="sa-form__input"
+               pattern="[a-z][a-z0-9-]{2,62}"
+               title="Lowercase, starts with a letter, hyphens allowed."
+               placeholder="vwn">
+        <p class="sa-form__hint">
+            Resulting URL: <code>&lt;subdomain&gt;.portfoliflow.net</code>.
+            Reserved: <code>admin</code>, <code>www</code>, <code>api</code>.
+        </p>
+    </div>
+
+    <div class="sa-form__field">
+        <label for="owner-email" class="sa-form__label">Initial Owner Email</label>
+        <input id="owner-email" name="owner_email" type="email" required
+               class="sa-form__input"
+               placeholder="owner@vwn.example">
+    </div>
+
+    <div class="sa-form__field">
+        <label for="owner-password" class="sa-form__label">
+            Initial Owner Password (communicate out of band)
+        </label>
+        <input id="owner-password" name="owner_password" type="password"
+               required class="sa-form__input" minlength="12"
+               autocomplete="new-password">
+        <p class="sa-form__hint">
+            The owner should rotate this on first login.
+        </p>
+    </div>
+
+    <div class="sa-form__actions">
+        <button type="submit" class="sa-button sa-button--primary">
+            Create Tenant
+        </button>
+    </div>
+</form>

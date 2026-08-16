@@ -1,0 +1,90 @@
+{# Planning Desk area body — the seventh Area (ADR-0104 §6). Two stacked
+   sections, no tabs — one workspace, one parameter set, two lenses.
+
+   The sticky parameter strip sits **above** both sections and outside either
+   one: it is the parameter set made visible, and the set belongs to the page,
+   not to a section. It is mounted here empty and filled by the Cash Flow
+   Planning section's response as an out-of-band swap, so it always states the
+   set the section was rendered from.
+
+   Cash Flow Planning is a lazy section (S2.4b); Scenario Analysis is a live
+   section since S34.4 — its shock builders are filled out of band by the Cash
+   Flow Planning response, the way the parameter strip is. #}
+<div class="pf-area" data-area="planning_desk">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Planning Desk</h1>
+        <p class="pf-area__subtitle">
+            Projection and simulation over the plan world — where the Watch
+            Desk watches what has changed, the Planning Desk asks what a
+            change would do. Nothing entered here ever touches the book.
+        </p>
+    </header>
+
+    <div class="pd-paramstrip pd-paramstrip--loading" id="pd-paramstrip">
+        <span class="pd-paramstrip__label">Scenario</span>
+        <span class="pd-paramstrip__empty" aria-live="polite">
+            Reading the parameter set&hellip;
+        </span>
+    </div>
+
+    {% with section_slug="cash-flow-planning",
+            section_title="Cash Flow Planning",
+            section_body_template="_partials/planning_desk_cash_flow_planning_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="scenario-analysis",
+            section_title="Scenario Analysis",
+            section_body_template="_partials/planning_desk_scenario_analysis.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var area = document.querySelector('[data-area="planning_desk"]');
+    if (!area || area.dataset.pdBound === "1") return;
+    area.dataset.pdBound = "1";
+
+    // A malformed parameter set answers 400 (web/routes/planning_desk.py):
+    // an unreadable link is a bad request, and the status line says so. HTMX
+    // does not swap error responses by default, so the notice would never
+    // reach the operator — allow the swap for exactly this status, on exactly
+    // this area.
+    area.addEventListener("htmx:beforeSwap", function (event) {
+        if (event.detail.xhr && event.detail.xhr.status === 400) {
+            event.detail.shouldSwap = true;
+            event.detail.isError = false;
+        }
+    });
+
+    // "Copy scenario link" — the only persistence v1 offers, and an honest
+    // one: the URL *is* the scenario (ADR-0104 §4). Delegated from the area,
+    // because the strip is replaced on every interaction.
+    area.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-scenario-link]");
+        if (!button || button.disabled) return;
+        var link = window.location.origin
+            + button.getAttribute("data-scenario-link");
+        var restore = function () {
+            window.setTimeout(function () {
+                button.textContent = "Copy scenario link";
+            }, 1600);
+        };
+        if (!navigator.clipboard) {
+            button.textContent = "Copy failed";
+            restore();
+            return;
+        }
+        navigator.clipboard.writeText(link).then(function () {
+            button.textContent = "Link copied";
+            restore();
+        }, function () {
+            button.textContent = "Copy failed";
+            restore();
+        });
+    });
+})();
+</script>

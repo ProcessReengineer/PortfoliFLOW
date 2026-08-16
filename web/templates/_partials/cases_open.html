@@ -1,0 +1,69 @@
+{# Open-cases surface (ADR-0107, C2) — the to-do list.
+
+   Context:
+     cases  — list of projected open-case dicts (badge, title, owner,
+              opened_date, from_finding), already newest-first (the
+              repository orders; the route never re-sorts).
+     mine   — whether the "Mine" filter is active (opened_by == current
+              user). A filter, never a data boundary (ADR-0107 §1).
+     oob    — when true the root carries hx-swap-oob so a create can refresh
+              this list out of band while the main swap clears the form slot.
+
+   Root id ``cases-open-list``: the swap target for the chip filters and the
+   post-create OOB refresh. Each row is a link to its detail view (C3a). #}
+<div id="cases-open-list" class="pf-cases__list-wrap"
+     {% if oob %}hx-swap-oob="true"{% endif %}>
+    <div class="pf-cases__filters" role="group" aria-label="Filter open cases">
+        <a class="pf-chip{% if not mine %} pf-chip--active{% endif %}"
+           href="#open-cases"
+           hx-get="/api/cases/open"
+           hx-target="#cases-open-list"
+           hx-swap="outerHTML"
+           aria-pressed="{% if not mine %}true{% else %}false{% endif %}">
+            All open
+        </a>
+        <a class="pf-chip{% if mine %} pf-chip--active{% endif %}"
+           href="#open-cases"
+           hx-get="/api/cases/open?mine=1"
+           hx-target="#cases-open-list"
+           hx-swap="outerHTML"
+           aria-pressed="{% if mine %}true{% else %}false{% endif %}">
+            Mine
+        </a>
+    </div>
+
+    {% if cases %}
+        <div class="pf-case-list">
+            {% for case in cases %}
+                <a class="pf-case-row" href="{{ case.href }}"
+                   data-case-number="{{ case.badge }}">
+                    <span class="pf-case-row__id">{{ case.badge }}</span>
+                    <div class="pf-case-row__main">
+                        <div class="pf-case-row__title">{{ case.title }}</div>
+                        <div class="pf-case-row__origin">
+                            {% if case.from_finding %}
+                                <span class="pf-case-row__origin-badge">From finding</span>
+                                · opened {{ case.opened_date }}
+                            {% else %}
+                                opened manually · {{ case.opened_date }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <span class="state state--open">Open</span>
+                    <span class="pf-case-row__meta">
+                        <span class="owner">{{ case.owner }}</span>
+                    </span>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="pf-empty-state">
+            {% if mine %}
+                No open cases opened by you — the "All open" filter shows the
+                whole team's list.
+            {% else %}
+                No open cases — nothing needs working right now.
+            {% endif %}
+        </p>
+    {% endif %}
+</div>

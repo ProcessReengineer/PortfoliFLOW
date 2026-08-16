@@ -1,0 +1,278 @@
+# PortfoliFLOW — Web Research Allowlist (ADR-0023, ADR-0024)
+#
+# This file enumerates every domain the Web Research capability is permitted
+# to fetch from, and every RSS/Atom feed it may poll for candidate articles.
+# It is audit-relevant: a reviewer must be able to read this file in full
+# and understand exactly which external sources the system may query on
+# Shirley's behalf, and over what time window.
+#
+# -----------------------------------------------------------------------------
+# Schema
+# -----------------------------------------------------------------------------
+#
+# Top-level:
+#
+#   default_window_hours  (positive int, required) — global default time
+#                            window applied to feed items. Items whose
+#                            publication timestamp is older than this
+#                            window (or whose per-source override, if any)
+#                            are dropped from the candidate pool. A
+#                            per-source override, if present, always wins.
+#
+#   sources               (list, required, non-empty) — allowlist entries.
+#
+# Each entry under `sources` has:
+#
+#   domain        (string, required) — exact hostname. v1 does NOT support
+#                    wildcards or regex; subdomains must be listed
+#                    explicitly as their own entries.
+#   name          (string, required) — human-readable name used in logs
+#                    and in each FeedItem's `source_name` field.
+#   added_on      (ISO date, required) — when this entry was added. Used
+#                    for change-log review.
+#   rationale     (string, required) — one-line reason this source belongs
+#                    on the list. Appears in audit review.
+#   feeds         (list of strings, required, non-empty) — RSS/Atom feed
+#                    URLs to poll for candidate articles. Each feed URL's
+#                    hostname must itself be present as a `domain` in this
+#                    file (checked at load time); a feed URL on a
+#                    non-allowlisted host is a configuration error and
+#                    will fail to load.
+#   window_hours  (positive int, optional) — overrides
+#                    `default_window_hours` for this source only.
+#   tags          (list of strings, optional) — curated, source-level
+#                    bucket dimensions for Irene's deterministic RSS
+#                    clustering (ADR-0087 Part B). Multi-valued: a source
+#                    may carry several tags (e.g. the ECB is both `macro`
+#                    and `regulator`). Each tag MUST come from the closed
+#                    vocabulary enumerated below; a typo fails the load.
+#                    Tags are normalised to lowercase and de-duplicated. A
+#                    missing `tags` key means the source is untagged; its
+#                    items cluster under a reserved `untagged` dimension
+#                    (never dropped). Tags are the bucket dimension by
+#                    design — cross-source events merge by shared tag, not
+#                    by source name.
+#
+#   Closed tag vocabulary (must match services/web_research/allowlist.py
+#   `_KNOWN_TAGS`):
+#       macro | regulator | equities | credit | real_estate |
+#       private_markets | swiss_finance
+#
+# -----------------------------------------------------------------------------
+# How to add an entry
+# -----------------------------------------------------------------------------
+#
+# 1. Confirm the source is an institutional financial news, research, or
+#    regulator outlet — not a social-media aggregator, user-generated-content
+#    site, or general search engine. The two-stage Fetcher-LLM mitigates
+#    injection but does not eliminate it; the curated list is the first
+#    line of defence.
+# 2. Verify the feed URL in a browser (or via `curl`) before commit:
+#       - HTTP 200
+#       - Content-Type indicates RSS, Atom, or XML
+#       - Body is parseable by `feedparser`
+#       - Items carry a usable `pubDate` / `updated` field
+#    The previous resolution mechanism shipped URLs that had not been
+#    verified against reality, which is what drove ADR-0024. Do not repeat
+#    that.
+# 3. Add a new entry under `sources`. Populate every required field.
+#    Keep the list sorted by `domain` for reviewable diffs.
+# 4. If the feed URL hostname differs from the entry's `domain`, add a
+#    separate entry for that hostname as well (its `feeds` list may point
+#    to the same URL). The load-time validator will reject a feed URL
+#    whose host is not on the list.
+# 5. Commit the change on its own; do not bundle with unrelated edits.
+#
+# See ADR-0024 ("RSS-based Source Resolution for Web Research") for the
+# rationale, and ADR-0022 ("Tool Trust Classes and Gating Policy") and
+# ADR-0023 ("Web Research Capability") for the broader architecture.
+#
+# -----------------------------------------------------------------------------
+# Sources not currently included (and why)
+# -----------------------------------------------------------------------------
+#
+# Reuters, Bloomberg — public RSS endpoints are behind bot-detection
+#     (Cloudflare / datadome) and return HTTP 401/403 to any programmatic
+#     request. Out of reach under the no-detection-evasion policy of
+#     ADR-0024.
+# BaFin, Deutsche Bundesbank — no public RSS endpoints located at the time
+#     of writing; all documented URL patterns return HTTP 404. Revisit if
+#     the respective websites publish a feed.
+# Handelsblatt — the public feed URL redirects off-domain to a CDN host
+#     (feeds.cms.handelsblatt.com). Including it cleanly requires two
+#     allowlist entries (article domain + feed CDN). Deferred pending a
+#     future refactor that warrants the extra complexity.
+# Financial Times — included. Note that many FT articles are paywalled at
+#     the article body; trafilatura may yield short extractions and the
+#     Fetcher-LLM will then skip with a WARNING. That is expected
+#     behaviour for a paywalled source.
+# IMF — no verifiable machine-readable news feed found (2026-08-15):
+#     www.imf.org/en/news/rss returns Content-Type text/html (an RSS
+#     landing page, not a feed). Fails verification step 2. Revisit if
+#     the IMF publishes a direct XML endpoint.
+# EIOPA — despite high relevance for the Versorgungswerk audience
+#     (IORP II / Solvency II), no general news RSS endpoint could be
+#     verified (2026-08-15); only a niche RFR technical-files feed exists
+#     on a dynamic page. Revisit — this would be a high-value addition.
+# NZZ — technically working feeds (e.g. www.nzz.ch/wirtschaft.rss), but
+#     NZZ's RSS terms explicitly prohibit commercial use of their feeds
+#     without permission. Excluded on licensing grounds, not technical
+#     ones (2026-08-15). Revisit only with a syndication agreement.
+# AltAssets (private-equity news) — homepage carries injected third-party
+#     spam content as of 2026-08-15, indicating a compromised site.
+#     Excluded on injection-risk grounds per ADR-0022/0023.
+# finews.ch — REMOVED 2026-08-15. The former Joomla feed URL
+#     (/news/finanz-blogs/rss/1finews) stopped resolving (operator-confirmed
+#     in production); current directories only list feeds for the English
+#     sister site finews.com. finews.ch additionally disallows automated
+#     access via robots.txt. Consequence: the `swiss_finance` tag dimension
+#     currently has NO source. Candidate replacement: finews.com
+#     English-news feed — pending operator verification via `curl`.
+#
+# Re-verification log (2026-08-15), existing entries:
+#     Verified OK: ECB (rss/press.html), ESMA (rss.xml — but see pubDate
+#         caveat at its entry), Yahoo Finance (news/rssindex; note the feed
+#         mixes in evergreen personal-finance items with old pubDates, which
+#         the window filter drops by design).
+#     Not re-verifiable with the tooling used for this revision: BIS and
+#         CNBC (robots.txt / bot-detection against this reviewer's fetcher —
+#         not necessarily against the production feedparser client) and FT
+#         (fetch blocked). These entries are retained; operator should
+#         re-verify via `curl` at next convenience, since CNBC's bot
+#         protection MAY now also affect programmatic feed access.
+# The Economist, IPE / IPE Real Assets, FT section feeds (Markets,
+#     Private Equity), MarketWatch — plausible candidates whose feed URLs
+#     could NOT be verified end-to-end with the tooling available when
+#     this revision was prepared (fetch blocked, HTTP 405, or feed host
+#     off-domain). Per step 2 above they are deliberately NOT included
+#     unverified. Candidate URLs are recorded in the accompanying
+#     research summary for operator verification via `curl`.
+
+default_window_hours: 200
+
+sources:
+
+  - name: "Yahoo Finance — News"
+    domain: "finance.yahoo.com"
+    added_on: "2026-04-29"
+    rationale: "Globaler Aggregator für Markt- und Unternehmensnachrichten; breite Quellenabdeckung (Reuters, Bloomberg-Feeds, Motley Fool, Barron's u.a.). Nützlich für US-Marktbreite und Cross-Source-Signale."
+    tags: ["equities", "macro"]
+    feeds:
+      - "https://finance.yahoo.com/news/rssindex"
+
+  - name: "Bank of Canada — press releases"
+    domain: "www.bankofcanada.ca"
+    added_on: "2026-08-15"
+    rationale: "Canada's central bank; primary source for CAD policy-rate decisions, Monetary Policy Report releases, and financial-stability communications. Official RSS endpoint verified 2026-08-15 (RSS 1.0/RDF, dc:date present)."
+    tags: ["macro"]
+    feeds:
+      - "https://www.bankofcanada.ca/content_type/press-releases/feed/"
+
+  - name: "Bank of England — news"
+    domain: "www.bankofengland.co.uk"
+    added_on: "2026-08-15"
+    rationale: "UK central bank and prudential regulator (PRA); Bank Rate decisions, Financial Stability Reports, market notices, and PRA supervisory actions in one feed. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["macro", "regulator"]
+    feeds:
+      - "https://www.bankofengland.co.uk/rss/news"
+
+  - name: "BIS — Central bankers' speeches"
+    domain: "www.bis.org"
+    added_on: "2026-04-24"
+    rationale: "Bank for International Settlements; global central-bank speeches and press releases. Long-standing RSS feed, institutionally authoritative."
+    tags: ["macro", "regulator"]
+    feeds:
+      - "https://www.bis.org/doclist/cbspeeches.rss"
+
+  - name: "CFTC — general press releases"
+    domain: "www.cftc.gov"
+    added_on: "2026-08-15"
+    rationale: "US derivatives regulator; rulemakings, market advisories, and emergency actions relevant to futures, swaps, and margin frameworks. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["regulator"]
+    feeds:
+      - "https://www.cftc.gov/RSS/RSSGP/rssgp.xml"
+
+  - name: "CNBC — Markets & Investing"
+    domain: "www.cnbc.com"
+    added_on: "2026-04-29"
+    rationale: "US-Wirtschaftsnachrichtensender mit Echtzeit-Marktberichterstattung. Markets-Feed liefert Investing-fokussierte Analysen, Stock Screener-Inhalte und Strategie-Insights."
+    tags: ["equities"]
+    feeds:
+      - "https://www.cnbc.com/id/15839069/device/rss/rss.html"
+
+  - name: "CNBC — Economy"
+    domain: "www.cnbc.com"
+    added_on: "2026-04-29"
+    rationale: "CNBC-Ressort Volkswirtschaft: Notenbankpolitik, Konjunkturdaten, makroökonomische Headlines und Politik-Wirtschafts-Schnittstelle. Komplementär zum Markets-Feed."
+    tags: ["macro"]
+    feeds:
+      - "https://www.cnbc.com/id/20910258/device/rss/rss.html"
+
+  - name: "EBA — news and press releases"
+    domain: "www.eba.europa.eu"
+    added_on: "2026-08-15"
+    rationale: "European Banking Authority; EU banking regulation, capital/market-risk frameworks (Basel 3.1/FRTB), ESG risk dashboards, and joint ESA statements. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["regulator", "credit"]
+    feeds:
+      - "https://www.eba.europa.eu/news-press/news/rss.xml"
+
+  - name: "ECB — press releases, speeches, interviews"
+    domain: "www.ecb.europa.eu"
+    added_on: "2026-04-24"
+    rationale: "European Central Bank; primary source for euro-area monetary-policy communications and supervisory press releases."
+    tags: ["macro", "regulator"]
+    feeds:
+      - "https://www.ecb.europa.eu/rss/press.html"
+
+  # NOTE (2026-08-15 re-verification): the ESMA feed is valid RSS 2.0 but its
+  # <item> elements carry NO pubDate/updated element; publication dates exist
+  # only inside the HTML of <description>. Verify how the window filter treats
+  # items with missing publication timestamps before relying on this source
+  # for time-windowed clustering.
+  - name: "ESMA — news"
+    domain: "www.esma.europa.eu"
+    added_on: "2026-04-24"
+    rationale: "European Securities and Markets Authority; EU-wide securities supervision, MiFID/AIFMD guidance, enforcement notices."
+    tags: ["regulator"]
+    feeds:
+      - "https://www.esma.europa.eu/rss.xml"
+
+  - name: "Federal Reserve Board — all press releases"
+    domain: "www.federalreserve.gov"
+    added_on: "2026-08-15"
+    rationale: "US central bank; FOMC statements and minutes, banking-regulatory policy, enforcement actions, and orders in one consolidated feed. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["macro", "regulator"]
+    feeds:
+      - "https://www.federalreserve.gov/feeds/press_all.xml"
+
+  - name: "Federal Reserve Board — speeches"
+    domain: "www.federalreserve.gov"
+    added_on: "2026-08-15"
+    rationale: "Speeches by Fed governors; forward-guidance signal ahead of formal FOMC communications, complementary to the press feed and to BIS cbspeeches. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["macro"]
+    feeds:
+      - "https://www.federalreserve.gov/feeds/speeches.xml"
+
+  - name: "Financial Times — international homepage"
+    domain: "www.ft.com"
+    added_on: "2026-04-24"
+    rationale: "UK-based financial daily; institutional readership, strong coverage of private markets and European finance. Note that article bodies are often paywalled; extraction will gracefully skip those."
+    tags: ["equities", "macro", "private_markets"]
+    feeds:
+      - "https://www.ft.com/rss/home"
+
+  - name: "Private Equity Wire — daily news"
+    domain: "www.privateequitywire.co.uk"
+    added_on: "2026-08-15"
+    rationale: "Institutional private-markets daily (Global Fund Media, est. 2002) covering PE/VC deals, fundraising, LP allocations, secondaries, and private credit for an LP/GP readership. Replaces the defunct finews.ch entry. Verified 2026-08-15 (RSS 2.0, pubDate present, same-day items)."
+    tags: ["private_markets", "credit"]
+    feeds:
+      - "https://www.privateequitywire.co.uk/feed/"
+
+  - name: "SEC — press releases"
+    domain: "www.sec.gov"
+    added_on: "2026-08-15"
+    rationale: "US securities regulator; enforcement actions, rulemakings (incl. private-fund adviser cases and market-structure proposals) directly relevant to fund-of-funds and listed-equity oversight. Verified 2026-08-15 (RSS 2.0, pubDate present)."
+    tags: ["regulator", "equities"]
+    feeds:
+      - "https://www.sec.gov/news/pressreleases.rss"

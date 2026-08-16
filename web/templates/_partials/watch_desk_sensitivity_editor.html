@@ -1,0 +1,105 @@
+{# Per-subject sensitivity editor (ADR-0116 §3, §6) — the inline drawer the
+   monitor's "Adjust sensitivity" button opens.
+
+   The overlay half of the asymmetry: this form adjusts *how nervously* a
+   derived subject is watched and nothing else. There is no ceiling field
+   and no subject field, because a ceiling belongs to the limit set alone —
+   the schema's per-family CHECKs refuse them, so no bug here can grow a
+   second edit point for limits.
+
+   An `rss` subject offers **mute only**: a press cluster is non-scalar, so
+   a WARN threshold and a re-trigger delta would have nothing to measure,
+   and the repository and the schema both refuse them.
+
+   A rejected save swaps the drawer for the Watch Desk's inline-error
+   partial instead of re-rendering this form, so there is no error slot
+   here — one inline-error idiom for the whole section.
+
+   The drawer opens from two surfaces since ADR-0116 §7 — the monitor row
+   and the Calibration watchpoint list — so its swap target is passed in
+   rather than hardcoded. One editor, two containers; the alternative was a
+   second editor, which is how two surfaces start disagreeing about what a
+   subject is set to.
+
+   Context: csrf_token, subject_key, family, scalar, editor_id, muted,
+   mute_locked, warn_threshold_pct, re_trigger_delta, notes,
+   warn_default_pct, delta_default, return_to, target. #}
+<form class="pf-dc-sensitivity"
+      hx-post="/api/watch-desk/watchpoints/overlay"
+      hx-target="{{ target }}"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="subject_key" value="{{ subject_key }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+
+    <div class="pf-dc-sensitivity__fields">
+        {% if scalar %}
+            <label class="pf-dc-sensitivity__field">
+                <span class="pf-dc-sensitivity__label">WARN threshold</span>
+                <input type="text" inputmode="decimal" name="warn_threshold_pct"
+                       value="{{ warn_threshold_pct }}"
+                       placeholder="{{ '%.0f'|format(warn_default_pct) }}">
+                <span class="pf-dc-sensitivity__hint">
+                    % of ceiling, strictly between 50 and 100. Empty follows
+                    the tenant default ({{ '%.0f'|format(warn_default_pct) }}%).
+                </span>
+            </label>
+
+            <label class="pf-dc-sensitivity__field">
+                <span class="pf-dc-sensitivity__label">Re-trigger &Delta;</span>
+                <input type="text" inputmode="decimal" name="re_trigger_delta"
+                       value="{{ re_trigger_delta }}"
+                       placeholder="{{ '%.1f'|format(delta_default) }}">
+                <span class="pf-dc-sensitivity__hint">
+                    pp of movement within an unchanged band. Empty follows the
+                    family default ({{ '%.1f'|format(delta_default) }} pp).
+                </span>
+            </label>
+        {% endif %}
+
+        {% if mute_locked and muted %}
+            {# A disabled checkbox is not submitted, so saving any other field
+               on a locked row would silently *clear* an existing mute. The
+               hidden field carries the current state through, which is what
+               "locked" has to mean: unchangeable here, not quietly reset. #}
+            <input type="hidden" name="muted" value="on">
+        {% endif %}
+        <label class="pf-dc-sensitivity__field pf-dc-sensitivity__field--check">
+            <input type="checkbox" name="muted"
+                   {% if muted %}checked{% endif %}
+                   {% if mute_locked %}disabled
+                       title="A breach cannot be muted — the beat raises it regardless."{% endif %}>
+            <span class="pf-dc-sensitivity__label">Mute</span>
+            <span class="pf-dc-sensitivity__hint">
+                {% if mute_locked %}
+                    This subject is in BREACH. A breach cannot be muted — the
+                    beat raises it whatever this says.
+                {% else %}
+                    Suppresses finding creation only. The row stays visible,
+                    its status stays live, and a breach still raises.
+                {% endif %}
+            </span>
+        </label>
+
+        <label class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
+            <span class="pf-dc-sensitivity__label">Note</span>
+            <input type="text" name="notes" value="{{ notes }}" maxlength="500"
+                   placeholder="Why this subject is watched differently (optional)">
+        </label>
+    </div>
+
+    <div class="pf-dc-sensitivity__footer">
+        <button type="submit" class="pf-dc-btn pf-dc-btn--primary">Save sensitivity</button>
+        {# Closes the drawer by emptying its slot. Nothing is persisted and
+           nothing is fetched, so this stays client-side rather than paying
+           a round trip to render emptiness. #}
+        <button type="button" class="pf-dc-btn"
+                onclick="document.getElementById('{{ editor_id }}').innerHTML = '';">
+            Cancel
+        </button>
+        <span class="pf-dc-sensitivity__note">
+            Visible in the monitor immediately; effective in the beat from its
+            next run.
+        </span>
+    </div>
+</form>

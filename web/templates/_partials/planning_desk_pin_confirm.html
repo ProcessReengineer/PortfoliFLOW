@@ -1,0 +1,17 @@
+{# Pin-scenario confirmation (ADR-0107 C5, Step 3) — swapped into #pd-pin-dialog
+   on a successful pin. A quiet confirmation in place, not a navigation away: the
+   Desk keeps its state so the PM can pin another state straight after. The link
+   opens the case the snapshot now lives on.
+
+   Context: case_badge, case_href, pin_scenario_url. #}
+<div class="pd-pin-confirm" role="status">
+    <span class="pd-pin-confirm__icon" aria-hidden="true">&#10003;</span>
+    <span class="pd-pin-confirm__text">
+        Snapshot pinned to
+        <a class="pd-pin-confirm__case" href="{{ case_href }}">{{ case_badge }}</a>.
+    </span>
+    <button type="button" class="btn btn--ghost pd-pin-confirm__dismiss"
+            hx-get="{{ pin_scenario_url }}?cancel=1"
+            hx-target="#pd-pin-dialog"
+            hx-swap="innerHTML">Dismiss</button>
+</div>

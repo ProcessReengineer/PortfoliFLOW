@@ -1,0 +1,195 @@
+{
+    "_comment": "PortfoliFLOW Chart Theme — centralised visual parameters for all charts. Modelled after Excel chart formatting options. Edit this file to match a specific corporate style.",
+    "_version": "1.0.0",
+    "_display_name": "Default (Dark)",
+
+    "font": {
+        "family": ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
+        "title_size": 11,
+        "axis_label_size": 9,
+        "tick_label_size": 8,
+        "label_size": 8,
+        "legend_size": 8,
+        "weight_title": "bold",
+        "weight_axis_label": "normal",
+        "weight_tick_label": "normal"
+    },
+
+    "colours": {
+        "background": "#1A1A1A",
+        "plot_area": "#1A1A1A",
+        "text": "#D4D4D4",
+        "grid": "#00000000",
+        "axis_line": "#555555",
+        "primary": "#E8304A",
+        "primary_alt": "#4A9BD9",
+        "accent_line": "#FFA726",
+        "secondary": "#4A9BD9",
+        "tertiary": "#4CAF50",
+        "quaternary": "#FFA726",
+        "quinary": "#AB47BC",
+        "senary": "#26C6DA",
+        "septenary": "#FF7043",
+        "neutral": "#78909C",
+        "muted": "#8D6E63",
+        "series_palette": [
+            "#E8304A", "#4A9BD9", "#4CAF50", "#FFA726",
+            "#AB47BC", "#26C6DA", "#FF7043", "#8D6E63",
+            "#78909C", "#EC407A", "#66BB6A", "#42A5F5"
+        ],
+        "positive_bar": "#4CAF50",
+        "negative_bar": "#E8304A",
+        "calls": "#E8304A",
+        "distributions": "#4CAF50",
+        "nav_line": "#4A9BD9",
+        "ncg_line": "#FFA726",
+        "net_capital_gain_line": "#FFA726",
+        "dpi_bar": "#4CAF50",
+        "rvpi_bar": "#4A9BD9",
+        "tvpi_label": "#D4D4D4",
+        "irr_line": "#FFA726"
+    },
+
+    "line": {
+        "width_primary": 1.5,
+        "width_secondary": 1.2,
+        "width_grid": 0.5,
+        "width_axis": 0.8,
+        "width_px": 1.8,
+        "style_primary": "solid",
+        "style_secondary": "solid",
+        "style_grid": "dotted",
+        "alpha_line": 1.0,
+        "alpha_grid": 0.4
+    },
+
+    "bar": {
+        "width": 0.8,
+        "alpha": 0.85,
+        "edge_width": 0.0,
+        "edge_colour": "none"
+    },
+
+    "chart": {
+        "area_alpha": 0.65,
+        "treemap_palette": [
+            "primary",
+            "primary_alt",
+            "accent_line",
+            "positive_bar",
+            "negative_bar",
+            "neutral",
+            "muted"
+        ]
+    },
+
+    "legend": {
+        "location": "upper left",
+        "frame_on": false,
+        "frame_alpha": 0.0,
+        "columns": 1,
+        "marker_scale": 0.8
+    },
+
+    "layout": {
+        "figure_dpi": 100,
+        "chart_height_px": 280,
+        "chart_spacing_px": 12,
+        "padding_top": 0.92,
+        "padding_bottom": 0.15,
+        "padding_left": 0.12,
+        "padding_right": 0.88,
+        "title_pad": 8,
+        "y_label_padding_chars": 18
+    },
+
+    "axis": {
+        "tick_direction": "out",
+        "tick_length": 3,
+        "tick_width": 0.6,
+        "spine_visible_top": false,
+        "spine_visible_right": false,
+        "spine_visible_bottom": true,
+        "spine_visible_left": true,
+        "x_label_rotation": 45,
+        "x_label_ha": "right",
+        "y_format_decimals": 2,
+        "auto_scale": true
+    },
+
+    "table": {
+        "header_bg": "#2A2A2A",
+        "header_fg": "#E8304A",
+        "cell_bg_even": "#1E1E1E",
+        "cell_bg_odd": "#252525",
+        "cell_fg": "#D4D4D4",
+        "border_colour": "#3A3A3A",
+        "header_font_weight": "bold",
+        "cell_font_size": 9,
+        "header_font_size": 9,
+        "row_height": 28
+    },
+
+    "optimization": {
+        "cloud_alpha": 0.10,
+        "cloud_marker_size": 3,
+        "cloud_colour": "#3A3A3A",
+        "frontier_linewidth": 2.0,
+        "cml_linewidth": 1.5,
+        "cml_dash_pattern": [8, 4],
+        "tangency_marker_size": 200,
+        "tangency_marker": "*",
+        "min_var_marker_size": 80,
+        "min_var_marker": "D",
+        "asset_marker": "x",
+        "asset_marker_size": 100,
+        "asset_label_offset_x": 8,
+        "asset_label_offset_y": 8,
+        "chart_height_px": 500,
+        "rf_line_alpha": 0.3,
+        "current_portfolio_marker": "o",
+        "current_portfolio_marker_size": 120,
+        "current_portfolio_colour": "#FFA726"
+    },
+
+    "pf": {
+        "_comment": "PortfoliFLOW shell tokens — sidebar, status bar, background levels, accent overlays. Emitted under the --pf-* prefix by scripts/generate_theme_artifacts.py.",
+        "sidebar": {
+            "width_expanded": "200px",
+            "width_collapsed": "56px"
+        },
+        "statusbar": {
+            "height": "28px"
+        },
+        "bg": {
+            "deepest": "#050505",
+            "surface": "#141414",
+            "elevated": "#1A1A1A",
+            "hover": "#222222"
+        },
+        "accent": {
+            "soft": "rgba(232, 48, 74, 0.15)",
+            "glow": "rgba(232, 48, 74, 0.35)"
+        },
+        "section_indicator": {
+            "width": "36px",
+            "right": "16px",
+            "dot_size": "8px",
+            "dot_gap": "12px",
+            "label_bg": "rgba(20, 20, 20, 0.92)"
+        },
+        "sticky_header": {
+            "blur": "10px",
+            "bg": "rgba(20, 20, 20, 0.78)"
+        },
+        "palette": {
+            "overlay_bg": "rgba(5, 5, 5, 0.55)",
+            "panel_bg": "#141414",
+            "panel_border": "#2A2A2A",
+            "panel_width": "560px",
+            "panel_max_height": "480px",
+            "row_hover_bg": "rgba(232, 48, 74, 0.08)",
+            "row_active_bg": "rgba(232, 48, 74, 0.18)"
+        }
+    }
+}

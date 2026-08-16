@@ -1,0 +1,11 @@
+{# Recently-closed section lazy-load shell (ADR-0107). See
+   cases_open_lazy.html for the pattern. #}
+<div class="pf-section__lazy"
+     hx-get="/api/cases/recently-closed"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading recently closed cases&hellip;
+    </p>
+</div>

@@ -1,0 +1,174 @@
+{# Portfolio Review section body — embedded in
+   /investor-communication#portfolio-review (sub-stream 6F-3d).
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in the
+   lazy shell). The persistent as-of-date form re-submits this same
+   endpoint and HTMX swaps only the section body.
+
+   Context (from web/routes/portfolio_review.py):
+     payload              — PortfolioOverviewBundle or None.
+     tile_specs           — six dicts {id, title, spec, has_data},
+                            or [] when payload is None.
+     header_metrics       — PortfolioHeaderMetrics or None.
+     as_of_date_input     — ISO date string echoed into the form (or
+                            empty when no value / invalid input).
+     as_of_date_display   — Resolved as-of-date for the meta line and
+                            the shared date carried into each
+                            per-investment placeholder's hx-get URL.
+     investment_count     — Investment count, 0 on empty universe.
+     investment_articles  — list of {id, name} dicts (one per active
+                            investment, alphabetical), or [] on empty
+                            universe. Each becomes a lazy-loaded
+                            per-investment six-tile fragment. #}
+
+<div class="pr-section" id="pr-section-body">
+
+    <form class="pr-controls"
+          hx-get="/api/portfolio-review/section"
+          hx-target="closest .pf-section__body"
+          hx-swap="innerHTML">
+        <label class="pr-controls__field">
+            <span>As-of date</span>
+            <input type="date"
+                   name="as_of_date"
+                   value="{{ as_of_date_input }}">
+        </label>
+        <button type="submit" class="btn btn--primary">Apply</button>
+    </form>
+
+    {% if payload %}
+
+        <section class="pr-strip" aria-labelledby="pr-strip-title">
+            <h3 id="pr-strip-title" class="visually-hidden">Headline metrics</h3>
+            <article class="pr-strip__card">
+                <div class="pr-strip__label">NAV</div>
+                <div class="pr-strip__value">
+                    {# Figures are in the tenant's functional currency
+                       (ADR-0099 §4); the label follows it (ADR-0101 §3). #}
+                    {% if header_metrics.nav_eur is not none %}
+                        {{ "{:,.0f}".format(header_metrics.nav_eur) }} {{ header_metrics.functional_currency }}
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="pr-strip__card">
+                <div class="pr-strip__label">IRR</div>
+                <div class="pr-strip__value">
+                    {% if header_metrics.irr is not none %}
+                        {{ "%.2f"|format(header_metrics.irr * 100.0) }}%
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="pr-strip__card">
+                <div class="pr-strip__label">TVPI</div>
+                <div class="pr-strip__value">
+                    {% if header_metrics.tvpi is not none %}
+                        {{ "%.2f"|format(header_metrics.tvpi) }}x
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="pr-strip__card">
+                <div class="pr-strip__label">DPI</div>
+                <div class="pr-strip__value">
+                    {% if header_metrics.dpi is not none %}
+                        {{ "%.2f"|format(header_metrics.dpi) }}x
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+        </section>
+
+        <p class="pr-meta">
+            {{ investment_count }} investment{% if investment_count != 1 %}s{% endif %}
+            · As-of date {{ as_of_date_display }}
+        </p>
+
+        <section class="pr-grid" aria-label="Portfolio review tiles">
+            {% for tile in tile_specs %}
+                <article class="pr-tile" aria-labelledby="{{ tile.id }}-title">
+                    <header class="pr-tile__header">
+                        <h3 id="{{ tile.id }}-title" class="pr-tile__title">
+                            {{ tile.title }}
+                        </h3>
+                    </header>
+                    {% if tile.has_data %}
+                        <div id="{{ tile.id }}"
+                             class="pr-tile__chart pf-plotly-target"
+                             data-spec='{{ tile.spec | tojson }}'>
+                        </div>
+                    {% else %}
+                        <p class="pr-tile__empty">No data available.</p>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </section>
+
+        {% if investment_articles %}
+            <section class="pr-investment-stack"
+                     aria-labelledby="pr-investment-stack-title">
+                <h3 id="pr-investment-stack-title"
+                    class="pr-investment-stack__heading">
+                    Per-investment reviews
+                </h3>
+                {% for a in investment_articles %}
+                    <article class="pr-investment-stack__item"
+                             hx-get="/api/portfolio-review/investment/{{ a.id }}/section?as_of_date={{ as_of_date_display }}"
+                             hx-trigger="revealed"
+                             hx-swap="innerHTML">
+                        <p class="pr-investment-stack__loading" aria-live="polite">
+                            Loading {{ a.name }}&hellip;
+                        </p>
+                    </article>
+                {% endfor %}
+            </section>
+        {% endif %}
+
+    {% else %}
+
+        <p class="pr-empty">
+            No investments to display. Import data via the
+            <a href="/admin#data-import">Data Import</a> section in
+            Admin or create investments from the
+            <a href="/investments">Investments</a> list.
+        </p>
+
+    {% endif %}
+
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+
+    function renderAll(root) {
+        (root || document)
+            .querySelectorAll(".pf-plotly-target[data-spec]")
+            .forEach(renderTarget);
+    }
+
+    // Initial reveal — render every tile the server emitted into
+    // this fragment.
+    renderAll(document.getElementById("pr-section-body"));
+})();
+</script>

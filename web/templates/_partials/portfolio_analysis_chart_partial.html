@@ -1,0 +1,78 @@
+{# Portfolio Analysis chart partial — rendered inside
+   #pa-chart-container by both the initial section reveal
+   (server-side via {% include %}) and the POST
+   /api/portfolio-analysis/section/compute response.
+
+   Context: chart_payload (dict | None). #}
+
+{% if chart_payload %}
+    <div class="pa-summary">
+        <article class="pa-summary-card">
+            <div class="pa-summary-card__title">Tangency Portfolio</div>
+            <div class="pa-summary-card__metrics">
+                <span><small>Return</small>{{ "%.2f"|format(chart_payload.tangency_summary.expected_return * 100) }}%</span>
+                <span><small>Volatility</small>{{ "%.2f"|format(chart_payload.tangency_summary.volatility * 100) }}%</span>
+                <span><small>Sharpe</small>{{ "%.2f"|format(chart_payload.tangency_summary.sharpe_ratio) }}</span>
+            </div>
+        </article>
+        <article class="pa-summary-card">
+            <div class="pa-summary-card__title">Min-Variance Portfolio</div>
+            <div class="pa-summary-card__metrics">
+                <span><small>Return</small>{{ "%.2f"|format(chart_payload.min_var_summary.expected_return * 100) }}%</span>
+                <span><small>Volatility</small>{{ "%.2f"|format(chart_payload.min_var_summary.volatility * 100) }}%</span>
+            </div>
+        </article>
+        {% if chart_payload.current_summary %}
+        <article class="pa-summary-card">
+            <div class="pa-summary-card__title">Current Portfolio</div>
+            <div class="pa-summary-card__metrics">
+                <span><small>Return</small>{{ "%.2f"|format(chart_payload.current_summary.expected_return * 100) }}%</span>
+                <span><small>Volatility</small>{{ "%.2f"|format(chart_payload.current_summary.volatility * 100) }}%</span>
+            </div>
+        </article>
+        {% endif %}
+    </div>
+
+    <p class="pa-meta">
+        {{ chart_payload.n_investments }} investment(s) ·
+        {{ chart_payload.n_frontier_points }} of
+        {{ chart_payload.n_points_requested }} frontier points computed ·
+        risk-free rate {{ "%.2f"|format(chart_payload.risk_free_rate_pct) }}%
+    </p>
+
+    <div id="pa-frontier-chart"
+         class="pa-frontier-chart plotly-target"
+         data-spec='{{ chart_payload.spec | tojson }}'
+         style="min-height: 520px;">
+    </div>
+
+    {# Per-asset weights comparison — Current (when defined) vs
+       Tangency vs Min-Variance. Rendered as a Tabulator table to
+       match the other front-office tables (Statistics convention,
+       ADR-0062); the section script initialises it from the JSON
+       data block after each HTMX swap. Collapsible like the
+       Statistics detail sub-blocks. The Current column appears in
+       lock-step with the Current Portfolio summary card above —
+       the data-has-current flag mirrors
+       {% if chart_payload.current_summary %}. #}
+    <details class="pa-subblock" id="pa-weights-block" open>
+        <summary class="pa-subblock__summary">
+            <span class="pa-subblock__label">Portfolio Weights</span>
+            <span class="pa-subblock__chevron" aria-hidden="true">&#9662;</span>
+        </summary>
+        <script type="application/json" id="pa-weights-data">
+            {{ chart_payload.weights | tojson }}
+        </script>
+        <div id="pa-weights-table"
+             class="pa-weights-table"
+             data-has-current="{{ 'true' if chart_payload.current_summary else 'false' }}"
+             aria-label="Portfolio weights comparison table"></div>
+    </details>
+{% else %}
+    <p class="pa-empty">
+        No analysis to display. Click <strong>Compute</strong> to
+        run the efficient frontier across the active investments in
+        this tenant. Portfolio Analysis needs at least two
+        investments with overlapping NAV histories.
+    </p>
+{% endif %}

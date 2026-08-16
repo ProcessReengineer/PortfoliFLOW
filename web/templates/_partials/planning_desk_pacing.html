@@ -1,0 +1,91 @@
+{# Drawdown pacing rows — the control surface of `repace_flows` (mockup ③).
+
+   Inline rows, not a side panel: one slider per capital-account fund, in the
+   Cash Flow Planning section, immediately below the timeline the pacing moves.
+
+   Each slider is an HTMX GET that re-issues the **whole** parameter set and
+   states its own intent beside it (`pace_id` in the URL, `pace_factor`
+   contributed by the input itself). The server merges the two and re-emits the
+   canonical `t{n}_…` encoding — the UI never formats an overlay key
+   (ADR-0104 §4). `hx-trigger="change"` fires on *release*, not on every pixel
+   of the drag.
+
+   The mid-position emits no chip: it **is** the manager plan (ADR-0104 §4), so
+   a slider released there removes the fund's entry rather than writing ×1.0.
+
+   Three rows render disabled, and all three say why rather than disappearing:
+   a fund with no remaining plan profile (the #023 note), a fund whose
+   parameter set carries more re-pacings than one slider can state, and — in
+   both cases — a Reset that stays live wherever there is a chip to clear.
+
+   Context (from web/routes/planning_desk.py, `_build_pacing_rows`):
+     pacing_rows   — [{name, meta, enabled, factor, factor_label, readout,
+                       is_muted, note, slider_query, reset_query, can_reset}]
+     factor_min / factor_max / factor_neutral / factor_step
+                   — the slider's geometry, from the ADR-0104 §2 contract.
+     section_url   — the endpoint every control re-issues. #}
+
+{% if pacing_rows %}
+    <div class="pd-pace">
+        <div class="pd-pace__head">
+            <h3 class="pd-pace__title">Drawdown pacing — capital accounts</h3>
+            <span class="pd-pace__hint">
+                Time-scales each fund's <em>remaining</em> plan flows. Realised
+                history is identical in every scenario.
+            </span>
+        </div>
+
+        {% for row in pacing_rows %}
+            <div class="pd-pace__row">
+                <div class="pd-pace__id">
+                    <div class="pd-pace__name">{{ row.name }}</div>
+                    <div class="pd-pace__meta">{{ row.meta }}</div>
+                    {% if row.note %}
+                        <div class="pd-pace__note">{{ row.note }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="pd-pace__slider">
+                    <input type="range"
+                           name="pace_factor"
+                           class="pd-slider{{ ' is-off' if not row.enabled }}"
+                           min="{{ factor_min }}"
+                           max="{{ factor_max }}"
+                           step="{{ factor_step }}"
+                           value="{{ row.factor }}"
+                           aria-label="Drawdown pacing for {{ row.name }}"
+                           {% if row.enabled %}
+                               hx-get="{{ section_url }}?{{ row.slider_query }}"
+                               hx-trigger="change"
+                           {% else %}
+                               disabled
+                           {% endif %}>
+                    <div class="pd-pace__scale">
+                        <span>faster ×{{ factor_min }}</span>
+                        <span>manager plan</span>
+                        <span>slower ×{{ factor_max }}</span>
+                    </div>
+                </div>
+
+                <div class="pd-pace__val{{ ' is-muted' if row.is_muted }}">
+                    {{ row.readout }}
+                    {% if row.factor_label %}
+                        <span class="pd-pace__factor">{{ row.factor_label }}</span>
+                    {% endif %}
+                </div>
+
+                <div class="pd-pace__reset">
+                    <button type="button"
+                            class="btn btn--ghost"
+                            title="Return this fund to the manager plan"
+                            {% if row.can_reset %}
+                                hx-get="{{ section_url }}?{{ row.reset_query }}"
+                                hx-push-url="{{ area_url }}?{{ row.reset_query }}"
+                            {% else %}disabled{% endif %}>
+                        Reset
+                    </button>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}

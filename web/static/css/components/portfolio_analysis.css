@@ -1,0 +1,151 @@
+/* Portfolio Analysis section — sub-stream 6F-3c.
+ *
+ * Embedded under /front-office#portfolio-optimizer. Mirrors the
+ * Statistics section's structural conventions; classes are
+ * prefixed with .pa- to avoid cascade collisions with .stats-
+ * and .pf- siblings. .btn / .btn--primary already exist in
+ * base.css and are reused as-is. */
+
+.pa-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.pa-controls__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+}
+
+.pa-controls__field input[type="number"] {
+    padding: 4px 6px;
+    background: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    min-width: 120px;
+}
+
+.pa-controls__status {
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}
+
+.pa-controls__status.htmx-indicator {
+    display: none;
+}
+
+.pa-controls__status.htmx-indicator.htmx-request,
+.htmx-request .pa-controls__status.htmx-indicator {
+    display: inline-flex;
+}
+
+.pa-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.pa-summary-card {
+    padding: 12px 14px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+}
+
+.pa-summary-card__title {
+    color: var(--ui-text-primary);
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 0.95rem;
+}
+
+.pa-summary-card__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+    gap: 4px 8px;
+    font-size: 0.85rem;
+}
+
+.pa-summary-card__metrics span {
+    display: flex;
+    flex-direction: column;
+}
+
+.pa-summary-card__metrics small {
+    color: var(--ui-text-secondary);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pa-meta {
+    color: var(--ui-text-secondary);
+    margin: 6px 0 12px 0;
+    font-size: 0.85rem;
+}
+
+.pa-frontier-chart {
+    width: 100%;
+    /* min-height is set inline on the element. */
+}
+
+.pa-empty {
+    color: var(--ui-text-secondary);
+    font-style: italic;
+    padding: 24px 0;
+}
+
+/* Collapsible weights sub-block — mirrors the Statistics detail
+ * sub-blocks (statistics.css). Native <details>; the summary carries
+ * a click affordance and a rotating chevron. */
+details.pa-subblock {
+    margin-top: 16px;
+}
+
+details.pa-subblock > summary.pa-subblock__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    list-style: none;           /* suppress the default disclosure triangle */
+    user-select: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ui-text-primary, #e8e8e8);
+}
+
+details.pa-subblock > summary.pa-subblock__summary::-webkit-details-marker {
+    display: none;
+}
+
+.pa-subblock__chevron {
+    font-size: 0.8em;
+    color: var(--ui-text-secondary, #9a9a9a);
+    transition: transform 0.15s ease;
+}
+
+details.pa-subblock[open] > summary .pa-subblock__chevron {
+    transform: rotate(180deg);
+}
+
+/* Weights comparison table (Tabulator). */
+.pa-weights-table {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+/* The Asset-name column anchors the row visually: left-aligned,
+ * primary text colour, slightly heavier weight than the numeric
+ * cells — matching the Statistics name-cell treatment. */
+.pa-weights-table .tabulator-cell.pa-weights-table__name-cell {
+    color: var(--ui-text-primary);
+    font-weight: 500;
+}

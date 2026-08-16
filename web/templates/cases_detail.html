@@ -1,0 +1,169 @@
+{# Case detail (ADR-0107, C3a read side + C3b writes). A full page extending
+   base.html, mirroring the entity-detail idiom (investments/detail.html):
+   direct navigation only, no HTMX partial branch. ``active_area="cases"``
+   lights the Cases sidebar entry.
+
+   Layout follows the mock's detail view: a head (badge, title, state chip,
+   opened/closed metadata), a two-column grid of the origin embed (or the
+   manual-case description block) + the append-only timeline on the left and
+   the status/linked-objects rail on the right. C3b adds — on an open case
+   only (``is_open``) — the composer slot and the rail's Actions block, so the
+   UI never offers a write the closed-case layer would refuse.
+
+   Context: case_id, head, is_open, origin (or None), description (or None),
+   entries, linked_finding (or None), attachments_count / attachments_cap /
+   show_attachments, plus active_area / user_email / csrf_token for the shell. #}
+{% extends "base.html" %}
+
+{% block title %}{{ head.badge }} · {{ head.title }} — Cases — PortfoliFLOW{% endblock %}
+
+{% block content %}
+<section class="pf-area pf-cases pf-case-detail"
+         data-area="cases"
+         data-case="{{ head.badge }}">
+
+    <a class="pf-case-detail__back" href="/cases">&larr; Cases</a>
+
+    {# Head — badge, title, state chip, opened/closed metadata #}
+    <div class="pf-case-head">
+        <div class="pf-case-head__row">
+            <span class="pf-case-head__id">{{ head.badge }}</span>
+            <h1 class="pf-case-head__title">{{ head.title }}</h1>
+            <span class="state state--{{ head.state }}">
+                {{ head.state|capitalize }}
+            </span>
+        </div>
+        <div class="pf-case-head__meta">
+            Opened {{ head.opened_stamp }} by {{ head.opened_by }}
+            {% if head.closed_stamp %}
+                · closed {{ head.closed_stamp }} by {{ head.closed_by }}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="pf-case-grid">
+
+        {# Left column — composer slot, origin embed (or the manual
+           description) + timeline. The composer slot is where each rail action
+           opens its form (one at a time, HTMX swap — the C2 slot pattern);
+           empty until an action is clicked, cleared again on success. Present
+           only on an open case — a closed case carries no composer machinery,
+           the way its rail carries no actions. #}
+        <div class="pf-case-main">
+            {% if is_open %}
+                <div id="case-composer-slot" class="pf-case-composer-slot"></div>
+            {% endif %}
+
+            {% if origin %}
+                {% include "_partials/cases_detail_origin.html" %}
+            {% elif description %}
+                {# Manually opened case: no finding to embed, so the mock shows
+                   the description block in the origin's place (Step 3). #}
+                <div class="pf-origin pf-origin--manual">
+                    <span class="pf-origin__label">Description</span>
+                    <p class="pf-origin__finding">{{ description }}</p>
+                </div>
+            {% endif %}
+
+            {% include "_partials/cases_detail_timeline.html" %}
+        </div>
+
+        {# Right rail — status, linked objects, and (open cases only) the
+           Actions block. A closed case's rail is omitted the Actions box
+           entirely rather than rendering it disabled — closed cases are
+           immutable, so the UI offers nothing to refuse. #}
+        <aside class="pf-rail">
+            <div class="pf-rail__box">
+                <span class="pf-rail__label">Status</span>
+                <ul class="pf-rail__list">
+                    <li>
+                        <span class="k">State</span>
+                        <span class="v">{{ head.state|capitalize }}</span>
+                    </li>
+                    <li>
+                        <span class="k">Opened</span>
+                        <span class="v">{{ head.opened_stamp }} · {{ head.opened_by }}</span>
+                    </li>
+                    {% if head.closed_stamp %}
+                        <li>
+                            <span class="k">Closed</span>
+                            <span class="v">{{ head.closed_stamp }} · {{ head.closed_by }}</span>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+
+            {% if linked_finding or show_attachments or journal_href %}
+                <div class="pf-rail__box">
+                    <span class="pf-rail__label">Linked objects</span>
+                    <ul class="pf-rail__list">
+                        {# Finding row — text only, consistent with the origin
+                           embed (no Watch Desk navigation). No Investments row
+                           (binding decision 1). #}
+                        {% if linked_finding %}
+                            <li>
+                                <span class="k">Finding</span>
+                                <span class="v">
+                                    <span class="mono">{{ linked_finding.subject_key }}</span>
+                                    <span class="pf-dc-band-tag pf-dc-band-tag--{{ linked_finding.band }}">
+                                        {{ linked_finding.band|capitalize }}
+                                    </span>
+                                </span>
+                            </li>
+                        {% endif %}
+                        {# Attachments · N of {cap} — shown when N > 0 or the
+                           case is open. A pin OOB-refreshes this row by id. #}
+                        {% if show_attachments %}
+                            {% include "_partials/cases_detail_attachments_row.html" %}
+                        {% endif %}
+                        {# Journal deep link — closed cases only (a closed case
+                           is in the Journal as a closed-case row). One link
+                           idiom, shared with the recently-closed rows
+                           (ADR-0107, C4, binding decision 2). #}
+                        {% if journal_href %}
+                            <li>
+                                <span class="k">Journal</span>
+                                <span class="v">
+                                    {% include "_partials/cases_journal_link.html" %}
+                                </span>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {# Actions — present only on an open case (ADR-0107 §4: closed cases
+               are immutable, so the UI never offers what the layer refuses).
+               Each composer action opens into #case-composer-slot; "Capture
+               scenario" (C5) and "Consult Shirley" (C6) are plain cross-area
+               links carrying this case as the ``?case=`` marker — to the
+               Planning Desk and the assistants surface respectively. #}
+            {% if is_open %}
+                <div class="pf-rail__box">
+                    <span class="pf-rail__label">Actions</span>
+                    <div class="pf-case-actions">
+                        <button type="button" class="pf-btn"
+                                hx-get="/api/cases/{{ case_id }}/composer/note"
+                                hx-target="#case-composer-slot"
+                                hx-swap="innerHTML">Add note</button>
+                        <button type="button" class="pf-btn"
+                                hx-get="/api/cases/{{ case_id }}/composer/pin"
+                                hx-target="#case-composer-slot"
+                                hx-swap="innerHTML">Pin document</button>
+                        <a class="pf-btn" href="{{ capture_scenario_href }}">Capture scenario</a>
+                        <a class="pf-btn" href="{{ consult_shirley_href }}">Consult Shirley</a>
+                        <button type="button" class="pf-btn"
+                                hx-get="/api/cases/{{ case_id }}/composer/decision"
+                                hx-target="#case-composer-slot"
+                                hx-swap="innerHTML">Record decision</button>
+                        <button type="button" class="pf-btn pf-btn--primary"
+                                hx-get="/api/cases/{{ case_id }}/composer/close"
+                                hx-target="#case-composer-slot"
+                                hx-swap="innerHTML">Close case…</button>
+                    </div>
+                </div>
+            {% endif %}
+        </aside>
+    </div>
+</section>
+{% endblock %}

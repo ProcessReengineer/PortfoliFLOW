@@ -1,0 +1,345 @@
+/* Platform-administration surface (ADR-0064 §1).
+ *
+ * Style discipline mirrors provider_credentials.css: design tokens from
+ * tokens.css/theme.css drive colour; layout uses flex/grid; no
+ * inline styles in templates. Class naming follows a loose BEM
+ * (sa-* prefix, double-underscore for elements, double-dash for
+ * modifiers).
+ */
+
+.sa-area {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px 32px;
+    max-width: 1200px;
+}
+
+.sa-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sa-header__title {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: 1.6rem;
+    font-weight: 600;
+}
+
+.sa-header__user {
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.sa-header__subtitle {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.45;
+    max-width: 720px;
+}
+
+.sa-header__subtitle code {
+    padding: 0 4px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+/* ---- Nav tabs ---------------------------------------------------- */
+
+.sa-nav {
+    display: flex;
+    gap: 16px;
+    border-bottom: 1px solid var(--ui-border-default);
+    padding-bottom: 0;
+}
+
+.sa-nav__link {
+    padding: 8px 12px;
+    color: var(--ui-text-secondary);
+    text-decoration: none;
+    font-size: 0.95rem;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.sa-nav__link:hover {
+    color: var(--ui-text-primary);
+}
+
+.sa-nav__link--active {
+    color: var(--ui-text-primary);
+    border-bottom-color: var(--ui-accent-primary);
+    font-weight: 600;
+}
+
+/* ---- Banners ----------------------------------------------------- */
+
+.sa-banner {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.sa-banner--error {
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-semantic-error, #b00020);
+    color: var(--ui-semantic-error, #b00020);
+}
+
+.sa-banner--success {
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-semantic-success, #2e7d32);
+    color: var(--ui-semantic-success, #2e7d32);
+}
+
+/* ---- Sections ---------------------------------------------------- */
+
+.sa-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
+    background-color: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+}
+
+.sa-section__title {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+/* ---- Platform status (ADR-0117 §5) ------------------------------- */
+
+/* A read-only fact strip, not a form: the tick source is deployment
+ * environment configuration and this surface only reports it. Pills and
+ * empty markers are reused from below — no colour value of its own. */
+
+.sa-status {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px 24px;
+    margin: 0;
+}
+
+.sa-status__item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sa-status__label {
+    color: var(--ui-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.sa-status__value {
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: 0.95rem;
+}
+
+.sa-status__note {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    max-width: 720px;
+}
+
+.sa-status__note code {
+    padding: 0 4px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+/* ---- Forms ------------------------------------------------------- */
+
+.sa-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 520px;
+}
+
+.sa-form__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sa-form__label {
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.sa-form__input {
+    padding: 8px 10px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.95rem;
+}
+
+.sa-form__input--inline {
+    padding: 6px 8px;
+    font-size: 0.85rem;
+    min-width: 180px;
+}
+
+.sa-form__input:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.sa-form__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.sa-form__hint code {
+    padding: 0 4px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+}
+
+.sa-form__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+/* ---- Buttons ----------------------------------------------------- */
+
+.sa-button {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--ui-border-default);
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.sa-button:hover {
+    background-color: var(--ui-background-tertiary, var(--ui-background-section));
+}
+
+.sa-button--primary {
+    background-color: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-background-primary);
+    font-weight: 600;
+}
+
+.sa-button--primary:hover {
+    background-color: var(--ui-accent-primary);
+    filter: brightness(1.1);
+}
+
+.sa-button--secondary {
+    background-color: transparent;
+}
+
+/* ---- Tables ------------------------------------------------------ */
+
+.sa-table-wrapper {
+    overflow-x: auto;
+}
+
+.sa-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--ui-text-primary);
+    font-size: 0.9rem;
+}
+
+.sa-table thead th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+}
+
+.sa-table__row td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--ui-border-default);
+    vertical-align: middle;
+}
+
+.sa-table__row--inactive {
+    opacity: 0.6;
+}
+
+.sa-table code {
+    padding: 1px 5px;
+    background-color: var(--ui-background-secondary);
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+.sa-table__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.sa-inline-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+
+/* ---- Pills + empty markers -------------------------------------- */
+
+.sa-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.sa-pill--active {
+    background-color: var(--ui-semantic-success, #2e7d32);
+    color: var(--ui-background-primary);
+}
+
+.sa-pill--inactive {
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+}
+
+.sa-empty-marker {
+    color: var(--ui-text-disabled);
+    font-style: italic;
+}
+
+.sa-empty-state {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-style: italic;
+}

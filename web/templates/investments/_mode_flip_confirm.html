@@ -1,0 +1,43 @@
+{# Valuation-mode flip confirmation partial (ADR-0097 §6).
+
+   The flip is an explicit, one-way operator act. This dialog states the
+   three consequences the operator cannot discover afterwards: the
+   irreversibility, the live-row deletion (and what it does *not* touch),
+   and the immediate materialisation. English only, per ADR-0008.
+#}
+
+<form id="mode-flip-form" class="inv-mini-form">
+    <h3>Switch to unitised valuation?</h3>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <p class="inv-dialog__lead">
+        NAV for this investment will be computed from its transaction ledger
+        and per-unit price series (holdings &times; price) instead of being
+        carried as reported statement values.
+    </p>
+
+    <ul class="inv-dialog__consequences">
+        <li>
+            <strong>This change is one-way.</strong> It cannot be undone from
+            this surface; corrections go through ledger edits.
+        </li>
+        <li>
+            NAV rows written by the live market-data ingest will be
+            <strong>deleted</strong>. Rows imported from Excel or entered
+            manually are never touched.
+        </li>
+        <li>
+            Computed NAV rows are written immediately for every date that has
+            both a price and a positive holding.
+        </li>
+    </ul>
+
+    <p id="mode-flip-error" class="inv-form-error" role="alert" hidden></p>
+
+    <div class="dialog-actions">
+        <button type="button" class="btn" data-dismiss="mode-flip-dialog">Cancel</button>
+        <button type="submit" class="btn btn--danger" id="mode-flip-submit">
+            Switch to unitised
+        </button>
+    </div>
+</form>

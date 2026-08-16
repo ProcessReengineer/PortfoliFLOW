@@ -1,0 +1,231 @@
+{# Scenario Analysis result region, delivered out of band (S34.5, ADR-0104 §5/§7).
+
+   Included at the foot of the Cash Flow Planning response and swapped into
+   `#pd-sa-results` **out of band**: the impact chart pair, the KPI strip and the
+   headroom table are the deltas-first score of the same overlay, which only the
+   section endpoint holds — so they travel with its response, the way the
+   parameter strip and the shock builders do. Every interaction that re-projects
+   the plan world re-scores the scenario and re-seats this region.
+
+   Deltas-first (ADR-0104 §5): the KPI strip mirrors the ADR-0067 pair idiom but
+   always shows the pair — baseline struck, scenario bold, delta badge. The
+   headroom table is the primary surface (the one a Versorgungswerk decides on);
+   the composition drill-down below it is a lazy second partial. No figure is
+   computed here — every value is the ScenarioResult's, formatted by the route's
+   view model (web/routes/planning_desk.py, `_build_scenario_context`).
+
+   Context (the `scenario` sub-context):
+     error           — a notice string when the scenario could not be scored;
+                       then no charts/table are drawn.
+     baseline_spec / scenario_spec — the two Plotly figure dicts (the pair).
+     baseline_foot / scenario_foot — end-of-horizon NAV + total return (+ deltas).
+     kpis            — [{label, base, scen, delta, tone}], four tiles in order.
+     headroom        — [{family, rows:[{label, baseline_util, scenario_util,
+                       bar_pct, bar_tone, delta, delta_tone}]}], per family.
+     has_headroom    — whether any family carries a class row at the horizon.
+     composition_url / composition_query — the lazy drill-down's address.
+     capturing       — {badge, title, href, dismiss_query} when a valid, open
+                       case marker is in force (ADR-0107 C5), else None: the
+                       "Capturing for CASE-NNNN" chip. Navigation context, so it
+                       shows in both the notice and the scored branch.
+     pin.open_query  — the "Pin to case…" dialog-open query (scored branch only).
+   Plus, from the parent section context: section_url, area_url,
+   pin_scenario_url. #}
+<div class="pd-sa__results" id="pd-sa-results" hx-swap-oob="outerHTML">
+    <div class="pd-sa__results-head">
+        <h3 class="pd-sa__results-title">Impact — scenario vs baseline</h3>
+
+        {# Capturing-for chip: the case this Desk was sent here to capture for.
+           Navigation context (ADR-0107 C5) — its dismiss re-projects the whole
+           section without the marker, dropping the chip and nothing else. #}
+        {% if scenario.capturing %}
+            <span class="pd-capturing" role="status">
+                Capturing for
+                <a class="pd-capturing__case" href="{{ scenario.capturing.href }}">
+                    {{ scenario.capturing.badge }}
+                </a>
+                <span class="pd-capturing__title">{{ scenario.capturing.title }}</span>
+                <a class="pd-capturing__dismiss"
+                   hx-get="{{ section_url }}?{{ scenario.capturing.dismiss_query }}"
+                   hx-target="#pd-cfp-body"
+                   hx-swap="outerHTML"
+                   hx-push-url="{{ area_url }}?{{ scenario.capturing.dismiss_query }}"
+                   title="Stop capturing for this case"
+                   aria-label="Stop capturing for {{ scenario.capturing.badge }}"
+                   role="button">&#10005;</a>
+            </span>
+        {% endif %}
+    </div>
+
+    {% if scenario.error %}
+        <div class="alert alert--error pd-sa__results-notice" role="status">
+            The scenario could not be scored: {{ scenario.error }}
+        </div>
+    {% else %}
+        {# ---- the projected NAV & total-return pair (shared axes) ---- #}
+        <div class="pd-impact__pair">
+            <div class="pd-impact__panel">
+                <div class="pd-impact__panel-title">
+                    Baseline — unmodified plan world
+                </div>
+                <div class="pf-plotly-target pd-impact__chart"
+                     id="pd-sa-chart-baseline"
+                     aria-label="Baseline projected NAV and total return"
+                     data-spec='{{ scenario.baseline_spec | tojson }}'></div>
+                <p class="pd-impact__foot">
+                    End of horizon: NAV <b>{{ scenario.baseline_foot.nav }}</b>
+                    &middot; total return
+                    <b>{{ scenario.baseline_foot.ret }}</b>
+                </p>
+            </div>
+
+            <div class="pd-impact__panel">
+                <div class="pd-impact__panel-title">
+                    Scenario — active parameter set applied
+                </div>
+                <div class="pf-plotly-target pd-impact__chart"
+                     id="pd-sa-chart-scenario"
+                     aria-label="Scenario projected NAV and total return"
+                     data-spec='{{ scenario.scenario_spec | tojson }}'></div>
+                <p class="pd-impact__foot">
+                    End of horizon: NAV <b>{{ scenario.scenario_foot.nav }}</b>
+                    <span class="pd-delta pd-delta--{{ scenario.scenario_foot.nav_tone }}">
+                        {{ scenario.scenario_foot.nav_delta }}
+                    </span>
+                    &middot; total return
+                    <b>{{ scenario.scenario_foot.ret }}</b>
+                    <span class="pd-delta pd-delta--{{ scenario.scenario_foot.ret_tone }}">
+                        {{ scenario.scenario_foot.ret_delta }}
+                    </span>
+                </p>
+            </div>
+        </div>
+        <p class="pd-fnote">
+            Both panels share <em>identical</em> axis scales — the
+            honest-comparison rule; auto-scaling either independently would
+            understate the impact. History left of t₀ is identical by
+            definition (overlays never touch actuals); the baseline repeats as a
+            grey ghost in the scenario panel so the gap reads within one panel.
+        </p>
+
+        {# ---- the KPI strip: the ADR-0067 pair, deltas-first ---- #}
+        <h4 class="pd-impact__subhead">Key figures</h4>
+        <div class="pd-kpis">
+            {% for kpi in scenario.kpis %}
+                <div class="pd-kpi">
+                    <div class="pd-kpi__label">{{ kpi.label }}</div>
+                    <div class="pd-kpi__row">
+                        <span class="pd-kpi__base">{{ kpi.base }}</span>
+                        <span class="pd-kpi__scen">{{ kpi.scen }}</span>
+                        <span class="pd-delta pd-delta--{{ kpi.tone }}">
+                            {{ kpi.delta }}
+                        </span>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {# ---- the headroom deltatable: the primary decision surface ---- #}
+        <table class="pd-deltatable">
+            <thead>
+                <tr>
+                    <th scope="col">Limit / class</th>
+                    <th scope="col" class="pd-deltatable__r">Baseline util.</th>
+                    <th scope="col" class="pd-deltatable__r">Scenario util.</th>
+                    <th scope="col">Headroom</th>
+                    <th scope="col" class="pd-deltatable__r">&Delta;</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for family in scenario.headroom %}
+                    {% for row in family.rows %}
+                        <tr>
+                            <td>{{ row.label }}</td>
+                            <td class="pd-deltatable__r">{{ row.baseline_util }}</td>
+                            <td class="pd-deltatable__r">{{ row.scenario_util }}</td>
+                            <td>
+                                <div class="pd-bar">
+                                    <i class="pd-bar__fill pd-bar__fill--{{ row.bar_tone }}"
+                                       style="width: {{ row.bar_pct }}%"></i>
+                                </div>
+                            </td>
+                            <td class="pd-deltatable__r pd-delta-text pd-delta-text--{{ row.delta_tone }}">
+                                {{ row.delta }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+                {% if not scenario.has_headroom %}
+                    <tr>
+                        <td colspan="5" class="pd-deltatable__empty">
+                            No limit classes at the plan horizon — add an SAA or
+                            AnlV limit set to score coverage headroom.
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        {# ---- the composition drill-down: the lazy second partial ---- #}
+        <div class="pd-comp">
+            <h4 class="pd-impact__subhead">Composition — baseline vs scenario</h4>
+            <div class="pf-section__lazy"
+                 hx-get="{{ scenario.composition_url }}?{{ scenario.composition_query }}"
+                 hx-trigger="revealed"
+                 hx-target="this"
+                 hx-swap="outerHTML">
+                <p class="pf-section__lazy-skeleton" aria-live="polite">
+                    Loading composition drill-down&hellip;
+                </p>
+            </div>
+        </div>
+
+        {# ---- pin this state to a case: the second artifact class (ADR-0107 C5).
+           The affordance renders only here, in the scored branch — a snapshot
+           freezes a *result*, so it appears exactly when there is one to freeze.
+           It opens the dialog (list_open picker + comment) into #pd-pin-dialog,
+           carrying the current page state; the dialog's own POST keeps the Desk
+           state, so the PM can pin more than one. The button sits outside the
+           dialog slot so a success confirmation swapped into the slot leaves it
+           in place. #}
+        <div class="pd-pin">
+            <button type="button" class="btn btn--ghost pd-pin__open"
+                    hx-get="{{ pin_scenario_url }}?{{ scenario.pin.open_query }}"
+                    hx-target="#pd-pin-dialog"
+                    hx-swap="innerHTML">Pin to case&hellip;</button>
+            <div id="pd-pin-dialog" class="pd-pin__dialog"></div>
+        </div>
+    {% endif %}
+</div>
+
+{# The two impact charts render from a sibling script — outside the out-of-band
+   element, so it is part of the main-swap remainder and runs reliably (the same
+   shape the cash-flow timeline's init script uses). By the time it runs the
+   region above has been swapped in, so both targets are in the DOM. #}
+<script>
+(function () {
+    "use strict";
+
+    var region = document.getElementById("pd-sa-results");
+    if (!region || typeof Plotly === "undefined") return;
+    var targets = region.querySelectorAll(".pd-impact__chart");
+    for (var i = 0; i < targets.length; i += 1) {
+        (function (target) {
+            if (target.dataset.pfRendered === "1") return;
+            var raw = target.getAttribute("data-spec");
+            if (!raw) return;
+            var spec;
+            try { spec = JSON.parse(raw); }
+            catch (e) { return; }
+            var config = Object.assign(
+                {}, spec.config || {}, { responsive: true }
+            );
+            Plotly.newPlot(target, spec.data, spec.layout, config);
+            target.dataset.pfRendered = "1";
+            window.requestAnimationFrame(function () {
+                Plotly.Plots.resize(target);
+            });
+        })(targets[i]);
+    }
+})();
+</script>

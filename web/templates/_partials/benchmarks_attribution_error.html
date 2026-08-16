@@ -1,0 +1,40 @@
+{# FX-error state for the Benchmarks & Attribution section.
+
+   Rendered by web/routes/benchmarks_attribution.py when the ADR-0099 §4
+   conversion boundary raises MissingFxRateError — a foreign-currency
+   position has no FX rate at or before a date its NAV history needs, and
+   the system never defaults a rate to 1:1. Since ADR-0102 the investment
+   and composite return series are derived from the *converted* history, so
+   an uncovered position would otherwise be compared against its benchmark
+   in the wrong currency.
+
+   This state replaces the whole section body — Stage a, Stage b and the
+   Stage-c selectors alike — because every block draws on the same converted
+   series. The sub-fragment endpoints (stage-a detail, stage-c chart) are
+   consequently unreachable while a rate is missing: the operator never gets
+   a dropdown to click.
+
+   The exception message is passed through verbatim on purpose —
+   MissingFxRateError is a PortfoliFlowError and therefore user-facing
+   (web/errors.py). It names the currency and the date, which is exactly
+   what the operator needs to extend the `FX rates` sheet.
+
+   Context:
+     error_type     — exception class name.
+     error_message  — exception message. #}
+
+<div class="ba-section ba-section--error" id="benchmarks-attribution-body">
+
+    <div class="ba-error alert alert--error" role="alert">
+        <h4 class="ba-error__title">{{ error_type }}</h4>
+        <p class="ba-error__message">{{ error_message }}</p>
+        <p class="ba-error__hint">
+            A foreign-currency position needs an FX rate this portfolio
+            cannot supply, and rates are never defaulted to 1:1
+            (ADR-0099 &sect;3). Add the missing rate to the
+            <code>FX rates</code> sheet and re-import via the
+            <a href="/admin#data-import">Data Import</a> section in Admin.
+        </p>
+    </div>
+
+</div>

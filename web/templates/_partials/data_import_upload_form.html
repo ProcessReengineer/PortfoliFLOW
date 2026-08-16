@@ -1,0 +1,100 @@
+{# Upload-form fragment — single-button Data Import workflow (sub-stream 6F).
+
+   Posted via HTMX to ``/api/data-import/section/upload``; on success
+   the response body is the preview fragment (the route runs the
+   dry-run extraction server-side immediately after persisting the
+   ``data_uploads`` row and renders the projected counts into the
+   template context).
+
+   On error (malformed file, oversize, dedup) the server re-renders
+   THIS same fragment with an inline alert.
+
+   Context: ``csrf_token``, ``max_upload_mb``, ``recent_uploads``,
+   ``uploader_emails`` (plus optional ``info``, ``error``,
+   ``duplicate_id``). #}
+
+<div class="pf-data-import__upload-form">
+
+    {% if error %}
+        <div class="alert alert--error" role="alert">{{ error }}</div>
+    {% endif %}
+    {% if info %}
+        <div class="alert alert--info" role="status">
+            {{ info }}
+            {% if duplicate_id %}
+                <a href="#"
+                   hx-get="/api/data-import/section/upload/{{ duplicate_id }}"
+                   hx-target="#pf-data-import-panel"
+                   hx-swap="innerHTML">View existing upload</a>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <section class="pf-data-import__upload" aria-labelledby="pf-upload-title">
+        <h3 id="pf-upload-title" class="pf-data-import__heading">
+            Upload an Excel file
+        </h3>
+        <form class="pf-data-import__form"
+              hx-post="/api/data-import/section/upload"
+              hx-target="#pf-data-import-panel"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="field">
+                <label class="field__label" for="pf-data-import-file">
+                    Excel workbook (.xlsx)
+                </label>
+                <input class="field__input"
+                       type="file"
+                       id="pf-data-import-file"
+                       name="file"
+                       accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                       required>
+                <p class="field__hint">
+                    Maximum size: {{ max_upload_mb }} MB. 
+                </p>
+            </div>
+
+            <button type="submit" class="btn btn--primary">Upload and Import</button>
+        </form>
+    </section>
+
+    <section class="pf-data-import__recent" aria-labelledby="pf-recent-title">
+        <h3 id="pf-recent-title" class="pf-data-import__heading">
+            Recent uploads
+        </h3>
+        {% if recent_uploads %}
+            <table class="data-import-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Filename</th>
+                        <th scope="col">Uploaded by</th>
+                        <th scope="col">Uploaded at</th>
+                        <th scope="col">Size</th>
+                        <th scope="col">Format</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for upload in recent_uploads %}
+                        <tr class="pf-data-import__recent-row"
+                            hx-get="/api/data-import/section/upload/{{ upload.id }}"
+                            hx-target="#pf-data-import-panel"
+                            hx-swap="innerHTML"
+                            role="link"
+                            tabindex="0"
+                            aria-label="Open preview for {{ upload.filename }}">
+                            <td>{{ upload.filename }}</td>
+                            <td>{{ uploader_emails.get(upload.uploaded_by|string, '—') }}</td>
+                            <td>{{ upload.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td>
+                            <td>{{ '%.1f'|format(upload.size_bytes / 1024) }} KB</td>
+                            <td>{{ upload.format_version }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="data-import-empty">No uploads yet.</p>
+        {% endif %}
+    </section>
+</div>

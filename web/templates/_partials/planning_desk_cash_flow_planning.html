@@ -1,0 +1,189 @@
+{# Cash Flow Planning section body (ADR-0104 §4/§6).
+
+   The lens: a controls row, the Plotly timeline, the balance table, the
+   footnote. Chart and table project the *same* CashFlowPlanningResult — there
+   is no second computation path, so the two cannot disagree about a number
+   (ADR-0104 §5).
+
+   Every control is an HTMX GET carrying the whole parameter set with exactly
+   one member replaced: the set survives every interaction, because the
+   parameters *are* the page state (ADR-0104 §4). ``hx-target`` and ``hx-swap``
+   are declared once on the root and inherited by the controls.
+
+   The sticky parameter strip travels with this response as an out-of-band
+   swap (see the include at the foot) — it lives above both Sections and so
+   outside this swap target.
+
+   The drawdown-pacing rows (S2.5) and the hypothetical-transaction block (S2.6)
+   sit below the table, over the same parameter set — see
+   planning_desk_pacing.html and planning_desk_hyp.html. Both are chip
+   producers, and neither formats a `t{n}_` key: each states an *intent* in
+   transient parameters and lets the server re-emit the encoding (ADR-0104 §4).
+
+   Context (from web/routes/planning_desk.py):
+     header               — [{label, is_actual, is_seam}], one per period.
+     rows                 — [{currency, is_functional, cells}], per currency.
+     total_cells          — [{text, is_actual, is_seam}], the functional total.
+     functional_currency  — the currency the total is stated in.
+     seam_date            — ISO t₀, the book's last actual statement date.
+     periodisation        — "quarterly" | "monthly" (the active one).
+     horizon              — the active horizon, in quarters.
+     currency_view        — "per-currency" | "functional-only".
+     chart_spec           — the Plotly figure dict.
+     *_links              — {value: query-string} for each toggle.
+   Plus the pacing context (see planning_desk_pacing.html) and the
+   parameter-strip context (see planning_desk_paramstrip.html). #}
+
+<div class="pd-cfp" id="pd-cfp-body"
+     hx-target="#pd-cfp-body"
+     hx-swap="outerHTML">
+
+    <div class="pd-tl-controls">
+        <span class="pd-toggle" role="group" aria-label="Periodisation">
+            {% for value, label in [
+                ("quarterly", "Quarterly"), ("monthly", "Monthly")
+            ] %}
+                <button type="button"
+                        class="pd-toggle__opt{{ ' is-on' if periodisation == value }}"
+                        {% if periodisation == value %}aria-pressed="true"{% else %}
+                            hx-get="{{ section_url }}?{{ periodisation_links[value] }}"
+                            hx-push-url="{{ area_url }}?{{ periodisation_links[value] }}"
+                        {% endif %}>
+                    {{ label }}
+                </button>
+            {% endfor %}
+        </span>
+
+        <span class="pd-toggle" role="group" aria-label="Horizon">
+            {% for quarters in [4, 8, 12] %}
+                <button type="button"
+                        class="pd-toggle__opt{{ ' is-on' if horizon == quarters }}"
+                        {% if horizon == quarters %}aria-pressed="true"{% else %}
+                            hx-get="{{ section_url }}?{{ horizon_links[quarters] }}"
+                            hx-push-url="{{ area_url }}?{{ horizon_links[quarters] }}"
+                        {% endif %}>
+                    {{ quarters }}Q
+                </button>
+            {% endfor %}
+        </span>
+
+        <span class="pd-toggle" role="group" aria-label="Currency view">
+            {% for value, label in [
+                ("per-currency", "Per currency"),
+                ("functional-only", "Functional (" ~ functional_currency ~ ") only")
+            ] %}
+                <button type="button"
+                        class="pd-toggle__opt{{ ' is-on' if currency_view == value }}"
+                        {% if currency_view == value %}aria-pressed="true"{% else %}
+                            hx-get="{{ section_url }}?{{ currency_view_links[value] }}"
+                            hx-push-url="{{ area_url }}?{{ currency_view_links[value] }}"
+                        {% endif %}>
+                    {{ label }}
+                </button>
+            {% endfor %}
+        </span>
+
+        <span class="pd-tl-note">
+            Plan-world FX: last actual rate carried flat (N1)
+        </span>
+    </div>
+
+    <div class="pd-tl-chart">
+        <div class="pf-plotly-target"
+             id="pd-cfp-chart"
+             aria-label="Cash balance timeline"
+             data-spec='{{ chart_spec | tojson }}'></div>
+    </div>
+
+    <div class="pd-tl-tablewrap">
+        <table class="pd-tl">
+            <thead>
+                <tr>
+                    <th scope="col">Cash position</th>
+                    {% for column in header %}
+                        <th scope="col"
+                            class="{{ 'pd-actcell' if column.is_actual else 'pd-plancell' }}{{ ' pd-seam-l' if column.is_seam }}">
+                            {{ column.label }}<br>
+                            <span class="pd-tl__kind">
+                                {{ 'actual' if column.is_actual else 'plan' }}
+                            </span>
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <th scope="row">
+                            <span class="pd-badge-cur">{{ row.currency }}</span>
+                            Cash {{ row.currency }}{% if row.is_functional %}
+                                <span class="pd-tl__hint">(functional)</span>
+                            {% endif %}
+                        </th>
+                        {% for cell in row.cells %}
+                            <td class="{{ 'pd-actcell' if cell.is_actual else 'pd-plancell' }}{{ ' pd-seam-l' if cell.is_seam }}">
+                                {{ cell.text }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+                <tr class="pd-rowgroup">
+                    <th scope="row">
+                        Total ({{ functional_currency }}, carry-forward FX)
+                    </th>
+                    {% for cell in total_cells %}
+                        <td class="{{ ' pd-seam-l' if cell.is_seam }}">
+                            {{ cell.text }}
+                        </td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p class="pd-fnote">
+        Currency rows in position currency; the total converts each at the
+        plan-world FX convention (N1). Every cell is the balance in force at
+        the period end — an empty cell is <em>no observation</em>, not a
+        balance of zero. Actuals left of the amber seam
+        ({{ seam_date }}, the book's last statement), plan right of it.
+    </p>
+
+    {% include "_partials/planning_desk_pacing.html" %}
+    {% include "_partials/planning_desk_hyp.html" %}
+</div>
+
+{% include "_partials/planning_desk_paramstrip.html" %}
+
+{# The Scenario Analysis shock builders, swapped out of band into the sibling
+   section (S34.4): they need the plan world's archetypes and currencies, which
+   this endpoint holds and the area body does not — so they travel here, the way
+   the parameter strip does. #}
+{% include "_partials/planning_desk_shock_builders.html" %}
+
+{# The Scenario Analysis result region, likewise swapped out of band (S34.5):
+   the deltas-first impact chart pair, KPI strip and headroom table are the score
+   of this same overlay, which only this endpoint holds. The impact charts render
+   from the sibling script inside that partial. #}
+{% include "_partials/planning_desk_scenario_results.html" %}
+
+<script>
+(function () {
+    "use strict";
+
+    var target = document.getElementById("pd-cfp-chart");
+    if (!target || target.dataset.pfRendered === "1") return;
+    var raw = target.getAttribute("data-spec");
+    if (!raw) return;
+    var spec;
+    try { spec = JSON.parse(raw); }
+    catch (e) { return; }
+
+    var config = Object.assign({}, spec.config || {}, { responsive: true });
+    Plotly.newPlot(target, spec.data, spec.layout, config);
+    target.dataset.pfRendered = "1";
+    window.requestAnimationFrame(function () {
+        Plotly.Plots.resize(target);
+    });
+})();
+</script>

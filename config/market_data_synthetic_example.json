@@ -1,0 +1,25 @@
+{
+  "__doc__": "Sample fixture for the synthetic market-data provider (ADR-0091, services/market_data/adapters/synthetic.py). Point MARKET_DATA_SYNTHETIC_FIXTURE at a copy of this file (or your own) to inject controlled test events for the live-import tick. Top-level keys are identifier VALUES (matched case-insensitively). Second-level keys are SeriesKind values (nav_price, dividend, coupon, distribution, capital_call, fee, carry, other, weight_sector, weight_region, weight_country, weight_rating, weight_maturity). Each point is [ISO-date, decimal-string]; use strings so values stay exact. The reserved __doc__ key is ignored by loaders but note: a value keyed __doc__ is not a valid identifier lookup, so this file is illustrative — copy the entries below into your own fixture.",
+  "US0378331005": {
+    "nav_price": [
+      ["2026-01-02", "185.50"],
+      ["2026-01-05", "187.25"],
+      ["2026-01-06", "186.90"]
+    ],
+    "dividend": [
+      ["2026-02-09", "0.24"]
+    ]
+  },
+  "DE0001102606": {
+    "nav_price": [
+      ["2026-01-02", "99.10"],
+      ["2026-01-05", "99.05"]
+    ],
+    "coupon": [
+      ["2026-01-15", "1.75"]
+    ],
+    "weight_rating": [
+      ["2026-01-02", "100.0"]
+    ]
+  }
+}

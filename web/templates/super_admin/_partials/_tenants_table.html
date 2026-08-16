@@ -1,0 +1,76 @@
+{# Tenants table — also returned as a standalone partial by
+   GET /super-admin/tenants/partial. The wrapping <div> carries the
+   HTMX swap target id so a deactivate/reactivate POST can replace
+   the table in place. #}
+<div id="sa-tenants-table" class="sa-table-wrapper">
+{% if tenants %}
+<table class="sa-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Subdomain</th>
+            <th>Status</th>
+            <th>Users</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for t in tenants %}
+        <tr class="sa-table__row{% if not t.is_active %} sa-table__row--inactive{% endif %}">
+            <td>{{ t.name }}</td>
+            <td><code>{{ t.subdomain }}</code></td>
+            <td>
+                {% if t.is_active %}
+                    <span class="sa-pill sa-pill--active">Active</span>
+                {% else %}
+                    <span class="sa-pill sa-pill--inactive">Inactive</span>
+                {% endif %}
+            </td>
+            <td>{{ t.user_count }}</td>
+            <td>{{ t.created_at.strftime("%Y-%m-%d") }}</td>
+            <td class="sa-table__actions">
+                {% if t.is_active %}
+                    <form method="POST"
+                          action="/super-admin/tenants/{{ t.id }}/deactivate"
+                          class="sa-inline-form"
+                          onsubmit="return confirm('Deactivate {{ t.name }}? Active sessions will be terminated.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+                        <button type="submit" class="sa-button sa-button--secondary">
+                            Deactivate
+                        </button>
+                    </form>
+                {% else %}
+                    <form method="POST"
+                          action="/super-admin/tenants/{{ t.id }}/reactivate"
+                          class="sa-inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+                        <button type="submit" class="sa-button sa-button--secondary">
+                            Reactivate
+                        </button>
+                    </form>
+                {% endif %}
+                <form method="POST"
+                      action="/super-admin/tenants/{{ t.id }}/reset-owner"
+                      class="sa-inline-form sa-reset-owner-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+                    <input type="password" name="new_password"
+                           class="sa-form__input sa-form__input--inline"
+                           placeholder="New owner password"
+                           required minlength="12"
+                           autocomplete="new-password">
+                    <button type="submit"
+                            class="sa-button sa-button--secondary"
+                            onclick="return confirm('Reset owner password for {{ t.name }}? Active owner sessions will be terminated.');">
+                        Reset Owner Pw
+                    </button>
+                </form>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p class="sa-empty-state">No tenants yet. Use the form above to create one.</p>
+{% endif %}
+</div>

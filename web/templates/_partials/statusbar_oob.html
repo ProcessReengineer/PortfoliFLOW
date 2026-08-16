@@ -1,0 +1,10 @@
+{# Out-of-band status bar fragment — appended to HTMX-partial
+   responses so the active-area label in the bottom strip follows the
+   area switch without a full page reload.
+
+   Mirrors the sidebar OOB pattern: re-uses _partials/statusbar.html
+   with the ``statusbar_oob`` flag set so the rendered <footer>
+   carries ``hx-swap-oob="outerHTML"`` and replaces the live status
+   bar (matched by id ``pf-statusbar``). #}
+{% set statusbar_oob = True %}
+{% include "_partials/statusbar.html" %}

@@ -1,0 +1,545 @@
+/* Shirley chat — vertical layout with scrolling history and a
+ * fixed-height composer at the bottom. The right side intentionally
+ * ports the visual feel of `gui/widgets/shirley_chat_widget.py` —
+ * left-aligned assistant bubbles, right-aligned user bubbles, accent
+ * colour on the brand name, BG_SECONDARY on the assistant bubble.
+ *
+ * ADR-0051 folded the standalone chat page into the Assistants area
+ * section. The ``.chat-embed`` rules replace the deleted ``.chat-page``
+ * / ``.chat-header`` rules — the section now provides the heading and
+ * the embed sits inside ``.pf-section__body``.
+ */
+
+.chat-embed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+}
+
+.chat-embed__model {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.chat-history {
+    /* Bounded height inside the section body so the composer stays
+     * visible without scrolling the whole page. The min-height keeps
+     * the empty state from collapsing to nothing on first paint. */
+    min-height: 280px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chat-controls {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.chat-controls__new {
+    padding: 4px 10px;
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.chat-controls__new:hover {
+    color: var(--ui-text-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+.chat-empty {
+    color: var(--ui-text-disabled);
+    text-align: center;
+    margin-top: 32px;
+}
+
+/* An explicit ``width`` in addition to ``max-width`` so the bubble
+ * keeps a defined width even when its child (e.g. a post-rendered
+ * ``.chat-chart`` div) has no intrinsic size. Without it, the
+ * flex-column child shrinks-to-fit and any percentage-width descendant
+ * — including the Plotly chart container — collapses. 60% keeps the
+ * bubble visually balanced against the surrounding layout; the 85%
+ * ``max-width`` remains as a safety net for very narrow viewports
+ * (redundant while 60% < 85%, harmless otherwise). */
+.chat-message {
+    display: flex;
+    flex-direction: column;
+    width: 60%;
+    max-width: 85%;
+}
+
+.chat-message--user {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.chat-message--assistant {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+
+.chat-message__bubble {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--ui-border-default);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.chat-message--user .chat-message__bubble {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
+    border-color: var(--ui-border-default);
+}
+
+.chat-message--assistant .chat-message__bubble {
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+}
+
+.chat-message--error .chat-message__bubble {
+    background-color: var(--ui-background-section);
+    color: var(--ui-semantic-error);
+    border-color: var(--ui-semantic-error);
+}
+
+/* Inline error span appended to the assistant bubble when the SSE
+ * stream emits a server-side ``error`` frame or the EventSource
+ * transport drops before ``done``. Inline rather than a separate
+ * bubble so any partial assistant text already streamed stays in
+ * place. */
+.chat-error {
+    display: inline-block;
+    margin-top: 4px;
+    color: var(--ui-semantic-error);
+    font-style: italic;
+}
+
+.chat-message__meta {
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: var(--ui-text-disabled);
+}
+
+/* Image thumbnails shown inside the user bubble for a vision turn
+ * (ADR-0075). A small flex row so multiple attachments wrap cleanly;
+ * the bytes are not resized server-side — the bounds below keep the
+ * preview modest. */
+.chat-message__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.chat-attachment-thumb {
+    max-height: 140px;
+    max-width: 100%;
+    border-radius: 6px;
+    border: 1px solid var(--ui-border-default);
+}
+
+.chat-tool-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.chat-tool-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    font-size: 0.75rem;
+}
+
+.chat-tool-badge--running {
+    color: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+.chat-tool-badge--done {
+    color: var(--ui-semantic-success);
+    border-color: var(--ui-semantic-success);
+}
+
+.chat-chart {
+    margin-top: 8px;
+    width: 100%;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chat-chart img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* Interactive Plotly figure container (ADR-0048). Plotly needs an
+ * explicitly sized element to draw into — unlike an <img>, it cannot
+ * size itself from intrinsic content. The width fills the bubble;
+ * ``aspect-ratio`` derives the height from the bubble width so the
+ * Shirley chart matches the 16:9 visual rhythm of the Front Office
+ * ``.chart-container`` (web/static/css/components/charts.css). The
+ * ``min-height`` is a fallback for very narrow viewports (~360px and
+ * below) where 16:9 would otherwise collapse to an unreadable strip. */
+.chat-chart__plot {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    min-height: 200px;
+}
+
+.chat-chart__caption {
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+    background-color: var(--ui-background-secondary);
+    border-top: 1px solid var(--ui-border-default);
+}
+
+/* Rehydration placeholder for a figure that was streamed live but never
+ * archived — over the spec-size cap (ADR-0114 §3). Calm, not an error: the
+ * chart was shown, it simply cannot be restored. */
+.chat-chart__placeholder {
+    margin: 0;
+    padding: 14px;
+    font-size: 0.85rem;
+    font-style: italic;
+    color: var(--ui-text-disabled);
+}
+
+.chat-composer {
+    border-top: 1px solid var(--ui-border-default);
+    background-color: var(--ui-background-secondary);
+    padding: 14px;
+    border-radius: 6px;
+}
+
+.chat-composer__row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+/* Inline file picker sits in the composer row, left of the send button
+ * (ADR-0075). Kept compact so it does not crowd the textarea. */
+.chat-composer__attach {
+    flex: 0 0 auto;
+    max-width: 180px;
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+}
+
+.chat-composer__input {
+    flex: 1;
+    min-height: 44px;
+    max-height: 200px;
+    padding: 10px 12px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.chat-composer__input:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.chat-composer__hint {
+    margin-top: 6px;
+    color: var(--ui-text-disabled);
+    font-size: 0.75rem;
+}
+
+/* Voice surface (ADR-0076). The toggle sits in the composer row next to
+ * Send; the record/stop/cancel panel reveals below the row. Styling
+ * reuses the existing brand tokens so voice stays visually of-a-piece
+ * with the rest of the composer. */
+.chat-composer__voice-toggle {
+    flex: 0 0 auto;
+    padding: 0 10px;
+    min-height: 44px;
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-composer__voice-toggle:hover,
+.chat-composer__voice-toggle[aria-pressed="true"] {
+    color: var(--ui-text-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+.chat-voice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--ui-border-default);
+}
+
+.chat-voice[hidden] {
+    display: none;
+}
+
+/* The record button carries the crimson accent so "armed" reads at a
+ * glance; the dot mirrors the universal record glyph. */
+.chat-voice__record {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background-color: transparent;
+    color: var(--ui-accent-primary);
+    border: 1px solid var(--ui-accent-primary);
+    border-radius: 999px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.chat-voice__record:hover {
+    background-color: var(--ui-background-section);
+}
+
+.chat-voice__cancel {
+    padding: 6px 12px;
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.chat-voice__cancel:hover {
+    color: var(--ui-text-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+/* Recording-active state: the status text pulses softly so the user
+ * sees that capture is live while the Stop/Cancel buttons are shown. */
+.chat-voice__status {
+    color: var(--ui-accent-primary);
+    font-size: 0.8rem;
+    animation: chat-voice-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-voice__status:empty {
+    animation: none;
+}
+
+@keyframes chat-voice-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Case brief (ADR-0107 C6) — the "Consulting for CASE-NNNN" banner,
+ * the per-bubble "Pin to case…" affordance, and the pin dialog.
+ * Chat furniture, not message bubbles; the info tone echoes the case
+ * timeline's actor--shirley chip. Dismiss empties the banner container.
+ * ------------------------------------------------------------------ */
+
+.chat-brief {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    border: 1px solid color-mix(in srgb, var(--ui-semantic-info) 45%, transparent);
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--ui-semantic-info) 6%, transparent);
+    font-size: 0.85rem;
+}
+
+.chat-brief__label {
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+}
+
+.chat-brief__case {
+    color: var(--ui-semantic-info);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.chat-brief__case:hover {
+    text-decoration: underline;
+}
+
+.chat-brief__title {
+    color: var(--ui-text-primary);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-brief__dismiss {
+    padding: 2px 10px;
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.chat-brief__dismiss:hover {
+    color: var(--ui-text-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+/* The quiet per-bubble affordance — subordinate to the answer it sits under. */
+.chat-pin-affordance {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 2px 8px;
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.chat-pin-affordance:hover {
+    color: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+/* The pin dialog — a small framed form swapped into #chat-pin-dialog. */
+.chat-pin-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 8px;
+    background-color: var(--ui-background-section);
+}
+
+.chat-pin-dialog__title {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--ui-text-primary);
+}
+
+.chat-pin-dialog__error {
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: color-mix(in srgb, var(--ui-semantic-danger) 10%, transparent);
+    color: var(--ui-semantic-danger);
+    font-size: 0.82rem;
+}
+
+.chat-pin-dialog__empty {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.chat-pin-dialog__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.chat-pin-dialog__label {
+    font-size: 0.75rem;
+    color: var(--ui-text-secondary);
+}
+
+.chat-pin-dialog__input {
+    padding: 6px 8px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+}
+
+.chat-pin-dialog__excerpt {
+    resize: vertical;
+    min-height: 96px;
+}
+
+/* The chart dialog identifies its artefact by caption rather than offering an
+ * editable excerpt (ADR-0114) — a read-only line, not a field. */
+.chat-pin-dialog__artifact {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+}
+
+.chat-pin-dialog__artifact-name {
+    font-size: 0.85rem;
+    color: var(--ui-text-primary);
+}
+
+.chat-pin-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* Quiet in-place confirmation after a successful pin. */
+.chat-pin-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--ui-semantic-success) 45%, transparent);
+    border-radius: 8px;
+    background-color: color-mix(in srgb, var(--ui-semantic-success) 6%, transparent);
+    font-size: 0.85rem;
+}
+
+.chat-pin-confirm__icon {
+    color: var(--ui-semantic-success);
+}
+
+.chat-pin-confirm__text {
+    flex: 1 1 auto;
+    color: var(--ui-text-primary);
+}
+
+.chat-pin-confirm__case {
+    color: var(--ui-accent-primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.chat-pin-confirm__case:hover {
+    text-decoration: underline;
+}

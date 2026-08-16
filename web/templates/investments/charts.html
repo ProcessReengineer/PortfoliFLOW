@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ investment.name }} — Charts — PortfoliFLOW{% endblock %}
+
+{% block tagline %}Front Office · Investments · {{ investment.name }} · Charts{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="/static/css/components/investments.css">
+{% endblock %}
+
+{% block content %}
+<section class="inv-page" aria-labelledby="inv-charts-title">
+    <header class="inv-header">
+        <h1 id="inv-charts-title" class="inv-header__title">
+            {{ investment.name }} · Charts
+        </h1>
+        <div class="inv-header__actions">
+            <a href="/investments/{{ investment.id }}" class="btn btn--ghost">&larr; Back to detail</a>
+            <a href="/investments" class="btn btn--ghost">All investments</a>
+        </div>
+    </header>
+
+    <section id="inv-charts-row"
+             class="inv-charts-row"
+             aria-label="Investment charts"
+             style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+        <div id="inv-chart-total-return"
+             class="plotly-target inv-chart"
+             data-spec='{{ total_return_spec | tojson }}'
+             style="min-height: 320px;"></div>
+        <div id="inv-chart-cashflows-nav"
+             class="plotly-target inv-chart"
+             data-spec='{{ cashflows_nav_spec | tojson }}'
+             style="min-height: 320px;"></div>
+        <div id="inv-chart-multiples"
+             class="plotly-target inv-chart"
+             data-spec='{{ multiples_spec | tojson }}'
+             style="min-height: 320px;"></div>
+    </section>
+</section>
+
+<script>
+(function () {
+    "use strict";
+
+    function renderFrom(targetId) {
+        var target = document.getElementById(targetId);
+        if (!target) return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        Plotly.newPlot(target, spec.data, spec.layout, spec.config);
+    }
+
+    renderFrom("inv-chart-total-return");
+    renderFrom("inv-chart-cashflows-nav");
+    renderFrom("inv-chart-multiples");
+})();
+</script>
+{% endblock %}

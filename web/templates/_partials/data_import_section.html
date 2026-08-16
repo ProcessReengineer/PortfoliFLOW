@@ -1,0 +1,27 @@
+{# Data Import section body — embedded in /admin#data-import.
+
+   Single-button workflow (sub-stream 6F): the upload form is
+   rendered server-side on initial load; after a successful upload
+   the route streams the workbook to disk, persists the
+   ``data_uploads`` row, runs the dry-run extractor, and returns the
+   preview fragment with the projected counts already in place. HTMX
+   swaps that into ``.pf-data-import__panel`` in a single round-trip.
+
+   Context (from areas/_section.html via the area template):
+     csrf_token       — session-bound CSRF token; threaded into every
+                         HTMX form and POST.
+     max_upload_mb    — upload-size cap shown in the form hint.
+     recent_uploads   — list of DataUpload DTOs for the upload-form
+                        partial's "recent uploads" table.
+     uploader_emails  — map of uploader UUID-str → email for display. #}
+
+<div class="pf-data-import" id="pf-data-import-root">
+    <div class="pf-data-import__panel"
+         id="pf-data-import-panel"
+         hx-target="this"
+         hx-swap="innerHTML">
+        {% include "_partials/data_import_upload_form.html" with context %}
+    </div>
+</div>
+
+<script src="/static/js/data_import_section.js" defer></script>

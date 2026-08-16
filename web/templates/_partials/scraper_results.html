@@ -1,0 +1,71 @@
+{# Scraper results fragment — payload of the SSE ``result`` /
+   ``cancelled`` event.
+
+   Renders one ``<article>`` per ReportExtraction with filename, fund
+   name, period, the findings table (with colour-coded confidence
+   pills), and an error block when extraction.error is set. A
+   trailing line is rendered when the run was cancelled before all
+   files completed.
+
+   Required context:
+     extractions — list[ReportExtraction]
+     cancelled   — bool
+#}
+{% for extraction in extractions %}
+    <article class="scraper-result"
+             data-filename="{{ extraction.filename }}">
+        <header class="scraper-result__header">
+            <h4 class="scraper-result__filename">
+                {{ extraction.filename }}
+            </h4>
+            {% if extraction.fund_name %}
+                <span class="scraper-result__fund">
+                    {{ extraction.fund_name }}
+                </span>
+            {% endif %}
+            {% if extraction.period %}
+                <span class="scraper-result__period">
+                    {{ extraction.period }}
+                </span>
+            {% endif %}
+        </header>
+
+        {% if extraction.error %}
+            <div class="scraper-result__error">
+                <strong>Extraction failed:</strong>
+                {{ extraction.error }}
+            </div>
+        {% else %}
+            <table class="scraper-result__findings">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Value</th>
+                        <th>Source</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for finding in extraction.findings %}
+                        <tr>
+                            <td>{{ finding.keyword.name }}</td>
+                            <td>{{ finding.value or "—" }}</td>
+                            <td>{{ finding.source or "—" }}</td>
+                            <td>
+                                <span class="scraper-pill scraper-pill--{{ finding.confidence.value|lower }}">
+                                    {{ finding.confidence.value }}
+                                </span>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </article>
+{% endfor %}
+
+{% if cancelled %}
+    <p class="scraper-result__cancelled">
+        Run cancelled before all files were processed.
+    </p>
+{% endif %}

@@ -1,0 +1,279 @@
+/* Base styles — reset, typography, layout primitives.
+ *
+ * Tokens come from theme.css (generated). Component-specific rules
+ * live in components/<name>.css. No hardcoded colours, sizes, or font
+ * families in this file beyond what the platform itself enforces
+ * (e.g. system-font fallbacks for the skip link).
+ */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+body {
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    font-family: var(--ui-font-family);
+    font-size: calc(var(--ui-font-size-base) * 1px + 4px);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: var(--ui-text-primary);
+    margin: 0 0 0.5em 0;
+    font-weight: 600;
+}
+
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.3rem; }
+h3 { font-size: 1.1rem; }
+
+p {
+    margin: 0 0 0.75em 0;
+}
+
+a {
+    color: var(--ui-accent-primary);
+    text-decoration: none;
+}
+
+a:hover,
+a:focus {
+    color: var(--ui-accent-primary-hover);
+    text-decoration: underline;
+}
+
+/* Inputs / buttons — neutral defaults; component CSS layers refine. */
+
+input,
+button,
+textarea,
+select {
+    font: inherit;
+    color: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Visible focus ring — accessibility minimum (ADR-0037 §10).         */
+
+:focus-visible {
+    outline: 2px solid var(--ui-accent-primary);
+    outline-offset: 2px;
+}
+
+/* Skip link — keyboard accessibility. Hidden until focused.          */
+
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    padding: 8px 12px;
+    background-color: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    font-weight: 600;
+    z-index: 1000;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* Layout shell ------------------------------------------------------ */
+
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background-color: var(--ui-background-secondary);
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.app-header__brand {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.app-header__brand-name {
+    color: var(--ui-text-primary);
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+}
+
+.app-header__brand-tagline {
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+}
+
+.app-header__user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.app-header__user-email {
+    color: var(--ui-text-primary);
+}
+
+.app-header__nav-link {
+    color: var(--ui-text-secondary);
+    text-decoration: none;
+    font-size: 0.92rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.app-header__nav-link:hover,
+.app-header__nav-link:focus {
+    color: var(--ui-text-primary);
+    background-color: var(--ui-background-default);
+    outline: none;
+}
+
+.app-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-footer {
+    padding: 8px 24px;
+    border-top: 1px solid var(--ui-border-default);
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+/* Buttons ----------------------------------------------------------- */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
+    font-weight: 500;
+    transition: background-color 80ms linear, border-color 80ms linear;
+}
+
+.btn:hover:not(:disabled) {
+    background-color: var(--ui-border-default);
+    border-color: var(--ui-text-disabled);
+}
+
+.btn--primary {
+    background-color: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    border-color: transparent;
+    font-weight: 600;
+}
+
+.btn--primary:hover:not(:disabled) {
+    background-color: var(--ui-accent-primary-hover);
+    border-color: transparent;
+}
+
+.btn--primary:active:not(:disabled) {
+    background-color: var(--ui-accent-primary-pressed);
+}
+
+.btn--ghost {
+    background-color: transparent;
+    color: var(--ui-text-secondary);
+}
+
+.btn--ghost:hover:not(:disabled) {
+    color: var(--ui-text-primary);
+    background-color: var(--ui-background-section);
+}
+
+/* Form fields ------------------------------------------------------- */
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+
+.field__label {
+    color: var(--ui-text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.field__input {
+    padding: 8px 12px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+}
+
+.field__input:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+/* Alert / inline messages ------------------------------------------ */
+
+.alert {
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    border: 1px solid var(--ui-border-default);
+}
+
+.alert--error {
+    background-color: var(--ui-background-section);
+    color: var(--ui-semantic-error);
+    border-color: var(--ui-semantic-error);
+}
+
+.alert--success {
+    background-color: rgba(46, 160, 67, 0.12);
+    border-color: rgba(46, 160, 67, 0.5);
+    color: var(--ui-text-primary);
+}
+
+.alert--info {
+    background-color: rgba(56, 139, 253, 0.12);
+    border-color: rgba(56, 139, 253, 0.5);
+    color: var(--ui-text-primary);
+}
+
+.alert--info a {
+    margin-left: 8px;
+}

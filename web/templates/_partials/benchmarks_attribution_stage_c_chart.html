@@ -1,0 +1,30 @@
+{# Stage c — chart + meta partial. Replaces the
+   ``#benchmarks-stage-c-chart`` container on weight-set change. #}
+
+{% if has_series and stage_c_chart_spec %}
+    <div class="ba-chart-container">
+        <div class="pf-plotly-target"
+             id="benchmarks-stage-c-plot"
+             data-plotly-spec='{{ stage_c_chart_spec | tojson | safe }}'></div>
+    </div>
+    {% if stage_c_series_meta %}
+        <p class="ba-chart-meta">
+            Period: {{ stage_c_series_meta.period_start_iso }} to
+            {{ stage_c_series_meta.period_end_iso }}
+            &middot;
+            SAA: {{ stage_c_series_meta.saa_label }}
+        </p>
+    {% endif %}
+{% else %}
+    <p class="pf-empty-state">
+        No data to display. Either no SAA configuration is selected,
+        the selected configuration is not yet optimizable, or the
+        period has no overlap between SAA asset classes and the
+        portfolio actuals.
+        {% for opt in weight_set_options %}
+            {% if not opt.available and opt.unavailable_hint %}
+                <br><small>{{ opt.display_name }}: {{ opt.unavailable_hint }}</small>
+            {% endif %}
+        {% endfor %}
+    </p>
+{% endif %}

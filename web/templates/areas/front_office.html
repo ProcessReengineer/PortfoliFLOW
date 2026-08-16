@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{# Front Office area — modules in core/module_registry.py order:
+    data_import → charts → statistics → portfolio_optimizer → export → timeseries
+
+   The body lives in _partials/areas/_front_office_body.html so the
+   HTMX area-fragment template (_partials/area_fragment.html) can
+   include the same content without the base-layout wrapper. #}
+{% block title %}Front Office — PortfoliFLOW{% endblock %}
+
+{% block content %}
+    {% include "_partials/areas/_front_office_body.html" %}
+{% endblock %}

@@ -1,0 +1,65 @@
+{# One signal-family monitor row plus its editor slot (ADR-0116 §6).
+
+   Included from watch_desk_monitor_signals.html twice — once for the listed
+   rows and once inside the collapsed remainder — so a calm row that the
+   operator expands is byte-identical to one that was listed openly. Two
+   renderings of the same row would be two chances to differ.
+
+   Context: row (see _signal_row), csrf_token. #}
+<tr>
+    <td>
+        {{ row.display_name }}
+        {% if row.muted %}
+            <span class="tag tag--muted">muted</span>
+        {% endif %}
+        <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+    </td>
+    <td><span class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
+    <td>{{ row.value }}</td>
+    <td>{{ row.threshold }}</td>
+    <td>
+        {% if row.has_data %}
+            {# Per-subject mark position, clamped fill — see the fragment
+               header. The inline `left` is the whole per-subject affordance;
+               the stylesheet's 90% is the fallback for a row without one.
+
+               The tooltip restates the row's own two figures rather than
+               printing a proportion: for `liquidity` the proportion *is*
+               the internal 100-scale magnitude, and that number is not one
+               the operator ever set. The bar carries the proportion
+               visually, which is what a bar is for. #}
+            <div class="gauge gauge--{{ row.modifier }}"
+                 title="{{ row.value }} against {{ row.threshold }} · Approaching mark at {{ '%.0f'|format(row.warn_threshold_pct) }}% of it">
+                <span class="gauge__warnmark"
+                      style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span>
+                <span class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
+            </div>
+        {% else %}
+            {# No gauge for a subject nothing was observed for — a bar would
+               be a claim, and the one thing certain here is that no claim
+               can be made. #}
+            <span class="pf-dc-monitor__nogauge">—</span>
+        {% endif %}
+    </td>
+    <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+        {{ row.note }}
+        {% if row.finding_anchor %}
+            <a href="{{ row.finding_anchor }}">▲ open finding</a>
+        {% endif %}
+    </td>
+    <td>
+        <button type="button"
+                class="pf-dc-sensitivity__open"
+                hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor"
+                hx-target="#{{ row.editor_id }}"
+                hx-swap="innerHTML">
+            Adjust
+        </button>
+        {% if row.warn_customised or row.delta_customised %}
+            <span class="pf-dc-sensitivity__flag">customised</span>
+        {% endif %}
+    </td>
+</tr>
+<tr class="pf-dc-sensitivity__slot">
+    <td colspan="7" id="{{ row.editor_id }}"></td>
+</tr>

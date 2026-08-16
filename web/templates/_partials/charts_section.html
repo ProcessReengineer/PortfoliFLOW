@@ -1,0 +1,54 @@
+{# Charts section body — embedded in /front-office#charts.
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in
+   the lazy shell). Renders one <article> per active investment,
+   each containing a per-investment lazy-loader for the chart
+   triplet. The triplet content arrives via a second HTMX request
+   when the article scrolls into view (hx-trigger="revealed" on
+   the per-investment loader).
+
+   Context (from web/routes/charts.py):
+     investments — list of {id, name, asset_class_name} dicts; sorted
+                   alphabetically; empty list = empty-universe path.
+                   asset_class_name may be None if the FK cannot be
+                   resolved (degenerate case).
+#}
+
+{% if not investments %}
+    <p class="ch-empty">
+        No active investments to chart. Import investments via the
+        <a href="/admin#data-import">Data Import</a> section in
+        Admin or create one from the
+        <a href="/investments">Investments</a> list.
+    </p>
+{% else %}
+
+    <p class="ch-meta">
+        {{ investments | length }} active investment{% if investments | length != 1 %}s{% endif %}.
+        Charts load as you scroll.
+    </p>
+
+    <div class="ch-articles">
+        {% for inv in investments %}
+            <article class="ch-article" id="charts-inv-{{ inv.id }}"
+                     aria-labelledby="charts-inv-{{ inv.id }}-title">
+                <header class="ch-article__header">
+                    <h3 id="charts-inv-{{ inv.id }}-title"
+                        class="ch-article__title">
+                        {{ inv.name }}{% if inv.asset_class_name %}, {{ inv.asset_class_name }}{% endif %}
+                    </h3>
+                </header>
+                <div class="ch-article__lazy"
+                     hx-get="/api/charts/investment/{{ inv.id }}"
+                     hx-trigger="revealed"
+                     hx-target="this"
+                     hx-swap="outerHTML">
+                    <p class="ch-article__skeleton" aria-live="polite">
+                        Loading charts&hellip;
+                    </p>
+                </div>
+            </article>
+        {% endfor %}
+    </div>
+
+{% endif %}

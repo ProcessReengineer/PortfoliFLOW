@@ -1,0 +1,190 @@
+{# Front-Office Overview section body — embedded in /front-office#overview
+   (ADR-0067).
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in the lazy
+   shell). A single round-trip renders the whole surface — there is no
+   per-tile deferred loading, because the payload is a handful of scalars.
+
+   Context (from web/routes/overview.py):
+     kpis                — OverviewKpis or None (None = empty universe).
+     aum_display          — compact AUM string: Σ nav_functional over every
+                            investment, cash rows included (ADR-0103 §2).
+                            None when the book carries no NAV at all.
+     invested_display     — compact invested-book string (AUM excluding the
+                            cash positions), or None.
+     cash_display         — compact cash string: Σ NAV of the explicit cash
+                            positions (ADR-0103 §1), functional-currency
+                            cash included. It is read off the book, not a
+                            residual, so it never goes negative.
+     cash_positions       — list of dicts (ADR-0101 §2), one per explicit
+                            foreign-currency cash balance: name, currency,
+                            native_display, functional_display, as_of_date.
+                            Empty for a tenant whose cash is in the
+                            functional currency — the card then does not
+                            render at all (the §4 invisibility guarantee).
+
+   The hero reads AUM = Invested + Cash. There is no "no AUM series" state
+   any more: AUM is derived from the book, so a book with NAVs always has
+   one (ADR-0103 §2 retired the portfolio_aum series and the residual).
+
+   Every money string is precomputed in the route and already carries the
+   tenant's functional currency symbol (ADR-0101 §3).
+
+   IRR / TVPI / DPI stay raw on ``kpis`` and are formatted here exactly like
+   the Portfolio Review .pr-strip cards. #}
+
+{% if not kpis %}
+
+    <p class="ov-empty">
+        No active investments to summarise. Import investments via the
+        <a href="/admin#data-import">Data Import</a> section in Admin or
+        create one from the
+        <a href="/investments">Investments</a> list.
+    </p>
+
+{% else %}
+
+    <div class="ov-section" id="ov-section-body">
+
+        <p class="ov-meta">As of {{ kpis.as_of_date.isoformat() }}</p>
+
+        <section class="ov-hero" aria-labelledby="ov-hero-label">
+            <div class="ov-hero__label" id="ov-hero-label">
+                Assets under management
+            </div>
+            <div class="ov-hero__value">
+                {% if aum_display %}{{ aum_display }}{% else %}&mdash;{% endif %}
+            </div>
+            <p class="ov-hero__sub">
+                Invested
+                {% if invested_display %}{{ invested_display }}{% else %}&mdash;{% endif %}
+                {% if cash_display %}
+                    &middot; Cash {{ cash_display }}
+                {% endif %}
+            </p>
+        </section>
+
+        <section class="ov-grid" aria-labelledby="ov-grid-title">
+            <h3 id="ov-grid-title" class="visually-hidden">
+                Portfolio overview metrics
+            </h3>
+            <article class="ov-card">
+                <div class="ov-card__label">IRR</div>
+                <div class="ov-card__value">
+                    {% if kpis.irr is not none %}
+                        {{ "%.2f"|format(kpis.irr * 100.0) }}%
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="ov-card">
+                <div class="ov-card__label">TVPI</div>
+                <div class="ov-card__value">
+                    {% if kpis.tvpi is not none %}
+                        {{ "%.2f"|format(kpis.tvpi) }}x
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="ov-card">
+                <div class="ov-card__label">DPI</div>
+                <div class="ov-card__value">
+                    {% if kpis.dpi is not none %}
+                        {{ "%.2f"|format(kpis.dpi) }}x
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="ov-card">
+                <div class="ov-card__label">Investments</div>
+                <div class="ov-card__value">{{ kpis.investment_count }}</div>
+            </article>
+        </section>
+
+        {# FX-cash card — ADR-0101 §2. Renders only when the tenant holds an
+           explicit cash position in a currency other than the functional one;
+           a functional-currency-only book sees nothing here. #}
+        {% if cash_positions %}
+            <section class="ov-card ov-fx" aria-labelledby="ov-fx-title">
+                <h3 id="ov-fx-title" class="ov-card__label">
+                    Foreign-currency cash
+                </h3>
+                <ul class="ov-fx__list">
+                    {% for row in cash_positions %}
+                        <li class="ov-fx__row">
+                            <span class="ov-fx__name">
+                                {{ row.name }}
+                                {# The ISO code, spelled out: a bare "$" must
+                                   not have to be inferred from the name. #}
+                                <span class="ov-fx__code">{{ row.currency }}</span>
+                            </span>
+                            <span class="ov-fx__native">
+                                {{ row.native_display }}
+                            </span>
+                            <span class="ov-fx__functional">
+                                = {{ row.functional_display }}
+                            </span>
+                            <span class="ov-fx__asof">
+                                as of {{ row.as_of_date }}
+                            </span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+
+        {% if overview_charts %}
+            {# Four tiles (the ADR-0101 currency-exposure tile is present)
+               wrap to 2×2; three keep the ADR-0072 single row. #}
+            <section class="ov-charts{% if overview_charts|length > 3 %} ov-charts--four{% endif %}"
+                     aria-label="Portfolio overview charts">
+                {% for chart in overview_charts %}
+                    <article class="ov-chart" aria-labelledby="{{ chart.id }}-title">
+                        <header class="ov-chart__header">
+                            <h3 id="{{ chart.id }}-title" class="ov-chart__title">
+                                {{ chart.title }}
+                            </h3>
+                        </header>
+                        {% if chart.has_data %}
+                            <div id="{{ chart.id }}"
+                                 class="ov-chart__target pf-plotly-target"
+                                 data-spec='{{ chart.spec | tojson }}'>
+                            </div>
+                        {% else %}
+                            <p class="ov-chart__empty">No data available.</p>
+                        {% endif %}
+                    </article>
+                {% endfor %}
+            </section>
+        {% endif %}
+
+    </div>
+
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+    var root = document.getElementById("ov-section-body");
+    if (root) {
+        root.querySelectorAll(".pf-plotly-target[data-spec]").forEach(renderTarget);
+    }
+})();
+</script>

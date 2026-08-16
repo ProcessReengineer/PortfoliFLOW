@@ -1,0 +1,15 @@
+{% extends "super_admin/base.html" %}
+
+{% set active_sa_tab = 'users' %}
+
+{% block sa_content %}
+    <section class="sa-section">
+        <h2 class="sa-section__title">Create Super-Admin</h2>
+        {% include "super_admin/_partials/_create_user_form.html" %}
+    </section>
+
+    <section class="sa-section">
+        <h2 class="sa-section__title">Existing Super-Admins</h2>
+        {% include "super_admin/_partials/_users_table.html" %}
+    </section>
+{% endblock %}

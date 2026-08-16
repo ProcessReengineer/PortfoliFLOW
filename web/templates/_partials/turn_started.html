@@ -1,0 +1,53 @@
+{#
+   Returned by POST /chat/messages. Renders the user's message inline,
+   adds an empty assistant bubble, and exposes the SSE endpoint via
+   data-attributes so the chat.js handler can open a native
+   ``EventSource`` against /chat/stream/<turn_id>. Native ``EventSource``
+   replaces the HTMX-SSE extension on this surface — see HTMX bug
+   #2343 (whitespace trimming) and the post-completion 404 reconnect
+   storm noted in the manual smoke test on 2026-05-13.
+
+   Context:
+       turn_id              — UUID of the just-started turn.
+       user_content         — what the user typed.
+       assistant_bubble_id  — DOM id of the bubble to populate.
+       timestamp            — ISO timestamp of the user message.
+       thumbnails           — optional list of {src, alt} image data URIs
+                              attached to this turn (ADR-0075).
+       is_voice             — True when this turn began as a voice
+                              recording; emitted as ``data-pf-voice`` so
+                              chat.js speaks the reply on ``done`` (ADR-0076).
+                              Defaults to 0 for text turns and rehydration.
+#}
+<article class="chat-message chat-message--user">
+    {% if thumbnails %}
+        <div class="chat-message__attachments">
+            {% for t in thumbnails %}
+                <img class="chat-attachment-thumb" src="{{ t.src }}" alt="{{ t.alt }}">
+            {% endfor %}
+        </div>
+    {% endif %}
+    <div class="chat-message__bubble">{{ user_content }}</div>
+    {% if timestamp %}
+        <div class="chat-message__meta">{{ timestamp }}</div>
+    {% endif %}
+</article>
+
+<article class="chat-message chat-message--assistant"
+         id="{{ assistant_bubble_id }}-wrap">
+    <div class="chat-message__bubble"
+         id="{{ assistant_bubble_id }}"
+         aria-live="polite"></div>
+    <div class="chat-tool-badges" id="{{ assistant_bubble_id }}-tools"></div>
+</article>
+
+{# Hidden SSE-bootstrap element. chat.js picks it up on htmx:afterSwap,
+   opens a one-shot ``EventSource`` against the URL, and removes the
+   element on ``done`` or ``error`` so the next turn cannot collide. #}
+<div id="pf-sse-{{ turn_id }}"
+     data-pf-sse-url="/chat/stream/{{ turn_id }}"
+     data-pf-sse-target="{{ assistant_bubble_id }}"
+     data-pf-sse-tools-target="{{ assistant_bubble_id }}-tools"
+     data-pf-voice="{{ '1' if is_voice else '0' }}"
+     style="display:none"
+     aria-hidden="true"></div>

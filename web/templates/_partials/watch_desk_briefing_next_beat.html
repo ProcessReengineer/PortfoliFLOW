@@ -1,0 +1,21 @@
+{# The fourth status tile's next-beat label (ADR-0089), split out of
+   watch_desk_briefing.html so the "Request analysis" enqueue can refresh it
+   out of band: the enqueue moves ``next_due_at`` to now, and without this
+   swap the tile keeps showing the pre-enqueue time.
+
+   The fragment is the *label only*, not the whole tile: the action form
+   beside it is unaffected by the enqueue, and swapping it would replace the
+   button that fired the request mid-response.
+
+   Context:
+     tiles.next_beat — the projected tile (see ``_next_beat_tile``).
+     next_beat_oob   — when true the label carries hx-swap-oob so the enqueue
+                       response refreshes it in place. #}
+<span id="dc-briefing-next-beat" class="pf-dc-tile__label"
+      {%- if next_beat_oob %} hx-swap-oob="true"{% endif %}>
+    {%- if tiles.next_beat.configured -%}
+        Next beat · {{ tiles.next_beat.due }} · {{ tiles.next_beat.cadence }} · {{ 'enabled' if tiles.next_beat.enabled else 'disabled' }}
+    {%- else -%}
+        Next beat · no cadence set
+    {%- endif -%}
+</span>

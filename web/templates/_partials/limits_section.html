@@ -1,0 +1,305 @@
+{# Investment Limits section body — embedded in
+   /back-office#limits (Kickoff #3b).
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in the
+   lazy shell). The persistent date-range form re-submits this same
+   endpoint and HTMX swaps only the section body.
+
+   Context (from web/routes/limits.py):
+     payload                — LimitsCoverageBundle or None.
+     kpi_strip              — LimitsKpiStrip or None.
+     latest_as_of_display   — ISO date string of the most recent
+                              Stichtag, or empty string.
+     from_date_input        — ISO date echoed into the from-form input.
+     to_date_input          — ISO date echoed into the to-form input.
+     saa_table_rows         — list of projected row dicts.
+     saa_chart_spec         — Plotly figure dict or None.
+     saa_chart_has_data     — boolean.
+     anlv_table_rows        — list of projected row dicts.
+     anlv_chart_spec        — Plotly figure dict or None.
+     anlv_chart_has_data    — boolean.
+     set_history_saa        — list of {family, set_id,
+                              effective_from_iso, label} dicts.
+     set_history_anlv       — same shape. #}
+
+<div class="lim-section" id="lim-section-body">
+
+    <form class="lim-controls"
+          hx-get="/api/back-office/limits/section"
+          hx-target="closest .pf-section__body"
+          hx-swap="innerHTML">
+        <label class="lim-controls__field">
+            <span>From</span>
+            <input type="date"
+                   name="from_date"
+                   value="{{ from_date_input }}">
+        </label>
+        <label class="lim-controls__field">
+            <span>To</span>
+            <input type="date"
+                   name="to_date"
+                   value="{{ to_date_input }}">
+        </label>
+        <button type="submit" class="btn btn--primary">Apply</button>
+    </form>
+
+    {% if payload and latest_as_of_display %}
+
+        <section class="lim-strip" aria-labelledby="lim-strip-title">
+            <h3 id="lim-strip-title" class="visually-hidden">Headline metrics</h3>
+            <article class="lim-strip__card">
+                <div class="lim-strip__label">AUM</div>
+                <div class="lim-strip__value">
+                    {% if kpi_strip.aum_eur is not none %}
+                        {{ "{:,.0f}".format(kpi_strip.aum_eur) }} EUR
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </div>
+            </article>
+            <article class="lim-strip__card">
+                <div class="lim-strip__label">OK / total</div>
+                <div class="lim-strip__value">
+                    {{ kpi_strip.ok_total_count }}
+                    / {{ kpi_strip.ok_classes_denominator }}
+                </div>
+            </article>
+            <article class="lim-strip__card lim-strip__card--warn">
+                <div class="lim-strip__label">WARN</div>
+                <div class="lim-strip__value">{{ kpi_strip.warn_count }}</div>
+            </article>
+            <article class="lim-strip__card lim-strip__card--breach">
+                <div class="lim-strip__label">BREACH</div>
+                <div class="lim-strip__value">{{ kpi_strip.breach_count }}</div>
+            </article>
+        </section>
+
+        <p class="lim-meta">As-of date {{ latest_as_of_display }}</p>
+
+        {% for block in [
+            ("saa", "SAA", saa_table_rows, saa_chart_spec, saa_chart_has_data),
+            ("anlv", "AnlV", anlv_table_rows, anlv_chart_spec, anlv_chart_has_data),
+        ] %}
+            {% set slug = block[0] %}
+            {% set family_label = block[1] %}
+            {% set rows = block[2] %}
+            {% set chart_spec = block[3] %}
+            {% set chart_has_data = block[4] %}
+            <section class="lim-family lim-family--{{ slug }}"
+                     aria-labelledby="lim-{{ slug }}-title">
+                <h3 id="lim-{{ slug }}-title" class="lim-family__title">
+                    {{ family_label }}
+                </h3>
+                {% if rows %}
+                    <script type="application/json"
+                            id="lim-{{ slug }}-data">
+                        {{ rows | tojson }}
+                    </script>
+                    <div id="lim-{{ slug }}-table"
+                         class="lim-coverage-table"
+                         aria-label="{{ family_label }} coverage table"></div>
+                {% else %}
+                    <p class="lim-family__empty">No coverage rows at this as-of date.</p>
+                {% endif %}
+
+                {% if chart_has_data and chart_spec %}
+                    <div class="lim-chart pf-plotly-target"
+                         id="lim-{{ slug }}-chart"
+                         data-spec='{{ chart_spec | tojson }}'></div>
+                {% else %}
+                    <p class="lim-chart__empty">No coverage data in range.</p>
+                {% endif %}
+            </section>
+        {% endfor %}
+
+        <details class="lim-history">
+            <summary>Limit-Set History</summary>
+            {% for block in [
+                ("saa", "SAA", set_history_saa),
+                ("anlv", "AnlV", set_history_anlv),
+            ] %}
+                {% set slug = block[0] %}
+                {% set family_label = block[1] %}
+                {% set rows = block[2] %}
+                <section class="lim-history__family">
+                    <h4>{{ family_label }}</h4>
+                    {% if rows %}
+                        <ul class="lim-history__list">
+                            {% for entry in rows %}
+                                <li class="lim-history__item">
+                                    <details>
+                                        <summary>
+                                            <span class="lim-history__effective">
+                                                {{ entry.effective_from_iso }}
+                                            </span>
+                                            <span class="lim-history__label">
+                                                {{ entry.label }}
+                                            </span>
+                                        </summary>
+                                        <div class="lim-history__detail"
+                                             hx-get="/api/back-office/limits/sets/{{ entry.set_id }}/limits"
+                                             hx-trigger="toggle once from:closest details"
+                                             hx-swap="innerHTML">
+                                            <p class="lim-history__detail-skeleton">
+                                                Loading limit ceilings&hellip;
+                                            </p>
+                                        </div>
+                                    </details>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="lim-history__empty">No sets yet.</p>
+                    {% endif %}
+                </section>
+            {% endfor %}
+        </details>
+
+    {% elif payload %}
+
+        <p class="lim-empty">
+            Selected date range contains no month-end as-of date.
+            Please widen the range.
+        </p>
+
+    {% else %}
+
+        <p class="lim-empty">
+            No AUM data available. Import via the
+            <a href="/admin#data-import">Data Import</a> section.
+        </p>
+
+    {% endif %}
+
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+
+    function renderAll(root) {
+        (root || document)
+            .querySelectorAll(".pf-plotly-target[data-spec]")
+            .forEach(renderTarget);
+    }
+
+    function magnitudeBucketLowerBetterOneSided(value) {
+        // Coverage thresholds per ADR-0062 §2.1: >= 0.90 strong,
+        // >= 0.70 mild. Below 0.70 is neutral (no tint). One-sided:
+        // no positive side.
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return "neutral";
+        }
+        if (value >= 0.90) return "neg-strong";
+        if (value >= 0.70) return "neg-mild";
+        return "neutral";
+    }
+
+    function coverageCellFormatter(cell) {
+        // Display the existing fmt string; emit the magnitude bucket
+        // on the cell element so the heatmap CSS rule picks it up.
+        var data = cell.getRow().getData();
+        var fraction = data.coverage_fraction;
+        var bucket = magnitudeBucketLowerBetterOneSided(fraction);
+        cell.getElement().setAttribute("data-magnitude-bucket", bucket);
+        return data.coverage_pct_fmt;
+    }
+
+    function statusBadgeFormatter(cell) {
+        var data = cell.getRow().getData();
+        var statusClass = data.status_class || "no-limit";
+        var status = data.status || "";
+        // Escape the status text — paranoid even though it comes
+        // from a fixed allowlist server-side.
+        var safe = String(status)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        return '<span class="lim-badge lim-badge--' + statusClass + '">'
+            + safe + "</span>";
+    }
+
+    function applyRowModifierClasses(row) {
+        // rowFormatter — fires on render. The status_class drives the
+        // row-level visual treatment for UNALLOCATED / NO_LIMIT.
+        var data = row.getData();
+        var el = row.getElement();
+        el.classList.remove("lim-row--unallocated", "lim-row--no-limit");
+        if (data.status_class === "unallocated") {
+            el.classList.add("lim-row--unallocated");
+        } else if (data.status_class === "no-limit") {
+            el.classList.add("lim-row--no-limit");
+        }
+    }
+
+    function initLimitsTable(slug) {
+        var dataEl = document.getElementById("lim-" + slug + "-data");
+        var mountEl = document.getElementById("lim-" + slug + "-table");
+        if (!dataEl || !mountEl) return;
+        var rows;
+        try { rows = JSON.parse(dataEl.textContent || "[]"); }
+        catch (e) { return; }
+        if (!Array.isArray(rows) || rows.length === 0) return;
+
+        new Tabulator(mountEl, {
+            data: rows,
+            layout: "fitColumns",
+            placeholder: "No coverage rows.",
+            rowFormatter: applyRowModifierClasses,
+            initialSort: [
+                { column: "coverage_fraction", dir: "desc" }
+            ],
+            columns: [
+                { title: "Class", field: "class_key", sorter: "string",
+                  widthGrow: 2 },
+                { title: "Max %", field: "max_pct", sorter: "number",
+                  hozAlign: "right", width: 110,
+                  formatter: function (cell) {
+                      return cell.getRow().getData().max_pct_fmt;
+                  }
+                },
+                { title: "NAV (EUR)", field: "nav_sum_eur", sorter: "number",
+                  hozAlign: "right", widthGrow: 1,
+                  formatter: function (cell) {
+                      return cell.getRow().getData().nav_sum_fmt;
+                  }
+                },
+                { title: "Coverage", field: "coverage_fraction",
+                  sorter: "number", hozAlign: "right", width: 130,
+                  formatter: coverageCellFormatter
+                },
+                { title: "Headroom (EUR)", field: "headroom_eur",
+                  sorter: "number", hozAlign: "right", widthGrow: 1,
+                  formatter: function (cell) {
+                      return cell.getRow().getData().headroom_fmt;
+                  }
+                },
+                { title: "Status", field: "status", sorter: "string",
+                  hozAlign: "center", width: 130,
+                  formatter: statusBadgeFormatter
+                }
+            ]
+        });
+    }
+
+    initLimitsTable("saa");
+    initLimitsTable("anlv");
+
+    renderAll(document.getElementById("lim-section-body"));
+})();
+</script>

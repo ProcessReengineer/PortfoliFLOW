@@ -1,0 +1,13 @@
+{# Open-cases section lazy-load shell (ADR-0107). See
+   watch_desk_briefing_lazy.html for the pattern: render a skeleton;
+   on first visibility HTMX fetches the section body and replaces this
+   wrapper via ``hx-swap="outerHTML"``. #}
+<div class="pf-section__lazy"
+     hx-get="/api/cases/open"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading open cases&hellip;
+    </p>
+</div>

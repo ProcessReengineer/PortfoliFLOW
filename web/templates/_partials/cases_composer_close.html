@@ -1,0 +1,45 @@
+{# Close-case dialog (ADR-0107 §4, C3b). Opened into #case-composer-slot by the
+   rail's "Close case…" action; posts to /api/cases/{id}/close. Closing is
+   consequential and irreversible — a closed case is a read-only record and no
+   reopen exists — so the dialog carries a mandatory closing note and an
+   explicit confirm affordance. On success the route triggers a full-page
+   refresh (HX-Redirect) so the page re-renders closed: state chip, closed
+   metadata, closing note visible, actions and composers gone. On validation
+   failure it re-renders this dialog carrying ``error`` and the entered note.
+
+   Context: case_id, csrf_token, error (optional), closing_note (echoed on
+   error). #}
+<form class="pf-case-composer pf-case-composer--close"
+      hx-post="/api/cases/{{ case_id }}/close"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Close case</h3>
+    <p class="pf-case-composer__warn" role="note">
+        Closing is final. A closed case is a read-only record — the timeline
+        stays, but nothing more can be added, and it cannot be reopened.
+    </p>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert">{{ error }}</p>
+    {% endif %}
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Closing note</span>
+        <textarea class="pf-cases__field-input"
+                  name="closing_note"
+                  rows="4"
+                  required
+                  autofocus
+                  placeholder="Why the case is closed — the record of resolution.">{{ closing_note or '' }}</textarea>
+    </label>
+    <label class="pf-case-composer__confirm">
+        <input type="checkbox" name="confirm" value="yes" required>
+        I understand this closes the case for good.
+    </label>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Close case</button>
+    </div>
+</form>

@@ -1,0 +1,55 @@
+{
+    "_comment": "PortfoliFLOW UI Theme — Light variant. A neutral light-grey/white office look suitable for daytime work next to Excel/Word. Loaded by gui/theme.py via core/ui_theme.py.",
+    "_version": "1.0.0",
+    "_display_name": "Light",
+
+    "background": {
+        "primary":   "#F5F5F5",
+        "secondary": "#EAEAEA",
+        "section":   "#DEDEDE"
+    },
+
+    "accent": {
+        "primary":         "#1F6FB2",
+        "primary_hover":   "#2E8AD0",
+        "primary_pressed": "#155A95"
+    },
+
+    "button": {
+        "fg": "#FFFFFF"
+    },
+
+    "text": {
+        "primary":    "#1A1A1A",
+        "secondary":  "#5A5A5A",
+        "disabled":   "#A0A0A0",
+        "on_sidebar": "#1A1A1A"
+    },
+
+    "border": {
+        "default": "#C8C8C8"
+    },
+
+    "font": {
+        "family":    "Inter, Segoe UI, Arial, sans-serif",
+        "size_base": 10
+    },
+
+    "semantic": {
+        "_comment_table_bg_dark": "Dark-theme variants used by ADR-0062 heatmap tinting on performance columns (Excess, Alpha, IR, ...). Desaturated dark green / dark red read as a perceptible tint on the canonical #0A0A0A background without overpowering cell text.",
+        "success":         "#2E7D32",
+        "warning":         "#E0A800",
+        "info":            "#1F6FB2",
+        "error":           "#C62828",
+        "muted":           "#7A7A7A",
+        "confidence_low":  "#E65100",
+        "table_pos_bg":    "#D6F2D8",
+        "table_neg_bg":    "#F7D6D6",
+        "table_pos_bg_dark": "#1A3F1F",
+        "table_neg_bg_dark": "#3F1A1F"
+    },
+
+    "pf": {
+        "_comment": "Web-shell tokens emitted under --pf-* by scripts/generate_theme_artifacts.py. The stepper palette was retired with the single-button Data Import refactor (sub-stream 6F)."
+    }
+}

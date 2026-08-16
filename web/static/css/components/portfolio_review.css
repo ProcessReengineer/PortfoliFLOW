@@ -1,0 +1,192 @@
+/* Portfolio Review section — sub-stream 6F-3d.
+ *
+ * Embedded under /investor-communication#portfolio-review. Classes
+ * are prefixed .pr- to avoid cascade collisions with other section
+ * components. Layout follows the QT Portfolio Review six-tile grid:
+ * four KPI cards in a strip plus a 3×2 chart grid. */
+
+.pr-section {
+    /* Bound the section body width so the six-tile grid does not
+     * stretch absurdly on ultrawide displays; the parent
+     * .pf-section__body already pads horizontally. */
+    max-width: 1400px;
+}
+
+.pr-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.pr-controls__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.pr-controls__field input[type="date"] {
+    padding: 4px 6px;
+    background: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    min-width: 160px;
+}
+
+.pr-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.pr-strip__card {
+    padding: 0.75rem 1rem;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.pr-strip__label {
+    font-size: 0.8rem;
+    color: var(--ui-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.pr-strip__value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+    color: var(--ui-text-secondary);
+}
+
+.pr-meta {
+    color: var(--ui-text-secondary);
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+}
+
+.pr-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, auto);
+    gap: 1rem;
+}
+
+.pr-tile {
+    padding: 0.75rem;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    min-height: 360px;
+    display: flex;
+    flex-direction: column;
+}
+
+.pr-tile__header {
+    margin-bottom: 0.5rem;
+}
+
+.pr-tile__title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--ui-text-secondary);
+}
+
+.pr-tile__chart {
+    flex: 1 1 auto;
+    min-height: 320px;
+}
+
+.pr-tile__empty {
+    color: var(--ui-text-secondary);
+    padding: 2rem 1rem;
+    text-align: center;
+    flex: 1 1 auto;
+}
+
+.pr-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--ui-text-secondary);
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+}
+
+/* Per-investment review stack — ADR-0069.
+ *
+ * The overview six-tile grid is followed by one per-investment block
+ * per active investment, each lazy-loaded on reveal. The blocks reuse
+ * the .pr-strip / .pr-grid / .pr-tile rules above; only the stack
+ * container, the per-investment header, and the load/unavailable
+ * placeholders need their own rules. */
+
+.pr-investment-stack {
+    margin-top: 2rem;
+}
+
+.pr-investment-stack__heading {
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+    color: var(--ui-text-secondary);
+}
+
+.pr-investment-stack__item {
+    margin-bottom: 2rem;
+}
+
+.pr-investment-stack__loading,
+.pr-investment-stack__unavailable {
+    padding: 2rem 1rem;
+    color: var(--ui-text-secondary);
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.pr-investment__header {
+    margin-bottom: 0.75rem;
+}
+
+.pr-investment__title {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--ui-text-secondary);
+}
+
+.pr-investment__subtitle {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+@media (max-width: 1024px) {
+    .pr-grid {
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: auto;
+    }
+    .pr-strip {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .pr-grid {
+        grid-template-columns: 1fr;
+    }
+    .pr-strip {
+        grid-template-columns: 1fr;
+    }
+}

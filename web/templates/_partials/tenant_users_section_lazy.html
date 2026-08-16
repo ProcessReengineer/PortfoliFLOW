@@ -1,0 +1,21 @@
+{# Users section lazy-load shell (ADR-0121 §6).
+
+   Same shape as provider_credentials_section_lazy.html: render a
+   skeleton placeholder; on first visibility HTMX fetches the section
+   body and replaces this wrapper via ``hx-swap="outerHTML"``. The lazy
+   container must not survive past the swap so the loaded body does not
+   inherit the wrapper's layout.
+
+   The Admin shell includes this only for owners, and the endpoint below
+   is owner-gated in its own right — the gate is the route's, this is the
+   mirror. #}
+
+<div class="pf-section__lazy"
+     hx-get="/admin/users/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading users&hellip;
+    </p>
+</div>

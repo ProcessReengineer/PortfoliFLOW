@@ -1,0 +1,105 @@
+{# Report Scraper section body — embedded in /assistants#report-scraper.
+
+   The form posts to /scraper/runs as multipart/form-data with
+   csrf_token, keywords_json, and pdf[]. The response is an HTMX
+   fragment that mounts the SSE stream into ``#scraper-run``. The model
+   is not submitted: it is resolved server-side per run, per tenant
+   (ADR-0123), and shown here read-only.
+
+   Required context (assembled by web.routes.scraper.scraper_section):
+     csrf_token      — for the form
+     keywords        — list[Keyword] — initial rows
+     scraper_model   — str — the model the next run will use
+     model_supported — bool — whether it passes the capability gate
+     model_error     — Optional[str] — the UnsupportedModelError text
+#}
+<div class="scraper">
+    {% if not model_supported %}
+        <div class="scraper__no-models">
+            <p>{{ model_error }}</p>
+        </div>
+    {% else %}
+        <form id="scraper-form"
+              class="scraper__form"
+              enctype="multipart/form-data"
+              hx-post="/scraper/runs"
+              hx-target="#scraper-run"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data">
+            <input type="hidden" name="csrf_token"
+                   value="{{ csrf_token }}">
+
+            <label class="scraper__field">
+                <span class="scraper__label">PDFs</span>
+                <input type="file"
+                       name="pdf"
+                       accept="application/pdf"
+                       multiple
+                       required
+                       class="scraper__input">
+                <span class="scraper__hint">
+                    One or more PDF files. Processed sequentially.
+                </span>
+            </label>
+
+            <fieldset class="scraper__keywords"
+                      id="scraper-keywords"
+                      aria-label="Keywords to extract">
+                <legend class="scraper__legend">Keywords</legend>
+                {% for kw in keywords %}
+                    <div class="scraper__keyword-row" data-row>
+                        <input type="text"
+                               class="scraper__keyword-name"
+                               value="{{ kw.name }}"
+                               placeholder="Keyword name"
+                               aria-label="Keyword name">
+                        <select class="scraper__keyword-type"
+                                aria-label="Keyword type">
+                            {% for t in ["Number", "Percentage", "Date", "Text", "List"] %}
+                                <option value="{{ t }}"
+                                        {% if kw.type.value == t %}selected{% endif %}>
+                                    {{ t }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <button type="button"
+                                class="scraper__keyword-remove btn btn--ghost"
+                                aria-label="Remove keyword">
+                            ×
+                        </button>
+                    </div>
+                {% endfor %}
+                <button type="button"
+                        id="scraper-add-keyword"
+                        class="scraper__keyword-add btn btn--ghost">
+                    + Add keyword
+                </button>
+            </fieldset>
+
+            <input type="hidden" name="keywords_json"
+                   id="scraper-keywords-json" value="">
+
+            <div class="scraper__field">
+                <span class="scraper__label">Model</span>
+                <p class="scraper__value">{{ scraper_model }}</p>
+                <span class="scraper__hint">
+                    Configured under Admin → Providers &amp; Credentials
+                    → OpenRouter → Report Scraper model. Only Anthropic
+                    models currently support PDF extraction.
+                </span>
+            </div>
+
+            <div class="scraper__actions">
+                <button type="submit" class="btn btn--primary">
+                    Extract
+                </button>
+            </div>
+        </form>
+    {% endif %}
+
+    {# Mount point for the run-in-progress and results. POST /scraper/runs
+       returns a fragment whose root element carries data-pf-scraper-sse-url;
+       scraper.js opens an EventSource on that URL and routes events into
+       this container. #}
+    <div id="scraper-run" class="scraper__run"></div>
+</div>

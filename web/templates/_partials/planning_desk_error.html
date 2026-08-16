@@ -1,0 +1,84 @@
+{# Error state for the Cash Flow Planning section (ADR-0104 §4).
+
+   Every failure of this surface is an *outcome*, not a diagnostic: the
+   projection could not be stated, and the partial says what to do about it.
+   The exception message travels verbatim — each one is a PortfoliFlowError
+   and therefore user-facing (web/errors.py), naming the offending id,
+   currency, date or key.
+
+   The parameter strip travels with this response too (the include at the
+   foot), so a set that a *book* refuses stays on screen and its offending
+   chip can be removed with a click rather than a hand-edited URL. Where the
+   parameters themselves did not parse, the strip renders its unreadable
+   state — an unreadable link is not a baseline.
+
+   A **refused entry** (error_kind "entry") is the one failure that also renders
+   a control: the hypothetical-transaction form comes back below the notice,
+   open and still holding what the operator typed. The submission never became a
+   parameter — the set above is exactly the one that was in force — so the form
+   is the thing to act on, not the URL.
+
+   Context (from web/routes/planning_desk.py):
+     error_kind    — "parameters" | "book" | "fx" | "overlay" | "entry"
+                     | "shock".
+     error_type    — exception class name.
+     error_message — exception message, verbatim.
+     missing_pair  — "USD → EUR", on the fx kind only.
+     hyp           — the entry form's context, on the entry kind only.
+   Plus the parameter-strip context (see planning_desk_paramstrip.html). #}
+
+<div class="pd-cfp pd-cfp--error" id="pd-cfp-body"
+     hx-target="#pd-cfp-body"
+     hx-swap="outerHTML">
+
+    <div class="pd-error alert alert--error" role="alert">
+        <h4 class="pd-error__title">{{ error_type }}</h4>
+        <p class="pd-error__message">{{ error_message }}</p>
+        <p class="pd-error__hint">
+            {% if error_kind == 'parameters' %}
+                The scenario is carried entirely by the URL's parameters
+                (ADR-0104 &sect;4), and these could not be read. Nothing was
+                assumed on your behalf: fix the link, or drop back to the plan
+                world with <em>Reset all to plan</em> above.
+            {% elif error_kind == 'entry' %}
+                The hypothetical transaction was <strong>not added</strong>: the
+                plan world cannot carry it, so it never became a parameter. The
+                scenario above is unchanged. Correct the entry below and submit
+                again &mdash; or close the form and leave the set as it stands.
+            {% elif error_kind == 'shock' %}
+                The shock was <strong>not added</strong>: the plan world cannot
+                carry it, so it never became a parameter. The scenario above is
+                unchanged. Choose a scope the book holds &mdash; a market shock
+                marks a class of holdings, an FX shock a currency the book is
+                positioned in &mdash; and add it again from the Scenario Analysis
+                builder below.
+            {% elif error_kind == 'fx' %}
+                The plan world needs the
+                <strong>{{ missing_pair }}</strong> rate to state a total, and
+                a rate is never defaulted to 1:1 (ADR-0099 &sect;3). Add it to
+                the <code>FX rates</code> sheet and re-import via the
+                <a href="/admin#data-import">Data Import</a> section in Admin.
+                Until then the per-currency rows are the honest figures — the
+                total is not.
+            {% elif error_kind == 'overlay' %}
+                The parameter set is well-formed, but this book cannot carry
+                it — the usual cause is a shared link whose investment has since
+                been archived, or a trade dated into realised history. Remove
+                the offending chip above and the rest of the scenario stands.
+            {% else %}
+                The plan world is projected from the book's last actual
+                statement (ADR-0060), and this book has none to project from.
+                Import a statement first via the
+                <a href="/admin#data-import">Data Import</a> section in Admin.
+            {% endif %}
+        </p>
+    </div>
+
+    {% if error_kind == 'entry' and hyp %}
+        <div class="pd-hyp pd-hyp--refused">
+            {% include "_partials/planning_desk_hyp_form.html" %}
+        </div>
+    {% endif %}
+</div>
+
+{% include "_partials/planning_desk_paramstrip.html" %}

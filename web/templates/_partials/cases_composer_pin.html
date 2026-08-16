@@ -1,0 +1,44 @@
+{# Pin-document composer (ADR-0107 §7, C3b). Opened into #case-composer-slot by
+   the rail's "Pin document" action; posts a multipart body to
+   /api/cases/{id}/pin-document (hx-encoding sets the encoding). A pin is always
+   curation comment + attached artifact — the comment (mandatory) says why the
+   document is decision-relevant. On success the route clears this slot and
+   OOB-refreshes the timeline and the rail's attachments count; on validation
+   failure it re-renders this form carrying ``error`` and the entered comment.
+   The file input cannot be preserved across a re-render (browsers forbid it),
+   so the error copy asks for the file to be reselected.
+
+   Context: case_id, csrf_token, caps_hint (the visible caps line), error
+   (optional), comment (echoed on error). #}
+<form class="pf-case-composer"
+      hx-post="/api/cases/{{ case_id }}/pin-document"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Pin document</h3>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert">{{ error }}</p>
+    {% endif %}
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Why is this decision-relevant?</span>
+        <textarea class="pf-cases__field-input"
+                  name="comment"
+                  rows="3"
+                  required
+                  autofocus
+                  placeholder="The curation comment — what this document is evidence for.">{{ comment or '' }}</textarea>
+    </label>
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Document</span>
+        <input class="pf-cases__field-input" type="file" name="file" required>
+    </label>
+    <p class="pf-case-composer__hint">{{ caps_hint }}</p>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Pin document</button>
+    </div>
+</form>

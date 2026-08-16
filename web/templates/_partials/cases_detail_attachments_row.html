@@ -1,0 +1,14 @@
+{# Attachments rail row (ADR-0107, C3b) — the linked-objects "Attachments · N
+   of {cap}" entry. Shown when N > 0 or the case is open (the detail context
+   sets ``show_attachments``); on an open case it always renders, so a pin can
+   OOB-refresh it by id.
+
+   Context:
+     attachments_count — current attachment count (count_for_case).
+     attachments_cap   — the per-case cap (configuration).
+     attachments_oob   — when true the row carries hx-swap-oob so a successful
+                         pin refreshes just this count out of band. #}
+<li id="case-attachments-row"{% if attachments_oob %} hx-swap-oob="true"{% endif %}>
+    <span class="k">Attachments</span>
+    <span class="v">{{ attachments_count }} of {{ attachments_cap }}</span>
+</li>

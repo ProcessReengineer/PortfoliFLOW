@@ -1,0 +1,10 @@
+{
+  "supported_models": [
+    {
+      "pattern": "anthropic/claude-*",
+      "format": "openrouter_file",
+      "max_pdf_mb": 32,
+      "max_pdf_pages": 100
+    }
+  ]
+}

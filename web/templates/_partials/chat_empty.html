@@ -1,0 +1,9 @@
+{#
+   Empty-state placeholder for the chat history pane.
+
+   Used for:
+     1. The initial render of ``chat.html`` (synchronous, no flash).
+     2. ``GET /chat/history`` when the session has no stored history.
+     3. ``POST /chat/new`` after the server drops the session's history.
+#}
+<p class="chat-empty">Start a conversation by typing a message below.</p>

@@ -1,0 +1,42 @@
+{# Scraper run mount fragment — returned by POST /scraper/runs.
+
+   HTMX swaps this into ``#scraper-run`` (innerHTML). scraper.js sees
+   the data-pf-scraper-sse-url attribute, opens an EventSource on it,
+   and routes the progress / result / error / cancelled events into
+   this container.
+
+   Required context:
+     run_id      — newly allocated UUID hex
+     csrf_token  — for the cancel button
+     total_files — count of attached PDFs
+#}
+<div class="scraper-run-mount"
+     data-pf-scraper-sse-url="/scraper/runs/{{ run_id }}/stream"
+     data-pf-scraper-run-id="{{ run_id }}"
+     data-pf-csrf-token="{{ csrf_token }}">
+    <div class="scraper-run-mount__progress">
+        <div class="scraper-progress" aria-live="polite">
+            <div class="scraper-progress__line">
+                <span>Preparing extraction…</span>
+                <span>0 / {{ total_files }}</span>
+            </div>
+            <div class="scraper-progress__bar"
+                 role="progressbar"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-valuenow="0">
+                <div class="scraper-progress__bar-fill"
+                     style="width: 0%;"></div>
+            </div>
+            <div class="scraper-progress__actions">
+                <button type="button"
+                        class="btn btn--ghost"
+                        data-pf-scraper-cancel
+                        data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="scraper-run-mount__results"></div>
+</div>

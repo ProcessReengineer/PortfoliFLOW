@@ -1,0 +1,33 @@
+{# FX-error state for the Front-Office Overview section.
+
+   Rendered by web/routes/overview.py when the ADR-0099 §4 conversion
+   boundary raises MissingFxRateError — a foreign-currency position has no
+   FX rate at or before a date it needs, and the system never defaults a
+   rate to 1:1. The Overview has no as-of-date control (ADR-0067), so
+   unlike the portfolio-review error state there is no form to re-render:
+   the fix lives in the import, and the copy says so.
+
+   The exception message is passed through verbatim on purpose —
+   MissingFxRateError is a PortfoliFlowError and therefore user-facing
+   (web/errors.py). It names the currency and the date, which is exactly
+   what the operator needs to extend the `FX rates` sheet.
+
+   Context:
+     error_type     — exception class name.
+     error_message  — exception message. #}
+
+<div class="ov-section ov-section--error" id="ov-section-body">
+
+    <div class="ov-error alert alert--error" role="alert">
+        <h4 class="ov-error__title">{{ error_type }}</h4>
+        <p class="ov-error__message">{{ error_message }}</p>
+        <p class="ov-error__hint">
+            A foreign-currency position needs an FX rate this portfolio
+            cannot supply, and rates are never defaulted to 1:1
+            (ADR-0099 &sect;3). Add the missing rate to the
+            <code>FX rates</code> sheet and re-import via the
+            <a href="/admin#data-import">Data Import</a> section in Admin.
+        </p>
+    </div>
+
+</div>

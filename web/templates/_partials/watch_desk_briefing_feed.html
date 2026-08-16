@@ -1,0 +1,28 @@
+{# Briefing feed fragment (ADR-0089). Rendered inside the Briefing body
+   and returned standalone by the resolution POST (swapped as
+   #dc-briefing-feed, outerHTML). An empty feed is the AFFIRMATIVE CALM
+   STATE — a first-class design, not an empty-list/error fallback.
+   Context: cards (list, possibly empty), csrf_token. #}
+<div id="dc-briefing-feed" class="pf-dc-feed">
+    {% if cards %}
+        {% for card in cards %}
+            {% include "_partials/watch_desk_card.html" %}
+        {% endfor %}
+    {% else %}
+        <div class="pf-dc-calm">
+            <p class="pf-dc-calm__status">
+                <span class="pf-dc-calm__dot" aria-hidden="true"></span>
+                All monitored limits are calm — nothing material since your
+                last review.
+            </p>
+            <details class="pf-dc-lowpri">
+                <summary class="pf-dc-lowpri__summary">
+                    Lower-priority notices
+                </summary>
+                <p class="pf-dc-lowpri__empty">
+                    No lower-priority notices right now.
+                </p>
+            </details>
+        </div>
+    {% endif %}
+</div>

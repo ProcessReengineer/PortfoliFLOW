@@ -1,0 +1,36 @@
+{# HTMX detail partial for one limit set's per-class ceilings.
+
+   Context (from web/routes/limits.py::get_limit_set_detail):
+     set_id              — UUID string of the set.
+     family_upper        — "SAA" or "ANLV".
+     effective_from_iso  — ISO date string.
+     label               — operator-readable label.
+     notes               — optional free-text annotation.
+     limits              — list of {class_key, max_pct} dicts. #}
+
+<div class="lim-set-detail" data-set-id="{{ set_id }}">
+    <header class="lim-set-detail__header">
+        <span class="lim-set-detail__family">{{ family_upper }}</span>
+        <span class="lim-set-detail__effective">{{ effective_from_iso }}</span>
+        <h4 class="lim-set-detail__title">{{ label }}</h4>
+        {% if notes %}
+            <p class="lim-set-detail__notes">{{ notes }}</p>
+        {% endif %}
+    </header>
+    <table class="lim-set-detail__table">
+        <thead>
+            <tr>
+                <th>Class</th>
+                <th class="num">Max %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for limit in limits %}
+                <tr>
+                    <td>{{ limit.class_key }}</td>
+                    <td class="num">{{ "%.4f"|format(limit.max_pct) }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

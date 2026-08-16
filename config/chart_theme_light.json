@@ -1,0 +1,175 @@
+{
+    "_comment": "PortfoliFLOW Chart Theme — Light variant for use with the light UI theme. Backgrounds white/very light grey, text and grids dark for legibility. Header/foreground accent kept red for emphasis; switch to a neutral if a single-colour scheme is preferred.",
+    "_version": "1.0.0",
+    "_display_name": "Light",
+
+    "font": {
+        "family": ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
+        "title_size": 11,
+        "axis_label_size": 9,
+        "tick_label_size": 8,
+        "label_size": 8,
+        "legend_size": 8,
+        "weight_title": "bold",
+        "weight_axis_label": "normal",
+        "weight_tick_label": "normal"
+    },
+
+    "colours": {
+        "background": "#FFFFFF",
+        "plot_area": "#F8F8F8",
+        "text": "#1A1A1A",
+        "grid": "#D0D0D0",
+        "axis_line": "#888888",
+        "primary": "#E8304A",
+        "primary_alt": "#4A9BD9",
+        "accent_line": "#FFA726",
+        "secondary": "#4A9BD9",
+        "tertiary": "#4CAF50",
+        "quaternary": "#FFA726",
+        "quinary": "#AB47BC",
+        "senary": "#26C6DA",
+        "septenary": "#FF7043",
+        "neutral": "#78909C",
+        "muted": "#8D6E63",
+        "series_palette": [
+            "#E8304A", "#4A9BD9", "#4CAF50", "#FFA726",
+            "#AB47BC", "#26C6DA", "#FF7043", "#8D6E63",
+            "#78909C", "#EC407A", "#66BB6A", "#42A5F5"
+        ],
+        "positive_bar": "#4CAF50",
+        "negative_bar": "#E8304A",
+        "calls": "#E8304A",
+        "distributions": "#4CAF50",
+        "nav_line": "#4A9BD9",
+        "ncg_line": "#FFA726",
+        "net_capital_gain_line": "#FFA726",
+        "dpi_bar": "#4CAF50",
+        "rvpi_bar": "#4A9BD9",
+        "tvpi_label": "#1A1A1A",
+        "irr_line": "#FFA726"
+    },
+
+    "line": {
+        "width_primary": 1.5,
+        "width_secondary": 1.2,
+        "width_grid": 0.5,
+        "width_axis": 0.8,
+        "width_px": 1.8,
+        "style_primary": "solid",
+        "style_secondary": "solid",
+        "style_grid": "dotted",
+        "alpha_line": 1.0,
+        "alpha_grid": 0.4
+    },
+
+    "bar": {
+        "width": 0.8,
+        "alpha": 0.85,
+        "edge_width": 0.0,
+        "edge_colour": "none"
+    },
+
+    "chart": {
+        "area_alpha": 0.65,
+        "treemap_palette": [
+            "primary",
+            "primary_alt",
+            "accent_line",
+            "positive_bar",
+            "negative_bar",
+            "neutral",
+            "muted"
+        ]
+    },
+
+    "legend": {
+        "location": "upper left",
+        "frame_on": false,
+        "frame_alpha": 0.0,
+        "columns": 1,
+        "marker_scale": 0.8
+    },
+
+    "layout": {
+        "figure_dpi": 100,
+        "chart_height_px": 280,
+        "chart_spacing_px": 12,
+        "padding_top": 0.92,
+        "padding_bottom": 0.15,
+        "padding_left": 0.12,
+        "padding_right": 0.88,
+        "title_pad": 8,
+        "y_label_padding_chars": 18
+    },
+
+    "axis": {
+        "tick_direction": "out",
+        "tick_length": 3,
+        "tick_width": 0.6,
+        "spine_visible_top": false,
+        "spine_visible_right": false,
+        "spine_visible_bottom": true,
+        "spine_visible_left": true,
+        "x_label_rotation": 45,
+        "x_label_ha": "right",
+        "y_format_decimals": 2,
+        "auto_scale": true
+    },
+
+    "table": {
+        "header_bg": "#EAEAEA",
+        "header_fg": "#E8304A",
+        "cell_bg_even": "#FFFFFF",
+        "cell_bg_odd": "#F5F5F5",
+        "cell_fg": "#1A1A1A",
+        "border_colour": "#D0D0D0",
+        "header_font_weight": "bold",
+        "cell_font_size": 9,
+        "header_font_size": 9,
+        "row_height": 28
+    },
+
+    "optimization": {
+        "cloud_alpha": 0.10,
+        "cloud_marker_size": 3,
+        "cloud_colour": "#D0D0D0",
+        "frontier_linewidth": 2.0,
+        "cml_linewidth": 1.5,
+        "cml_dash_pattern": [8, 4],
+        "tangency_marker_size": 200,
+        "tangency_marker": "*",
+        "min_var_marker_size": 80,
+        "min_var_marker": "D",
+        "asset_marker": "x",
+        "asset_marker_size": 100,
+        "asset_label_offset_x": 8,
+        "asset_label_offset_y": 8,
+        "chart_height_px": 500,
+        "rf_line_alpha": 0.3,
+        "current_portfolio_marker": "o",
+        "current_portfolio_marker_size": 120,
+        "current_portfolio_colour": "#FFA726"
+    },
+
+    "pf": {
+        "_comment": "PortfoliFLOW shell tokens — light variant. Backgrounds inverted, accent overlays kept on the same primary hue.",
+        "sidebar": {
+            "width_expanded": "200px",
+            "width_collapsed": "56px"
+        },
+        "statusbar": {
+            "height": "28px"
+        },
+        "bg": {
+            "deepest": "#FFFFFF",
+            "surface": "#F5F5F5",
+            "elevated": "#FAFAFA",
+            "hover": "#EEEEEE"
+        },
+        "accent": {
+            "soft": "rgba(232, 48, 74, 0.10)",
+            "glow": "rgba(232, 48, 74, 0.25)"
+        }
+    }
+}

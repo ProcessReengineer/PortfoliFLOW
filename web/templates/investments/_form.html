@@ -1,0 +1,89 @@
+{# Reusable investment form partial.
+
+   Required template variables:
+   * ``form_action`` — URL to POST or PUT to (e.g. "/investments" or
+     "/investments/{id}").
+   * ``form_method`` — "POST" (create) or "PUT" (edit).
+   * ``submit_label`` — text on the submit button.
+   * ``investment`` — dict with form-field defaults (use empty dict for
+     "create" mode).
+   * ``asset_classes`` — list of {id, code, display_name}.
+   * ``investment_types`` — list of allowed type discriminators.
+   * ``csrf_token`` — session-bound CSRF token.
+
+   Edit-mode posts JSON via fetch (PUT cannot be expressed as a plain
+   form submission); create-mode posts a regular form-encoded body
+   (POST + redirect mirrors the Phase-3 SAA create path).
+#}
+
+<form id="investment-form"
+      class="inv-form"
+      method="POST"
+      action="{{ form_action }}"
+      data-mode="{{ form_method | upper }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="inv-form__grid">
+        <label class="field">
+            <span>Name</span>
+            <input type="text" name="name" required maxlength="200"
+                   value="{{ investment.name | default('', true) }}">
+        </label>
+        <label class="field">
+            <span>Investment Type</span>
+            <select name="investment_type" required>
+                <option value="">Select type…</option>
+                {% for t in investment_types %}
+                    <option value="{{ t }}"
+                        {% if investment.investment_type == t %}selected{% endif %}>
+                        {{ t }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span>Asset Class</span>
+            <select name="asset_class_id" required>
+                <option value="">Select asset class…</option>
+                {% for ac in asset_classes %}
+                    <option value="{{ ac.id }}"
+                        {% if investment.asset_class_id == ac.id %}selected{% endif %}>
+                        {{ ac.display_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field">
+            <span>Currency (ISO 4217)</span>
+            <input type="text" name="currency" required minlength="3" maxlength="3"
+                   pattern="[A-Za-z]{3}"
+                   value="{{ investment.currency | default('EUR', true) }}">
+        </label>
+        <label class="field">
+            <span>Manager Name</span>
+            <input type="text" name="manager_name" maxlength="200"
+                   value="{{ investment.manager_name | default('', true) }}">
+        </label>
+        <label class="field">
+            <span>Region</span>
+            <input type="text" name="region" maxlength="200"
+                   value="{{ investment.region | default('', true) }}">
+        </label>
+        <label class="field">
+            <span>Vintage Year</span>
+            <input type="number" name="vintage_year" min="1900" max="2100" step="1"
+                   value="{{ investment.vintage_year | default('', true) }}">
+        </label>
+        <label class="field">
+            <span>Commitment Amount</span>
+            <input type="number" name="commitment_amount" step="0.01"
+                   value="{{ investment.commitment_amount | default('', true) }}">
+        </label>
+    </div>
+
+    <div class="inv-form__actions">
+        <a href="{% if investment.id %}/investments/{{ investment.id }}{% else %}/investments{% endif %}"
+           class="btn btn--ghost">Cancel</a>
+        <button type="submit" class="btn btn--primary">{{ submit_label }}</button>
+    </div>
+</form>

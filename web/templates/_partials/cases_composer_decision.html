@@ -1,0 +1,47 @@
+{# Record-decision composer (ADR-0107, C3b). Opened into #case-composer-slot by
+   the rail's "Record decision" action; posts to /api/cases/{id}/decision. Both
+   fields are required — ``decision`` and ``rationale`` are the C3a rendering
+   contract the timeline reads. On success the route clears this slot and
+   OOB-refreshes the timeline; on validation failure it re-renders this form
+   carrying ``error`` and the entered values.
+
+   Context: case_id, csrf_token, error (optional), decision / rationale (echoed
+   on error). #}
+<form class="pf-case-composer"
+      hx-post="/api/cases/{{ case_id }}/decision"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Record decision</h3>
+    <p class="pf-case-composer__hint">
+        Optional and structured — for a case that deserves a documented decision
+        of record. Both fields are required once you record one.
+    </p>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert">{{ error }}</p>
+    {% endif %}
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Decision</span>
+        <textarea class="pf-cases__field-input"
+                  name="decision"
+                  rows="3"
+                  required
+                  autofocus
+                  placeholder="The chosen path.">{{ decision or '' }}</textarea>
+    </label>
+    <label class="pf-cases__field">
+        <span class="pf-cases__field-label">Rationale</span>
+        <textarea class="pf-cases__field-input"
+                  name="rationale"
+                  rows="3"
+                  required
+                  placeholder="Why this path, and what was assessed and rejected.">{{ rationale or '' }}</textarea>
+    </label>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Record decision</button>
+    </div>
+</form>

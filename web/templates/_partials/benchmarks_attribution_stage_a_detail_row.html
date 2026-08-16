@@ -1,0 +1,22 @@
+{# Stage a — per-investment detail row partial. Returned by the
+   ``stage-a/investment-detail`` endpoint and injected by the
+   Stage-a Tabulator row-click handler as the inner HTML of a
+   ``<div class="ba-detail-row">`` sibling element placed directly
+   below the clicked row. Per ADR-0062 §4 (inline master-detail). #}
+
+{% if chart_spec %}
+    <div class="ba-detail-row__inner">
+        <p class="ba-chart-caption">
+            {{ investment_name }} vs. {{ benchmark_display_name }}
+        </p>
+        <div class="ba-chart-container">
+            <div class="pf-plotly-target"
+                 id="ba-stage-a-detail-{{ investment_id }}"
+                 data-plotly-spec='{{ chart_spec | tojson | safe }}'></div>
+        </div>
+    </div>
+{% else %}
+    <div class="ba-detail-row__inner">
+        <p class="pf-empty-state">{{ empty_message }}</p>
+    </div>
+{% endif %}

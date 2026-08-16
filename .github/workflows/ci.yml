@@ -1,0 +1,72 @@
+# Fast tier — the merge contract (ADR-0109 §4, §6).
+#
+# Runs on every push and PR: lint, format check, pyright islands, and the
+# fast test tier. The fast tier runs WITHOUT a database:
+#   * tests/repositories, tests/services, tests/auth, tests/web are
+#     ignored explicitly (DB-heavy; covered by full-suite.yml),
+#   * any remaining DB-bound test self-skips by fixture design
+#     (tests/_db_fixtures._require_db_urls),
+#   * tests/regression stays IN: the purity-guard family runs without a
+#     database; only the migration-roundtrip files self-skip.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Pyright (typing islands)
+        run: pyright
+
+  fast-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Fast test tier (no database)
+        run: >
+          pytest -m "not integration and not timing"
+          --ignore=tests/repositories
+          --ignore=tests/services
+          --ignore=tests/auth
+          --ignore=tests/web

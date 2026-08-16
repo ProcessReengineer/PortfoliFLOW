@@ -1,0 +1,58 @@
+{#
+   Rehydrated chat history rendered as a sequence of chat-message
+   bubbles and chart figures. Returned by GET /chat/history on page-load
+   so a tab reload restores the conversation from the session's in-memory
+   history (ADR-0050) and its chart-artefact sidecar (ADR-0114).
+
+   ``bubble_id`` is empty because the SSE stream for these turns is
+   long over and the messages are not subsequent SSE swap targets.
+   Timestamps are not surfaced on rehydration — Message.timestamp is
+   ephemeral and the meta line is omitted.
+
+   A chart item renders the same figure anatomy the live SSE path builds
+   in chat.js — plot container, caption, pin affordance — with the frozen
+   spec transported in an adjacent ``application/json`` block that
+   chart_snapshot.js reads and feeds to Plotly. The spec is emitted via
+   ``|tojson``, which escapes ``<``/``>``/``&``/``'`` as unicode escapes:
+   it is never interpolated into JavaScript source, and the block is inert
+   to the HTML parser. An artefact that was too large to archive carries
+   no spec and renders the calm placeholder instead.
+
+   Context:
+       items         — render items in surface order:
+                       {kind: "message", role, content} and
+                       {kind: "chart", artifact_id, caption, spec, oversized}.
+       pin_chart_url — the chart pin dialog endpoint (ADR-0114).
+#}
+{% for item in items %}
+{% if item.kind == "message" %}
+<article class="chat-message chat-message--{{ item.role }}">
+    <div class="chat-message__bubble"
+         {% if item.role == "assistant" %}aria-live="polite"{% endif %}>{{ item.content }}</div>
+</article>
+{% elif item.kind == "chart" %}
+<article class="chat-message chat-message--assistant">
+    {% if item.oversized %}
+        <div class="chat-chart">
+            <p class="chat-chart__placeholder">
+                This chart was too large to restore — ask Shirley again.
+            </p>
+        </div>
+    {% else %}
+        <div class="chat-chart" data-pf-chart>
+            <div class="chat-chart__plot" data-pf-chart-plot></div>
+            <script type="application/json" data-pf-chart-spec>{{ item.spec | tojson }}</script>
+            {% if item.caption %}
+                <div class="chat-chart__caption">{{ item.caption }}</div>
+            {% endif %}
+        </div>
+        <button type="button" class="chat-pin-affordance" data-pf-pin="chart"
+                hx-get="{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }}"
+                hx-target="#chat-pin-dialog"
+                hx-swap="innerHTML">Pin to case…</button>
+    {% endif %}
+</article>
+{% endif %}
+{% else %}
+{% include "_partials/chat_empty.html" %}
+{% endfor %}

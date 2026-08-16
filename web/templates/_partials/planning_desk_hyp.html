@@ -1,0 +1,97 @@
+{# Hypothetical transactions — the entry surface of `insert_transaction`
+   (mockup ④, ADR-0104 §2/§7).
+
+   The block below the pacing rows: an entry form (its own partial, because the
+   error state re-renders it alone) and the row table the parameter set
+   projects into.
+
+   **The table is rendered from the parameter set, not from the frames.** A
+   hypothetical transaction is a parameter; the frames carry only its *effect*
+   (the executor appends no PlanFlow for it, ADR-0104 §2). Its row and its chip
+   in the strip are therefore two views of one thing — and the ✕ in the row is
+   the very link the chip's ✕ carries, re-indexed by `serialise_overlay`.
+
+   The **AUM column is inert**. Value and cash move by the same amount, in the
+   same currency, on the same date, so AUM is invariant *by construction*
+   (ADR-0104 §2) — a property of the engine, not a claim for a template to
+   re-prove per row.
+
+   Context (from web/routes/planning_desk.py, `_build_hyp_context`):
+     hyp.rows      — [{txn_type, pill_class, name, currency, trade_date, units,
+                       price, consideration, cash_effect, is_cash_out,
+                       remove_query}], in overlay order.
+     hyp.options / hyp.fields / hyp.txn_types / hyp.earliest_trade_date /
+     hyp.seam_date / hyp.base_query / hyp.is_open / hyp.prefix
+                   — see planning_desk_hyp_form.html.
+     section_url / area_url — the endpoint every control re-issues. #}
+
+<div class="pd-hyp">
+    <div class="pd-hyp__head">
+        <h3 class="pd-hyp__title">Hypothetical transactions</h3>
+        <span class="pd-hyp__hint">
+            Entered into the scenario's parameter set alone — never into the
+            book. Each settles against the cash position of its own currency.
+        </span>
+        <span class="pd-paramstrip__spacer"></span>
+        {% include "_partials/planning_desk_hyp_form.html" %}
+    </div>
+
+    {% if hyp.rows %}
+        <div class="pd-hyp__tablewrap">
+            <table class="pd-hyp__table">
+                <thead>
+                    <tr>
+                        <th scope="col">Type</th>
+                        <th scope="col">Investment</th>
+                        <th scope="col">Trade date</th>
+                        <th scope="col" class="r">Units</th>
+                        <th scope="col" class="r">Price</th>
+                        <th scope="col" class="r">Consideration</th>
+                        <th scope="col" class="r">Cash effect</th>
+                        <th scope="col" class="r">AUM effect</th>
+                        <th scope="col"><span class="visually-hidden">Remove</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in hyp.rows %}
+                        <tr>
+                            <td>
+                                <span class="pd-pill {{ row.pill_class }}">
+                                    {{ row.txn_type }}
+                                </span>
+                            </td>
+                            <td>
+                                {{ row.name }}
+                                <span class="pd-badge-cur">{{ row.currency }}</span>
+                            </td>
+                            <td>{{ row.trade_date }}</td>
+                            <td class="r">{{ row.units }}</td>
+                            <td class="r">{{ row.price }}</td>
+                            <td class="r">{{ row.consideration }}</td>
+                            <td class="r{{ ' pd-hyp__out' if row.is_cash_out }}">
+                                {{ row.cash_effect }}
+                            </td>
+                            <td class="r">
+                                <span class="pd-delta pd-delta--zero">
+                                    ±0 by construction
+                                </span>
+                            </td>
+                            <td class="r">
+                                <button type="button"
+                                        class="btn btn--ghost pd-hyp__x"
+                                        title="Remove this hypothetical transaction"
+                                        aria-label="Remove the {{ row.txn_type }} on {{ row.name }} ({{ row.trade_date }})"
+                                        hx-get="{{ section_url }}?{{ row.remove_query }}"
+                                        hx-push-url="{{ area_url }}?{{ row.remove_query }}">&#10005;</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="pd-hyp__empty">
+            No hypothetical transactions in this scenario.
+        </p>
+    {% endif %}
+</div>

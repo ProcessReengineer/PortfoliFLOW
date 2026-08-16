@@ -1,0 +1,1287 @@
+/* Watch Desk (ADR-0089).
+ *
+ * Calm-by-default. Band colours are deliberately RESTRAINED — a small,
+ * quiet palette keyed off the finding band, not a loud red-amber-green
+ * alarm board. `informational` is the quietest (neutral border, no fill);
+ * `noteworthy` is a slightly warmer neutral; `critical` alone gets the
+ * accent crimson, used sparingly. All classes are prefixed `.pf-dc-` to
+ * avoid cascade collisions with the other section components.
+ *
+ * Rule groups below read in render order: area shell, tiles, toolbar, calm
+ * state, feed/cards, Possible moves, actions, derivation, journal,
+ * calibration, monitor. Keep new rules inside their group. */
+
+.pf-dc-briefing,
+.pf-dc-journal,
+.pf-dc-calibration {
+    max-width: 1100px;
+}
+
+/* --- Briefing status tiles ----------------------------------------- */
+
+/* Four derived tiles above the feed. The mock's hard-coded value colour
+ * (`#E6E6E6`) is deliberately NOT copied: `--ui-text-primary` is the
+ * crimson accent in this theme, so tile values follow the house
+ * metric-card pattern (`--ui-text-secondary`, cf. `.ov-card__value`).
+ * DC5 audited this against all three themes and kept the token. */
+
+.pf-dc-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+@media (max-width: 900px) {
+    .pf-dc-tiles {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.pf-dc-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 14px;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+}
+
+.pf-dc-tile__label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-tile__value {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-tile__value .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: var(--ui-semantic-success);
+    box-shadow: 0 0 0 3px
+        color-mix(in srgb, var(--ui-semantic-success) 25%, transparent);
+}
+
+.pf-dc-tile__sub {
+    font-size: 0.78rem;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-tile__sub .crit {
+    color: var(--ui-accent-primary);
+}
+
+.pf-dc-tile__sub .note {
+    color: var(--ui-semantic-warning);
+}
+
+.pf-dc-tile--action {
+    align-items: flex-start;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* --- Briefing toolbar + request analysis --------------------------- */
+
+.pf-dc-briefing__toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-height: 40px;
+    margin-bottom: 12px;
+}
+
+/* The toolbar now holds only the "Request analysis" confirmation, so it
+ * collapses until one arrives rather than leaving a gap under the tiles.
+ * DC5 kept the container: `#dc-briefing-toolbar` is the HTMX swap target
+ * the result partial lands in, so it must exist before the first request. */
+.pf-dc-briefing__toolbar:empty {
+    min-height: 0;
+    margin-bottom: 0;
+}
+
+.pf-dc-request {
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 7px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.pf-dc-request:hover {
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-accent-primary);
+}
+
+.pf-dc-request-result {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--ui-semantic-success);
+}
+
+.pf-dc-request-result--warn {
+    color: var(--ui-semantic-warning);
+}
+
+/* --- Calm (empty) state — affirmative, not empty ------------------- */
+
+.pf-dc-calm {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px 22px;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-left: 3px solid var(--ui-semantic-success);
+    border-radius: 5px;
+}
+
+.pf-dc-calm__status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--ui-text-primary);
+}
+
+.pf-dc-calm__dot {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--ui-semantic-success);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-semantic-success) 25%, transparent);
+}
+
+.pf-dc-lowpri {
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+/* Colour inherits from `.pf-dc-lowpri` — `<summary>` carries no UA colour. */
+.pf-dc-lowpri__summary {
+    cursor: pointer;
+}
+
+.pf-dc-lowpri__empty {
+    margin: 8px 0 0;
+    color: var(--ui-text-disabled);
+}
+
+/* --- Feed + cards -------------------------------------------------- */
+
+.pf-dc-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pf-dc-card {
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-left: 3px solid var(--ui-semantic-muted);
+    border-radius: 5px;
+    padding: 16px 18px;
+}
+
+/* Band-keyed restraint: only critical draws the accent. */
+.pf-dc-card--informational {
+    border-left-color: var(--ui-semantic-muted);
+}
+
+.pf-dc-card--noteworthy {
+    border-left-color: var(--ui-semantic-warning);
+}
+
+.pf-dc-card--critical {
+    border-left-color: var(--ui-accent-primary);
+    background: color-mix(in srgb, var(--ui-accent-primary) 6%, var(--ui-background-section));
+}
+
+.pf-dc-card__head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.pf-dc-card__band {
+    flex: 0 0 auto;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-card--critical .pf-dc-card__band {
+    color: var(--ui-accent-primary);
+}
+
+.pf-dc-card__trigger {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ui-text-primary);
+}
+
+.pf-dc-card__finding {
+    margin: 0 0 10px;
+    font-size: 0.92rem;
+    color: var(--ui-text-primary);
+}
+
+.pf-dc-card__materiality {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    background: var(--ui-background-primary);
+    border-radius: 4px;
+}
+
+.pf-dc-card__materiality-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-card__materiality-figure {
+    font-size: 0.9rem;
+    color: var(--ui-text-primary);
+}
+
+/* --- Possible moves — the re-told options payload (DC3) ------------- */
+
+.pf-dc-card__starting {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    background: var(--ui-background-primary);
+    border-radius: 4px;
+    border-left: 2px solid var(--ui-semantic-info);
+}
+
+.pf-dc-card__starting-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-card__starting-text {
+    font-size: 0.9rem;
+    color: var(--ui-text-secondary);
+    margin: 0;
+}
+
+.pf-dc-card__starting-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+/* The Case workspace exists as of ADR-0107 (C4), so the button is a live
+   control now: it posts to the open-case endpoint and HX-Redirects to the
+   pre-filled case. The dashed border is kept — it reads as a "start something"
+   affordance, quieter than the solid resolution buttons above it. */
+.pf-dc-opencase-form {
+    display: inline-flex;
+    margin: 0;
+}
+
+.pf-dc-opencase {
+    background: none;
+    border: 1px dashed var(--ui-border-default);
+    border-radius: 4px;
+    color: var(--ui-text-secondary);
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 3px 10px;
+    cursor: pointer;
+}
+
+.pf-dc-opencase:hover {
+    border-color: var(--ui-semantic-info);
+    color: var(--ui-semantic-info);
+}
+
+/* Standalone placement (ADR-0120 §2): the same form in the card footer when
+   the card carries no Possible-moves block to host it. Layout only — the
+   button keeps the dashed .pf-dc-opencase treatment above, so the affordance
+   reads identically wherever it sits. */
+.pf-dc-card__foot {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+/* --- Action buttons ------------------------------------------------ */
+
+.pf-dc-card__actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.pf-dc-btn {
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.pf-dc-btn:hover {
+    border-color: var(--ui-accent-primary);
+}
+
+.pf-dc-btn--primary {
+    background: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-accent-primary);
+}
+
+.pf-dc-btn--primary:hover {
+    background: var(--ui-accent-primary-hover);
+}
+
+/* --- Collapsible derivation --------------------------------------- */
+
+.pf-dc-card__derivation {
+    font-size: 0.83rem;
+    color: var(--ui-text-secondary);
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 8px;
+}
+
+/* Colour inherits from `.pf-dc-card__derivation` (same rule as above). */
+.pf-dc-card__derivation-summary {
+    cursor: pointer;
+}
+
+.pf-dc-card__derivation-basis {
+    margin: 8px 0 6px;
+}
+
+.pf-dc-card__members,
+.pf-dc-card__evidence {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+
+.pf-dc-card__member-source {
+    color: var(--ui-text-disabled);
+    margin-left: 6px;
+}
+
+.pf-dc-card__derivation-empty {
+    margin: 8px 0 0;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-error {
+    margin: 6px 0;
+    font-size: 0.85rem;
+    color: var(--ui-semantic-error);
+}
+
+/* --- Journal ------------------------------------------------------- */
+
+/* The former `.pf-dc-watchlist__*` halves of these shared selectors retired
+ * with the Calibration restructure (DC4/D5) — the two per-subject tables
+ * they styled are gone, superseded by the Briefing monitor. */
+
+.pf-dc-journal__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.pf-dc-journal__table th,
+.pf-dc-journal__table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    color: var(--ui-text-primary);
+}
+
+.pf-dc-journal__table th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-journal__subject {
+    font-family: var(--ui-font-family);
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-journal__empty {
+    color: var(--ui-text-secondary);
+    font-size: 0.88rem;
+}
+
+/* Restrained band / resolution tags. */
+.pf-dc-band-tag,
+.pf-dc-res-tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 1px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-band-tag--critical {
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-accent-primary);
+}
+
+.pf-dc-band-tag--noteworthy {
+    border-color: var(--ui-semantic-warning);
+    color: var(--ui-semantic-warning);
+}
+
+/* The fifth resolution (ADR-0107, C4 rider 2) and the closed-case marker:
+ * toned as quiet siblings of the neutral res-tag, keyed to "informational"
+ * blue rather than an alarm colour — a hand-over and a documented close are
+ * calm outcomes, not warnings. Used on both the Journal rows and the Cases
+ * origin embed, so the two surfaces read identically. */
+.pf-dc-res-tag--opened_case,
+.pf-dc-res-tag--closed {
+    border-color: var(--ui-semantic-info);
+    color: var(--ui-semantic-info);
+}
+
+/* res-tags that link (an opened_case finding → its case, a closed-case row →
+ * the case) keep the tag look — no underline, the tag colour wins. */
+a.pf-dc-res-tag {
+    text-decoration: none;
+}
+
+a.pf-dc-res-tag:hover {
+    background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
+}
+
+/* Closed-case Journal rows — a sibling of the finding rows, not a new
+ * species: the badge links to the case, a muted "Case" mark stands in for the
+ * band column, and the closing-note excerpt sits under the title. */
+.pf-dc-journal__caselink {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular",
+        "Menlo", monospace);
+    color: var(--ui-text-secondary);
+    text-decoration: none;
+}
+
+.pf-dc-journal__caselink:hover {
+    color: var(--ui-accent-primary);
+}
+
+.pf-dc-journal__casemark {
+    display: inline-block;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-journal__excerpt {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--ui-text-disabled);
+}
+
+/* --- Calibration + cadence ----------------------------------------- */
+
+/* Read-only threshold facts from the Floor Config. Rules lifted from the
+ * mock (~L141-145); DC5 audited the tokens. As with the DC1
+ * tiles, the mock's hard-coded label colour (`#E6E6E6`) is deliberately
+ * NOT copied: it is invisible on the light theme's section background, and
+ * `--ui-text-primary` is the accent here — so the label follows the house
+ * small-caps pattern (`--ui-text-secondary`, cf. `.pf-dc-journal__table th`)
+ * and is distinguished typographically rather than by hue. */
+
+.calib-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+@media (max-width: 900px) {
+    .calib-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.calib-cell {
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+}
+
+.calib-cell b {
+    display: block;
+    color: var(--ui-text-secondary);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.pf-dc-calibration__cadence {
+    margin-top: 26px;
+}
+
+.pf-dc-calibration__cadence-heading {
+    font-size: 0.95rem;
+    margin: 0 0 4px;
+    color: var(--ui-text-primary);
+}
+
+.pf-dc-calibration__note {
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+    margin: 0 0 10px;
+}
+
+.pf-dc-cadence__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+    margin-bottom: 12px;
+}
+
+.pf-dc-cadence__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-cadence__field--check {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.pf-dc-cadence__field select,
+.pf-dc-cadence__field input[type="text"] {
+    padding: 5px 7px;
+    background: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    min-width: 150px;
+}
+
+/* Anchor-hour semantics for the sub-daily cadences (ADR-0119 §3) — one
+   quiet line under the field row, not a per-field caption, so the
+   flex-end alignment of the row itself stays undisturbed. */
+.pf-dc-cadence__hint {
+    font-size: 0.8rem;
+    color: var(--ui-text-secondary);
+    margin: 0 0 12px;
+    max-width: 62ch;
+}
+
+.pf-dc-cadence__footer {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.pf-dc-cadence__next {
+    font-size: 0.8rem;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-cadence__flash {
+    font-size: 0.85rem;
+    color: var(--ui-semantic-success);
+    margin: 0 0 8px;
+}
+
+.pf-dc-cadence__error {
+    font-size: 0.85rem;
+    color: var(--ui-semantic-error);
+    margin: 0 0 8px;
+}
+
+/* --- Monitor — "What Irene watches" (DC2) -------------------------- */
+
+/* Two departures from the mock stylesheet are deliberate (DC5 audited
+ * both and kept them):
+ *   - the mock's bare `table` / `th` / `td` / `.tag` / `.gauge` selectors
+ *     are scoped under `.pf-dc-monitor` here, so they cannot collide with
+ *     the other section components' tables;
+ *   - the mock's hard-coded `#E6E6E6` text is replaced by
+ *     `--ui-text-secondary`, matching the tile treatment above
+ *     (`--ui-text-primary` is the crimson accent in this theme). */
+
+.pf-dc-monitor {
+    margin-top: 22px;
+}
+
+.pf-dc-monitor__head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.pf-dc-monitor__title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-monitor__empty {
+    font-size: 0.78rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-group {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    background: var(--ui-background-section);
+}
+
+.pf-dc-group + .pf-dc-group {
+    margin-top: 8px;
+}
+
+.pf-dc-group > summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.pf-dc-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.pf-dc-group__chevron {
+    transition: transform 0.15s;
+    color: var(--ui-text-disabled);
+    font-size: 0.75rem;
+}
+
+.pf-dc-group[open] .pf-dc-group__chevron {
+    transform: rotate(90deg);
+}
+
+.pf-dc-group__name {
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+    font-size: 0.88rem;
+}
+
+.pf-dc-group__badges {
+    display: flex;
+    gap: 6px;
+    margin-left: 8px;
+}
+
+.pf-dc-group__meta {
+    margin-left: auto;
+    font-size: 0.76rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-group__body {
+    padding: 0 14px 12px;
+    overflow-x: auto;
+}
+
+.pf-dc-monitor table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+}
+
+.pf-dc-monitor th {
+    text-align: left;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-disabled);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.pf-dc-monitor td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    vertical-align: middle;
+}
+
+.pf-dc-monitor tr:last-child td {
+    border-bottom: none;
+}
+
+.pf-dc-monitor .mono {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular",
+        "Menlo", monospace);
+}
+
+.pf-dc-monitor .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    border: 1px solid var(--ui-border-default);
+    white-space: nowrap;
+}
+
+.pf-dc-monitor .tag--ok {
+    color: var(--ui-semantic-success);
+    border-color: var(--ui-semantic-success);
+}
+
+.pf-dc-monitor .tag--warn {
+    color: var(--ui-semantic-warning);
+    border-color: var(--ui-semantic-warning);
+}
+
+.pf-dc-monitor .tag--breach {
+    color: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+/* Shared-scale gauge: 0 → ceiling on every row. The *scale* is identical
+ * everywhere — that is the whole point, and it is the utilisation analogue
+ * of the identical-axis rule for scenario comparisons. Never rescale per
+ * row. The fill width is rendered-clamped to 100% in the template so a
+ * breach cannot overflow the bar, while the printed coverage / ceiling
+ * figures stay honest.
+ *
+ * The WARN mark sits at the row's WARN fraction of that ceiling. Since
+ * ADR-0116 §3 the fraction is per subject, so the template writes an
+ * inline `left` from the subject's effective threshold and the 90% below
+ * is the fallback for a row rendered without one. Per-subject
+ * *positioned*, never per-subject rescaled, and never moved away from the
+ * threshold the row was actually classified against. */
+
+.pf-dc-monitor .gauge {
+    position: relative;
+    width: 130px;
+    height: 9px;
+    border-radius: 5px;
+    background: var(--ui-background-primary);
+}
+
+.pf-dc-monitor .gauge__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 5px;
+    background: var(--ui-text-disabled);
+}
+
+.pf-dc-monitor .gauge--ok .gauge__fill {
+    background: var(--ui-semantic-success);
+}
+
+.pf-dc-monitor .gauge--warn .gauge__fill {
+    background: var(--ui-semantic-warning);
+}
+
+.pf-dc-monitor .gauge--breach .gauge__fill {
+    background: var(--ui-accent-primary);
+}
+
+.pf-dc-monitor .gauge__warnmark {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    left: 90%;
+    width: 1px;
+    background: var(--ui-text-disabled);
+}
+
+.pf-dc-monitor .irene-note {
+    font-size: 0.78rem;
+    color: var(--ui-text-disabled);
+    max-width: 320px;
+}
+
+.pf-dc-monitor .irene-note--fired {
+    color: var(--ui-text-secondary);
+}
+
+/* --- Muted subjects and the sensitivity affordance (ADR-0116 §3/§6) --- */
+
+/* A muted row stays fully visible and fully legible: the tag is the only
+ * thing that changes, and it is deliberately *neutral* rather than dimmed
+ * or struck through. Mute suppresses finding creation, not truth, so the
+ * figures beside it must not read as switched off. */
+
+.pf-dc-monitor .tag--muted {
+    color: var(--ui-text-disabled);
+    border-color: var(--ui-text-disabled);
+}
+
+.pf-dc-sensitivity__open {
+    background: none;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 0.74rem;
+    color: var(--ui-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pf-dc-sensitivity__open:hover {
+    border-color: var(--ui-accent-primary);
+}
+
+.pf-dc-sensitivity__flag {
+    margin-left: 6px;
+    font-size: 0.7rem;
+    color: var(--ui-text-disabled);
+}
+
+/* The drawer's own row carries no border of its own — it reads as part of
+ * the row above it, not as a subject in its own right. */
+.pf-dc-monitor .pf-dc-sensitivity__slot > td {
+    padding: 0;
+    border-bottom: none;
+}
+
+.pf-dc-sensitivity {
+    padding: 12px 10px 14px;
+    background: var(--ui-background-primary);
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.pf-dc-sensitivity__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.pf-dc-sensitivity__field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 260px;
+}
+
+.pf-dc-sensitivity__field--check {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 2px 6px;
+}
+
+.pf-dc-sensitivity__field--check .pf-dc-sensitivity__hint {
+    grid-column: 2;
+}
+
+.pf-dc-sensitivity__field--notes {
+    max-width: 420px;
+    flex: 1;
+}
+
+.pf-dc-sensitivity__label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+}
+
+.pf-dc-sensitivity__hint {
+    font-size: 0.72rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-sensitivity__field input[type="text"] {
+    padding: 5px 7px;
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+}
+
+.pf-dc-sensitivity__footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pf-dc-sensitivity__note {
+    font-size: 0.74rem;
+    color: var(--ui-text-disabled);
+}
+
+/* --- Calibration editor (ADR-0116 §7) ------------------------------- */
+
+/* The provenance marker is typographic, never chromatic: "customised" is
+ * a fact about storage, not a warning, and colouring it would read as
+ * one. Only the locked marker departs, because it marks something the
+ * operator cannot act on at all. */
+
+.pf-dc-calib__block {
+    margin-bottom: 22px;
+}
+
+.pf-dc-calib__heading {
+    font-size: 0.88rem;
+    margin: 0 0 4px;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-calib__note {
+    font-size: 0.8rem;
+    color: var(--ui-text-disabled);
+    margin: 0 0 10px;
+    max-width: 60ch;
+}
+
+.pf-dc-calib__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+}
+
+.pf-dc-calib__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    padding: 9px 11px;
+}
+
+.pf-dc-calib__field--locked {
+    border-style: dashed;
+}
+
+.pf-dc-calib__label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.pf-dc-calib__marker {
+    font-size: 0.66rem;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-calib__marker--on {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+}
+
+.pf-dc-calib__marker--locked {
+    font-style: normal;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-calib__field input[type="text"],
+.pf-dc-calib__field input[type="number"],
+.pf-dc-calib__field select,
+.pf-dc-calib__notes input[type="text"] {
+    padding: 5px 7px;
+    background: var(--ui-background-primary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    width: 100%;
+}
+
+.pf-dc-calib__pair {
+    display: flex;
+    gap: 8px;
+}
+
+.pf-dc-calib__locked-value {
+    font-size: 0.82rem;
+    color: var(--ui-text-disabled);
+    padding: 5px 0;
+}
+
+.pf-dc-calib__hint {
+    font-size: 0.71rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-calib__field-error {
+    font-size: 0.75rem;
+    color: var(--ui-semantic-error);
+}
+
+.pf-dc-calib__notes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 520px;
+    margin-bottom: 16px;
+}
+
+.pf-dc-calib__flash {
+    font-size: 0.85rem;
+    color: var(--ui-semantic-success);
+    margin: 0 0 10px;
+}
+
+.pf-dc-calib__error {
+    font-size: 0.85rem;
+    color: var(--ui-semantic-error);
+    margin: 0 0 10px;
+    max-width: 70ch;
+}
+
+.pf-dc-calib__savebar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--ui-border-default);
+}
+
+.pf-dc-calib__savebar-status {
+    font-size: 0.8rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-calib__savebar-status--dirty {
+    color: var(--ui-semantic-warning);
+}
+
+/* The Scenarios placeholder rules retired with the stub itself (ADR-0104
+   §8). Their successors live in components/planning_desk.css, where
+   Feature #034 re-anchors. */
+
+/* --- Signal families on the monitor (ADR-0116 §4, §6) ---------------- */
+
+/* The signal status vocabulary gets its own modifiers rather than reusing
+ * the quota `--ok/--warn/--breach` set. Not cosmetics: "breach" is
+ * regulatory language reserved for saa/anlv, and a class name is rendered
+ * markup — the string assertion over the signal fragment reads it. The
+ * colours are deliberately the same three, because the *severity* really
+ * is the same; only the word differs. */
+
+.pf-dc-monitor .tag--calm {
+    color: var(--ui-semantic-success);
+    border-color: var(--ui-semantic-success);
+}
+
+.pf-dc-monitor .gauge--calm .gauge__fill {
+    background: var(--ui-semantic-success);
+}
+
+.pf-dc-monitor .tag--approaching {
+    color: var(--ui-semantic-warning);
+    border-color: var(--ui-semantic-warning);
+}
+
+.pf-dc-monitor .gauge--approaching .gauge__fill {
+    background: var(--ui-semantic-warning);
+}
+
+.pf-dc-monitor .tag--triggered {
+    color: var(--ui-accent-primary);
+    border-color: var(--ui-accent-primary);
+}
+
+.pf-dc-monitor .gauge--triggered .gauge__fill {
+    background: var(--ui-accent-primary);
+}
+
+/* A no-data row is *visually distinct from calm*, which is the whole
+ * point of having it: absence of data must never read as reassurance
+ * (ADR-0116 §4). Dashed, neutral, and — see the row template — carrying no
+ * gauge at all, because a bar would be a claim. */
+.tag--nodata {
+    color: var(--ui-text-disabled);
+    border-style: dashed;
+    border-color: var(--ui-text-disabled);
+}
+
+.pf-dc-monitor__nogauge {
+    color: var(--ui-text-disabled);
+}
+
+/* The subject key beside the operator's own label: present for the audit
+ * trail, quiet enough not to compete with the name. */
+.pf-dc-monitor__subject {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--ui-text-disabled);
+}
+
+.pf-dc-group__add {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--ui-accent-primary);
+    cursor: pointer;
+}
+
+.pf-dc-group__add:hover {
+    text-decoration: underline;
+}
+
+/* The collapsed calm remainder of an exception-first group. Collapsed,
+ * never hidden — the summary states the count and expands on demand. */
+.pf-dc-collapse > summary {
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--ui-text-disabled);
+    padding: 4px 0;
+}
+
+.pf-dc-monitor .pf-dc-group__collapsed > td {
+    padding: 0 10px;
+    border-bottom: none;
+}
+
+.pf-dc-monitor__footer {
+    padding: 4px 14px 10px;
+}
+
+.pf-dc-monitor__footer-line {
+    padding: 4px 0;
+    font-size: 0.8rem;
+}
+
+.pf-dc-monitor__footer-name {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+}
+
+/* --- Watchpoint list and history (ADR-0116 §7) ----------------------- */
+
+.pf-dc-calibration__watchpoints {
+    margin-bottom: 22px;
+}
+
+.pf-dc-wplist__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+}
+
+.pf-dc-wplist__table th {
+    text-align: left;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-disabled);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.pf-dc-wplist__table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    vertical-align: top;
+}
+
+.pf-dc-wplist__table .pf-dc-sensitivity__slot > td {
+    padding: 0;
+    border-bottom: none;
+}
+
+.pf-dc-wplist__actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pf-dc-wplist__retired {
+    margin-top: 12px;
+}
+
+.pf-dc-wphistory {
+    padding: 10px;
+    background: var(--ui-background-primary);
+    border-bottom: 1px solid var(--ui-border-default);
+}
+
+.pf-dc-wphistory__head {
+    font-size: 0.78rem;
+    color: var(--ui-text-secondary);
+    margin: 0 0 6px;
+}
+
+.pf-dc-watchpoint-form__head {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ui-text-secondary);
+    margin: 0 0 8px;
+}
+
+.pf-dc-watchpoint-form__scope {
+    display: block;
+    font-weight: 400;
+    font-size: 0.74rem;
+    color: var(--ui-text-disabled);
+    max-width: 60ch;
+}
+
+.pf-dc-watchpoint-form__fixed {
+    font-size: 0.84rem;
+    color: var(--ui-text-primary);
+    padding: 5px 0;
+}
+
+.pf-dc-watchpoint-form input[type="number"],
+.pf-dc-watchpoint-form select {
+    padding: 5px 7px;
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-primary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+}

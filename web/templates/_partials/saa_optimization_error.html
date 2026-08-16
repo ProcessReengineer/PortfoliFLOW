@@ -1,0 +1,8 @@
+{# HTMX partial: rendered when the optimisation cannot run
+   (configuration missing, fewer than two asset classes, infeasible
+   bounds, etc.). #}
+
+<div class="saa-error" role="alert">
+    <p class="saa-error__title">Optimization could not run</p>
+    <p>{{ error }}</p>
+</div>

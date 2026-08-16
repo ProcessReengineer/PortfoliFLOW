@@ -1,0 +1,219 @@
+{# Case timeline (ADR-0107, C3a) — the append-only spine, oldest first.
+
+   Every entry carries a timestamp (the Journal date+time idiom) and an actor
+   chip: ``pm`` shows the resolved user name, ``shirley`` / ``system`` show
+   their fixed labels (mirroring the mock's ``actor--{pm,shirley,system}``
+   styling). Per-kind bodies:
+
+     opened          — "Case opened" with the origin phrasing. The
+                       materiality-at-opening block lives in the origin embed,
+                       not repeated here.
+     note            — the note text (payload["text"]).
+     decision_record — the structured decision / rationale block. These two
+                       payload keys are the rendering contract; C3b's composer
+                       writes them.
+     closed          — "Case closed" with the closing note (payload["closing_note"],
+                       written by C1's close()).
+
+     pin (document)  — the pin anatomy (ADR-0107 §7): the curation comment
+                       plus the attached artifact — filename linking to the
+                       download endpoint and its human-legible size. Only the
+                       ``artifact == "document"`` class renders here (C3b); the
+                       payload contract is documented on ``web/routes/cases.py``.
+
+     pin (scenario_snapshot)
+                     — the frozen Planning Desk snapshot (ADR-0107 C5): the
+                       curation comment plus the parameter chips as a compact
+                       line, the four KPI pairs (base → scenario with the frozen
+                       delta tone), the two horizon feet, a headroom *count* (the
+                       mock shows no headroom table), and the stored query as
+                       monospace text — never a link (decision 2). Rendered
+                       verbatim from the payload, nothing recomputed.
+
+     pin (consultation)
+                     — the curated Shirley excerpt (ADR-0107 C6): the PM's
+                       curation comment plus the quoted text, attributed to
+                       Shirley (the words are Shirley's; the actor chip stays
+                       ``pm``, the curator — binding decision 3). Read verbatim
+                       from the payload.
+
+     pin (chart_snapshot)
+                     — the frozen Shirley chart (ADR-0114): the curation
+                       comment plus the caption and the figure itself, re-plotted
+                       from the stored spec through the shared render helper
+                       (``chart_snapshot.js``). Verbatim, nothing recomputed and
+                       nothing re-queried — the `scenario_snapshot` discipline
+                       applied to a figure.
+
+   Any other kind or artifact — a seeded row of an unrendered kind — falls
+   through to the calm generic fallback: the head row alone (kind label + actor
+   + timestamp), payload untouched, so it never breaks the page.
+
+   Closed cases render identically — reading is never gated (C3b's composers
+   are gated on the open state, but they live in the rail, not here).
+
+   Context:
+     entries      — list of projected entry dicts, ascending.
+     timeline_oob — when true the root carries hx-swap-oob so a state-changing
+                    composer (note / decision / pin) can refresh this timeline
+                    out of band while the main swap clears the composer slot. #}
+<div id="case-timeline" class="pf-tl"{% if timeline_oob %} hx-swap-oob="true"{% endif %}>
+    {% for entry in entries %}
+        <div class="pf-tl__entry" data-kind="{{ entry.kind }}">
+            <span class="pf-tl__when">{{ entry.when }}</span>
+            <div class="pf-tl__body">
+                <div class="pf-tl__head">
+                    <span class="pf-tl__kind">{{ entry.kind_label }}</span>
+                    <span class="actor actor--{{ entry.actor.css }}">
+                        {{ entry.actor.label }}
+                    </span>
+                </div>
+
+                {% if entry.kind == "opened" %}
+                    <p class="pf-tl__text">{{ entry.text }}</p>
+                {% elif entry.kind == "note" %}
+                    <p class="pf-tl__text">{{ entry.text }}</p>
+                {% elif entry.kind == "decision_record" %}
+                    <div class="pf-decision">
+                        <span class="pf-decision__label">Decision of record</span>
+                        <dl>
+                            <dt>Decision</dt>
+                            <dd>{{ entry.decision }}</dd>
+                            <dt>Rationale</dt>
+                            <dd>{{ entry.rationale }}</dd>
+                        </dl>
+                    </div>
+                {% elif entry.kind == "closed" %}
+                    <div class="pf-closing">
+                        <span class="pf-closing__label">Closing note</span>
+                        <p>{{ entry.closing_note }}</p>
+                    </div>
+                {% elif entry.kind == "pin" and entry.artifact == "document" %}
+                    {# Pin anatomy (ADR-0107 §7): curation comment + the attached
+                       document, filename linking to the download endpoint. #}
+                    <div class="pf-pin">
+                        <p class="pf-pin__comment">{{ entry.comment }}</p>
+                        <div class="pf-artifact pf-artifact--doc">
+                            <span class="icon" aria-hidden="true">⎘</span>
+                            <div>
+                                <div class="pf-artifact__title">
+                                    <a href="{{ entry.download_href }}">{{ entry.filename }}</a>
+                                </div>
+                                <span class="mono">{{ entry.size_human }}</span>
+                            </div>
+                        </div>
+                    </div>
+                {% elif entry.kind == "pin" and entry.artifact == "scenario_snapshot" %}
+                    {# Scenario snapshot (ADR-0107 C5): a frozen Planning Desk
+                       record. Rendered verbatim — chips + KPI pairs + feet +
+                       headroom count + the stored query as text (never a link,
+                       decision 2). No recomputation. #}
+                    <div class="pf-pin">
+                        <p class="pf-pin__comment">{{ entry.comment }}</p>
+                        <div class="pf-artifact pf-artifact--scenario">
+                            <span class="pf-artifact__title">Scenario snapshot</span>
+
+                            {% if entry.chips %}
+                                <div class="pf-snap__chips">
+                                    {% for chip in entry.chips %}
+                                        <span class="pf-snap__chip">{{ chip.label }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="pf-snap__baseline">
+                                    Baseline — no scenario parameters were in force.
+                                </p>
+                            {% endif %}
+
+                            {% if entry.kpis %}
+                                <dl class="pf-snap__kpis">
+                                    {% for kpi in entry.kpis %}
+                                        <div class="pf-artifact__row pf-snap__kpi">
+                                            <dt>{{ kpi.label }}</dt>
+                                            <dd>
+                                                <span class="pf-snap__base">{{ kpi.base }}</span>
+                                                <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                                <span class="pf-snap__scen">{{ kpi.scen }}</span>
+                                                <span class="pf-snap-delta pf-snap-delta--{{ kpi.tone }}">{{ kpi.delta }}</span>
+                                            </dd>
+                                        </div>
+                                    {% endfor %}
+                                </dl>
+                            {% endif %}
+
+                            <dl class="pf-snap__feet">
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>End-of-horizon NAV</dt>
+                                    <dd>
+                                        <span class="pf-snap__base">{{ entry.baseline_foot.nav }}</span>
+                                        <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                        <span class="pf-snap__scen">{{ entry.scenario_foot.nav }}</span>
+                                        <span class="pf-snap-delta pf-snap-delta--{{ entry.scenario_foot.nav_tone }}">{{ entry.scenario_foot.nav_delta }}</span>
+                                    </dd>
+                                </div>
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>Total return</dt>
+                                    <dd>
+                                        <span class="pf-snap__base">{{ entry.baseline_foot.ret }}</span>
+                                        <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                        <span class="pf-snap__scen">{{ entry.scenario_foot.ret }}</span>
+                                        <span class="pf-snap-delta pf-snap-delta--{{ entry.scenario_foot.ret_tone }}">{{ entry.scenario_foot.ret_delta }}</span>
+                                    </dd>
+                                </div>
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>Headroom</dt>
+                                    <dd>
+                                        {{ entry.headroom_count }}
+                                        headroom row{{ '' if entry.headroom_count == 1 else 's' }} frozen
+                                    </dd>
+                                </div>
+                            </dl>
+
+                            <div class="pf-snap__query">
+                                <span class="pf-snap__query-label">Captured parameters</span>
+                                <code class="mono">{{ entry.query }}</code>
+                            </div>
+                        </div>
+                    </div>
+                {% elif entry.kind == "pin" and entry.artifact == "consultation" %}
+                    {# Consultation excerpt (ADR-0107 C6): the PM's curation
+                       comment plus the quoted Shirley text. The words are
+                       Shirley's — the quoted block attributes them to her; the
+                       actor chip stays the curating PM (binding decision 3).
+                       Plain text, autoescaped — never raw HTML. #}
+                    <div class="pf-pin">
+                        <p class="pf-pin__comment">{{ entry.comment }}</p>
+                        <div class="pf-artifact pf-artifact--consultation">
+                            <span class="pf-artifact__title">Shirley — pinned excerpt</span>
+                            <blockquote class="pf-quote">{{ entry.excerpt }}</blockquote>
+                        </div>
+                    </div>
+                {% elif entry.kind == "pin" and entry.artifact == "chart_snapshot" %}
+                    {# Chart snapshot (ADR-0114): the PM's curation comment plus
+                       the frozen figure, re-plotted from the stored spec by
+                       chart_snapshot.js — verbatim, nothing recomputed. The spec
+                       rides in an inert ``application/json`` block via
+                       ``|tojson`` (which escapes ``<``/``>``/``&``/``'``), never
+                       interpolated into JavaScript source. #}
+                    <div class="pf-pin">
+                        <p class="pf-pin__comment">{{ entry.comment }}</p>
+                        <div class="pf-artifact pf-artifact--chart">
+                            <span class="pf-artifact__title">Shirley — pinned chart</span>
+                            <div class="pf-chartsnap" data-pf-chart>
+                                <div class="pf-chartsnap__plot" data-pf-chart-plot></div>
+                                <script type="application/json" data-pf-chart-spec>{{ entry.spec | tojson }}</script>
+                            </div>
+                            {% if entry.caption %}
+                                <span class="pf-chartsnap__caption">{{ entry.caption }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% else %}
+                    {# Calm generic fallback for any kind/artifact the template
+                       does not render yet: a seeded row of an unrendered kind.
+                       Head row only, payload untouched. #}
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+</div>

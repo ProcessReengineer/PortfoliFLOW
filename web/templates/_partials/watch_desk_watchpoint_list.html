@@ -1,0 +1,135 @@
+{# The Calibration section's watchpoint list (ADR-0116 §7).
+
+   Every family, one row per live identity: the four defined families whose
+   watchpoint *is* the subject, and the three derived ones whose watchpoint
+   is a sensitivity overlay over a subject the limit sets or the curated tag
+   vocabulary already name. Both belong here — "what does this tenant watch,
+   and how nervously" is one question, and answering half of it somewhere
+   else is how the two halves drift.
+
+   Read-only apart from the three row actions. Adjust reuses the drawer the
+   monitor opens (one editor, two surfaces); Retire writes a retiring
+   version and the row moves to the collapsed list below; History renders
+   the identity's version rows.
+
+   There is deliberately **no add affordance here**. Adding a watchpoint
+   happens on the monitor, beside the live rows it will join, because the
+   question "should I watch this" is answered by looking at what is already
+   being watched — not by looking at a settings table.
+
+   Context (via _watchpoint_list_context): csrf_token, watchpoints,
+   retired_watchpoints, show_retired. #}
+<div id="dc-watchpoint-list" class="pf-dc-wplist">
+    <h3 class="pf-dc-calib__heading">Watchpoints</h3>
+    <p class="pf-dc-calib__note">
+        What this tenant watches. The four signal families define their own
+        subjects; the SAA, AnlV and press rows adjust how nervously a
+        subject that is derived elsewhere is watched — their ceilings stay
+        with the limit set.
+    </p>
+
+    {% if watchpoints %}
+        <table class="pf-dc-wplist__table">
+            <thead>
+                <tr>
+                    <th scope="col">Family</th>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Parameters</th>
+                    <th scope="col">Muted</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in watchpoints %}
+                    <tr>
+                        <td>{{ row.family_label }}</td>
+                        <td>
+                            {{ row.display_name }}
+                            <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+                        </td>
+                        <td>{{ row.parameters }}</td>
+                        <td>
+                            {% if row.muted %}
+                                <span class="tag tag--muted">muted</span>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td class="pf-dc-wplist__actions">
+                            <button type="button"
+                                    class="pf-dc-sensitivity__open"
+                                    hx-get="{{ row.edit_url }}"
+                                    hx-target="#{{ row.slot_id }}"
+                                    hx-swap="innerHTML">
+                                Adjust
+                            </button>
+                            <button type="button"
+                                    class="pf-dc-sensitivity__open"
+                                    hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history"
+                                    hx-target="#{{ row.slot_id }}"
+                                    hx-swap="innerHTML">
+                                History
+                            </button>
+                            {# Retirement is a version, not a deletion — the
+                               identity and its history stay queryable, which
+                               is what keeps a finding it once raised
+                               explainable. The confirm is on the destructive
+                               *reading* of it, not on data loss. #}
+                            <button type="button"
+                                    class="pf-dc-sensitivity__open"
+                                    hx-post="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire"
+                                    hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'
+                                    hx-target="#dc-watchpoint-list"
+                                    hx-swap="outerHTML"
+                                    hx-confirm="Retire “{{ row.display_name }}”? It stops being evaluated from the next beat; its history stays readable.">
+                                Retire
+                            </button>
+                        </td>
+                    </tr>
+                    <tr class="pf-dc-sensitivity__slot">
+                        <td colspan="5" id="{{ row.slot_id }}"></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="pf-empty-state">
+            No watchpoints yet. Add one from the monitor beneath the Briefing.
+        </p>
+    {% endif %}
+
+    {% if retired_watchpoints %}
+        <details class="pf-dc-collapse pf-dc-wplist__retired" {% if show_retired %}open{% endif %}>
+            <summary>{{ retired_watchpoints|length }} retired — show</summary>
+            <table class="pf-dc-wplist__table">
+                <tbody>
+                    {% for row in retired_watchpoints %}
+                        <tr>
+                            <td>{{ row.family_label }}</td>
+                            <td>
+                                {{ row.display_name }}
+                                <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+                            </td>
+                            <td>{{ row.parameters }}</td>
+                            <td>
+                                <span class="tag tag--nodata">retired</span>
+                            </td>
+                            <td class="pf-dc-wplist__actions">
+                                <button type="button"
+                                        class="pf-dc-sensitivity__open"
+                                        hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history"
+                                        hx-target="#{{ row.slot_id }}"
+                                        hx-swap="innerHTML">
+                                    History
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="pf-dc-sensitivity__slot">
+                            <td colspan="5" id="{{ row.slot_id }}"></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+    {% endif %}
+</div>

@@ -1,0 +1,51 @@
+{# Admin area body. #}
+<div class="pf-area" data-area="admin">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Admin</h1>
+        <p class="pf-area__subtitle">
+            Internal management — data import, application
+            settings, user administration and audit
+            surfaces.
+        </p>
+    </header>
+
+    {% with section_slug="data-import",
+            section_title="Data Import",
+            section_body_template="_partials/data_import_section.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="market-data",
+            section_title="Market Data",
+            section_pill="live import",
+            section_body_template="_partials/market_data_section.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="providers-credentials",
+            section_title="Providers & Credentials",
+            section_body_template="_partials/provider_credentials_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {# Owner-only, and cosmetically so: the gate that matters is on
+       web/routes/tenant_users.py, which refuses a member on the section
+       GET as much as on the writes (ADR-0121 §6). ``is_tenant_owner``
+       comes from the Admin route's extra_context and defaults to false,
+       so a degraded render omits the section rather than offering one
+       whose every call would 403. #}
+    {% if is_tenant_owner %}
+        {% with section_slug="users",
+                section_title="Users",
+                section_body_template="_partials/tenant_users_section_lazy.html" %}
+            {% include "areas/_section.html" %}
+        {% endwith %}
+    {% endif %}
+
+    {% with section_slug="application-settings",
+            section_title="Application Settings",
+            section_pill="planned",
+            section_placeholder="Application-wide configuration: theme, locale, feature flags, retention policies." %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

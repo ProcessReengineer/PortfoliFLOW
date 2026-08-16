@@ -1,0 +1,144 @@
+{# Benchmarks & Attribution section body — embedded in
+   /back-office#benchmarks-attribution (Roadmap A12 Phase 1a +
+   Phase 1b Quick Wins polish).
+
+   Fetched via HTMX on first visibility (hx-trigger="revealed" in
+   the lazy shell). The section runs all three blocks in one render:
+   Stage a and Stage b are fully populated from server-side bundles;
+   Stage c renders its dropdowns and an initial chart (empty-state
+   when no SAA configuration exists). Per Phase 1b a KPI strip
+   above Stage a aggregates per-investment metrics into four cards.
+
+   Context (from web/routes/benchmarks_attribution.py):
+     has_data                                — boolean.
+     portfolio_kpi_cards                     — list of 4 card dicts
+                                               {label, value, variant}.
+     stage_a_rows                            — list of row dicts.
+     stage_a_investments_without_benchmark   — list of names.
+     stage_b_chart_spec                      — Plotly figure dict.
+     stage_b_asset_classes_without_benchmark — list of names.
+     saa_configuration_options               — list of {id, name, is_active}.
+     weight_set_options                      — list of {code, display_name,
+                                                available, unavailable_hint}.
+     selected_configuration_id               — str (UUID) or "".
+     selected_weight_set                     — str ("tangency" | "min_var").
+     stage_c_chart_spec                      — Plotly figure dict or None.
+     stage_c_series_meta                     — dict or None.
+     has_series                              — boolean. #}
+
+<div class="ba-section" id="benchmarks-attribution-body">
+
+    {% if not has_data and not saa_configuration_options %}
+        <p class="pf-empty-state">
+            No investments yet. Import portfolio data via the
+            <a href="/admin#data-import">Data Import</a> section.
+        </p>
+    {% else %}
+
+        {% if portfolio_kpi_cards %}
+            <section class="ba-block">
+                <div class="ba-kpi-strip">
+                    {% for card in portfolio_kpi_cards %}
+                        <div class="ba-kpi-strip__card ba-kpi-strip__card--{{ card.variant }}">
+                            <div class="ba-kpi-strip__label">{{ card.label }}</div>
+                            <div class="ba-kpi-strip__value">{{ card.value }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        {# ---------- Block 1 — Stage a ---------- #}
+        <section class="ba-block">
+            <header class="ba-block__header">
+                <h3 class="ba-block__title">Investments vs. Benchmarks</h3>
+                <p class="ba-block__intro">
+                    Each investment compared to the benchmark of its asset
+                    class. Naive time-series comparison; for illiquid
+                    asset classes (PE, infrastructure), interpret metrics
+                    with NAV-smoothing in mind.
+                </p>
+            </header>
+            {% include "_partials/benchmarks_attribution_stage_a.html" %}
+        </section>
+
+        {# ---------- Block 2 — Stage b ---------- #}
+        <section class="ba-block">
+            <header class="ba-block__header">
+                <h3 class="ba-block__title">Asset-Class Composites vs. Benchmarks</h3>
+                <p class="ba-block__intro">
+                    Own investments per asset class aggregated NAV-weighted,
+                    compared to the asset-class benchmark. Answers: do the
+                    selected managers, in aggregate, beat the market?
+                </p>
+            </header>
+            {% include "_partials/benchmarks_attribution_stage_b.html" %}
+        </section>
+
+        {# ---------- Block 3 — Stage c ---------- #}
+        <section class="ba-block">
+            <header class="ba-block__header">
+                <h3 class="ba-block__title">SAA Hypothetical Comparison</h3>
+                <p class="ba-block__intro">
+                    What would the portfolio have returned if it had held
+                    the SAA-prescribed weights? Two hypotheticals: applied
+                    to benchmarks (allocation effect) and applied to own
+                    composites (allocation effect with own managers).
+                </p>
+            </header>
+            {% include "_partials/benchmarks_attribution_stage_c.html" %}
+        </section>
+
+    {% endif %}
+
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    function renderTarget(target) {
+        if (!target || target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-plotly-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    }
+
+    function renderAll(root) {
+        (root || document)
+            .querySelectorAll(".pf-plotly-target[data-plotly-spec]")
+            .forEach(renderTarget);
+    }
+
+    // Exposed so the Stage-a Tabulator row-click handler can bootstrap
+    // a freshly-injected detail chart without re-implementing the
+    // Plotly initialisation pattern.
+    window.__baRenderPlotlyTargets = renderAll;
+
+    renderAll(document.getElementById("benchmarks-attribution-body"));
+
+    // Re-render after HTMX swaps inside this section (e.g. stage-c
+    // controls swap) — on afterSettle, not afterSwap. During the settle
+    // window htmx still dresses an id-matched swapped element in the old
+    // element's attributes, so an afterSwap render reads a stale
+    // data-pf-rendered / data-plotly-spec, and the attribute flip that
+    // follows overwrites class wholesale, stripping the js-plotly-plot
+    // class Plotly adds during newPlot (UI-026). By afterSettle every
+    // attribute is final and nothing writes over Plotly's own.
+    document.body.addEventListener("htmx:afterSettle", function (evt) {
+        var target = evt.detail && evt.detail.target;
+        if (target && document.getElementById("benchmarks-attribution-body")
+            && document.getElementById("benchmarks-attribution-body").contains(target)) {
+            renderAll(target);
+        }
+    });
+})();
+</script>

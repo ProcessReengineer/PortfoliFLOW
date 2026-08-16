@@ -1,0 +1,85 @@
+{# Per-investment archetype-aware tile fragment — returned by
+   GET /api/charts/investment/{investment_id} (ADR-0082).
+
+   The wrapper div replaces the article's lazy-loader on first
+   visibility (hx-swap="outerHTML" on the loader). After the swap,
+   the inline script runs and bootstraps Plotly on every tile target.
+
+   The fragment is generalised over a variable-length tile list rather
+   than three fixed targets: the route resolves the investment's
+   archetype and emits the matching slots (Capital-Account: tr/cn/mp;
+   Total-Return-Equity: hero/uw/comp; Fixed-Income: hero/yd/rm;
+   NAV-only: a single nav slot).
+
+   Context (from web/routes/charts.py::get_charts_investment):
+     investment_id    — UUID string; embedded in DOM ids so each
+                        fragment's bootstrap touches only its own
+                        targets.
+     investment_name  — display name, or None in the neutral empty
+                        state.
+     archetype        — resolved presentation-archetype value (e.g.
+                        "fixed_income"), or "" in the neutral empty
+                        state. Surfaced as the data-archetype seam.
+     tiles            — list of {slot, spec}; one Plotly target per
+                        tile. An empty list renders the neutral empty
+                        state (unknown / cross-tenant id, HTTP 200).
+     kpi_pills        — list of {label, value} for the KPI caption, or
+                        None when the archetype carries no caption
+                        (NAV-only).
+#}
+
+{% if tiles %}
+<div class="ch-triplet"
+     data-investment-id="{{ investment_id }}"
+     data-archetype="{{ archetype }}"
+     data-tile-count="{{ tiles | length }}">
+    {% for tile in tiles %}
+    <div id="ch-{{ tile.slot }}-{{ investment_id }}"
+         class="ch-chart plotly-target"
+         data-slot="{{ tile.slot }}"
+         data-spec='{{ tile.spec | tojson }}'></div>
+    {% endfor %}
+</div>
+
+{% if kpi_pills %}
+<div class="ch-kpi-caption" data-investment-id="{{ investment_id }}">
+    {% for pill in kpi_pills %}
+    <span class="ch-kpi-caption__pill">
+        <span class="ch-kpi-caption__label">{{ pill.label }}</span>
+        <span class="ch-kpi-caption__value">{{ pill.value }}</span>
+    </span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+    var root = document.querySelector(
+        ".ch-triplet[data-investment-id='{{ investment_id }}']"
+    );
+    if (!root) return;
+    root.querySelectorAll(".plotly-target[data-spec]").forEach(function (target) {
+        if (target.dataset.pfRendered === "1") return;
+        var raw = target.getAttribute("data-spec");
+        if (!raw) return;
+        var spec;
+        try { spec = JSON.parse(raw); }
+        catch (e) { return; }
+        var config = Object.assign({}, spec.config || {}, { responsive: true });
+        Plotly.newPlot(target, spec.data, spec.layout, config);
+        target.dataset.pfRendered = "1";
+        window.requestAnimationFrame(function () {
+            Plotly.Plots.resize(target);
+        });
+    });
+})();
+</script>
+{% else %}
+<div class="ch-triplet ch-triplet--empty"
+     data-investment-id="{{ investment_id }}"
+     data-archetype="{{ archetype }}"
+     data-tile-count="0">
+    <p class="ch-empty">No chart data is available for this investment.</p>
+</div>
+{% endif %}

@@ -1,0 +1,33 @@
+{# Watch Desk area body (ADR-0089). See _back_office_body.html for
+   the pattern: a pf-area header plus one section block per sub-section.
+   Three sections — Briefing / Journal / Calibration — each lazy-loading its
+   body over HTMX; no static placeholder. The Scenarios placeholder retired
+   with ADR-0104 §8: the Watch Desk watches and raises, the Planning Desk
+   projects and simulates, and Feature #034 re-anchors there. #}
+<div class="pf-area" data-area="watch_desk">
+    <header class="pf-area__header">
+        <h1 class="pf-area__title">Watch Desk</h1>
+        <p class="pf-area__subtitle">
+            Calm-by-default briefing — what changed materially since
+            your last review, and the audit trail of how you responded.
+        </p>
+    </header>
+
+    {% with section_slug="briefing",
+            section_title="Briefing",
+            section_body_template="_partials/watch_desk_briefing_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="journal",
+            section_title="Journal",
+            section_body_template="_partials/watch_desk_journal_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="calibration",
+            section_title="Calibration",
+            section_body_template="_partials/watch_desk_calibration_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

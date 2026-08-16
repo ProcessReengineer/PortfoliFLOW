@@ -1,0 +1,51 @@
+{# Status bar — fixed-height row at the bottom of the shell grid,
+   spanning both columns. The element carries ``id="pf-statusbar"``
+   so the HTMX out-of-band swap (see _partials/statusbar_oob.html)
+   can replace it on area switches without a full page render.
+
+   Context variables:
+     active_area  — slug of the currently-rendered area (or None for
+                    pages outside the area hierarchy, e.g. login).
+                    The display label is resolved via the
+                    ``pf_area_label`` Jinja global.
+     tenant_name  — name of the active tenant (Block 2 will read
+                    this from the auth surface; for 6F-1 it is the
+                    Sentinel Tenant fallback supplied by the shell
+                    context processor).
+     build_sha    — short build SHA for diagnostic correlation;
+                    falls back to "dev" when unset.
+     config_ok    — boolean; true when the data store / engine
+                    dependency is reachable. #}
+<footer id="pf-statusbar"
+        class="pf-statusbar"
+        role="contentinfo"
+        {% if statusbar_oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="pf-statusbar__group pf-statusbar__group--left">
+        <span class="pf-statusbar__area">
+            {{ pf_area_label(active_area) }}
+        </span>
+        <span class="pf-statusbar__sep" aria-hidden="true">·</span>
+        <span class="pf-statusbar__tenant">
+            {{ tenant_name or "—" }}
+        </span>
+    </div>
+    <div class="pf-statusbar__group pf-statusbar__group--right">
+        <span class="pf-statusbar__shortcut" title="Command palette">
+            <span class="pf-statusbar__shortcut-key">⌘</span>
+            <span class="pf-statusbar__shortcut-key">K</span>
+            <span class="pf-statusbar__shortcut-label">jump to section</span>
+        </span>
+        <a class="pf-statusbar__source"
+           href="https://github.com/ProcessReengineer/PortfoliFLOW{% if build_sha and build_sha != 'dev' %}/tree/{{ build_sha }}{% endif %}"
+           target="_blank" rel="noopener"
+           title="Corresponding source (AGPL §13)">Source code</a>
+        <span class="pf-statusbar__build" title="Build SHA">
+            {{ build_sha or "dev" }}
+        </span>
+        <span class="pf-statusbar__config"
+              data-status="{% if config_ok %}ok{% else %}error{% endif %}"
+              title="{% if config_ok %}Configuration loaded{% else %}Configuration error{% endif %}">
+            {% if config_ok %}✓ config loaded{% else %}✗ config error{% endif %}
+        </span>
+    </div>
+</footer>

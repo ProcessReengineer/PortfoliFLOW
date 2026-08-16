@@ -1,0 +1,44 @@
+{# Front Office area body — renders inside both the standalone
+   area page (web/templates/areas/front_office.html) and the HTMX
+   area fragment (web/templates/_partials/area_fragment.html). The
+   parameters ``active_area``, ``user_email`` and ``csrf_token``
+   come from the route handler. #}
+<div class="pf-area" data-area="front_office">
+    {# Personalized welcome header (ADR-0068). Server-rendered above the
+       Overview section so it appears immediately rather than flashing
+       in after the lazy HTMX reveal. ``first_name`` and ``tenant_name``
+       come from the route handler; both degrade gracefully — a missing
+       first name drops "back, {name}", a missing tenant drops the
+       "— {tenant} portfolio" clause. #}
+    <header class="pf-area__header fo-welcome">
+        <p class="fo-welcome__kicker">Front office</p>
+        <h1 class="fo-welcome__title">
+            {%- if first_name %}Welcome back, {{ first_name }}{% else %}Welcome{% endif %}
+            {%- if tenant_name %} — <span class="fo-welcome__tenant">{{ tenant_name }}</span> portfolio{% endif -%}
+        </h1>
+    </header>
+
+    {% with section_slug="overview",
+            section_title="Overview",
+            section_body_template="_partials/overview_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="charts",
+            section_title="Charts",
+            section_body_template="_partials/charts_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="statistics",
+            section_title="Statistics",
+            section_body_template="_partials/statistics_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="portfolio-optimizer",
+            section_title="Portfolio Analysis",
+            section_body_template="_partials/portfolio_analysis_section_lazy.html" %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

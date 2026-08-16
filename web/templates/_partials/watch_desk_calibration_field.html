@@ -1,0 +1,24 @@
+{# One calibration editor field (ADR-0116 §7). Included with `f` bound to a
+   field dict from `_calibration_field`: name, label, value, customised,
+   hint, error.
+
+   The marker states **provenance**, not the value: the input always shows
+   the effective figure, and "default" means only that no stored column
+   overrides it. On a refused save the input reflects the attempted text
+   while the marker keeps describing what is stored — which is nothing new,
+   because the save was refused. #}
+<label class="pf-dc-calib__field">
+    <span class="pf-dc-calib__label">
+        {{ f.label }}
+        <span class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if f.customised }}">
+            {{ 'customised' if f.customised else 'default' }}
+        </span>
+    </span>
+    <input type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}">
+    {% if f.hint %}
+        <span class="pf-dc-calib__hint">{{ f.hint }}</span>
+    {% endif %}
+    {% if f.error %}
+        <span class="pf-dc-calib__field-error" role="alert">{{ f.error }}</span>
+    {% endif %}
+</label>

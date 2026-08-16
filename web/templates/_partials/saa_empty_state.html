@@ -1,0 +1,20 @@
+{# Empty-state body for the SAA section when the tenant has no
+   configurations. Rendered inside #saa-config-body by saa_section.html. #}
+
+<div class="saa-empty-state">
+    <p class="saa-empty-state__title">No SAA configurations yet.</p>
+    <p class="saa-empty-state__hint">
+        Create your first configuration to define forward-looking
+        asset-class expectations and weight constraints.
+    </p>
+    <button type="button"
+            id="saa-new-config-btn-empty"
+            class="btn btn--primary">
+        + Create your first SAA configuration
+    </button>
+    <p class="saa-empty-state__cli-hint">
+        Or run <code>portfoliflow bootstrap</code> to install three
+        seed templates (Conservative Multi-Strategy, Balanced
+        Institutional, Growth Private Markets).
+    </p>
+</div>

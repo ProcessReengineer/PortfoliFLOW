@@ -1,0 +1,133 @@
+{# Preview fragment — projected counts + apply/discard for one upload.
+
+   Rendered by ``_render_preview_body`` after a successful upload
+   (single-button workflow: upload + dry-run + preview in one
+   round-trip) and when re-opening a historical upload from the
+   recent-uploads table. The dry-run extraction has already run
+   server-side; this template renders the projected counts directly
+   from the ``counts`` context dict.
+
+   The ``Apply to Investments`` button posts to
+   ``POST /api/data-uploads/{upload_id}/import-as-investments`` with
+   ``dry_run=false`` — the only remaining client-side action. The
+   ``Discard Preview`` link is an HTMX swap back to the upload form.
+
+   Context:
+     csrf_token      — session-bound CSRF token.
+     upload          — DataUpload DTO.
+     uploader_email  — string; empty if the user record is gone.
+     sheets          — list of sheet DTOs with row/column counts.
+     counts          — dict from ``_import_result_payload`` over the
+                       dry-run :class:`InvestmentExtractionResult`. #}
+
+<div class="pf-data-import__preview">
+
+    <header class="pf-data-import__preview-header">
+        <a class="pf-data-import__back"
+           href="#"
+           hx-get="/api/data-import/section"
+           hx-target="#pf-data-import-panel"
+           hx-swap="innerHTML">
+            ← Back to upload
+        </a>
+        <h3 class="pf-data-import__filename">{{ upload.filename }}</h3>
+    </header>
+
+    <p class="pf-data-import__status" role="status">
+        <code>{{ upload.filename }}</code> uploaded · {{ sheets|length }} sheets · preview computed
+    </p>
+
+    <dl class="data-import-meta">
+        <dt>Uploaded at</dt>
+        <dd>{{ upload.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+        <dt>Uploaded by</dt>
+        <dd>{{ uploader_email or '—' }}</dd>
+        <dt>Size</dt>
+        <dd>{{ '%.1f'|format(upload.size_bytes / 1024) }} KB ({{ upload.size_bytes }} bytes)</dd>
+        <dt>SHA-256</dt>
+        <dd><code>{{ upload.file_hash }}</code></dd>
+    </dl>
+
+    <section class="pf-data-import__apply" aria-labelledby="pf-apply-title">
+        <h3 id="pf-apply-title" class="pf-data-import__heading pf-data-import__heading--primary">
+            Apply to Investments
+        </h3>
+        <p class="pf-data-import__hint">
+            <span class="pf-data-import__hint-icon" aria-hidden="true">⚠</span>
+            Applying the preview transforms this upload into the
+            normalised investment domain (replace-by-investment;
+            missing investments soft-deleted).
+        </p>
+
+        <div id="import-as-investments-preview" role="region" aria-live="polite">
+            <h4 class="pf-data-import__heading">Preview</h4>
+            <ul class="import-preview__counts" id="import-preview-counts">
+                <li>Created: {{ counts.investments_created }}</li>
+                <li>Updated: {{ counts.investments_updated }}</li>
+                <li>Reactivated: {{ counts.investments_reactivated }}</li>
+                <li>Deactivated: {{ counts.investments_deactivated }}</li>
+                <li>NAVs replaced: {{ counts.navs_replaced }}</li>
+                <li>Cashflows replaced: {{ counts.cashflows_replaced }}</li>
+            </ul>
+            {% if counts.errors %}
+                <details id="import-preview-errors-block" open>
+                    <summary>Errors (<span id="import-preview-errors-count">{{ counts.errors|length }}</span>)</summary>
+                    <ol id="import-preview-errors-list">
+                        {% for err in counts.errors %}
+                            {% set parts = [] %}
+                            {% if err.sheet %}{% set _ = parts.append(err.sheet) %}{% endif %}
+                            {% if err.row_index is not none %}{% set _ = parts.append(err.row_index|string) %}{% endif %}
+                            {% if err.column %}{% set _ = parts.append(err.column) %}{% endif %}
+                            <li>{{ err.investment_name or '—' }} [{{ parts|join(' / ') }}]: {{ err.message }}</li>
+                        {% endfor %}
+                    </ol>
+                </details>
+            {% endif %}
+            <div class="import-preview__actions">
+                <button type="button"
+                        id="import-confirm-btn"
+                        class="btn btn--primary btn--prominent"
+                        data-upload-id="{{ upload.id }}"
+                        data-csrf-token="{{ csrf_token }}">
+                    Apply to Investments
+                </button>
+                <a href="#"
+                   id="import-cancel-btn"
+                   class="btn"
+                   hx-get="/api/data-import/section"
+                   hx-target="#pf-data-import-panel"
+                   hx-swap="innerHTML"
+                   role="button">
+                    Discard Preview
+                </a>
+            </div>
+        </div>
+        <div id="import-as-investments-result" hidden role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="pf-data-import__sheets" aria-labelledby="pf-sheets-title">
+        <h3 id="pf-sheets-title" class="pf-data-import__heading">Sheets</h3>
+        {% if sheets %}
+            <table class="data-import-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Sheet</th>
+                        <th scope="col">Rows</th>
+                        <th scope="col">Columns</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sheet in sheets %}
+                        <tr>
+                            <td>{{ sheet.sheet_name }}</td>
+                            <td>{{ sheet.row_count }}</td>
+                            <td>{{ sheet.column_count }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="data-import-empty">This upload has no sheets.</p>
+        {% endif %}
+    </section>
+</div>

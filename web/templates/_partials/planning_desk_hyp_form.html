@@ -1,0 +1,172 @@
+{# The hypothetical-transaction entry form (mockup ④, ADR-0104 §2/§7).
+
+   Its own partial, because it renders in two places: inside the Cash Flow
+   Planning section, and inside the error partial when a submission was refused
+   — where it comes back **open**, holding what the operator typed, beside the
+   reason the plan world would not carry it.
+
+   The field shape is the actual-entry form's
+   (`web/templates/investments/_position_form.html`), and deliberately so: the
+   two describe a transaction the same way (ADR-0104 §2). What differs is where
+   the entry goes — D21: actuals on the investment detail page, hypotheticals
+   only here, into the parameter set, never into `position_transactions`.
+
+   Three rules the form states and the server enforces:
+
+   * **The sign is typed, never derived** (ADR-0097 §2, as on the actual form):
+     positive units for a buy, negative for a sell.
+   * **The currency is not a choice.** It is the selected investment's, bound to
+     the selection by the script below and rendered read-only — which is what
+     makes a `CurrencyMismatchError` unreachable from this surface.
+   * **The date floor is the seam plus a day.** `t₀` itself is realised history,
+     and an overlay never touches it (ADR-0104 §5).
+
+   Submission is the slider's idiom: an HTMX GET that re-issues the **whole**
+   parameter set (`hyp.base_query`) and lets the form's own fields append the
+   entry beside it. The server merges the two and re-emits the canonical
+   `t{n}_…` encoding — the UI never formats an overlay key.
+
+   Context: `hyp` (from web/routes/planning_desk.py, `_build_hyp_context`) and
+   `section_url`. #}
+
+<details class="pd-hyp__add" {% if hyp.is_open %}open{% endif %}>
+    <summary class="pd-hyp__summary">+ Add hypothetical transaction</summary>
+
+    {% if hyp.options %}
+        <form class="pd-hyp__form" id="pd-hyp-form"
+              hx-get="{{ section_url }}?{{ hyp.base_query }}">
+            <label class="pd-hyp__field">
+                <span>Investment</span>
+                <select name="{{ hyp.prefix }}investment_id" required>
+                    {% for option in hyp.options %}
+                        <option value="{{ option.id }}"
+                                data-currency="{{ option.currency }}"
+                                {% if option.id == hyp.fields.investment_id %}selected{% endif %}>
+                            {{ option.name }} — {{ option.currency }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Type</span>
+                <select name="{{ hyp.prefix }}txn_type" required>
+                    {% for txn_type in hyp.txn_types %}
+                        <option value="{{ txn_type }}"
+                                {% if txn_type == hyp.fields.txn_type %}selected{% endif %}>
+                            {{ txn_type }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Trade date</span>
+                <input type="date"
+                       name="{{ hyp.prefix }}trade_date"
+                       value="{{ hyp.fields.trade_date }}"
+                       min="{{ hyp.earliest_trade_date }}"
+                       required>
+                <small class="pd-hyp__hint">
+                    After the seam ({{ hyp.seam_date }}) — the earliest legal
+                    trade date is {{ hyp.earliest_trade_date }}. Realised
+                    history is identical in every scenario.
+                </small>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Units</span>
+                <input type="number"
+                       name="{{ hyp.prefix }}units"
+                       value="{{ hyp.fields.units }}"
+                       step="any"
+                       required>
+                <small class="pd-hyp__hint">
+                    Positive for buy, negative for sell.
+                </small>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Price per unit</span>
+                <input type="number"
+                       name="{{ hyp.prefix }}price_per_unit"
+                       value="{{ hyp.fields.price_per_unit }}"
+                       step="any"
+                       min="0">
+                <small class="pd-hyp__hint">
+                    Required unless a consideration is stated.
+                </small>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Consideration</span>
+                <input type="number"
+                       name="{{ hyp.prefix }}consideration"
+                       value="{{ hyp.fields.consideration }}"
+                       step="any">
+                <small class="pd-hyp__hint">
+                    Optional — overrides units × price.
+                </small>
+            </label>
+
+            <label class="pd-hyp__field">
+                <span>Currency</span>
+                <input type="text"
+                       name="{{ hyp.prefix }}currency"
+                       value="{{ hyp.fields.currency }}"
+                       readonly>
+                <small class="pd-hyp__hint">
+                    The investment's own — a trade settles against the cash
+                    position of its currency.
+                </small>
+            </label>
+
+            <div class="pd-hyp__actions">
+                <button type="submit" class="btn btn--primary">
+                    Add to scenario
+                </button>
+            </div>
+        </form>
+    {% else %}
+        <p class="pd-hyp__empty">
+            This book holds no non-cash investment to trade. A hypothetical
+            transaction lands on an investment and settles against a cash
+            position — there is nothing here for one to land on yet.
+        </p>
+    {% endif %}
+</details>
+
+<script>
+(function () {
+    "use strict";
+
+    // Two client-side courtesies, both of which the server re-checks: the
+    // read-only currency follows the investment (so a CurrencyMismatchError is
+    // unreachable by clicking), and the price is required only where no
+    // consideration was stated (the executor derives one from the other —
+    // services/overlay/executors.py::_derive_consideration).
+    var form = document.getElementById("pd-hyp-form");
+    if (!form || form.dataset.pdBound === "1") return;
+    form.dataset.pdBound = "1";
+
+    var investment = form.querySelector('[name="hyp_investment_id"]');
+    var currency = form.querySelector('[name="hyp_currency"]');
+    var price = form.querySelector('[name="hyp_price_per_unit"]');
+    var consideration = form.querySelector('[name="hyp_consideration"]');
+    if (!investment || !currency || !price || !consideration) return;
+
+    function bindCurrency() {
+        var option = investment.options[investment.selectedIndex];
+        currency.value = option ? option.dataset.currency : "";
+    }
+
+    function bindPriceRequired() {
+        price.required = consideration.value.trim() === "";
+    }
+
+    investment.addEventListener("change", bindCurrency);
+    consideration.addEventListener("input", bindPriceRequired);
+    bindCurrency();
+    bindPriceRequired();
+})();
+</script>

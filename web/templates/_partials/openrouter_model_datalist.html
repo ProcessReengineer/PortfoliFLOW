@@ -1,0 +1,50 @@
+{# The OpenRouter model catalog, as a datalist for one model field.
+
+   Rendered by web/routes/provider_credentials.py into the per-field
+   ``…-models-slot`` container on the Providers & Credentials section,
+   replacing the slot's contents via ``hx-swap="innerHTML"``.
+
+   Progressive enhancement, deliberately: the field it serves stays a
+   plain text input, so a custom endpoint, an offline laptop, or a model
+   newer than this list all keep working. The failure state therefore
+   says so out loud rather than swapping in an empty datalist that would
+   read as "this endpoint offers no models".
+
+   Always rendered at HTTP 200 — the body is an HTMX fragment swap, and
+   an error status would leave the button in place instead of showing the
+   message (the idiom web/routes/statistics.py uses for its FX errors).
+
+   Context:
+     datalist_id  — id the field's ``list=`` attribute points at; the
+                    element stays inside the slot, because ``list=``
+                    resolves document-wide.
+     models       — list of services.openrouter_catalog.CatalogModel;
+                    empty and unused in the error state.
+     message      — operator-safe failure text, or None on success.
+     slot_id      — the container this fragment lives in, for the reload
+                    button's hx-target. None suppresses the button, for a
+                    malformed request that has no valid slot to target.
+     reload_url   — hx-get for the reload button. #}
+
+{% if message %}
+    <span class="pf-credentials__field-hint">
+        Could not load the model list: {{ message }} You can still type a model id.
+    </span>
+{% else %}
+    <datalist id="{{ datalist_id }}">
+        {% for model in models %}
+            <option value="{{ model.id }}">{{ model.name }}</option>
+        {% endfor %}
+    </datalist>
+    <span class="pf-credentials__field-hint">
+        {{ models | length }} models loaded &mdash; type to filter.
+    </span>
+{% endif %}
+
+{% if slot_id %}
+    <button type="button"
+            class="btn btn--ghost"
+            hx-get="{{ reload_url }}"
+            hx-target="#{{ slot_id }}"
+            hx-swap="innerHTML">Load models</button>
+{% endif %}

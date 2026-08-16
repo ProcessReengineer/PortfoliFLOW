@@ -1,0 +1,39 @@
+{# Archive search results (ADR-0107, C2).
+
+   Context:
+     idle    — true for the initial panel and for a whitespace-only query:
+               render a calm prompt, never "no results".
+     query   — the stripped search term (for the no-match message).
+     results — list of projected closed-case dicts (badge, title,
+               closed_date, closing_note, href). Ordered by the repository.
+
+   Each result row is a link to its detail view (C3a). The closing-note
+   excerpt is truncated here in the template, never in the data. #}
+{% if idle %}
+    <p class="pf-archive__idle">
+        Type a title or closing-note fragment to search closed cases.
+    </p>
+{% elif results %}
+    <div class="pf-case-list">
+        {% for case in results %}
+            <a class="pf-case-row pf-case-row--closed" href="{{ case.href }}"
+               data-case-number="{{ case.badge }}">
+                <span class="pf-case-row__id">{{ case.badge }}</span>
+                <div class="pf-case-row__main">
+                    <div class="pf-case-row__title">{{ case.title }}</div>
+                    <div class="pf-case-row__origin">
+                        closed {{ case.closed_date }}
+                        {% if case.closing_note %}
+                            · &ldquo;{{ case.closing_note | truncate(90, True, '…') }}&rdquo;
+                        {% endif %}
+                    </div>
+                </div>
+                <span class="state state--closed">Closed</span>
+            </a>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="pf-empty-state">
+        No closed cases match &ldquo;{{ query }}&rdquo;.
+    </p>
+{% endif %}

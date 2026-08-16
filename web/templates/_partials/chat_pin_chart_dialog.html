@@ -1,0 +1,99 @@
+{# Chart pin dialog (ADR-0114) — the sibling of chat_pin_dialog.html, swapped
+   into #chat-pin-dialog by a chart figure's "Pin to case…" affordance.
+
+   The difference to the consultation dialog is exactly the difference between
+   the artefact classes: a frozen figure has nothing to trim, so there is no
+   excerpt textarea. The figure is identified by its stored caption and the form
+   posts the sidecar ``artifact_id`` — never the spec. The server resolves the
+   spec from its own store, which is what makes the pinned record trustworthy
+   (transport by reference, ADR-0114 §2).
+
+   A handle that no longer resolves — trimmed away, a new chat, a restart, a
+   stale id — or a figure that was too large to archive shows the calm
+   unavailable state and offers no pin. The picker is the tenant's open cases,
+   newest first, preselected to the active brief's case; with none the dialog
+   says so and links to Cases rather than offering a dead dropdown.
+
+   Cancel clears the slot (the composer-cancel idiom: a GET with ?cancel=1
+   returns an empty body). On a gate failure the POST re-renders this same
+   partial with an inline error, the picked case and the comment preserved.
+
+   Context:
+     csrf_token, pin_url, cases_area_url
+     artifact_id         — the sidecar handle (hidden input).
+     cases               — [{id, label}] open cases, newest first (may be empty).
+     preselect           — the case id to preselect, or None.
+     caption             — the frozen chart's caption (may be empty).
+     unavailable_message — the calm state's text, or None when pinnable.
+     comment             — echoed back on a re-render.
+     error               — an inline error message, or None. #}
+<form class="chat-pin-dialog"
+      hx-post="{{ pin_url }}"
+      hx-target="#chat-pin-dialog"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="artifact_id" value="{{ artifact_id }}">
+
+    <h4 class="chat-pin-dialog__title">Pin this chart to a case</h4>
+    {% if error %}
+        <p class="chat-pin-dialog__error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    {% if unavailable_message %}
+        {# Stale/evicted handle, or a figure past the archival cap: no pin
+           rather than an empty record (ADR-0114 §3). #}
+        <p class="chat-pin-dialog__empty">{{ unavailable_message }}</p>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Close</button>
+        </div>
+    {% elif not cases %}
+        {# No open cases to pin into — no dead dropdown (the C6 posture). #}
+        <p class="chat-pin-dialog__empty">
+            There are no open cases to pin into. Open a case first, then return
+            here to pin this chart.
+        </p>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <a class="btn" href="{{ cases_area_url }}">Go to Cases</a>
+        </div>
+    {% else %}
+        <label class="chat-pin-dialog__field">
+            <span class="chat-pin-dialog__label">Case</span>
+            <select class="chat-pin-dialog__input" name="case_id">
+                {% for case in cases %}
+                    <option value="{{ case.id }}"
+                            {{ 'selected' if case.id == preselect }}>
+                        {{ case.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+        <p class="chat-pin-dialog__artifact">
+            <span class="chat-pin-dialog__label">Chart</span>
+            <span class="chat-pin-dialog__artifact-name">
+                {{ caption or 'Untitled chart' }}
+            </span>
+        </p>
+        <label class="chat-pin-dialog__field">
+            <span class="chat-pin-dialog__label">Why pin this?</span>
+            <textarea class="chat-pin-dialog__input"
+                      name="comment"
+                      rows="2"
+                      required
+                      placeholder="The curation comment — why this belongs on the case record.">{{ comment or '' }}</textarea>
+        </label>
+        <div class="chat-pin-dialog__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ pin_url }}?cancel=1"
+                    hx-target="#chat-pin-dialog"
+                    hx-swap="innerHTML">Cancel</button>
+            <button type="submit" class="btn btn--primary">Pin to case</button>
+        </div>
+    {% endif %}
+</form>

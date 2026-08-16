@@ -1,0 +1,55 @@
+{
+    "_comment": "PortfoliFLOW UI Theme — centralised colour and font parameters for the PyQt6 GUI. Loaded by gui/theme.py via core/ui_theme.py.",
+    "_version": "1.0.0",
+    "_display_name": "Default (Cyberpunk Dark)",
+
+    "background": {
+        "primary":   "#0A0A0A",
+        "secondary": "#141414",
+        "section":   "#1A1A1A"
+    },
+
+    "accent": {
+        "primary":         "#E8304A",
+        "primary_hover":   "#FF4D66",
+        "primary_pressed": "#C42840"
+    },
+
+    "button": {
+        "fg": "#000000"
+    },
+
+    "text": {
+        "primary":    "#E8304A",
+        "secondary":  "#B0B0B0",
+        "disabled":   "#555555",
+        "on_sidebar": "#FFFFFF"
+    },
+
+    "border": {
+        "default": "#2A2A2A"
+    },
+
+    "font": {
+        "family":    "Inter, Segoe UI, Arial, sans-serif",
+        "size_base": 10
+    },
+
+    "semantic": {
+        "_comment_table_bg_dark": "Dark-theme variants used by ADR-0062 heatmap tinting on performance columns (Excess, Alpha, IR, ...). Desaturated dark green / dark red read as a perceptible tint on the canonical #0A0A0A background without overpowering cell text.",
+        "success":          "#4CAF50",
+        "warning":          "#FFC107",
+        "info":             "#4A9BD9",
+        "error":            "#FF6B6B",
+        "muted":            "#707070",
+        "confidence_low":   "#FF9800",
+        "table_pos_bg":     "#DCFFDC",
+        "table_neg_bg":     "#FFDCDC",
+        "table_pos_bg_dark": "#1A3F1F",
+        "table_neg_bg_dark": "#3F1A1F"
+    },
+
+    "pf": {
+        "_comment": "Web-shell tokens emitted under --pf-* by scripts/generate_theme_artifacts.py. Reserved for shell-level tokens (sidebar widths, accent overlays, status-bar heights); the per-component stepper palette was retired with the single-button Data Import refactor (sub-stream 6F)."
+    }
+}

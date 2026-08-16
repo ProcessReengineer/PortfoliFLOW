@@ -1,0 +1,17 @@
+{# Charts section lazy-load shell.
+
+   Renders a skeleton placeholder. On first visibility, HTMX
+   fetches /api/charts/section and replaces this wrapper with the
+   response. ``hx-swap="outerHTML"`` is load-bearing: the lazy
+   container must not survive past the swap, otherwise the loaded
+   article siblings become flex-row items. #}
+
+<div class="pf-section__lazy"
+     hx-get="/api/charts/section"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">
+        Loading universe charts&hellip;
+    </p>
+</div>

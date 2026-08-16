@@ -1,0 +1,103 @@
+{# The sticky scenario parameter strip — the parameter set made visible
+   (ADR-0104 §4/§6).
+
+   Included by the section body and by every error partial, and swapped into
+   the area page **out of band**: the strip sits above both Sections and is
+   therefore outside the section endpoint's swap target, but it has to stay in
+   step with the set the section was rendered from. One response, two swaps.
+
+   Each chip is one overlay transformation and the ordered chip list *is* the
+   parameter set. Removing a chip re-issues the request without that ``t{n}``
+   block, re-indexed contiguously by ``serialise_overlay`` — the UI never
+   formats an overlay key itself.
+
+   Chip *producers* arrive with the pacing rows (S2.5) and the hypothetical-
+   transaction form (S2.6). Until then the strip renders and round-trips sets
+   that arrive by URL, which is the whole of ADR-0104 §4's persistence story.
+
+   Context (from web/routes/planning_desk.py):
+     chips          — [{label, css_class, remove_query}], in overlay order.
+     unreadable     — true when the request's parameters did not parse.
+     view           — "scenario" | "baseline".
+     is_baseline    — whether the Baseline side of the toggle is active.
+     view_links     — {"scenario": qs, "baseline": qs}.
+     reset_query    — the same state with every transformation dropped.
+     scenario_link  — the shareable /planning-desk?… URL for this set.
+     section_url    — the section endpoint every control re-issues. #}
+
+<div class="pd-paramstrip" id="pd-paramstrip"
+     hx-swap-oob="outerHTML"
+     hx-target="#pd-cfp-body"
+     hx-swap="outerHTML">
+
+    <span class="pd-paramstrip__label">Scenario</span>
+
+    {% if unreadable %}
+        <span class="pd-paramstrip__empty pd-paramstrip__empty--unreadable">
+            This link's parameters could not be read.
+        </span>
+    {% elif chips %}
+        <span class="pd-toggle" role="group" aria-label="Baseline or scenario">
+            <button type="button"
+                    class="pd-toggle__opt{{ ' is-on' if not is_baseline }}"
+                    {% if is_baseline %}
+                        hx-get="{{ section_url }}?{{ view_links['scenario'] }}"
+                        hx-push-url="{{ area_url }}?{{ view_links['scenario'] }}"
+                    {% else %}aria-pressed="true"{% endif %}>
+                Scenario
+            </button>
+            <button type="button"
+                    class="pd-toggle__opt{{ ' is-on' if is_baseline }}"
+                    {% if is_baseline %}aria-pressed="true"{% else %}
+                        hx-get="{{ section_url }}?{{ view_links['baseline'] }}"
+                        hx-push-url="{{ area_url }}?{{ view_links['baseline'] }}"
+                    {% endif %}>
+                Baseline
+            </button>
+        </span>
+
+        {# In baseline view the chips stay on screen but are greyed: the
+           parameter set is still the page state, it is simply not applied
+           (ADR-0104 §4). #}
+        {% for chip in chips %}
+            <span class="pd-chip {{ chip.css_class }}{{ ' is-muted' if is_baseline }}">
+                {{ chip.label }}
+                <button type="button"
+                        class="pd-chip__x"
+                        title="Remove this transformation"
+                        aria-label="Remove {{ chip.label }}"
+                        hx-get="{{ section_url }}?{{ chip.remove_query }}"
+                        hx-push-url="{{ area_url }}?{{ chip.remove_query }}">&#10005;</button>
+            </span>
+        {% endfor %}
+    {% else %}
+        {# The empty set *is* the baseline (ADR-0104 §4), so the toggle has
+           nothing to toggle between and is rendered inert rather than
+           offering a choice that makes no difference. #}
+        <span class="pd-toggle pd-toggle--disabled" role="group"
+              aria-disabled="true"
+              title="An empty parameter set is the baseline — there is nothing to compare against yet.">
+            <span class="pd-toggle__opt">Scenario</span>
+            <span class="pd-toggle__opt">Baseline</span>
+        </span>
+        <span class="pd-paramstrip__empty">
+            No scenario parameters — the plan world as the book states it.
+        </span>
+    {% endif %}
+
+    <span class="pd-paramstrip__spacer"></span>
+
+    <button type="button"
+            class="btn btn--ghost"
+            data-scenario-link="{{ scenario_link }}"
+            {% if unreadable or not chips %}disabled{% endif %}>
+        Copy scenario link
+    </button>
+    <button type="button"
+            class="btn"
+            hx-get="{{ section_url }}?{{ reset_query }}"
+            hx-push-url="{{ area_url }}?{{ reset_query }}"
+            {% if not chips and not unreadable %}disabled{% endif %}>
+        Reset all to plan
+    </button>
+</div>

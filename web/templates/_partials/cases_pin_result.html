@@ -1,0 +1,10 @@
+{# Successful pin-document response (ADR-0107, C3b).
+
+   The main hx-target is #case-composer-slot (innerHTML): both top-level
+   elements below carry hx-swap-oob, so HTMX pulls them out — refreshing the
+   timeline and the rail's attachments count in place — and the slot receives
+   the empty remainder, clearing the pin composer.
+
+   Context: entries (re-projected timeline), attachments_count, attachments_cap. #}
+{% with timeline_oob = True %}{% include "_partials/cases_detail_timeline.html" %}{% endwith %}
+{% with attachments_oob = True %}{% include "_partials/cases_detail_attachments_row.html" %}{% endwith %}

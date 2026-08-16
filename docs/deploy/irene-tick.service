@@ -1,0 +1,47 @@
+# Example systemd service unit for the Irene heartbeat tick (ADR-0086).
+#
+# This is a TEMPLATE, not an installed unit. The operator copies it into
+# /etc/systemd/system/ (or a user unit dir), edits the paths / user /
+# environment for the deployment, then enables the companion .timer:
+#
+#     sudo cp docs/deploy/irene-tick.service /etc/systemd/system/
+#     sudo cp docs/deploy/irene-tick.timer   /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now irene-tick.timer
+#
+# The tick is a one-shot: it beats every due tenant and exits. The .timer
+# (not this unit) controls how often it fires. See README-irene-tick.md.
+
+[Unit]
+Description=PortfoliFLOW Irene heartbeat tick (beat every due tenant)
+# Only run once the database is reachable. Adjust to your DB unit name
+# (e.g. postgresql.service, or a podman-compose target).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# --- Operator MUST edit these for the deployment -------------------------
+# The service account the app runs as (never root).
+User=portfoliflow
+Group=portfoliflow
+# The repo / install root, so the CLI can find the .env and Alembic tree.
+WorkingDirectory=/opt/portfoliflow
+# The console script installed by `pip install -e .`
+# ([project.scripts] portfoliflow = "cli:app"). Use the absolute path to
+# the venv's bin so systemd does not depend on PATH.
+ExecStart=/opt/portfoliflow/.venv/bin/portfoliflow irene-tick
+# Credentials (DATABASE_URL_SUPERUSER, OPENROUTER_API_KEY, IRENE_MODEL,
+# SHIRLEY_MODEL, ...) are read from the repo .env by the CLI. If you prefer
+# systemd-managed env instead, point EnvironmentFile at it:
+# EnvironmentFile=/opt/portfoliflow/.env
+# -------------------------------------------------------------------------
+
+# The tick tolerates "no API key" (exits 0) and isolates per-tenant beat
+# failures, so a non-zero exit means the tick itself failed (e.g. the DB
+# was unreachable) — surface it rather than swallowing it.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portfoliflow"
-version = "0.1.0"
+version = "2026.08.0"
 description = "AI-assisted portfolio management platform for institutional investors (incl. fund-of-funds and alternatives)"
 requires-python = ">=3.11"
 readme = "readme.md"

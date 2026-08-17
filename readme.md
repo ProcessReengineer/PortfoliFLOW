@@ -17,23 +17,25 @@ AI-native platform for institutional portfolio management — built for allocato
 
 ## Installation
 
-The release ships in the [`Releases/`](Releases/) folder of this repository. Every block below is paste-able as a whole; run them from a shell in the order shown.
+Every block below is paste-able as a whole; run them from a shell in the order shown.
 
 ### 1. Get the code
 
-Either unpack the release archive:
+Releases are published as tags. Clone the current one:
 
 ```bash
-tar -xzf Releases/portfoliflow-<version>.tar.gz
-cd portfoliflow-<version>
-```
-
-or clone the repository:
-
-```bash
-git clone https://github.com/ProcessReengineer/PortfoliFLOW.git
+git clone --branch 2026.08.0 --depth 1 https://github.com/ProcessReengineer/PortfoliFLOW.git
 cd PortfoliFLOW
 ```
+
+Source archives for every release are also on the [Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases). To unpack one instead:
+
+```bash
+tar -xzf PortfoliFLOW-2026.08.0.tar.gz
+cd PortfoliFLOW-2026.08.0
+```
+
+`main` is the development branch: it moves between releases and is not guaranteed to be in a working state. Clone it only if you intend to follow development.
 
 ### 2. Install PortfoliFLOW
 
@@ -80,6 +82,7 @@ You are prompted once for the owner password. Non-interactive: `./scripts/db-ini
 podman compose up -d                                   # or: docker compose up -d
 until podman exec portfoliflow-postgres pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 alembic -c db/alembic.ini upgrade head
+read -rsp "Owner password: " OWNER_PASSWORD && echo
 echo -n "$OWNER_PASSWORD" | portfoliflow bootstrap --password-stdin
 ```
 

@@ -1,5 +1,9 @@
 # Secrets
 .env
+# scripts/install.sh: the run transcript, and the backup it takes before a
+# --force re-configure (that copy holds the superseded secrets).
+install.log
+.env.bak.*
 
 # Data files
 data/

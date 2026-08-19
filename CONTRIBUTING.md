@@ -88,6 +88,26 @@ ones contributors most often trip over:
   (ADR-0016).
 - Conventional Commits (`feat(scope): …`, `fix(scope): …`, `docs(scope): …`).
 
+## Shell scripts
+
+Every file in `scripts/*.sh` must run on **bash 3.2** and **BSD
+userland**, because macOS ships `/bin/bash` 3.2 and the documented
+install one-liner executes under whichever bash the user has
+(ADR-0124 §2.1). Bash parses a function body at definition time, so a
+single bash-4 construct anywhere in a file breaks it before the first
+line runs.
+
+Not available, anywhere in the file: `declare -A`, `${var,,}` /
+`${var^^}`, `mapfile` / `readarray`, `${var@Q}`, `;&` / `;;&`, `|&`,
+`coproc`, `read -i`, `printf %(…)T`, negative array subscripts,
+`local -n`; and in userland `sed -i` without a backup suffix,
+`head -n -N`, `date -d`, `grep -P`, `realpath`, `readlink -f`,
+`stat -c`, `seq`, GNU `timeout`. Indexed arrays, `[[ ]]`, `$(( ))`,
+`local`, `printf`, `read -r -s`, `tr`, `awk`, `df -Pk` and process
+substitution are all fine.
+
+`shellcheck -s bash` must be clean.
+
 ## ADR discipline
 
 Architectural decisions are recorded as Architecture Decision Records

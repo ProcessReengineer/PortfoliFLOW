@@ -391,6 +391,39 @@ additional tenants.
 
 ---
 
+## 6a. Guided installer (`scripts/install.sh`)
+
+`scripts/install.sh` performs the whole of §6 unattended (ADR-0124 §2):
+it checks the prerequisites, creates `.venv`, writes a `.env` whose
+Postgres, application-role and vault secrets are generated per
+installation, delegates the database to `scripts/db-init.sh`, and
+verifies the result with `portfoliflow status`.
+
+```bash
+./scripts/install.sh                       # from inside a checkout
+./scripts/install.sh --engine docker       # force the container engine
+./scripts/install.sh --db-port 5433        # a host Postgres already holds 5432
+./scripts/install.sh --no-ai               # skip the OpenRouter questions
+./scripts/install.sh --force               # re-configure over an existing .env
+./scripts/install.sh --doctor              # check only; changes nothing
+```
+
+`--doctor` re-runs the preflight and the verification and writes
+nothing. **Its output is what a support issue should carry** — it names
+the engine, the Compose provider, the interpreter, the container and
+volume state, and which check failed.
+
+Exit codes: `0` success · `1` generic failure · `2` bad usage · `10`
+unsupported platform · `11` missing prerequisite · `12` the database
+port is in use · `13` refused (existing installation without `--force`,
+or `--force` while the data volume still exists).
+
+The installer never uses `sudo`, never installs system packages, and
+never writes outside the target directory. A missing prerequisite prints
+the exact command for the detected package manager and stops.
+
+---
+
 ## 7. Verification and troubleshooting
 
 | Symptom | Likely cause | Action |
@@ -401,6 +434,7 @@ additional tenants.
 | Browser shows 404 at `…​.localhost:8000` | Subdomain not in `/etc/hosts`, tenant inactive, or wrong subdomain | Add the `/etc/hosts` entry; confirm the tenant with `inspect-tenant`; check `is_active` |
 | `localhost:8000` shows the wrong/no tenant | No `LOCAL_DEV_TENANT_SUBDOMAIN`, or stale value | Set it and restart, or switch to the `.localhost` host (Option A) |
 | Seeds missing after `create-tenant` | The post-creation seed step failed (the tenant itself still committed) | Re-run the seed installer or fill defaults via the SAA UI; check the warning in the CLI log |
+| `install.sh` exits 13 with "`.env` exists" | An installation is already configured here | Check it with `./scripts/install.sh --doctor`; to re-configure, `./scripts/install.sh --force` — and since that regenerates every secret, drop the data volume first with `<compose> down -v` (this deletes all data) |
 
 ---
 

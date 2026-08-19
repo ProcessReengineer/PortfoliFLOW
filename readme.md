@@ -21,12 +21,14 @@ Every block below is paste-able as a whole; run them from a shell in the order s
 
 ### 1. Get the code
 
-Releases are published as tags. Clone the current one:
+Releases are published as tags; the `stable` branch always points at the most recent one. Clone it:
 
 ```bash
-git clone --branch 2026.08.0 --depth 1 https://github.com/ProcessReengineer/PortfoliFLOW.git
+git clone --branch stable --depth 1 https://github.com/ProcessReengineer/PortfoliFLOW.git
 cd PortfoliFLOW
 ```
+
+Because `stable` is a branch, updating an existing checkout is `git pull` in place.
 
 Source archives for every release are also on the [Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases). To unpack one instead:
 

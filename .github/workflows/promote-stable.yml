@@ -1,0 +1,51 @@
+# Advance the `stable` branch to every non-pre-release calver tag
+# (ADR-0124 §4). `stable` is what the README clone command and the
+# install one-liner resolve, so it must never be forgotten: tagging is
+# the only manual step of a release.
+#
+# Two implementation details differ from the YAML printed in ADR-0124 §4,
+# deliberately; see the I3 deviation register in the commit that added
+# this file:
+#
+#   1. Pre-releases are skipped with a job-level `if`, not with `exit 78`.
+#      Exit code 78 was "neutral" only in the pre-2019 Actions runtime; in
+#      the current runtime any non-zero exit marks the step failed, which
+#      would paint every pre-release tag red for no reason.
+#   2. The push authenticates with a write-capable deploy key
+#      (`secrets.STABLE_DEPLOY_KEY`), not the workflow's GITHUB_TOKEN. A
+#      GITHUB_TOKEN cannot bypass branch protection on `stable`; the deploy
+#      key is listed as a bypass actor in the `stable` ruleset, so the
+#      "force-push only through a bypass under project-owner control"
+#      property of ADR-0124 §4 holds for the workflow as well as for the
+#      owner. Operator setup: docs/deploy/releasing.md.
+#
+# The version guard is load-bearing: a tag whose pyproject.toml version
+# disagrees fails here, before `stable` moves.
+
+name: promote-stable
+
+on:
+  push:
+    tags: ['[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9]*']
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    # Pre-release tags (anything with a hyphen, e.g. 2026.09.0-rc1) never
+    # advance stable.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.STABLE_DEPLOY_KEY }}
+          fetch-depth: 1
+
+      - name: Version must match tag
+        run: grep -qx "version = \"$GITHUB_REF_NAME\"" pyproject.toml
+
+      - name: Advance stable
+        run: git push --force origin "$GITHUB_SHA:refs/heads/stable"

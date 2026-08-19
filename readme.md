@@ -9,7 +9,7 @@ AI-native platform for institutional portfolio management — built for allocato
 ## Requirements
 
 - **Python 3.11 or newer**
-- **Podman or Docker** with the Compose plugin — runs the PostgreSQL 16 container; no host-side Postgres install needed
+- **Podman or Docker**, plus a **Compose provider** — runs the PostgreSQL 16 container; no host-side Postgres install needed. Podman ships no Compose implementation of its own, so install `podman-compose` or the Docker Compose plugin alongside it. On **macOS** Podman additionally runs inside a virtual machine: run `podman machine init && podman machine start` once before the first `compose up`
 - **Linux or macOS** as the reference platforms (Windows works via WSL2; the helper scripts are Bash)
 - A **virtual environment** (strongly recommended)
 
@@ -74,7 +74,7 @@ Everything else has working defaults. AI-related keys are covered under [Enablin
 ./scripts/db-init.sh
 ```
 
-You are prompted once for the owner password. Non-interactive: `./scripts/db-init.sh --password "…"`.
+You are prompted once for the owner password. Non-interactive: `./scripts/db-init.sh --password "…"`, or `--password-stdin` to pipe it in. The script uses Podman when it is installed and Docker otherwise; Docker users can force the choice with `./scripts/db-init.sh --engine docker`.
 
 **Or step by step** — the same sequence, engine-neutral:
 

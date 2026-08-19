@@ -188,6 +188,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0121 | [Tenant-Scoped User Management with Owner-Gated Admin Surface](./0121-tenant-scoped-user-management-and-owner-gated-admin-surface.md) | Accepted (2026-08-14) | 2026-08-14 | users, roles, permissions, admin, multi-tenant, rls, audit, sessions, release |
 | 0122 | [Sidebar Area Order v3](./0122-sidebar-area-order-v3.md) | Accepted (2026-08-15) — supersedes the sidebar-order statement in ADR-0104 §6 | 2026-08-15 | ui, navigation, shell, sidebar, information-architecture, areas |
 | 0123 | [Report Scraper Model in the Scoped-Settings Taxonomy — Per-Tenant Resolution for the One-Shot Extraction Path](./0123-report-scraper-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-08-15) — annex amendment to ADR-0112 §3; amends ADR-0053's model dropdown | 2026-08-15 | scraper, configuration, multi-tenancy, credentials, admin, openrouter |
+| 0124 | [Installation and Release Distribution — Guided Installer, Engine-Neutral Bootstrap, and the `stable` Branch](./0124-installation-and-release-distribution.md) | Accepted (2026-08-19) — amends ADR-0040 (operator entry point only) and the dev-only password note in `db/init/01-create-app-role.sql` | 2026-08-19 | installation, release, packaging, operations, ci, developer-experience |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -533,7 +534,52 @@ SSE stream resolves again and that second resolution drives the run. Once this
 lands, `web/main.py`'s parked application-scope singleton has exactly one
 remaining consumer, the Fetcher-LLM; converting it is explicitly **not** in scope.
 
-The next free ADR number is **0124**.
+**Update (2026-08-19):** ADR-0124 (installation and release distribution) is
+**Accepted (2026-08-19)**. It closes the installation gap left open by the
+2026.08.0 public release: the README's manual sequence assumed a container
+engine, a Compose provider and (on macOS) a running Podman machine, none of
+which were checked, and pinned a literal version tag that had to be hand-edited
+per release. Four decisions. (1) `scripts/db-init.sh` and `db-reset.sh` resolve
+engine and Compose provider **once** into two indexed arrays (`--engine` flag →
+`PORTFOLIFLOW_ENGINE` → Podman → Docker); a resolved engine with no working
+Compose provider is a hard error naming the packages that would fix it, never a
+silent fallback. `db/init/01-create-app-role.sql` becomes a `.sh` so the
+application-role password can come from the container environment — the literal
+default and its "DEV ONLY" note are carried over verbatim, so existing checkouts
+behave exactly as before, but overriding no longer means editing a tracked file.
+The role keeps its non-negotiable properties: no `SUPERUSER`, no `BYPASSRLS`.
+`POSTGRES_PORT` is parameterised, both bind mounts gain `,Z`, and the GNU-only
+`head -n -N` help rendering goes. (2) `scripts/install.sh` is a guided,
+single-file installer targeting **bash 3.2 and BSD userland**, in remote or local
+mode — remote clones and then `exec`s the *cloned* copy, so the code that
+installs is always the code being installed. Six phases: preflight, fetch,
+runtime, configure, database, summary; Phase 4 **delegates** to `db-init.sh`
+rather than reimplementing it, so container-start / wait / migrate / bootstrap
+stays one implementation. It generates per-installation secrets (Postgres
+superuser, application role, `CREDENTIAL_VAULT_MASTER_KEY`) and **never invokes
+`sudo`, never installs system packages, and never writes outside the target
+directory** — a missing prerequisite prints the exact package-manager command and
+exits non-zero. Prompts read from `/dev/tty`; `--doctor` runs preflight and
+verify only. (3) The one-liner is `bash -c "$(curl -fsSL …/install.sh)"`, not a
+pipe, because with a pipe stdin *is* the script and the prompts would eat it;
+`https://portfoliflow.com/install.sh` redirects to the `stable` branch on
+`raw.githubusercontent.com`, keeping the repository the single source of truth
+and the redirect a kill switch, with a `install.sh.sha256` release asset and a
+documented download-inspect-verify-run path of equal prominence. (4) **`stable`
+is a branch, not a moving tag** — `git fetch` does not update an existing tag
+without `--force`, so a moving tag would leave users silently on different trees;
+a branch clone also yields a tracking ref, making updates a `git pull`. A
+`promote-stable.yml` workflow advances it on every non-pre-release tag and fails
+the release if `pyproject.toml` disagrees with the tag. A weekly `installer` CI
+job exercises Ubuntu/Docker and macOS/Podman end-to-end plus the idempotence
+path, because installer rot comes from the outside world, not from commits here.
+Explicitly **not in scope**: the hard-coded primary tenant and `portfoliflow_dev`
+database name (a product decision with its own ADR), Windows beyond WSL2, OS
+packages and PyPI publication, production deployment concerns, an in-place
+`--upgrade` path, and GPG-signed tags. Four implementation strands, I1 → I2 →
+I4 with I3 independent.
+
+The next free ADR number is **0125**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

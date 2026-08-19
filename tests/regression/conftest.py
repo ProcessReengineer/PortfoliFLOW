@@ -61,7 +61,7 @@ _SCRATCH_PREFIX = "portfoliflow_rt_"
 #: freshly created database; only its *grants* are per-database.
 _APP_ROLE = "portfoliflow_app"
 
-#: The per-database half of ``db/init/01-create-app-role.sql``, mirrored so the
+#: The per-database half of ``db/init/01-create-app-role.sh``, mirrored so the
 #: app-role engine behaves against a scratch database exactly as it does
 #: against the dev one. ``CREATE ROLE`` is omitted (cluster-wide, see above)
 #: and ``GRANT CONNECT`` is issued on the maintenance connection instead, since

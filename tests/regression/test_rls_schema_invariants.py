@@ -174,7 +174,7 @@ async def test_portfoliflow_app_role_does_not_bypass_rls(
         role = result.mappings().one_or_none()
 
     assert role is not None, (
-        "portfoliflow_app role is missing. db/init/01-create-app-role.sql "
+        "portfoliflow_app role is missing. db/init/01-create-app-role.sh "
         "should have created it on first container start. Run "
         "`podman compose down -v && podman compose up -d` to re-run init."
     )

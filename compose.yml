@@ -22,13 +22,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # Consumed by db/init/01-create-app-role.sh on FIRST container start
+      # only (ADR-0124 §1.2). Must match the password inside DATABASE_URL.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-app_dev_password_change_me}
     ports:
       # Bind to loopback only — never expose to the LAN by accident.
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/postgresql.conf:/etc/postgresql/postgresql.conf:ro
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      # ':Z' relabels the bind mount for SELinux hosts (Fedora, RHEL).
+      # Docker on non-SELinux hosts accepts and ignores the suffix.
+      - ./db/postgresql.conf:/etc/postgresql/postgresql.conf:ro,Z
+      - ./db/init:/docker-entrypoint-initdb.d:ro,Z
     command:
       - postgres
       - -c

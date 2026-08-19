@@ -57,10 +57,18 @@ jobs:
       - name: Create application role
         # Same script the compose container applies on first start; the
         # role password is the dev literal referenced by DATABASE_URL.
-        run: >
-          psql "postgresql://postgres:postgres_ci@localhost:5432/portfoliflow_dev"
-          -v ON_ERROR_STOP=1
-          -f db/init/01-create-app-role.sql
+        # Since ADR-0124 §1.2 the file is an executable shell script that
+        # reads its inputs from the environment the postgres entrypoint
+        # would supply, so those variables are set by hand here instead of
+        # feeding the file to `psql -f`. APP_DB_PASSWORD is left unset so
+        # the script's documented development default applies.
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGPASSWORD: postgres_ci
+          POSTGRES_USER: postgres
+          POSTGRES_DB: portfoliflow_dev
+        run: ./db/init/01-create-app-role.sh
       - name: Apply migrations
         run: alembic -c db/alembic.ini upgrade head
       - name: Full suite (minus regression)

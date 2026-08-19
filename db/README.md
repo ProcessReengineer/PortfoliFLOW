@@ -43,7 +43,7 @@ development database; never run it against data you want to keep.
 | --- | --- |
 | `compose.yml` *(repo root)* | Container definition, port binding, volume mounts, healthcheck. |
 | `db/postgresql.conf` | Custom Postgres config overrides, mounted read-only. Currently empty. |
-| `db/init/01-create-app-role.sql` | Creates the unprivileged `portfoliflow_app` role on first start. |
+| `db/init/01-create-app-role.sh` | Creates the unprivileged `portfoliflow_app` role on first start. |
 | `db/alembic.ini` | Alembic configuration (URL, script location). |
 | `db/migrations/` | Alembic `env.py` plus the `versions/` directory of migrations. |
 
@@ -53,7 +53,7 @@ development database; never run it against data you want to keep.
 opposed to the schema, which is Alembic's job (see the division of
 labour below). It currently contains a single file.
 
-**What the SQL does.** `01-create-app-role.sql` creates the
+**What the SQL does.** `01-create-app-role.sh` creates the
 unprivileged `portfoliflow_app` login role (no `SUPERUSER`, no
 `BYPASSRLS` — that is the point, see *Database roles* below) and gives
 it the privileges the application needs:
@@ -117,7 +117,7 @@ Two roles are used:
   ownership) and for ad-hoc admin tasks. The application never connects
   as this role.
 - **`portfoliflow_app`** — unprivileged application role. Created by
-  `db/init/01-create-app-role.sql`. It does **not** have `BYPASSRLS`
+  `db/init/01-create-app-role.sh`. It does **not** have `BYPASSRLS`
   or `SUPERUSER`, so RLS policies bind on every query — exactly the
   way they will in production. Both the app and the repository test
   suite connect through this role.
@@ -178,7 +178,7 @@ service configuration), use `portfoliflow status` instead.
 
 ## Troubleshooting
 
-- **`db/init/01-create-app-role.sql` did not run.** The init scripts
+- **`db/init/01-create-app-role.sh` did not run.** The init scripts
   only execute on a *fresh* data volume. Run `podman compose down -v`
   to drop the volume and start over. There is no Phase-1 production
   data, so this is safe.

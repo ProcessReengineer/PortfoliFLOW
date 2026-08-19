@@ -14,7 +14,17 @@
 # Usage:
 #     ./scripts/db-reset.sh                          # interactive bootstrap passwords
 #     ./scripts/db-reset.sh --password "test"        # non-interactive owner password
+#     ./scripts/db-reset.sh --password-stdin         # owner password read from stdin
 #     ./scripts/db-reset.sh --no-bootstrap           # migrations only, skip user/SAA seeding
+#     ./scripts/db-reset.sh --engine docker          # force a container engine
+#
+# Container engine (ADR-0124 §1.1):
+#     Podman and Docker are both supported. The engine is resolved in
+#     order: --engine podman|docker, then the PORTFOLIFLOW_ENGINE
+#     environment variable (also honoured from .env), then podman on
+#     PATH, then docker on PATH. A resolved engine with no Compose
+#     provider is a hard error naming the package that would fix it —
+#     never a silent fallback.
 #
 # Environment variables (consulted when interactive prompts would
 # otherwise apply):
@@ -27,7 +37,7 @@
 # create one later with 'portfoliflow create-super-admin'.
 #
 # Requirements:
-#     - podman + podman-compose installed
+#     - a container engine (Podman or Docker) plus a Compose provider
 #     - .venv activated (or this script will activate it)
 #     - .env present with POSTGRES_* and DATABASE_URL_SUPERUSER
 #
@@ -63,18 +73,108 @@ log_warn()    { echo "${C_YELLOW}!! $1${C_RESET}" >&2; }
 log_error()   { echo "${C_RED}XX $1${C_RESET}" >&2; }
 
 # ---------------------------------------------------------------------------
+# Container engine resolution (ADR-0124 §1.1)
+# ---------------------------------------------------------------------------
+#
+# Resolves the engine and its Compose provider exactly once, into two
+# indexed arrays; every call site below goes through those and never
+# names an engine directly.
+#
+#     ENGINE_CMD   e.g. (podman)          or (docker)
+#     COMPOSE_CMD  e.g. (podman compose)  or (docker compose)
+#
+# Order: --engine podman|docker, then $PORTFOLIFLOW_ENGINE, then podman
+# on PATH, then docker on PATH. Podman first preserves the repo's stated
+# preference (rootless by default) without excluding Docker. Every
+# failure is a hard error naming the cause and the remedy — there is no
+# silent fallback between engines or providers.
+
+resolve_engine() {
+    local requested="" origin=""
+
+    if [[ -n "$ENGINE_FLAG" ]]; then
+        requested="$ENGINE_FLAG"
+        origin="--engine"
+    elif [[ -n "${PORTFOLIFLOW_ENGINE:-}" ]]; then
+        requested="$PORTFOLIFLOW_ENGINE"
+        origin="PORTFOLIFLOW_ENGINE"
+    fi
+
+    if [[ -n "$requested" ]]; then
+        if [[ "$requested" != "podman" && "$requested" != "docker" ]]; then
+            log_error "$origin names an unknown container engine: '$requested'."
+            log_error "Supported values are 'podman' and 'docker'."
+            exit 2
+        fi
+        if ! command -v "$requested" >/dev/null 2>&1; then
+            log_error "$origin requested '$requested', but '$requested' is not on PATH."
+            log_error "Install $requested, or drop $origin to use whichever engine is present."
+            exit 1
+        fi
+        ENGINE_CMD=("$requested")
+    elif command -v podman >/dev/null 2>&1; then
+        ENGINE_CMD=(podman)
+    elif command -v docker >/dev/null 2>&1; then
+        ENGINE_CMD=(docker)
+    else
+        log_error "No container engine found. PortfoliFLOW needs Podman or Docker"
+        log_error "to run its PostgreSQL 16 container."
+        log_error "  Podman (rootless, the repo default): https://podman.io/docs/installation"
+        log_error "  Docker:                              https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+
+    # Compose-provider probe for the resolved engine; first that answers wins.
+    if [[ "${ENGINE_CMD[0]}" == "podman" ]]; then
+        if podman compose version >/dev/null 2>&1; then
+            COMPOSE_CMD=(podman compose)
+        elif podman-compose --version >/dev/null 2>&1; then
+            COMPOSE_CMD=(podman-compose)
+        else
+            log_error "Podman is installed, but no Compose provider is available."
+            log_error "Podman ships no Compose implementation of its own — 'podman compose'"
+            log_error "delegates to one that must be installed separately. Install either:"
+            log_error "  - podman-compose            (pip install podman-compose, or your package manager)"
+            log_error "  - the Docker Compose plugin (package 'docker-compose-plugin')"
+            log_error "Or use Docker instead:  $0 --engine docker"
+            exit 1
+        fi
+    else
+        if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD=(docker compose)
+        elif docker-compose --version >/dev/null 2>&1; then
+            COMPOSE_CMD=(docker-compose)
+        else
+            log_error "Docker is installed, but no Compose provider is available."
+            log_error "Install the Docker Compose plugin (package 'docker-compose-plugin'),"
+            log_error "or the standalone 'docker-compose' binary."
+            log_error "  https://docs.docker.com/compose/install/"
+            exit 1
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
 PASSWORD=""
+PASSWORD_GIVEN=0
+PASSWORD_STDIN=0
 RUN_BOOTSTRAP=1
 FORCE=0
+ENGINE_FLAG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --password)
             PASSWORD="$2"
+            PASSWORD_GIVEN=1
             shift 2
+            ;;
+        --password-stdin)
+            PASSWORD_STDIN=1
+            shift
             ;;
         --no-bootstrap)
             RUN_BOOTSTRAP=0
@@ -84,8 +184,18 @@ while [[ $# -gt 0 ]]; do
             FORCE=1
             shift
             ;;
+        --engine)
+            ENGINE_FLAG="$2"
+            shift 2
+            ;;
         --help|-h)
-            sed -n '/^# Usage:/,/^# Safety:/p' "$0" | head -n -1 | sed 's/^# \{0,1\}//'
+            # Renders the header block from '# Usage:' up to (but not
+            # including) '# Safety:'. awk rather than `head -n -N`,
+            # which BSD head rejects (ADR-0124 §1.4).
+            awk '/^# Usage:/  { f = 1 }
+                 /^# Safety:/ { exit }
+                 f && !/^#/   { exit }
+                 f            { sub(/^# ?/, ""); print }' "$0"
             exit 0
             ;;
         *)
@@ -94,6 +204,18 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ $PASSWORD_GIVEN -eq 1 && $PASSWORD_STDIN -eq 1 ]]; then
+    log_error "--password and --password-stdin cannot be combined."
+    exit 2
+fi
+
+# Reads the OWNER password only — the super-admin path below keeps its
+# SUPER_ADMIN_PASSWORD / interactive prompt unchanged. Stdin keeps the
+# secret off the command line for the ADR-0124 §2 installer.
+if [[ $PASSWORD_STDIN -eq 1 ]]; then
+    IFS= read -r PASSWORD || true
+fi
 
 # ---------------------------------------------------------------------------
 # Sanity checks
@@ -138,12 +260,15 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
 fi
 
 # Check required CLI commands.
-for cmd in podman alembic; do
+for cmd in alembic; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         log_error "Required command not found: $cmd"
         exit 1
     fi
 done
+
+resolve_engine
+log_step "Container engine: ${ENGINE_CMD[*]} (compose: ${COMPOSE_CMD[*]})"
 
 if [[ $RUN_BOOTSTRAP -eq 1 ]] && ! command -v portfoliflow >/dev/null 2>&1; then
     log_error "portfoliflow CLI not found (needed for bootstrap)."
@@ -167,7 +292,7 @@ echo "OK — no portfoliflow-web running."
 # ---------------------------------------------------------------------------
 
 log_step "Stopping postgres container and removing data volume…"
-podman compose down -v
+"${COMPOSE_CMD[@]}" down -v
 echo "OK — container down, volume removed."
 
 # ---------------------------------------------------------------------------
@@ -175,7 +300,7 @@ echo "OK — container down, volume removed."
 # ---------------------------------------------------------------------------
 
 log_step "Starting postgres container (init scripts in db/init/ will run)…"
-podman compose up -d
+"${COMPOSE_CMD[@]}" up -d
 echo "OK — container starting."
 
 # ---------------------------------------------------------------------------
@@ -187,11 +312,11 @@ log_step "Waiting for postgres to be ready…"
 # scripts against listens on the Unix socket only, so a TCP probe
 # cannot succeed until the final server is up.
 deadline=$(( $(date +%s) + 30 ))
-until podman exec "$COMPOSE_SERVICE" pg_isready -h 127.0.0.1 -U postgres \
+until "${ENGINE_CMD[@]}" exec "$COMPOSE_SERVICE" pg_isready -h 127.0.0.1 -U postgres \
         -d "$DEV_DB_NAME" >/dev/null 2>&1; do
     if [[ $(date +%s) -gt $deadline ]]; then
         log_error "Postgres did not become ready within 30 seconds."
-        log_error "Check logs with:  podman logs $COMPOSE_SERVICE"
+        log_error "Check logs with:  ${ENGINE_CMD[*]} logs $COMPOSE_SERVICE"
         exit 1
     fi
     sleep 1
@@ -204,20 +329,20 @@ echo "OK — postgres ready."
 # is genuinely missing.
 role_deadline=$(( $(date +%s) + 30 ))
 while true; do
-    if role_present=$(podman exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 \
+    if role_present=$("${ENGINE_CMD[@]}" exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 \
             -U postgres -d "$DEV_DB_NAME" -tAc \
             "SELECT 1 FROM pg_roles WHERE rolname = 'portfoliflow_app';" \
             2>/dev/null); then
         if [[ "${role_present//[[:space:]]/}" != "1" ]]; then
             log_error "portfoliflow_app role was not created by init scripts."
-            log_error "Check db/init/ contents and podman logs $COMPOSE_SERVICE."
+            log_error "Check db/init/ contents and ${ENGINE_CMD[*]} logs $COMPOSE_SERVICE."
             exit 1
         fi
         break
     fi
     if [[ $(date +%s) -gt $role_deadline ]]; then
         log_error "Postgres came up but psql could not connect within 30 seconds."
-        log_error "Check logs with:  podman logs $COMPOSE_SERVICE"
+        log_error "Check logs with:  ${ENGINE_CMD[*]} logs $COMPOSE_SERVICE"
         exit 1
     fi
     sleep 1
@@ -308,7 +433,7 @@ fi
 
 log_step "Verifying final state…"
 
-podman exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres -d "$DEV_DB_NAME" -c \
+"${ENGINE_CMD[@]}" exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres -d "$DEV_DB_NAME" -c \
     "SELECT 'tenants'        AS tbl, COUNT(*)::TEXT AS n FROM tenants
      UNION ALL SELECT 'users',         COUNT(*)::TEXT FROM users
      UNION ALL SELECT 'asset_classes', COUNT(*)::TEXT FROM asset_classes
@@ -318,7 +443,7 @@ podman exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres -d "$DEV_DB_NAME" -
 if [[ $RUN_BOOTSTRAP -eq 1 ]]; then
     # The UUID literal mirrors core.tenant_constants.PRIMARY_TENANT_ID;
     # the shell can't import the Python constant, so it's inlined here.
-    owner_count=$(podman exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres \
+    owner_count=$("${ENGINE_CMD[@]}" exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres \
         -d "$DEV_DB_NAME" -tAc \
         "SELECT COUNT(*) FROM users
          WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
@@ -332,7 +457,7 @@ if [[ $RUN_BOOTSTRAP -eq 1 ]]; then
     echo "OK — primary-tenant owner present ($owner_count)."
 
     if [[ -n "${SUPER_ADMIN_EMAIL:-}" ]]; then
-        sa_count=$(podman exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres \
+        sa_count=$("${ENGINE_CMD[@]}" exec "$COMPOSE_SERVICE" psql -h 127.0.0.1 -U postgres \
             -d "$DEV_DB_NAME" -tAc \
             "SELECT COUNT(*) FROM users
              WHERE is_super_admin = TRUE AND is_active;")

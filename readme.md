@@ -17,29 +17,53 @@ AI-native platform for institutional portfolio management — built for allocato
 
 ## Installation
 
+There are three ways in. They are the same procedure at three levels of detail; pick the one that matches how much you want to see.
+
+### Option A — one line
+
+```bash
+bash -c "$(curl -fsSL https://portfoliflow.com/install.sh)"
+```
+
+The installer checks the prerequisites, clones the current release into `./PortfoliFLOW`, creates a virtual environment, writes a `.env` with freshly generated secrets, starts the PostgreSQL container, applies the schema, creates the first tenant and owner (you are asked for an e-mail and a password), and ends with a verified status report and the URL to open. Arguments go after `--`:
+
+```bash
+bash -c "$(curl -fsSL https://portfoliflow.com/install.sh)" -- --dir ~/portfoliflow --no-ai
+```
+
+Useful flags: `--dir <path>` (where to install), `--engine podman|docker` (force one), `--db-port <n>` (when 5432 is taken), `--no-ai` (skip the AI questions), `--non-interactive` (for scripts; takes the owner credentials from `PORTFOLIFLOW_OWNER_EMAIL` and `PORTFOLIFLOW_OWNER_PASSWORD`). The installer never uses `sudo`, never installs system packages and never writes outside the target directory; if something is missing it prints the exact install command for your package manager and stops. Afterwards, `scripts/install.sh --doctor` re-checks an installation without changing it — attach its output to any support issue.
+
+### Option B — download, inspect, verify, run
+
+Same script, same result, but you read it first and check it against the release:
+
+```bash
+curl -fsSLO https://portfoliflow.com/install.sh
+shasum -a 256 install.sh          # compare with install.sh.sha256 on the Releases page
+less install.sh
+bash install.sh
+```
+
+`install.sh` is one self-contained file; what it does in which order is its header comment. Every release publishes `install.sh.sha256` as an asset on the [Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases).
+
+### Option C — by hand
+
 Every block below is paste-able as a whole; run them from a shell in the order shown.
 
-### 1. Get the code
+#### 1. Get the code
 
-Releases are published as tags; the `stable` branch always points at the most recent one. Clone it:
+The `stable` branch always points at the most recent release:
 
 ```bash
 git clone --branch stable --depth 1 https://github.com/ProcessReengineer/PortfoliFLOW.git
 cd PortfoliFLOW
 ```
 
-Because `stable` is a branch, updating an existing checkout is `git pull` in place.
-
-Source archives for every release are also on the [Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases). To unpack one instead:
-
-```bash
-tar -xzf PortfoliFLOW-2026.08.0.tar.gz
-cd PortfoliFLOW-2026.08.0
-```
+Because `stable` is a branch, updating an existing checkout is `git pull` in place. Source archives for every release are on the [Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases) if you prefer not to clone.
 
 `main` is the development branch: it moves between releases and is not guaranteed to be in a working state. Clone it only if you intend to follow development.
 
-### 2. Install PortfoliFLOW
+#### 2. Install PortfoliFLOW
 
 ```bash
 python -m venv .venv
@@ -50,7 +74,7 @@ pip install -e .
 
 This installs everything the platform needs at runtime — FastAPI/Uvicorn, SQLAlchemy + asyncpg, Alembic, pandas/SciPy, Plotly, the `portfoliflow` operator CLI and the `portfoliflow-web` server. Add `".[dev]"` for the test and lint tooling, `".[bot]"` for the optional Telegram bot.
 
-### 3. Configure
+#### 3. Configure
 
 ```bash
 cp .env.example .env
@@ -62,13 +86,14 @@ Open `.env` and set at least:
 |---|---|
 | `POSTGRES_PASSWORD` | A password for the Postgres superuser (consumed by the container) |
 | `DATABASE_URL_SUPERUSER` | The same password inside the URL (used only by migrations, bootstrap and the CLI) |
-| `DATABASE_URL` | Leave as is for a local install — the app role is created by the container init script |
+| `APP_DB_PASSWORD` and `DATABASE_URL` | Leave both as shipped for a local install, or set a password in `APP_DB_PASSWORD` and put the same one into `DATABASE_URL` — the container creates the app role with it on first start |
+| `POSTGRES_PORT` | Only if 5432 is taken on your machine; then change the port in both `DATABASE_URL*` too |
 | `OWNER_EMAIL` | Login e-mail of the first tenant owner |
 | `CREDENTIAL_VAULT_MASTER_KEY` | Recommended — generate one with `portfoliflow vault-generate-key`; without it, provider keys cannot be stored in the Admin UI (only via `.env`) |
 
-Everything else has working defaults. AI-related keys are covered under [Enabling the AI functions](#enabling-the-ai-functions) below.
+Everything else has working defaults. AI-related keys are covered under [Enabling the AI functions](#enabling-the-ai-functions) below. (Options A and B do all of this for you and generate the three secrets.)
 
-### 4. Set up PostgreSQL and initialise the database
+#### 4. Set up PostgreSQL and initialise the database
 
 **One command** (starts the container, waits for it, applies all migrations, creates the first tenant and owner user):
 
@@ -88,12 +113,12 @@ read -rsp "Owner password: " OWNER_PASSWORD && echo
 echo -n "$OWNER_PASSWORD" | portfoliflow bootstrap --password-stdin
 ```
 
-The container binds to `127.0.0.1:5432` only, keeps its data in the named volume `portfoliflow_postgres_data`, and on **first start** creates the unprivileged `portfoliflow_app` role the application connects with. Migrations are forward-only: `upgrade head` brings any database — fresh or existing — to the current schema.
+The container binds to `127.0.0.1:5432` only (or `POSTGRES_PORT`), keeps its data in the named volume `portfoliflow_postgres_data`, and on **first start** creates the unprivileged `portfoliflow_app` role the application connects with. Migrations are forward-only: `upgrade head` brings any database — fresh or existing — to the current schema.
 
-### 5. Run
+### Run
 
 ```bash
-portfoliflow-web
+portfoliflow-web                     # or, without activating the venv: .venv/bin/portfoliflow-web
 ```
 
 Tenants are resolved by subdomain, so open the primary tenant at
@@ -102,13 +127,16 @@ Tenants are resolved by subdomain, so open the primary tenant at
 http://minathena-capital.localhost:8000
 ```
 
-Most browsers resolve `*.localhost` to loopback on their own; if yours does not, add `127.0.0.1 minathena-capital.localhost admin.localhost` to `/etc/hosts`, or set `LOCAL_DEV_TENANT_SUBDOMAIN=minathena-capital` in `.env` and use `http://localhost:8000`. Sign in with `OWNER_EMAIL` and the password you gave to `bootstrap`.
+Most browsers resolve `*.localhost` to loopback on their own; if yours does not, add `127.0.0.1 minathena-capital.localhost admin.localhost` to `/etc/hosts`, or set `LOCAL_DEV_TENANT_SUBDOMAIN=minathena-capital` in `.env` and use `http://localhost:8000`. Sign in with the owner e-mail and the password you gave during installation.
 
 Verify the install without a browser:
 
 ```bash
 portfoliflow status              # schema head, tenant/user state, AI configuration
+scripts/install.sh --doctor      # prerequisites + the same status, changes nothing
 ```
+
+`status` reports the AI section as not configured until a key is set; that is informational, not an error.
 
 ### Resetting
 
@@ -117,7 +145,7 @@ portfoliflow reset-dev --confirm         # truncate all domain tables, re-bootst
 podman compose down -v && ./scripts/db-init.sh   # full from-scratch reset (drops the volume)
 ```
 
-The role-creation init SQL runs only on the container's first start, so a truly clean slate needs the volume dropped, not just the container stopped.
+The role-creation init script runs only on the container's first start, so a truly clean slate needs the volume dropped, not just the container stopped. An installation made with the installer can be re-configured with `scripts/install.sh --force` after the volume has been dropped; it backs up the old `.env` first.
 
 ---
 

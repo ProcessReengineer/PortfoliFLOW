@@ -1,0 +1,48 @@
+# Publish the GitHub Release entry and its install.sh.sha256 asset for
+# every non-pre-release calver tag (ADR-0124 §3). Runs alongside
+# promote-stable.yml on the same trigger; the two are independent — a
+# red run here never blocks the branch promotion, and vice versa.
+#
+# The checksum is computed from the tagged commit's scripts/install.sh,
+# which is byte-identical to what `stable` serves once promote-stable
+# has run for the same tag.
+#
+# Creating releases needs only the workflow's own GITHUB_TOKEN —
+# releases are not covered by branch rulesets.
+
+name: release-assets
+
+on:
+  push:
+    tags: ['[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version must match tag
+        run: grep -qx "version = \"$GITHUB_REF_NAME\"" pyproject.toml
+
+      - name: Compute checksum
+        run: |
+          cd scripts
+          sha256sum install.sh > "$RUNNER_TEMP/install.sh.sha256"
+          cat "$RUNNER_TEMP/install.sh.sha256"
+
+      - name: Create release if absent
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Upload asset
+        run: gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/install.sh.sha256" --clobber

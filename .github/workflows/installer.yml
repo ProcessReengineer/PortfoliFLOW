@@ -1,0 +1,173 @@
+# Keep the guided installer honest (ADR-0124 §6): shellcheck over every
+# helper script, a real end-to-end install on Linux, and the bash-3.2 /
+# BSD-userland contract on macOS.
+#
+# The weekly schedule is the point of this workflow. Installer rot comes
+# from the outside world — a runner image that moves, a Compose provider
+# that changes its output, a Postgres image tag that shifts — not from
+# commits to this repository. A red Monday run therefore means the
+# environment moved underneath an unchanged installer, and that is
+# exactly the signal a user hitting the one-liner would otherwise send
+# in as a support issue. workflow_dispatch is there so a red weekly run
+# can be retried by hand once the cause is understood.
+#
+# Deviation D1 from ADR-0124 §6: the ADR asks for a macos-latest
+# end-to-end install with Podman, started by the job via
+# `podman machine`. GitHub's macOS runners are arm64 and do not support
+# nested virtualisation, so `podman machine start` cannot succeed there
+# and the job would be red for a reason that has nothing to do with the
+# installer. The macOS end-to-end install therefore stays a manual
+# acceptance test on the operator's checklist, and this job pins the
+# part only macOS can pin: that install.sh parses and runs under a real
+# bash 3.2 with BSD userland, up to the container-engine gate.
+
+name: installer
+
+on:
+  pull_request:
+    paths: ['scripts/**', 'db/**', 'compose.yml', 'readme.md', '.github/workflows/installer.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/**', 'db/**', 'compose.yml', 'readme.md', '.github/workflows/installer.yml']
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck must ship with the runner
+        run: |
+          command -v shellcheck >/dev/null 2>&1 || {
+            echo "shellcheck is not on this runner image. This job installs nothing" >&2
+            echo "by design — investigate the image change rather than adding a step." >&2
+            exit 1
+          }
+          shellcheck --version
+
+      - name: Lint every helper script
+        run: shellcheck -s bash scripts/*.sh
+
+  e2e-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Container engine preflight
+        run: |
+          docker version
+          docker compose version
+
+      - name: Install end-to-end
+        env:
+          PORTFOLIFLOW_OWNER_EMAIL: ci-owner@example.com
+          PORTFOLIFLOW_OWNER_PASSWORD: Ci-Owner-Password-2026
+        run: ./scripts/install.sh --non-interactive --no-ai --engine docker
+
+      - name: .env exists and is owner-only
+        run: |
+          test -f .env
+          stat -c '%a' .env | grep -qx 600
+
+      - name: Status report is green
+        run: |
+          # `portfoliflow status` exits 1 while the AI service is idle, which is
+          # the expected state after --no-ai. The report content is the
+          # assertion, not the exit code — the same contract as the installer's
+          # own Phase 5 verification.
+          rc=0
+          .venv/bin/portfoliflow status --json > "$RUNNER_TEMP/status.json" || rc=$?
+          echo "portfoliflow status exited $rc"
+          python3 - "$RUNNER_TEMP/status.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1]) as handle:
+              report = json.load(handle)
+
+          required = ["database", "tenants", "users", "web_application"]
+          bad = [key for key in required if not report.get(key, {}).get("ok", False)]
+          if bad:
+              raise SystemExit("not ok: " + ", ".join(bad))
+          if report.get("ai_service", {}).get("ok"):
+              raise SystemExit("ai_service reports ok, but the install ran --no-ai")
+          print("database/tenants/users/web_application ok; ai_service idle as expected")
+          PY
+
+      - name: Doctor exits 0 on a healthy installation
+        run: ./scripts/install.sh --doctor
+
+      - name: Re-running the installer is refused with exit 13
+        env:
+          PORTFOLIFLOW_OWNER_EMAIL: ci-owner@example.com
+          PORTFOLIFLOW_OWNER_PASSWORD: Ci-Owner-Password-2026
+        run: |
+          rc=0
+          ./scripts/install.sh --non-interactive --no-ai --engine docker || rc=$?
+          test "$rc" -eq 13 || {
+            echo "expected exit 13 (existing installation without --force), got $rc" >&2
+            exit 1
+          }
+
+      - name: Transcript carries no secret
+        run: |
+          test -f install.log
+          grep -iE "Ci-Owner-Password-2026" install.log && exit 1 || true
+
+  bash32-macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System bash is the 3.2 line
+        run: /bin/bash -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"' | grep -qx '3.2'
+
+      - name: Every script parses under bash 3.2
+        run: |
+          /bin/bash -n scripts/install.sh
+          /bin/bash -n scripts/db-init.sh
+          /bin/bash -n scripts/db-reset.sh
+
+      - name: --help and --version run
+        run: |
+          /bin/bash scripts/install.sh --help
+          /bin/bash scripts/install.sh --version
+
+      - name: An unknown flag exits 2
+        run: |
+          rc=0
+          /bin/bash scripts/install.sh --bogus > "$RUNNER_TEMP/bogus.txt" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/bogus.txt"
+          test "$rc" -eq 2 || {
+            echo "expected exit 2 (bad usage), got $rc" >&2
+            exit 1
+          }
+
+      - name: --doctor reaches the engine gate and names both remedies
+        run: |
+          # No container engine on the runner, so the preflight must stop at the
+          # engine gate with exit 11. Getting that far exercises the Darwin
+          # branch and BSD userland (df -Pk, the awk-rendered help).
+          rc=0
+          /bin/bash scripts/install.sh --doctor > "$RUNNER_TEMP/doctor.txt" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/doctor.txt"
+          test "$rc" -eq 11 || {
+            echo "expected exit 11 (missing prerequisite), got $rc" >&2
+            exit 1
+          }
+          grep -qi podman "$RUNNER_TEMP/doctor.txt"
+          grep -qi docker "$RUNNER_TEMP/doctor.txt"
+          grep -q 'brew install' "$RUNNER_TEMP/doctor.txt"

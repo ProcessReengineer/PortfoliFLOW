@@ -422,6 +422,16 @@ The installer never uses `sudo`, never installs system packages, and
 never writes outside the target directory. A missing prerequisite prints
 the exact command for the detected package manager and stops.
 
+Every release attaches `install.sh.sha256` — the SHA-256 of that
+release's `scripts/install.sh` — as an asset on the
+[Releases page](https://github.com/ProcessReengineer/PortfoliFLOW/releases),
+so a downloaded copy can be checked with `shasum -a 256 install.sh`
+before it is run (ADR-0124 §3). The installer itself is exercised by
+`.github/workflows/installer.yml`: on every pull request that touches
+`scripts/`, on `main`, and weekly on Monday at 05:17 UTC, which is what
+catches an installer broken by a moving runner image or Compose provider
+rather than by a commit.
+
 ---
 
 ## 7. Verification and troubleshooting

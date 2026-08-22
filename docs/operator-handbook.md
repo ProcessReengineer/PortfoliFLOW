@@ -133,10 +133,10 @@ then open `http://demo.localhost:8000` and sign in as
 `owner@demo.example`.
 
 **Step 4 — Load synthetic data.** Sign in as the demo owner and use the
-web **Upload and Import** action with the current synthetic test
-workbook (for example `PortfoliFLOW_Testdaten_v33.xlsx` — the newest
-file under `excel_import_files/`). RLS keeps this data isolated
-from every other tenant. Use synthetic data only — never real LP data.
+web **Upload and Import** action with the synthetic example workbook
+shipped in the repository, `sample_data/PortfoliFLOW_example_portfolio.xlsx`.
+RLS keeps this data isolated from every other tenant. Use synthetic data
+only — never real LP data.
 
 ---
 

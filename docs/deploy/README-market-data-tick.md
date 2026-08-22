@@ -41,6 +41,13 @@ setting changes it. A freshly provisioned tenant is still **disabled** by
 default (see [Enabling a tenant](#enabling-a-tenant)) — the built-in
 scheduler changes what ticks, never who has opted in.
 
+The one condition binding the two is ADR-0086's: the tick interval must be
+**strictly finer than the finest cadence a tenant can choose**, which since
+ADR-0125 §1 is `every_15m`. The 60-second default above satisfies it with
+room to spare — a quarter-hour due instant is noticed within the following
+minute — and the external timer template was tightened to 5 minutes for the
+same reason (ADR-0125 §8).
+
 **Checking on it.** `GET /health` reports a `tick_scheduler` object — the
 mode (`internal` / `external`), whether the task is alive, and the
 timestamp of the last completed tick. Super Admin → Platform shows the
@@ -108,10 +115,11 @@ actually due.
 
 - `market-data-tick.service` — a `Type=oneshot` unit that runs
   `portfoliflow market-data-tick`.
-- `market-data-tick.timer` — fires the service every 15 minutes
-  (`OnCalendar=*:0/15`). Fifteen minutes comfortably honours v0's finest
-  cadence (daily at a preferred hour) and a tick on an empty due-set is
-  near-free.
+- `market-data-tick.timer` — fires the service every 5 minutes
+  (`OnCalendar=*:0/5`). Five minutes stays strictly finer than the finest
+  cadence the surface offers (`every_15m`, ADR-0125 §1), so each refresh
+  lands within 5 minutes of its quarter-hour slot, and a tick on an empty
+  due-set is near-free.
 
 ## Install (operator)
 

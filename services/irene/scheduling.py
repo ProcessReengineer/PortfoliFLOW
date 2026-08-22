@@ -19,8 +19,9 @@ Three concerns, deliberately kept thin:
   (``mark_beat_done``) does live on the repository.
 - :func:`compute_next_due_at` — a pure cadence function (no DB): given a
   clock, a cadence, an anchor hour, and a tenant timezone, return the
-  next beat time in UTC. The v1 vocabulary (ADR-0119 §1) is ``daily``,
-  ``hourly``, ``every_2h``, ``every_3h`` and ``every_6h``.
+  next beat time in UTC. The v2 vocabulary (ADR-0125 §1, extending
+  ADR-0119 §1) is ``daily``, ``every_6h``, ``every_3h``, ``every_2h``,
+  ``hourly``, ``every_30m`` and ``every_15m``.
 - :func:`advisory_lock_key` — a deterministic 64-bit signed key derived
   from a tenant UUID, used with ``pg_try_advisory_xact_lock`` to claim a
   tenant's beat so two overlapping ticks (or a future multi-worker tick)
@@ -42,25 +43,40 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from core.exceptions import IreneCadenceInvalid
 
-# v1 cadence vocabulary (ADR-0119 §1), mapped to its interval in hours.
-# Every member divides 24, so the candidate hours of a cadence repeat
-# identically each local day and ``preferred_hour`` stays a meaningful
-# anchor. ``daily`` is simply the N=24 case, which is why extending the
-# vocabulary needed no second arithmetic path.
+# Cadence vocabulary v2 (ADR-0125 §1, extending ADR-0119 §1), mapped to
+# its step as a :class:`~datetime.timedelta`. Every step divides 24 hours,
+# so the candidate grid of a cadence repeats identically each local day and
+# ``preferred_hour`` stays a meaningful anchor. ``daily`` is simply the
+# 24-hour case, which is why extending the vocabulary — first to hourly
+# intervals, then to minute-granular steps — needed no second arithmetic
+# path: for a 15-minute step the candidates are the ``:00/:15/:30/:45``
+# grid measured from the full hour, which falls out of ``anchor + k·step``
+# rather than being a rule of its own. For the sub-hourly members the
+# anchor hour is practically inert (as it already is for ``hourly``); that
+# is accepted (ADR-0125 §1).
 #
-# Kept as a module constant so the error message, the candidate-hour
-# arithmetic and any future validation share one source of truth. The
-# market-data admin surface keeps its own, narrower vocabulary
-# (ADR-0119 §1) — it is deliberately not wired to this map.
-_CADENCE_INTERVAL_HOURS: dict[str, int] = {
-    "daily": 24,
-    "hourly": 1,
-    "every_2h": 2,
-    "every_3h": 3,
-    "every_6h": 6,
+# Kept as a module constant so the error message, the candidate arithmetic
+# and any future validation share one source of truth. The Watch Desk and
+# the market-data admin surface keep **separate** choice tuples by decision
+# (ADR-0125 §2), and neither tuple is derived from this map — which
+# cadences a domain offers is that domain's own call, and the two have
+# taken different ones.
+#
+# Accepted debt (ADR-0125, Consequences): this vocabulary is
+# domain-neutral, yet it still lives under ``services/irene/`` and reports
+# a bad value as :class:`~core.exceptions.IreneCadenceInvalid`. Relocating
+# both is deferred to a successor ADR, deliberately not bundled here.
+_CADENCE_STEP: dict[str, timedelta] = {
+    "daily": timedelta(hours=24),
+    "every_6h": timedelta(hours=6),
+    "every_3h": timedelta(hours=3),
+    "every_2h": timedelta(hours=2),
+    "hourly": timedelta(hours=1),
+    "every_30m": timedelta(minutes=30),
+    "every_15m": timedelta(minutes=15),
 }
 
-_SUPPORTED_CADENCES: frozenset[str] = frozenset(_CADENCE_INTERVAL_HOURS)
+_SUPPORTED_CADENCES: frozenset[str] = frozenset(_CADENCE_STEP)
 
 # Default advisory-lock domain. Irene was the first (and, pre-slice-5, only)
 # caller, so its keys are computed from the bare tenant UUID; keeping this
@@ -81,7 +97,8 @@ class DueTenant:
         schedule_id: The ``irene_schedule`` row id, so the beat can call
             ``mark_beat_done`` without re-reading the schedule.
         cadence: The schedule's cadence — one of
-            :data:`_SUPPORTED_CADENCES` (ADR-0119 §1).
+            :data:`_SUPPORTED_CADENCES` (ADR-0119 §1, extended by
+            ADR-0125 §1).
         timezone: The tenant's IANA timezone name (e.g.
             ``Europe/Berlin``), used to place ``preferred_hour``.
         preferred_hour: The anchor hour of day (0–23), or ``None``.
@@ -140,17 +157,21 @@ def compute_next_due_at(
 
     Pure function — no DB, no I/O — so it is unit-tested directly with
     fixed inputs. ``preferred_hour`` is the **anchor** (ADR-0119 §2): for
-    a cadence of interval N hours the candidate local hours are
-    ``(anchor + k·N) mod 24``, evaluated in the tenant's
-    ``timezone_name``, and the return value is the next candidate
-    occurrence *strictly after* ``now``. Strictness is what keeps a beat
-    that runs *at* a candidate hour from re-firing within the same tick
-    window — it schedules the following slot instead.
+    a cadence of step S the candidate local instants are ``anchor + k·S``
+    for integer k, evaluated in the tenant's ``timezone_name``, and the
+    return value is the next candidate occurrence *strictly after*
+    ``now``. Strictness is what keeps a beat that runs *at* a candidate
+    instant from re-firing within the same tick window — it schedules the
+    following slot instead.
 
-    ``daily`` is the N=24 case and therefore unchanged from the v0
+    ``daily`` is the S=24h case and therefore unchanged from the v0
     behaviour: the next occurrence of ``preferred_hour``, rolling to
-    tomorrow when today's has passed. ``hourly`` (N=1) makes the anchor
-    practically inert, which is accepted.
+    tomorrow when today's has passed. ``hourly`` (S=1h) makes the anchor
+    practically inert, which is accepted — and so do the minute-granular
+    members ``every_30m`` and ``every_15m``, whose candidates are the
+    half- and quarter-hour grids measured from the full hour (ADR-0125
+    §1). That grid is a consequence of the arithmetic below, not a
+    separate branch: no sub-hourly cadence takes a different path.
 
     The arithmetic runs on **wall-clock** local time and the result is
     localised afterwards, so a cadence keeps its local hours across a DST
@@ -189,10 +210,10 @@ def compute_next_due_at(
 
     tz = ZoneInfo(timezone_name)
     anchor_hour = preferred_hour if preferred_hour is not None else 0
-    step = timedelta(hours=_CADENCE_INTERVAL_HOURS[cadence])
+    step = _CADENCE_STEP[cadence]
 
     # Wall-clock arithmetic: strip the zone so subtraction and stepping
-    # count *local* hours rather than elapsed instants (an aware
+    # count *local* time rather than elapsed instants (an aware
     # subtraction would net out the DST offset and pull the candidate off
     # its anchor). Today's anchor occurrence is the reference point; the
     # candidates are that point plus any integer number of steps, in

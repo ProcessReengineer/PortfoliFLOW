@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Unit tests for ``services.irene.scheduling`` (ADR-0086, ADR-0119).
+"""Unit tests for ``services.irene.scheduling`` (ADR-0086, ADR-0119, ADR-0125).
 
 Pure-function coverage — no DB, no network:
 
@@ -12,6 +12,11 @@ Pure-function coverage — no DB, no network:
   case per sub-daily cadence member, the anchor's candidate grid, the
   strictly-after-now rule, and both DST edges (spring-forward gap,
   fall-back repeat) for a sub-daily cadence.
+* ``compute_next_due_at`` on the minute-granular members of vocabulary v2
+  (ADR-0125 §1) — the quarter-hour grid measured from the full hour,
+  strictness at minute granularity, and both Berlin DST transitions
+  walked as a *chain* (each answer fed back as the next ``now``), which
+  is how the tick actually advances a schedule.
 * ``advisory_lock_key`` — determinism (same UUID → same key), distinctness
   (different UUIDs → different keys, collision-tolerant), and the signed
   64-bit range Postgres accepts for ``pg_try_advisory_xact_lock``.
@@ -94,7 +99,7 @@ def test_result_is_timezone_aware_utc() -> None:
 
 
 def test_unknown_cadence_raises() -> None:
-    """A cadence outside the v1 vocabulary raises the typed error.
+    """A cadence outside the v2 vocabulary raises the typed error.
 
     ``weekly`` is the invalid example because ``hourly`` — this test's
     original one — joined the vocabulary in ADR-0119 §1.
@@ -104,33 +109,64 @@ def test_unknown_cadence_raises() -> None:
         compute_next_due_at(now, "weekly", 6, "UTC")
 
 
+def test_unknown_cadence_message_lists_the_v2_vocabulary() -> None:
+    """The error message enumerates the whole vocabulary, v2 members included.
+
+    The list is generated from ``sorted(_SUPPORTED_CADENCES)``, so the two
+    ADR-0125 §1 members appear the moment they join the map. Pinning it
+    here states both halves: that they *did* join, and that the
+    operator-facing message still names the full vocabulary rather than a
+    stale subset. ``every_5m`` is the invalid example on purpose — it is
+    the cadence ADR-0125 §2 explicitly declines to offer.
+    """
+    now = datetime(2026, 7, 2, 3, 0, tzinfo=timezone.utc)
+    with pytest.raises(IreneCadenceInvalid) as excinfo:
+        compute_next_due_at(now, "every_5m", 6, "UTC")
+
+    message = str(excinfo.value)
+    assert "every_15m" in message
+    assert "every_30m" in message
+
+
 # ---------------------------------------------------------------------------
-# compute_next_due_at — v1 vocabulary and anchor semantics (ADR-0119 §2)
+# compute_next_due_at — vocabulary and anchor semantics (ADR-0119 §2,
+# extended to the v2 members by ADR-0125 §1)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("cadence", "expected_hour"),
+    ("cadence", "expected_hour", "expected_minute"),
     [
-        ("hourly", 10),
-        ("every_2h", 10),
-        ("every_3h", 11),
-        ("every_6h", 14),
-        ("daily", 8),
+        ("hourly", 10, 0),
+        ("every_2h", 10, 0),
+        ("every_3h", 11, 0),
+        ("every_6h", 14, 0),
+        ("daily", 8, 0),
+        ("every_30m", 10, 0),
+        ("every_15m", 9, 45),
     ],
 )
-def test_each_cadence_member_steps_from_the_anchor(cadence: str, expected_hour: int) -> None:
+def test_each_cadence_member_steps_from_the_anchor(
+    cadence: str, expected_hour: int, expected_minute: int
+) -> None:
     """Every vocabulary member resolves, stepping from the 08:00 anchor.
 
     At 09:30 the candidate grids are: hourly 8,9,10,… ⇒ 10:00; every_2h
     8,10,12,… ⇒ 10:00; every_3h 8,11,14,… ⇒ 11:00; every_6h 2,8,14,20 ⇒
-    14:00; daily 8 ⇒ tomorrow. Also pins that ``daily`` is the N=24 case
-    of the same arithmetic rather than a separate branch.
+    14:00; daily 8 ⇒ tomorrow. The two minute-granular members of
+    vocabulary v2 (ADR-0125 §1) join the same table on the same
+    arithmetic: every_30m runs 8:00, 8:30, …, 9:30, 10:00 — 09:30 is a
+    candidate falling *on* ``now``, which "strictly after" rules out, so
+    the answer is 10:00 — and every_15m runs …, 9:30, 9:45 ⇒ 09:45. Also
+    pins that ``daily`` is the 24-hour case of the same arithmetic rather
+    than a separate branch.
     """
     now = datetime(2026, 7, 2, 9, 30, tzinfo=timezone.utc)
     result = compute_next_due_at(now, cadence, 8, "UTC")
     expected_day = 3 if cadence == "daily" else 2
-    assert result == datetime(2026, 7, expected_day, expected_hour, 0, tzinfo=timezone.utc)
+    assert result == datetime(
+        2026, 7, expected_day, expected_hour, expected_minute, tzinfo=timezone.utc
+    )
 
 
 def test_anchor_grid_wraps_backwards_across_midnight() -> None:
@@ -199,6 +235,82 @@ def test_sub_daily_is_strictly_after_now_across_a_full_day() -> None:
 
 
 # ---------------------------------------------------------------------------
+# compute_next_due_at — minute-granular cadences (ADR-0125 §1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("now_minute", "expected_utc_hour", "expected_utc_minute"),
+    [
+        (3, 8, 15),
+        (17, 8, 30),
+        (31, 8, 45),
+        (52, 9, 0),
+    ],
+)
+def test_every_15m_grid_is_measured_from_the_full_hour(
+    now_minute: int, expected_utc_hour: int, expected_utc_minute: int
+) -> None:
+    """``every_15m`` lands on :00 / :15 / :30 / :45 of every local hour.
+
+    This is the test ADR-0125 §1 leans on. The ADR adds no rule about a
+    quarter-hour grid — it argues the grid is already a *property of the
+    existing arithmetic*: ``anchor + k·step`` with the anchor pinned at
+    ``preferred_hour:00`` and a 15-minute step cannot produce anything but
+    quarter-hour offsets from a full hour. The four cases walk one local
+    hour at :03, :17, :31 and :52 and get :15, :30, :45 and the next :00.
+
+    Anchor 0 and Berlin summer (UTC+2) on a non-DST day, so the local
+    grid maps onto UTC by a constant offset and the expected instants
+    read as 08:15/08:30/08:45/09:00 UTC for local 10:15/10:30/10:45/11:00.
+    """
+    tz = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 7, 2, 10, now_minute, tzinfo=tz)
+
+    result = compute_next_due_at(now, "every_15m", 0, "Europe/Berlin")
+
+    assert result == datetime(
+        2026, 7, 2, expected_utc_hour, expected_utc_minute, tzinfo=timezone.utc
+    )
+    assert result.astimezone(tz).minute in (0, 15, 30, 45)
+
+
+def test_every_15m_at_exactly_a_slot_moves_to_the_following_slot() -> None:
+    """The strictly-after rule holds at minute granularity too.
+
+    A refresh that runs *at* 10:15 local schedules 10:30, not itself. The
+    guard matters more at 15 minutes than it did at an hour: the built-in
+    tick scheduler asks "who is due?" every 60 seconds (ADR-0117 §4), so
+    a candidate landing on ``now`` would otherwise be re-claimed inside
+    the same quarter hour.
+    """
+    tz = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 7, 2, 10, 15, tzinfo=tz)
+
+    result = compute_next_due_at(now, "every_15m", 0, "Europe/Berlin")
+
+    assert result == datetime(2026, 7, 2, 8, 30, tzinfo=timezone.utc)
+    assert result.astimezone(tz) == datetime(2026, 7, 2, 10, 30, tzinfo=tz)
+
+
+def test_sub_hourly_anchor_is_inert() -> None:
+    """Both v2 members make the anchor inert, as ``hourly`` already does.
+
+    ADR-0125 §1 accepts this rather than hiding it: a 15- or 30-minute
+    grid measured from any full hour is the same grid, so a tenant's
+    ``preferred_hour`` stops carrying information once the cadence goes
+    sub-hourly. It is also the reasoning behind the ``preferred_hour = 0``
+    seed value ADR-0125 §3 specifies — the honest value for an anchor
+    nothing reads — which strand M2 lands, not this one.
+    """
+    now = datetime(2026, 7, 2, 9, 37, tzinfo=timezone.utc)
+    for cadence in ("every_30m", "every_15m"):
+        assert compute_next_due_at(now, cadence, 0, "UTC") == compute_next_due_at(
+            now, cadence, 17, "UTC"
+        )
+
+
+# ---------------------------------------------------------------------------
 # compute_next_due_at — DST edges for a sub-daily cadence (ADR-0119 §2)
 # ---------------------------------------------------------------------------
 
@@ -246,6 +358,111 @@ def test_sub_daily_fall_back_beats_the_repeated_hour_once() -> None:
     assert second == datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
     assert second.astimezone(tz).hour == 3  # 03:00 CET — the repeat is skipped
     assert second > first
+
+
+
+# ---------------------------------------------------------------------------
+# compute_next_due_at — DST chains at 15-minute granularity (ADR-0125 §1)
+# ---------------------------------------------------------------------------
+#
+# The two tests below *chain*: each answer is fed back as the next ``now``,
+# which is exactly how the tick advances a schedule (``mark_beat_done``
+# writes ``next_due_at`` computed from the run instant). A point assertion
+# would miss what matters at a 15-minute cadence — that the sequence stays
+# strictly increasing and evenly spaced through a transition, so no slot
+# fires twice and none stalls.
+
+
+def test_every_15m_spring_forward_chain_keeps_fifteen_minute_spacing() -> None:
+    """Chaining ``every_15m`` across the Berlin gap neither stalls nor repeats.
+
+    On 2026-03-29 the local hour 02:00–02:59 does not exist. Starting at
+    00:45 UTC (01:45 CET) and feeding each answer back, the chain yields,
+    in UTC: 01:00, 01:15, 01:30, 01:45, 02:00, 02:15.
+
+    Mechanism: the first candidate is the naive local 02:00 — a
+    nonexistent time. :mod:`zoneinfo` resolves it with the
+    *pre*-transition offset (fold=0, UTC+1), so it lands on 01:00 UTC,
+    which is 03:00 CEST. From there the local wall clock already reads
+    03:00, so the grid continues 03:15, 03:30, … The four gap candidates
+    02:00–02:45 would collapse onto the same instants as the 03:00–03:45
+    CEST slots, but the chain visits each instant exactly once because
+    the wall clock has jumped past them. Real-time spacing therefore
+    stays exactly 15 minutes across the transition — the ADR-0125
+    Consequences statement, pinned.
+    """
+    tz = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 3, 29, 0, 45, tzinfo=timezone.utc)  # 01:45 CET
+
+    results: list[datetime] = []
+    for _ in range(6):
+        now = compute_next_due_at(now, "every_15m", 0, "Europe/Berlin")
+        results.append(now)
+
+    assert results == [
+        datetime(2026, 3, 29, 1, 0, tzinfo=timezone.utc),
+        datetime(2026, 3, 29, 1, 15, tzinfo=timezone.utc),
+        datetime(2026, 3, 29, 1, 30, tzinfo=timezone.utc),
+        datetime(2026, 3, 29, 1, 45, tzinfo=timezone.utc),
+        datetime(2026, 3, 29, 2, 0, tzinfo=timezone.utc),
+        datetime(2026, 3, 29, 2, 15, tzinfo=timezone.utc),
+    ]
+    for earlier, later in zip(results[:-1], results[1:], strict=True):
+        assert later > earlier
+        assert later - earlier == timedelta(minutes=15)
+
+    # The very first answer is already past the gap: 01:00 UTC is 03:00 CEST.
+    assert results[0].astimezone(tz).hour == 3
+    assert results[0].astimezone(tz).minute == 0
+
+
+def test_every_15m_fall_back_chain_fires_the_repeated_hour_once() -> None:
+    """Chaining ``every_15m`` across the Berlin repeat costs one 75-minute gap.
+
+    On 2026-10-25 the local hour 02:00–02:59 occurs twice (CEST, then
+    CET). Starting at 00:30 UTC (02:30 CEST) and feeding each answer
+    back, the chain yields, in UTC: 00:45, 02:00, 02:15, 02:30, 02:45.
+
+    Mechanism: 00:45 UTC is 02:45 CEST, the last quarter-hour slot of the
+    first pass. The next naive candidate is local 03:00, which is
+    unambiguous and localises as CET (UTC+1) — 02:00 UTC. The repeated
+    hour's four slots therefore fire once, in the CEST pass, and the four
+    CET repeats are skipped, exactly as the ADR-0119 §2 fold rule ("first
+    pass wins") already did for ``hourly``.
+
+    The visible consequence is a **75-minute gap in UTC** between the
+    first and second answers, after which 15-minute spacing resumes. It
+    is accepted, not a defect: the alternative — beating the repeated
+    hour twice — would double-fetch and could move ``next_due_at``
+    backwards, which the due read cannot tolerate.
+    """
+    tz = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 10, 25, 0, 30, tzinfo=timezone.utc)  # 02:30 CEST
+
+    results: list[datetime] = []
+    for _ in range(5):
+        now = compute_next_due_at(now, "every_15m", 0, "Europe/Berlin")
+        results.append(now)
+
+    assert results == [
+        datetime(2026, 10, 25, 0, 45, tzinfo=timezone.utc),
+        datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc),
+        datetime(2026, 10, 25, 2, 15, tzinfo=timezone.utc),
+        datetime(2026, 10, 25, 2, 30, tzinfo=timezone.utc),
+        datetime(2026, 10, 25, 2, 45, tzinfo=timezone.utc),
+    ]
+
+    # Strictly increasing throughout — the property the due read needs.
+    for earlier, later in zip(results[:-1], results[1:], strict=True):
+        assert later > earlier
+
+    # The one accepted irregularity, and only that one.
+    assert results[1] - results[0] == timedelta(minutes=75)
+    for earlier, later in zip(results[1:-1], results[2:], strict=True):
+        assert later - earlier == timedelta(minutes=15)
+
+    assert results[0].astimezone(tz).hour == 2  # 02:45 CEST — the first pass
+    assert results[1].astimezone(tz).hour == 3  # 03:00 CET — the repeat skipped
 
 
 # ---------------------------------------------------------------------------

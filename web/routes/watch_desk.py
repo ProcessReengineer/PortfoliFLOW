@@ -214,11 +214,16 @@ def resolution_label(resolution: str) -> str:
 # target, not a duplicated string.
 JOURNAL_DEEP_LINK: str = "/watch-desk#journal"
 
-# The v1 cadence vocabulary offered in the settings panel (ADR-0119 §1),
-# mirroring ``services.irene.scheduling._SUPPORTED_CADENCES`` — that module
-# stays the validator, so a posted value is checked there rather than here.
+# The cadence vocabulary offered in the settings panel — the five members
+# of ADR-0119 §1. ``services.irene.scheduling`` stays the validator, so a
+# posted value is checked there rather than here, but this tuple is a
+# *subset* of ``_SUPPORTED_CADENCES`` and no longer mirrors it: ADR-0125 §1
+# added ``every_30m`` and ``every_15m`` to the shared vocabulary, and
+# ADR-0125 §2 deliberately withheld both from the Watch Desk — an Irene
+# beat every 15 minutes is an LLM-cost decision this area has not taken.
+# Pinned by ``tests/web/test_watch_desk_cadence_choices.py``.
 # Ordered coarsest-first, the way the panel reads. The market-data admin
-# surface keeps its own, narrower choices and is not driven by this tuple.
+# surface keeps its own choices and is not driven by this tuple either.
 _CADENCE_CHOICES: tuple[str, ...] = ("daily", "every_6h", "every_3h", "every_2h", "hourly")
 
 # Display labels for the cadence vocabulary — same pattern as

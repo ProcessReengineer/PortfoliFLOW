@@ -8,27 +8,37 @@
 Description=Fire the PortfoliFLOW market-data tick on a fixed interval
 
 [Timer]
-# Tick interval — fire every 15 minutes, on the quarter hour.
+# Tick interval — fire every 5 minutes.
 #
 # Rationale (ADR-0093, mirroring ADR-0086): the tick source is a DUMB fixed
 # interval; per-tenant cadence lives in market_data_schedule and is honoured
 # by the DB-side due read (enabled AND next_due_at <= now()), not by this
 # timer. The interval only needs to be fine enough to honour the FINEST
-# cadence. v0's finest cadence is "daily at a preferred hour", so a
-# 15-minute tick lands each tenant's refresh within 15 minutes of its
-# preferred hour. It is also cheap: a tick on an empty due-set is a single
-# indexed SELECT; only enabled, due tenants do provider work. If a future
-# cadence needs finer granularity, tighten this interval; the domain logic
-# does not change.
-OnCalendar=*:0/15
+# cadence — and strictly FINER, not equal: a tick as coarse as the cadence
+# would leave a due instant waiting most of a full cadence period.
+#
+# Since ADR-0125 §1 the finest market-data cadence is every_15m, whose
+# candidate slots are the :00/:15/:30/:45 of every hour. A 5-minute tick
+# therefore lands each tenant's refresh within 5 minutes of its quarter-hour
+# slot. (This template fired every 15 minutes until ADR-0125 §8 — adequate
+# while the surface offered "daily" alone, and exactly as coarse as the
+# cadence once it no longer did.)
+#
+# It is also cheap: a tick on an empty due-set is a single indexed SELECT;
+# only enabled, due tenants do provider work. If a future cadence needs
+# finer granularity, tighten this interval; the domain logic does not
+# change.
+OnCalendar=*:0/5
 
 # If the machine was asleep/off when a tick was due, run one catch-up tick
 # on boot rather than silently skipping a whole window.
 Persistent=true
 
 # Small randomised delay so many hosts (or co-scheduled timers — e.g. the
-# irene-tick timer) don't all fire on the exact same second.
-RandomizedDelaySec=30
+# irene-tick timer) don't all fire on the exact same second. Halved with the
+# interval (ADR-0125 §8) so the smear stays a small fraction of one tick
+# window rather than eating into the next.
+RandomizedDelaySec=15
 
 [Install]
 WantedBy=timers.target

@@ -1,6 +1,6 @@
 # ADR-0125: Sub-Hourly Market-Data Refresh Cadence, Kind-Aware Fetching, and On-Demand Refresh Feedback
 
-Status: Proposed (2026-08-22)
+Status: Accepted (2026-08-22)
 Date: 2026-08-22
 Supersedes: nothing (ADR-0093 remains Accepted and unedited — its disabled-by-default seed is kept; this ADR changes only the seeded cadence value. ADR-0119 remains Accepted and unedited; this ADR extends the cadence vocabulary it defined and revokes its "market-data admin surface keeps `("daily",)`" statement by a decision of that surface's own, exactly as §1 of ADR-0119 foresaw.)
 Related: ADR-0086 (tick/due split, "tick finer than finest cadence"), ADR-0091 (provider port, Yahoo adapter), ADR-0092 (Excel precedence, live write path), ADR-0093 (market-data schedule, on-demand trigger, seeding STD-03), ADR-0117 (built-in tick scheduler), ADR-0119 (cadence vocabulary v1, anchor semantics), ADR-0120 (Watch Desk post-enqueue polling), ADR-0121 (owner role, owner-gated surfaces)

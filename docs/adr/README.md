@@ -189,6 +189,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0122 | [Sidebar Area Order v3](./0122-sidebar-area-order-v3.md) | Accepted (2026-08-15) — supersedes the sidebar-order statement in ADR-0104 §6 | 2026-08-15 | ui, navigation, shell, sidebar, information-architecture, areas |
 | 0123 | [Report Scraper Model in the Scoped-Settings Taxonomy — Per-Tenant Resolution for the One-Shot Extraction Path](./0123-report-scraper-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-08-15) — annex amendment to ADR-0112 §3; amends ADR-0053's model dropdown | 2026-08-15 | scraper, configuration, multi-tenancy, credentials, admin, openrouter |
 | 0124 | [Installation and Release Distribution — Guided Installer, Engine-Neutral Bootstrap, and the `stable` Branch](./0124-installation-and-release-distribution.md) | Accepted (2026-08-19) — amends ADR-0040 (operator entry point only) and the dev-only password note in `db/init/01-create-app-role.sql` | 2026-08-19 | installation, release, packaging, operations, ci, developer-experience |
+| 0125 | [Sub-Hourly Market-Data Refresh Cadence, Kind-Aware Fetching, and On-Demand Refresh Feedback](./0125-market-data-refresh-cadence-and-on-demand-feedback.md) | Accepted (2026-08-22) — extends ADR-0119's cadence vocabulary and revokes its market-data choice-list statement; changes ADR-0093's seeded cadence value only | 2026-08-22 | market-data, scheduling, cadence, admin, front-office, htmx, owner-gating, deploy |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -579,7 +580,45 @@ packages and PyPI publication, production deployment concerns, an in-place
 `--upgrade` path, and GPG-signed tags. Four implementation strands, I1 → I2 →
 I4 with I3 independent.
 
-The next free ADR number is **0125**.
+**Update (2026-08-22):** ADR-0125 (sub-hourly market-data refresh cadence,
+kind-aware fetching, and on-demand refresh feedback) is **Accepted
+(2026-08-22)**. The recurring-refresh machinery existed end to end but was not
+*perceived*: the cadence vocabulary was defined in whole hours, STD-03 seeded
+`daily · 06:00`, every run fetched every ingestable kind, and "Refresh now"
+reported "queued" and never reported landing. Eight decisions. (1)
+`_CADENCE_INTERVAL_HOURS` becomes a `timedelta`-valued map gaining `every_30m`
+and `every_15m`; ADR-0119 §2's `anchor + k·step` arithmetic already yields the
+quarter-hour grid, so anchor semantics are unchanged and the anchor hour is
+accepted as practically inert for the new members. (2) The choice lists
+**diverge per domain** — the Watch Desk keeps `daily … hourly` (an Irene beat
+every 15 minutes is an LLM-cost decision it has not taken, pinned by a test
+that its tuple does not grow), while market data offers
+`every_15m · every_30m · hourly · daily` finest-first with a label map. (3)
+STD-03 seeds `every_15m · preferred_hour = 0`, still `enabled = FALSE`
+(ADR-0093 unchanged) and still insert-if-absent: **no backfill**, because an
+existing row cannot be told apart from one an owner deliberately left at
+`daily`. (4) `refresh_tenant_live_data` splits ingestable kinds — `nav_price`
+every run, every other kind only on the first run of each UTC calendar day —
+derived from fields the tick already passes, so no schema, runner-interface or
+report change. (5) The Admin confirmation gains the ADR-0120 poller one-for-one
+(`GET …/refresh/poll?since=`, 204 pending / 286 done / 286 + `HX-Reswap: none`
+on malformed input, 15-second interval, started only from the confirmation).
+(6) The Overview's `.ov-meta` line becomes the book's freshness stamp for all
+members, with an owner-gated `Refresh` affordance whose 286 swaps
+`#ov-section-body` as `outerHTML` — the whole body, because the reason to
+refresh is to see the numbers move — and the owner gate is enforced
+**server-side on refresh-now**, not only in the template. (7) Rendering cost
+stays bounded by construction: no page polls on cadence, and the only added
+render is one Overview body per *manual* refresh. (8) The external tick
+template moves to `OnCalendar=*:0/5` so ADR-0086's "tick finer than finest
+cadence" still holds for opt-out deployments; the built-in scheduler's
+60-second default already satisfies it. No migration. Two roadmap items
+registered — **#063** trading-hours awareness and **#064** provider retry
+policy in the tick. Four implementation strands (M1 → M2/M3/M5; M4, startup
+refresh, was assessed and dropped before acceptance, the numbering gap kept
+deliberately).
+
+The next free ADR number is **0126**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

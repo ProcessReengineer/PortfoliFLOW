@@ -8,9 +8,10 @@ thin CRUD over the tenant's ``market_data_schedule`` row plus a "Refresh
 now" action. It is the on-demand trigger of ADR-0093 §"On-demand trigger
 shares the same core": the request layer never runs blocking provider
 work and never spawns a process — "Refresh now" only sets the schedule
-row due (``next_due_at := now``), and the systemd timer's next firing
-picks it up. This keeps the async web layer clean and consistent with the
-async-first provider port (ADR-0091).
+row due (``next_due_at := now``), and the next scheduler tick picks it up:
+the built-in tick scheduler (ADR-0117, 60 seconds by default) or, on an
+opt-out deployment, the external timer. This keeps the async web layer
+clean and consistent with the async-first provider port (ADR-0091).
 
 Endpoints
 ---------
@@ -25,7 +26,15 @@ Endpoints
   full, and a fresh tenant is seeded ``every_15m`` (ADR-0125 §3).
 * ``POST /api/market-data/refresh-now`` — set the tenant schedule due now
   (:meth:`MarketDataScheduleRepository.enqueue_due_now`). No provider work,
-  no process spawn. Returns a small "queued for the next tick" confirmation.
+  no process spawn. Returns a "queued for the next tick" confirmation
+  carrying the poller below. Owner-gated (ADR-0125 §6) and surface-aware:
+  the ``surface`` field selects *only* which confirmation is rendered —
+  the Admin panel (default) or the Overview's compact inline line.
+* ``GET  /api/market-data/refresh/poll`` — the time-boxed companion of that
+  enqueue (ADR-0125 §5, the ADR-0120 pattern): 204 while the run is still
+  pending, 286 carrying the re-rendered panel once it has landed, and 286 +
+  ``HX-Reswap: none`` when there is nothing left to wait for. Started only
+  by a confirmation, never on load, and self-terminating.
 
 The section render is server-side on ``/admin`` load via
 :func:`load_market_data_section_context` (imported by ``web/routes/areas.py``).
@@ -40,10 +49,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any, cast
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Form, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -52,10 +62,18 @@ from core.repositories._session import tenant_context
 from core.repositories.market_data_schedule_repository import (
     MarketDataScheduleRepository,
 )
+from core.repositories.user_repository import UserDTO
 from services.auth.session import SessionDTO
 from services.irene.scheduling import compute_next_due_at
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
+from web.htmx_poll import (
+    POLL_HORIZON,
+    POLL_STOP_STATUS,
+    parse_poll_since,
+    poll_stop,
+)
+from web.permissions import require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -106,6 +124,33 @@ def cadence_label(cadence: str) -> str:
 _DEFAULT_TIMEZONE: str = "Europe/Berlin"
 _DEFAULT_PREFERRED_HOUR: int = 0
 
+# Which confirmation :func:`refresh_now` renders (ADR-0125 §6). The enqueue
+# itself is one endpoint by decision — this field selects a *partial*, never
+# a behaviour — so an unknown value degrades to the default rather than
+# rejecting a harmless action.
+_SURFACES: tuple[str, ...] = ("admin", "overview")
+_DEFAULT_SURFACE: str = "admin"
+
+
+def _display_zone(name: str | None) -> ZoneInfo:
+    """Resolve a schedule's IANA timezone name, falling back to UTC.
+
+    Deliberately local rather than shared with the Watch Desk's
+    ``_resolve_zone``: that one carries a Watch-Desk-specific log line and a
+    ``(zone, is_utc_fallback)`` pair its tile stamps need. Here the fallback
+    needs no separate flag — every stamp this module renders carries ``%Z``,
+    so a UTC substitute names itself and can never read as local time.
+    """
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(
+                "market-data panel: unknown schedule timezone %r; rendering times in UTC.",
+                name,
+            )
+    return ZoneInfo("UTC")
+
 
 def _templates(request: Request) -> Jinja2Templates:
     return cast(Jinja2Templates, request.app.state.templates)
@@ -127,12 +172,24 @@ def _panel_context(
     saved: bool = False,
     error: str | None = None,
     refresh_message: str | None = None,
+    poll_since: str | None = None,
 ) -> dict[str, Any]:
     """Build the market-data schedule panel context from a schedule DTO.
 
     Shared by the section render and the save/refresh responses so the
     panel round-trips identically. ``schedule`` is ``None`` only for a
     tenant provisioned before slice 5 that was never backfilled.
+
+    Args:
+        schedule: The tenant's schedule DTO, or ``None``.
+        csrf_token: The session-bound CSRF token.
+        saved: Render the "Schedule saved." flash.
+        error: Inline error after a rejected save.
+        refresh_message: Flash after a Refresh-now action or a landed run.
+        poll_since: URL-encoded enqueue instant. Set **only** by the
+            refresh-now confirmation (ADR-0125 §5): the template starts the
+            poller when it is present, so the section render and every other
+            response leave it ``None`` and no page polls on load.
     """
     if schedule is None:
         current = {
@@ -169,6 +226,7 @@ def _panel_context(
         "schedule_saved": saved,
         "schedule_error": error,
         "refresh_message": refresh_message,
+        "poll_since": poll_since,
     }
 
 
@@ -282,22 +340,49 @@ async def save_schedule(
 @router.post("/api/market-data/refresh-now", response_class=HTMLResponse)
 async def refresh_now(
     request: Request,
+    surface: str = Form(_DEFAULT_SURFACE),
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
+    _owner: UserDTO = Depends(require_role("owner")),
 ) -> HTMLResponse:
     """Bring the tenant's market-data schedule due now (ADR-0093 §0.3).
 
     Sets ``next_due_at := now`` via
-    :meth:`MarketDataScheduleRepository.enqueue_due_now`; the next systemd
-    tick claims the tenant and refreshes it. It runs **no** provider work
-    and spawns **no** process — the async web layer stays clean.
+    :meth:`MarketDataScheduleRepository.enqueue_due_now`; the next scheduler
+    tick claims the tenant and refreshes it — the built-in scheduler
+    (ADR-0117, 60 seconds by default) or the external timer on an opt-out
+    deployment. It runs **no** provider work and spawns **no** process — the
+    async web layer stays clean.
+
+    **Owner-gated** (ADR-0125 §6). A refresh is harmless in itself, but it is
+    a tenant-level action — it moves a shared cursor and spends the tenant's
+    provider budget — and the affordance is owner-only on every surface that
+    offers it. The gate is therefore enforced here as well as in the
+    templates: a member who posts directly gets the same 403 (``insufficient
+    role``) as the other owner-gated routes, via
+    :func:`web.permissions.require_role`. Nothing observable changes in
+    Admin, which is already an owner surface under ADR-0121.
+
+    Args:
+        request: The FastAPI request.
+        surface: Which confirmation to render — ``admin`` (the whole panel,
+            the default) or ``overview`` (the compact inline line the
+            Front-Office freshness line swaps itself with). It selects a
+            *partial only*; an unrecognised value falls back to ``admin``
+            rather than 4xx-ing an action that is otherwise harmless.
+        session: The authenticated session.
+        _csrf: CSRF guard.
+        _owner: The owner gate (ADR-0125 §6).
+
+    Returns:
+        The re-rendered panel, or the Overview's compact confirmation.
 
     "Due now" only takes effect on an **enabled** schedule (the tick's due
     read gates on ``enabled AND next_due_at <= now()``). A disabled or
-    unconfigured schedule returns a "enable first" notice and is not moved.
-    On success the panel is re-rendered with a "queued for the next tick"
-    message.
+    unconfigured schedule returns an "enable first" notice, is not moved,
+    and — having enqueued nothing — starts no poller.
     """
+    chosen_surface = surface if surface in _SURFACES else _DEFAULT_SURFACE
     engine = _engine(request)
     now = _now()
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
@@ -309,23 +394,136 @@ async def refresh_now(
             schedule = await repo.get_for_tenant()
 
     if can_queue:
-        message = "Refresh queued — it will run on the next tick."
+        message = "Refresh queued — it runs on the next tick (typically within a minute)."
     elif schedule is None:
         message = "No schedule configured yet — save a cadence first."
     else:
         message = "Enable the schedule first, then request a refresh."
 
+    # The poller's ``since`` is **this route's** instant, never the client
+    # clock, which may sit minutes off and would make the done condition fire
+    # on the first tick or never. Percent-encoded because an ISO 8601 offset
+    # carries a "+" — read as a space in a query string, which would make the
+    # stamp unparseable and stop the poll immediately. ``None`` when nothing
+    # was enqueued: there is nothing to wait for.
+    poll_since = quote(now.isoformat(), safe="") if can_queue else None
+
     logger.info(
-        "market-data refresh-now: tenant=%s user=%s queued=%s",
+        "market-data refresh-now: tenant=%s user=%s surface=%s queued=%s",
         session.tenant_id,
         session.user_id,
+        chosen_surface,
         can_queue,
     )
+    if chosen_surface == "overview":
+        return cast(
+            HTMLResponse,
+            _templates(request).TemplateResponse(
+                request,
+                "_partials/overview_refresh_result.html",
+                {
+                    "queued": can_queue,
+                    "message": message,
+                    "poll_since": poll_since,
+                },
+            ),
+        )
     return cast(
         HTMLResponse,
         _templates(request).TemplateResponse(
             request,
             "_partials/market_data_panel.html",
-            _panel_context(schedule, session.csrf_token, refresh_message=message),
+            _panel_context(
+                schedule,
+                session.csrf_token,
+                refresh_message=message,
+                poll_since=poll_since,
+            ),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Refresh poll — the post-enqueue feedback, time-boxed and self-terminating
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/market-data/refresh/poll", response_class=HTMLResponse)
+async def poll_refresh(
+    request: Request,
+    since: str | None = None,
+    session: SessionDTO = Depends(require_session),
+) -> Response:
+    """Answer "has a refresh landed since ``since``" for the Admin poller.
+
+    "Refresh now" only *enqueues* (ADR-0093): the run happens a tick later
+    in the scheduler (ADR-0117), and the page that fired the enqueue has no
+    way to learn that it did. This endpoint closes that gap without a push
+    channel, one-for-one with the Watch Desk's briefing poll (ADR-0125 §5
+    adopting ADR-0120) — the confirmation partial starts a 15-second HTMX
+    poll against it, and the poll ends itself:
+
+    * **landed** — ``last_run_at >= since``: 286 carrying the re-rendered
+      panel, stamped with when the run landed. 286 cancels the poll, and the
+      container's ``innerHTML`` swap replaces the panel — and with it the
+      poller — so no second poller can survive.
+    * **pending** — the schedule exists and no run has landed yet: 204,
+      which HTMX does not swap, so the panel stands and the poll continues.
+      This is the branch that runs ~4 times a minute, and it is one indexed
+      row read: no provider work, no render.
+    * **stop, no swap** — 286 with an empty body and ``HX-Reswap: none``
+      when there is nothing left to wait for: an unusable ``since``, no
+      schedule row, or a ``since`` older than :data:`POLL_HORIZON`. The
+      horizon is what caps a tab left open on a run that never happens; the
+      client carries no timeout of its own.
+
+    Read-only throughout, and deliberately on ``require_session`` rather
+    than ``require_authenticated_session`` for the reason ADR-0120 gives: a
+    poll must not keep alive a session the operator has stopped using. A
+    session that expires mid-poll gets that dependency's 401 +
+    ``HX-Redirect``, which navigates the tab to ``/login``.
+
+    Args:
+        request: The FastAPI request.
+        since: The enqueue instant, ISO 8601 and timezone-aware, as written
+            into the poller's URL by :func:`refresh_now`.
+        session: The authenticated session.
+
+    Returns:
+        286 (with or without a body) or 204, per the branches above.
+    """
+    parsed_since = parse_poll_since(since)
+    if parsed_since is None:
+        return poll_stop()
+
+    engine = _engine(request)
+    now = _now()
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        schedule = await MarketDataScheduleRepository(db).get_for_tenant()
+        if schedule is None:
+            # The row a refresh would stamp is gone — nothing can land.
+            return poll_stop()
+
+        last_run_at = schedule.last_run_at
+        if last_run_at is None or last_run_at < parsed_since:
+            if now - parsed_since > POLL_HORIZON:
+                return poll_stop()
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+        # Stamped in the schedule's own timezone, with ``%Z`` so a UTC
+        # fallback names itself rather than reading as local time.
+        stamp = last_run_at.astimezone(_display_zone(schedule.timezone)).strftime("%H:%M %Z")
+
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/market_data_panel.html",
+            _panel_context(
+                schedule,
+                session.csrf_token,
+                refresh_message=f"Refreshed at {stamp}.",
+            ),
+            status_code=POLL_STOP_STATUS,
         ),
     )

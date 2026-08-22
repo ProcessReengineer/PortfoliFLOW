@@ -1,0 +1,37 @@
+{# Compact confirmation for an owner-triggered live-data refresh, swapped
+   into the place of the .ov-meta refresh form (ADR-0125 §6).
+
+   The form declares hx-target="this" / hx-swap="outerHTML", so this fragment
+   replaces the *form* and therefore sits inside #ov-section-body — which is
+   what lets the poller below be removed by its own terminal swap.
+
+   Deliberately not the Admin panel: the Overview line has room for a clause,
+   not a settings surface. The enqueue behind both is one endpoint
+   (POST /api/market-data/refresh-now); the `surface` field chose this
+   partial and nothing else.
+
+   Context (from web.routes.market_data.refresh_now):
+     queued      — whether the schedule was actually brought due.
+     message     — the operator-facing sentence.
+     poll_since  — encoded ISO 8601 enqueue instant; None when nothing was
+                   queued, in which case no poller starts. #}
+<span class="ov-meta__refresh-state" role="status">{{ message }}</span>
+{% if queued %}
+    {# Waits for the run this click asked for — every 15s, asking only "has a
+       run landed since the enqueue". 204 while pending (HTMX swaps nothing);
+       286 with the re-rendered Overview body once it lands, which both
+       cancels the poll and replaces #ov-section-body — this element included.
+       Nothing on this page polls otherwise, and this one starts only here,
+       never on load.
+
+       `since` is the *server's* enqueue instant, handed down by the route: a
+       client clock minutes off would make the done condition fire on the
+       first tick or never. The timeout is the server's horizon too (10
+       minutes), so there is no JavaScript here beyond these attributes
+       (ADR-0125 §5/§6, the ADR-0120 pattern). #}
+    <span class="ov-meta__refresh-poll" hidden
+          hx-get="/api/overview/refresh/poll?since={{ poll_since }}"
+          hx-trigger="every 15s"
+          hx-target="#ov-section-body"
+          hx-swap="outerHTML"></span>
+{% endif %}

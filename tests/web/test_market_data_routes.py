@@ -13,13 +13,26 @@ one, without moving the cursor).
 The cadence tests keep ``daily`` — still an offered choice — and add the
 sub-hourly case ADR-0125 §2 introduced: an ``every_15m`` save must land on
 the quarter-hour grid and must render its label, not the raw value.
+
+ADR-0125 §5/§6 adds two more concerns, both covered below:
+
+* **The owner gate.** "Refresh now" is a tenant-level action, so a member
+  posting to the endpoint directly gets a 403 and the schedule cursor does
+  not move. The module's ``seeded_user`` already carries ``owner``; the
+  member is seeded alongside it by ``seeded_member``, in this module rather
+  than in ``conftest.py`` because no other web module needs one.
+* **The post-enqueue poll**, one-for-one with the Watch Desk's briefing poll
+  (ADR-0120): 204 while pending, 286 + the re-rendered panel once the run
+  has landed, and 286 + ``HX-Reswap: none`` when there is nothing left to
+  wait for.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import pytest
@@ -111,6 +124,41 @@ async def seeded_user(
     return user_id, email, plaintext
 
 
+_MEMBER_EMAIL = "md-member@example.com"
+
+
+@pytest_asyncio.fixture
+async def seeded_member(
+    fresh_superuser_engine: AsyncEngine,
+    seeded_user: tuple[UUID, str, str],
+) -> tuple[UUID, str, str]:
+    """Seed a second user in the same tenant holding ``member`` only.
+
+    Added here rather than to ``tests/web/conftest.py``: the owner gate on
+    "Refresh now" (ADR-0125 §6) is the only thing in this package that needs
+    to post as a non-owner, and the module already owns its seeding. Depends
+    on ``seeded_user`` so the tenant row exists first.
+    """
+    plaintext = "correct-horse-battery-staple"
+    user_id = uuid4()
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO users "
+                "(id, tenant_id, email, password_hash, roles, is_active) "
+                "VALUES (:id, :tid, :email, :hash, "
+                "ARRAY['member']::text[], TRUE)"
+            ),
+            {
+                "id": str(user_id),
+                "tid": str(SENTINEL_TENANT_ID),
+                "email": _MEMBER_EMAIL,
+                "hash": hash_password(plaintext),
+            },
+        )
+    return user_id, _MEMBER_EMAIL, plaintext
+
+
 @pytest_asyncio.fixture
 async def web_client(
     seeded_user: tuple[UUID, str, str],
@@ -172,6 +220,48 @@ async def _read_schedule(engine: AsyncEngine) -> tuple[bool, datetime] | None:
     if row is None:
         return None
     return bool(row.enabled), row.next_due_at
+
+
+async def _seed_schedule(
+    engine: AsyncEngine,
+    *,
+    enabled: bool = True,
+    next_due_at: datetime | None = None,
+    last_run_at: datetime | None = None,
+) -> None:
+    """Write the tenant-level schedule row directly, bypassing the route.
+
+    The poll's branches are about ``last_run_at``, which no web route writes
+    (the tick's ``mark_run_done`` does). Seeding through the superuser engine
+    is how the Watch Desk's own poll tests stage the equivalent
+    ``last_beat_at``, and it keeps the poll tests independent of the save
+    route's cadence arithmetic.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM market_data_schedule WHERE tenant_id = :t AND user_id IS NULL"),
+            {"t": str(SENTINEL_TENANT_ID)},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO market_data_schedule "
+                "(tenant_id, user_id, cadence, preferred_hour, timezone, "
+                " enabled, next_due_at, last_run_at) "
+                "VALUES (:t, NULL, 'every_15m', 0, 'Europe/Berlin', "
+                " :enabled, :next_due, :last_run)"
+            ),
+            {
+                "t": str(SENTINEL_TENANT_ID),
+                "enabled": enabled,
+                "next_due": next_due_at or datetime.now(timezone.utc),
+                "last_run": last_run_at,
+            },
+        )
+
+
+def _poll_url(since: datetime) -> str:
+    """The poll URL the confirmation partial builds, for a given instant."""
+    return f"/api/market-data/refresh/poll?since={quote(since.isoformat(), safe='')}"
 
 
 # ---------------------------------------------------------------------------
@@ -338,3 +428,251 @@ async def test_save_schedule_every_15m_lands_on_the_quarter_hour_grid(
         "the full hour (ADR-0125 §1)."
     )
     assert next_due.second == 0
+
+
+# ---------------------------------------------------------------------------
+# Owner gate and surface-aware confirmation — ADR-0125 §6
+# ---------------------------------------------------------------------------
+
+
+async def test_refresh_now_member_gets_403(
+    web_client: AsyncClient,
+    seeded_member: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A member posting directly is refused, and the cursor does not move.
+
+    Hiding the control in the template is a courtesy; the gate is the route.
+    ``require_role("owner")`` returns the plain 403 (``insufficient role``)
+    the other owner-gated routes return (ADR-0121, ADR-0125 §6) — the "same
+    403 shape", not a bespoke one.
+    """
+    _uid, member_email, password = seeded_member
+    await _seed_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        next_due_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    await _login(web_client, member_email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    before = await _read_schedule(fresh_superuser_engine)
+    assert before is not None
+
+    resp = await web_client.post("/api/market-data/refresh-now", data={"csrf_token": csrf})
+
+    assert resp.status_code == 403, resp.text
+    after = await _read_schedule(fresh_superuser_engine)
+    assert after is not None
+    assert after[1] == before[1], "a refused refresh must not move next_due_at."
+
+
+async def test_refresh_now_owner_admin_surface_renders_poller(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """The Admin confirmation is the panel, and it starts the poll.
+
+    The poller is what closes ADR-0125's fourth gap: the enqueue used to be
+    the last thing the operator saw. The ``since`` marker in the URL is the
+    server's enqueue instant, so its presence is what proves the route hands
+    the poll its own clock rather than leaving it to the browser.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+
+    resp = await web_client.post("/api/market-data/refresh-now", data={"csrf_token": csrf})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.text
+    assert "Refresh queued" in body
+    assert "/api/market-data/refresh/poll?since=" in body
+    assert 'hx-trigger="every 15s"' in body
+    # It is the panel, not the compact Overview partial.
+    assert "Refresh interval" in body
+
+
+async def test_refresh_now_overview_surface_renders_confirmation(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """``surface=overview`` swaps the compact line, never the Admin panel.
+
+    One enqueue endpoint, two confirmations (ADR-0125 §6): the field selects
+    a partial and nothing else. Rendering the settings panel into the
+    Overview's meta line would be the visible failure this pins.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+
+    resp = await web_client.post(
+        "/api/market-data/refresh-now",
+        data={"csrf_token": csrf, "surface": "overview"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.text
+    assert "ov-meta__refresh-state" in body
+    assert "/api/overview/refresh/poll?since=" in body
+    # Emphatically not the panel: no settings surface in a meta line.
+    assert "Refresh interval" not in body
+    assert "Save schedule" not in body
+
+
+async def test_refresh_now_overview_surface_disabled_has_no_poller(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """Nothing enqueued, nothing to wait for — so no poller starts.
+
+    The ADR-0120 no-schedule branch, applied to the disabled schedule: a
+    poller here would run its full 10-minute horizon out asking about a run
+    that was never queued.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _seed_schedule(fresh_superuser_engine, enabled=False)
+
+    resp = await web_client.post(
+        "/api/market-data/refresh-now",
+        data={"csrf_token": csrf, "surface": "overview"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.text
+    assert "enable the schedule first" in body.lower()
+    assert "hx-trigger" not in body
+    assert "refresh/poll" not in body
+
+
+# ---------------------------------------------------------------------------
+# Refresh poll — the post-enqueue feedback (ADR-0125 §5, the ADR-0120 pattern)
+# ---------------------------------------------------------------------------
+
+
+async def test_admin_poll_pending_returns_204(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """No run yet: 204, which HTMX does not swap, so the panel stands."""
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    now = datetime.now(timezone.utc)
+    await _seed_schedule(fresh_superuser_engine, enabled=True, last_run_at=None)
+
+    resp = await web_client.get(_poll_url(now - timedelta(seconds=30)))
+
+    assert resp.status_code == 204
+    assert resp.text == ""
+
+
+async def test_admin_poll_is_204_when_the_last_run_predates_the_enqueue(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """The condition is "since the enqueue", not "ever".
+
+    A tenant with a refresh behind it would otherwise terminate the poll on
+    its first tick and report a stale run as this click's result.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(seconds=30)
+    await _seed_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        last_run_at=since - timedelta(hours=6),
+    )
+
+    resp = await web_client.get(_poll_url(since))
+
+    assert resp.status_code == 204
+    assert resp.text == ""
+
+
+async def test_admin_poll_landed_returns_286_with_panel(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """The done condition: 286 (stop polling) carrying the refreshed panel.
+
+    286 is HTMX's "stop polling" status *and* a swappable one, so the one
+    response both ends the poll and updates the page. The body must be the
+    whole panel — the container swaps ``innerHTML``, and that swap is what
+    removes the poller along with the markup it sat in.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(seconds=30)
+    await _seed_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        last_run_at=since + timedelta(seconds=5),
+    )
+
+    resp = await web_client.get(_poll_url(since))
+
+    assert resp.status_code == 286
+    body = resp.text
+    assert "Refreshed at" in body
+    # The whole panel rides along, not just a flash line.
+    assert "Refresh interval" in body
+    assert "Save schedule" in body
+    # A settled panel starts no poll of its own — only a confirmation does.
+    assert "refresh/poll?since=" not in body
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "",  # no marker at all
+        "?since=",
+        "?since=not-a-timestamp",
+        "?since=2026-08-13T10:00:00",  # naive: no zone to compare against
+    ],
+    ids=["absent", "empty", "garbage", "naive"],
+)
+async def test_admin_poll_stops_on_unusable_since(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine, query: str
+) -> None:
+    """A hand-edited marker terminates the poll — it never 500s.
+
+    ``HX-Reswap: none`` is the load-bearing half: the poller declares an
+    ``innerHTML`` swap of ``#pf-market-data-panel``, so an empty 286 without
+    it would blank the panel instead of leaving it alone.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+
+    resp = await web_client.get(f"/api/market-data/refresh/poll{query}")
+
+    assert resp.status_code == 286
+    assert resp.text == ""
+    assert resp.headers["HX-Reswap"] == "none"
+
+
+async def test_admin_poll_stops_without_a_schedule_row(web_client: AsyncClient) -> None:
+    """No row for a run to stamp — nothing can ever land."""
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    resp = await web_client.get(_poll_url(datetime.now(timezone.utc)))
+
+    assert resp.status_code == 286
+    assert resp.text == ""
+    assert resp.headers["HX-Reswap"] == "none"
+
+
+async def test_admin_poll_stops_past_horizon(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """A run that never happens must not leave a tab polling for ever.
+
+    The control case pins that it is the *horizon* terminating the poll and
+    not the pending branch generally: nine minutes still gets a 204.
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    now = datetime.now(timezone.utc)
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+
+    inside = await web_client.get(_poll_url(now - timedelta(minutes=9)))
+    assert inside.status_code == 204
+
+    beyond = await web_client.get(_poll_url(now - timedelta(minutes=11)))
+    assert beyond.status_code == 286
+    assert beyond.text == ""
+    assert beyond.headers["HX-Reswap"] == "none"

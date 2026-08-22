@@ -193,12 +193,18 @@ the install index.
 
 ## Enabling a tenant
 
-A freshly provisioned tenant carries a `market_data_schedule` row that is
-**disabled** by default (ADR-0093): no tenant silently starts fetching. An
-owner opts in from the Admin surface (`/admin#market-data`): set the cadence
-and tick the "Enabled" box. "Refresh now" there sets the schedule due
+A freshly provisioned tenant carries a `market_data_schedule` row seeded
+`every_15m` and **disabled** (ADR-0125 §3, ADR-0093): no tenant silently
+starts fetching, and the interval is already chosen, so opting in is one
+action — tick the "Enabled" box in the Admin surface (`/admin#market-data`)
+and save. Change the interval there too if 15 minutes is not what you want.
+
+"Refresh now" is **owner-only** (ADR-0125 §6) and sets the schedule due
 immediately (`next_due_at := now`) so the next tick picks the tenant up — it
-runs no provider work in the request.
+runs no provider work in the request. The panel then updates itself when the
+run lands, so there is nothing to reload and no need to watch the log.
+Owners get the same affordance on the Front Office Overview, next to the
+"Live data updated HH:MM" stamp; members see the stamp alone.
 
 ## Test session (synthetic provider, no live network)
 

@@ -9,21 +9,39 @@ four-card metric grid (IRR / TVPI / DPI / active investment count). A single
 backend round-trip suffices — unlike Charts there is no per-tile deferred
 loading, because the payload is a handful of scalars.
 
-Endpoint:
+Endpoints:
 
 * ``GET /api/overview/section`` — Returns the section body (hero + metric
   grid) or the empty-state copy when the universe is empty. Lazy-loaded on
   first visibility via ``hx-trigger="revealed"`` in the section lazy-shell.
+* ``GET /api/overview/refresh/poll`` — The post-enqueue companion of the
+  freshness line's owner-gated "Refresh" (ADR-0125 §6): 204 while the
+  market-data run is still pending, 286 carrying the **re-rendered section
+  body** once it has landed, 286 + ``HX-Reswap: none`` when there is
+  nothing left to wait for. The whole body is re-rendered by decision
+  (ADR-0125 §6/§7): the reason for a refresh is to see the numbers move,
+  and one body render per *manual* refresh is the same cost as one reveal.
+
+The Overview's ``.ov-meta`` line is the freshness line of the book
+(ADR-0125 §6): "As of {date} · Live data updated {HH:MM}", with the time
+read off ``market_data_schedule.last_run_at`` in the schedule's timezone.
+That schedule is read through :class:`MarketDataScheduleRepository` — the
+same tenant-scoped read Admin uses. This route imports neither the refresh
+core nor any provider adapter, and the ADR-0093 verification gate is
+machine-enforced over the whole web layer by
+``tests/regression/test_web_layer_has_no_market_data_provider_imports.py``.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -43,9 +61,14 @@ from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.investment_sector_weights_repository import (
     InvestmentSectorWeightsRepository,
 )
+from core.repositories.market_data_schedule_repository import (
+    MarketDataScheduleDTO,
+    MarketDataScheduleRepository,
+)
 from core.repositories.region_repository import RegionRepository
 from core.repositories.sector_repository import SectorRepository
 from core.repositories.tenant_repository import TenantRepository
+from core.repositories.user_repository import UserDTO, UserRepository
 from services.analytics.portfolio_aggregation import (
     compute_concentration,
     group_fund_composition,
@@ -66,6 +89,12 @@ from services.portfolio_review.portfolio_review_service import (
     PortfolioReviewService,
 )
 from web.auth import require_session
+from web.htmx_poll import (
+    POLL_HORIZON,
+    POLL_STOP_STATUS,
+    parse_poll_since,
+    poll_stop,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -131,10 +160,10 @@ async def get_overview_section(
     section lazy-shell. There is no as-of-date control in v1 — the latest
     activity date is the default (ADR-0067).
 
-    The ADR-0099 §4 conversion error (:class:`MissingFxRateError`, raised
-    when a foreign-currency position lacks an FX rate it needs) is caught
-    and rendered through a dedicated error-state partial, mirroring the
-    limits and portfolio-review sections.
+    A thin call into :func:`_render_overview_section`, which the poll
+    endpoint re-enters at status 286 (ADR-0125 §6): one render path, so a
+    landed refresh cannot show the operator a body assembled differently
+    from the one the section reveal shows.
 
     Args:
         request: The FastAPI request (provides app state).
@@ -147,14 +176,53 @@ async def get_overview_section(
         when a required rate is missing. Always HTTP 200 — the body is an
         HTMX section swap.
     """
+    return await _render_overview_section(request, session)
+
+
+async def _render_overview_section(
+    request: Request,
+    session: SessionDTO,
+    *,
+    status_code: int = 200,
+) -> HTMLResponse:
+    """Assemble and render the Overview body, at the caller's status code.
+
+    The single render path behind both ``GET /api/overview/section`` (200,
+    the section reveal) and the landed branch of
+    :func:`poll_overview_refresh` (286, ADR-0125 §6). Extracted so the two
+    cannot drift: every branch — populated, empty universe, FX error — is
+    reached identically from both, and the poll's 286 carries whichever of
+    them is true at that moment.
+
+    The ADR-0099 §4 conversion error (:class:`MissingFxRateError`, raised
+    when a foreign-currency position lacks an FX rate it needs) is caught
+    and rendered through a dedicated error-state partial, mirroring the
+    limits and portfolio-review sections.
+
+    Args:
+        request: The FastAPI request (provides app state).
+        session: The active session.
+        status_code: The HTTP status to render at. 200 for the reveal; 286
+            for the poll's terminal swap, which is HTMX's "stop polling"
+            status *and* a swappable one.
+
+    Returns:
+        The rendered section body, empty state, or FX-error state.
+    """
     engine = _engine(request)
     try:
         async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
             await SessionRepository(db_session).touch_throttled(session.id)
             service = _build_service(db_session)
             result = await service.get_overview()
+            # Two indexed single-row reads for the freshness line (ADR-0125
+            # §6): the tenant's market-data schedule and the caller's roles.
+            # No adapter, no refresh core — the read Admin already does.
+            schedule = await MarketDataScheduleRepository(db_session).get_for_tenant()
+            user = await UserRepository(db_session).get_by_id(session.user_id)
 
         context = _build_context(result, tenant_id=session.tenant_id)
+        context["live_data"] = _live_data_context(schedule, user, session.csrf_token)
     except MissingFxRateError as exc:
         # ADR-0099 §4: a foreign-currency position lacks a rate it needs.
         # The Overview is the landing surface of the whole application — an
@@ -177,6 +245,7 @@ async def get_overview_section(
                     "error_type": type(exc).__name__,
                     "error_message": str(exc),
                 },
+                status_code=status_code,
             ),
         )
 
@@ -186,8 +255,143 @@ async def get_overview_section(
             request,
             "_partials/overview_section.html",
             context,
+            status_code=status_code,
         ),
     )
+
+
+def _display_zone(name: str | None) -> ZoneInfo:
+    """Resolve a schedule's IANA timezone name, falling back to UTC.
+
+    Local by decision, small on purpose. The Overview must not import the
+    market-data router, nor that router this module's context builders: the
+    two surfaces share an *endpoint*, not a module (ADR-0125 §6). Three
+    lines are written twice rather than coupling two route modules to save
+    them.
+    """
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(
+                "overview freshness line: unknown schedule timezone %r; rendering in UTC.",
+                name,
+            )
+    return ZoneInfo("UTC")
+
+
+def _live_data_context(
+    schedule: MarketDataScheduleDTO | None,
+    user: UserDTO | None,
+    csrf_token: str,
+) -> dict[str, Any]:
+    """Project the freshness line's own context (ADR-0125 §6).
+
+    The ``.ov-meta`` line states when the book's live prices were last
+    refreshed, and — for owners only — carries the affordance to ask for a
+    refresh now. Everything the template branches on is decided here so the
+    line stays a stamp plus at most one control.
+
+    ``updated_display`` is ``None`` for a schedule that has never run; the
+    template then says so rather than rendering a blank time. The owner flag
+    is the ADR-0121 gate exactly as Providers & Credentials uses it, and it
+    is only half the enforcement: :func:`web.routes.market_data.refresh_now`
+    gates server-side too, so hiding the control is a courtesy, not the
+    boundary.
+
+    Args:
+        schedule: The tenant's market-data schedule row, or ``None`` when
+            the tenant was provisioned before the seed and never backfilled.
+        user: The caller, or ``None`` if the row vanished mid-session — the
+            conservative reading is "not an owner", i.e. no control.
+        csrf_token: The session-bound CSRF token for the refresh form.
+
+    Returns:
+        The ``live_data`` template context.
+    """
+    last_run_at = schedule.last_run_at if schedule is not None else None
+    return {
+        "configured": schedule is not None,
+        "enabled": schedule is not None and schedule.enabled,
+        "updated_display": (
+            last_run_at.astimezone(_display_zone(schedule.timezone if schedule else None)).strftime(
+                "%H:%M"
+            )
+            if last_run_at is not None
+            else None
+        ),
+        "is_owner": user is not None and user.has_role("owner"),
+        "csrf_token": csrf_token,
+    }
+
+
+@router.get("/api/overview/refresh/poll", response_class=HTMLResponse)
+async def poll_overview_refresh(
+    request: Request,
+    since: str | None = None,
+    session: SessionDTO = Depends(require_session),
+) -> Response:
+    """Answer "has a refresh landed since ``since``" for the Overview poller.
+
+    The freshness line's "Refresh" only *enqueues* (ADR-0093): the run
+    happens a tick later in the scheduler (ADR-0117). This endpoint is the
+    Overview's half of the ADR-0120 loop that ADR-0125 §5 generalised, with
+    the same four branches as the Admin poll and the same bounds — only the
+    286 body differs:
+
+    * **landed** — ``last_run_at >= since``: 286 carrying the whole
+      re-rendered section body. Partial updates ("stamp only, reload to see
+      the numbers") were considered and rejected in ADR-0125 §6: the reason
+      for a manual refresh is to see the numbers move. §7 bounds the cost —
+      **one** body render per manual refresh, the same as one reveal.
+    * **pending** — 204: HTMX swaps nothing, the page stands, the poll
+      continues. One indexed row read.
+    * **stop, no swap** — 286 + ``HX-Reswap: none`` on an unusable
+      ``since``, no schedule row, or a ``since`` past
+      :data:`POLL_HORIZON`.
+
+    The poller lives inside ``#ov-section-body`` and swaps it as
+    ``outerHTML``, so the terminal 286 removes the poller with the markup it
+    replaces and no second poller can survive. Note the 286 body is
+    whichever state is true at that moment: the populated body and the
+    FX-error partial both carry ``#ov-section-body``, and the empty-universe
+    copy does not — the ``outerHTML`` swap still replaces the old body with
+    what came back, which is the honest result.
+
+    ``require_session``, not ``require_authenticated_session``, for
+    ADR-0120's reason: a poll must not keep alive a session the operator has
+    stopped using. The session throttle is touched only on the landed
+    branch, because that is the branch that runs the shared render helper.
+
+    Args:
+        request: The FastAPI request.
+        since: The enqueue instant, ISO 8601 and timezone-aware, written
+            into the poller's URL by
+            :func:`web.routes.market_data.refresh_now`.
+        session: The authenticated session.
+
+    Returns:
+        286 (with or without a body) or 204, per the branches above.
+    """
+    parsed_since = parse_poll_since(since)
+    if parsed_since is None:
+        return poll_stop()
+
+    engine = _engine(request)
+    now = datetime.now(timezone.utc)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        schedule = await MarketDataScheduleRepository(db_session).get_for_tenant()
+        if schedule is None:
+            # The row a refresh would stamp is gone — nothing can land.
+            return poll_stop()
+
+        landed = schedule.last_run_at is not None and schedule.last_run_at >= parsed_since
+        if not landed:
+            if now - parsed_since > POLL_HORIZON:
+                return poll_stop()
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    return await _render_overview_section(request, session, status_code=POLL_STOP_STATUS)
 
 
 def _build_context(result: OverviewResult | None, *, tenant_id: UUID) -> dict[str, Any]:
@@ -204,7 +408,10 @@ def _build_context(result: OverviewResult | None, *, tenant_id: UUID) -> dict[st
         tenant_id: The active tenant, for the empty-universe log line.
 
     Returns:
-        The Jinja context for ``_partials/overview_section.html``.
+        The Jinja context for ``_partials/overview_section.html``, minus the
+        ``live_data`` key: the freshness line is projected separately by
+        :func:`_live_data_context` and merged in by the caller, so this
+        function stays the pure bundle-to-context mapping it was.
     """
     kpis = result.kpis if result is not None else None
 

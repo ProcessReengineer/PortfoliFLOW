@@ -32,6 +32,20 @@ Coverage targets — ADR-0101 (multi-currency Block 5):
 * **Missing rate:** an uncovered foreign-currency position degrades to the
   FX-error state (HTTP 200, currency named, no traceback) instead of
   surfacing an unhandled exception on the landing surface.
+
+Coverage targets — ADR-0125 §6 (the freshness line):
+
+* The ``.ov-meta`` line states when the book's live prices were last
+  refreshed, in the schedule's timezone, with distinct copy for "never run"
+  and "off".
+* **Owners** additionally get one control — the Refresh form while live data
+  is on, an "Enable in Admin" link while it is off. **Members** get the
+  stamp and nothing clickable. The module's ``seeded_user`` carries
+  ``owner``; ``seeded_member`` (added here, not in ``conftest.py``, because
+  this is the only Overview concern that needs a non-owner) carries
+  ``member``.
+* The Overview poll answers the ADR-0120 branches and re-renders the whole
+  section body on the terminal 286 (ADR-0125 §6/§7).
 """
 
 from __future__ import annotations
@@ -41,8 +55,9 @@ import json
 import os
 import pathlib
 from collections.abc import AsyncGenerator
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import pytest
@@ -153,6 +168,86 @@ async def seeded_user(
             },
         )
     return user_id, email, plaintext
+
+
+_MEMBER_EMAIL = "overview-member@example.com"
+
+
+@pytest_asyncio.fixture
+async def seeded_member(
+    fresh_superuser_engine: AsyncEngine,
+    seeded_user: tuple[UUID, str, str],
+) -> tuple[UUID, str, str]:
+    """Seed a second user in the same tenant holding ``member`` only.
+
+    ADR-0125 §6 splits the freshness line by role, so this module needs both
+    sides. Seeded here rather than in ``tests/web/conftest.py``: it is the
+    only non-owner any Overview test wants. Depends on ``seeded_user`` so
+    the tenant row exists first.
+    """
+    plaintext = "correct-horse-battery-staple"
+    user_id = uuid4()
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                INSERT INTO users
+                    (id, tenant_id, email, password_hash,
+                     roles, is_active)
+                VALUES
+                    (:id, :tid, :email, :hash, ARRAY['member']::text[], TRUE)
+                """
+            ),
+            {
+                "id": str(user_id),
+                "tid": str(SENTINEL_TENANT_ID),
+                "email": _MEMBER_EMAIL,
+                "hash": hash_password(plaintext),
+            },
+        )
+    return user_id, _MEMBER_EMAIL, plaintext
+
+
+async def _seed_market_data_schedule(
+    engine: AsyncEngine,
+    *,
+    enabled: bool,
+    last_run_at: datetime | None = None,
+    timezone_name: str = "Europe/Berlin",
+) -> None:
+    """Write the tenant's market-data schedule row via the superuser engine.
+
+    The freshness line reads ``enabled`` / ``last_run_at`` / ``timezone`` off
+    this row (ADR-0125 §6). ``last_run_at`` is written by the tick, never by
+    a web route, so seeding it directly is the only way a route test can
+    stage a landed run.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM market_data_schedule WHERE tenant_id = :t AND user_id IS NULL"),
+            {"t": str(SENTINEL_TENANT_ID)},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO market_data_schedule "
+                "(tenant_id, user_id, cadence, preferred_hour, timezone, "
+                " enabled, next_due_at, last_run_at) "
+                "VALUES (:t, NULL, 'every_15m', 0, :tz, "
+                " :enabled, :next_due, :last_run)"
+            ),
+            {
+                "t": str(SENTINEL_TENANT_ID),
+                "tz": timezone_name,
+                "enabled": enabled,
+                "next_due": datetime.now(timezone.utc),
+                "last_run": last_run_at,
+            },
+        )
+
+
+def _overview_poll_url(since: datetime) -> str:
+    """The poll URL the confirmation partial builds, for a given instant."""
+    return f"/api/overview/refresh/poll?since={quote(since.isoformat(), safe='')}"
 
 
 @pytest_asyncio.fixture
@@ -655,6 +750,266 @@ async def test_section_empty_state_when_no_investments(
     assert "Data Import" in body
     # No hero rendered.
     assert "ov-hero" not in body
+
+
+# ---------------------------------------------------------------------------
+# Freshness line and owner-gated refresh — ADR-0125 §6
+# ---------------------------------------------------------------------------
+
+
+async def test_overview_meta_member_sees_stamp_without_control(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    seeded_member: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A member reads when the book was refreshed, and can do nothing about it.
+
+    ADR-0125 §6 states it as a split, not a hide: the stamp is for everyone
+    because staleness changes how you read the numbers; the control is
+    owner-only because a refresh is a tenant-level action. The template half
+    of the gate is here; the route half is
+    ``tests/web/test_market_data_routes.py::test_refresh_now_member_gets_403``.
+    """
+    owner_id, _email, _password = seeded_user
+    _mid, member_email, member_password = seeded_member
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=True)
+    await _login(web_client, member_email, member_password)
+
+    response = await web_client.get(
+        "/api/overview/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert "Live data" in body
+    assert "ov-meta__refresh" not in body
+    assert "Enable in Admin" not in body
+
+
+async def test_overview_meta_owner_enabled_sees_refresh_form(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The owner's control posts to the shared enqueue, tagged for this surface.
+
+    ``surface=overview`` is the whole difference between the two
+    confirmations (ADR-0125 §6) — one enqueue endpoint, two partials — so
+    the hidden field is what this pins.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=True)
+    await _login(web_client, email, password)
+
+    response = await web_client.get(
+        "/api/overview/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert 'hx-post="/api/market-data/refresh-now"' in body
+    assert 'name="surface" value="overview"' in body
+    # It swaps itself, which is what keeps the poller inside #ov-section-body.
+    assert 'hx-target="this"' in body
+    assert "Enable in Admin" not in body
+
+
+async def test_overview_meta_owner_disabled_sees_enable_link(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Live data off: the owner is pointed at Admin, not offered a no-op.
+
+    Enqueueing against a disabled schedule moves nothing (the tick gates on
+    ``enabled``), so offering "Refresh" here would be a button that does
+    nothing. The line says what is actually wrong instead.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=False)
+    await _login(web_client, email, password)
+
+    response = await web_client.get(
+        "/api/overview/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert "Live data off" in body
+    assert 'href="/admin#market-data"' in body
+    assert "Enable in Admin" in body
+    assert "ov-meta__refresh-btn" not in body
+
+
+async def test_overview_meta_never_run_copy(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """An enabled-but-never-run schedule says so, rather than showing a blank.
+
+    Three distinct states, three distinct sentences (ADR-0125 §6): "updated
+    HH:MM", "not yet refreshed", "off". Rendering an empty time for the
+    middle one would read as a broken stamp.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=True, last_run_at=None)
+    await _login(web_client, email, password)
+
+    response = await web_client.get(
+        "/api/overview/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert "Live data not yet refreshed" in body
+    assert "Live data updated" not in body
+    assert "Live data off" not in body
+
+
+async def test_overview_meta_updated_time_in_schedule_timezone(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The stamp is local to the *schedule's* timezone, not UTC.
+
+    ADR-0125 §6 says "rendered in the schedule's timezone"; the operator
+    reads it against their own wall clock. A mid-January instant is picked
+    so Berlin is unambiguously CET (UTC+1) and the assertion cannot turn on
+    a DST boundary: 13:32 UTC is 14:32 in Berlin.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        last_run_at=datetime(2026, 1, 15, 13, 32, tzinfo=timezone.utc),
+        timezone_name="Europe/Berlin",
+    )
+    await _login(web_client, email, password)
+
+    response = await web_client.get(
+        "/api/overview/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    assert "Live data updated 14:32" in body
+    assert "13:32" not in body, "the stamp must not fall back to the UTC instant."
+
+
+# ---------------------------------------------------------------------------
+# Overview refresh poll — ADR-0125 §6/§7 (the ADR-0120 pattern)
+# ---------------------------------------------------------------------------
+
+
+async def test_overview_poll_pending_204(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """No run yet: 204, which HTMX does not swap, so the body stands.
+
+    This is the branch that runs ~4 times a minute per open tab, and §7
+    bounds the cost by keeping it to one indexed row read — it must render
+    nothing, in particular not the Overview body with its four chart specs.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=True, last_run_at=None)
+    await _login(web_client, email, password)
+
+    response = await web_client.get(
+        _overview_poll_url(datetime.now(timezone.utc) - timedelta(seconds=30))
+    )
+
+    assert response.status_code == 204
+    assert response.text == ""
+
+
+async def test_overview_poll_landed_286_renders_section_body(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The done condition: 286 carrying the **whole** re-rendered body.
+
+    ADR-0125 §6 rejected a stamp-only update explicitly — the reason for a
+    manual refresh is to see the numbers move — so the 286 must carry
+    ``#ov-section-body`` with the hero and the tiles, which the poller's
+    ``outerHTML`` swap then puts in place of the old body (removing itself
+    in the process).
+    """
+    owner_id, email, password = seeded_user
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(seconds=30)
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        last_run_at=since + timedelta(seconds=5),
+    )
+    await _login(web_client, email, password)
+
+    response = await web_client.get(_overview_poll_url(since))
+
+    assert response.status_code == 286
+    body = response.text
+    assert 'id="ov-section-body"' in body
+    assert "Assets under management" in body
+    assert 'id="ov-chart-invested-nav"' in body
+    # A settled body starts no poll of its own — only a confirmation does.
+    assert "refresh/poll?since=" not in body
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "",  # no marker at all
+        "?since=",
+        "?since=not-a-timestamp",
+        "?since=2026-08-13T10:00:00",  # naive: no zone to compare against
+    ],
+    ids=["absent", "empty", "garbage", "naive"],
+)
+async def test_overview_poll_stops_on_unusable_since(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+    query: str,
+) -> None:
+    """A hand-edited marker terminates the poll — it never 500s.
+
+    ``HX-Reswap: none`` is the load-bearing half: the poller declares an
+    ``outerHTML`` swap of ``#ov-section-body``, so an empty 286 without it
+    would delete the whole Overview instead of leaving it alone.
+    """
+    owner_id, email, password = seeded_user
+    await _seed_two_investments(owner_id)
+    await _seed_market_data_schedule(fresh_superuser_engine, enabled=True)
+    await _login(web_client, email, password)
+
+    response = await web_client.get(f"/api/overview/refresh/poll{query}")
+
+    assert response.status_code == 286
+    assert response.text == ""
+    assert response.headers["HX-Reswap"] == "none"
 
 
 # ---------------------------------------------------------------------------

@@ -68,22 +68,44 @@ _FORBIDDEN_CONTAINS: tuple[str, ...] = (
 )
 
 
-def _scan_source(source: str) -> list[tuple[int, str]]:
+def _scan_source(
+    source: str,
+    *,
+    start_patterns: tuple[str, ...] = _FORBIDDEN_START_PATTERNS,
+    contains: tuple[str, ...] = _FORBIDDEN_CONTAINS,
+) -> list[tuple[int, str]]:
     """Return ``(lineno, line)`` for every offending line in ``source``.
 
     Comment lines are skipped; docstring text never begins with a forbidden
     import token, and none of the forbidden substrings occur in this package's
     prose.
+
+    The two pattern sets are arguments with this module's own tuples as
+    defaults, so a sibling guard over a *different* layer can reuse the
+    mechanism rather than copy it — ``tests/regression/
+    test_web_layer_has_no_market_data_provider_imports.py`` (ADR-0125) is the
+    first such caller. Every call site here passes neither, so this module's
+    behaviour is unchanged.
+
+    Args:
+        source: The module source to scan.
+        start_patterns: Anchored-start tokens; a stripped, non-comment line
+            beginning with one of these is a violation.
+        contains: Case-sensitive substrings that must not appear in a
+            non-comment source line.
+
+    Returns:
+        One ``(lineno, stripped_line)`` pair per offending line.
     """
     offenders: list[tuple[int, str]] = []
     for lineno, raw_line in enumerate(source.splitlines(), start=1):
         stripped = raw_line.strip()
         if stripped.startswith("#"):
             continue
-        if any(stripped.startswith(p) for p in _FORBIDDEN_START_PATTERNS):
+        if any(stripped.startswith(p) for p in start_patterns):
             offenders.append((lineno, stripped))
             continue
-        if any(sym in stripped for sym in _FORBIDDEN_CONTAINS):
+        if any(sym in stripped for sym in contains):
             offenders.append((lineno, stripped))
     return offenders
 

@@ -22,6 +22,11 @@
                             Empty for a tenant whose cash is in the
                             functional currency — the card then does not
                             render at all (the §4 invisibility guarantee).
+     live_data            — the freshness line (ADR-0125 §6): configured,
+                            enabled, updated_display (HH:MM in the
+                            schedule's timezone, or None when the schedule
+                            has never run), is_owner, csrf_token. Present in
+                            both branches; only the non-empty one renders it.
 
    The hero reads AUM = Invested + Cash. There is no "no AUM series" state
    any more: AUM is derived from the book, so a book with NAVs always has
@@ -46,7 +51,45 @@
 
     <div class="ov-section" id="ov-section-body">
 
-        <p class="ov-meta">As of {{ kpis.as_of_date.isoformat() }}</p>
+        {# The freshness line of the book (ADR-0125 §6): the as-of date the
+           figures below are stated at, then when the live prices behind them
+           were last refreshed. Owners additionally get one control — Refresh
+           while live data is on, "Enable in Admin" while it is off; members
+           see the stamp and nothing clickable. The form targets *itself*
+           (hx-target="this"), so the confirmation — and the poller inside it
+           — lands inside #ov-section-body and is removed by that body's own
+           terminal swap. #}
+        <p class="ov-meta">
+            As of {{ kpis.as_of_date.isoformat() }}
+            <span class="ov-meta__sep">&middot;</span>
+            {% if live_data.updated_display -%}
+                Live data updated {{ live_data.updated_display }}
+            {%- elif live_data.enabled -%}
+                Live data not yet refreshed
+            {%- else -%}
+                Live data off
+            {%- endif %}
+            {% if live_data.is_owner %}
+                <span class="ov-meta__sep">&middot;</span>
+                {% if live_data.enabled %}
+                    <form class="ov-meta__refresh"
+                          hx-post="/api/market-data/refresh-now"
+                          hx-target="this"
+                          hx-swap="outerHTML">
+                        <input type="hidden" name="csrf_token"
+                               value="{{ live_data.csrf_token }}">
+                        <input type="hidden" name="surface" value="overview">
+                        <button type="submit" class="ov-meta__refresh-btn">
+                            Refresh
+                        </button>
+                    </form>
+                {% else %}
+                    <a class="ov-meta__link" href="/admin#market-data">
+                        Enable in Admin
+                    </a>
+                {% endif %}
+            {% endif %}
+        </p>
 
         <section class="ov-hero" aria-labelledby="ov-hero-label">
             <div class="ov-hero__label" id="ov-hero-label">

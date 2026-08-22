@@ -6,13 +6,15 @@
    Context (via web.routes.market_data._panel_context): csrf_token,
    cadence_choices, cadence_labels, hours,
    current{cadence,preferred_hour,timezone,enabled,next_due_at,last_run_at,
-   configured}, schedule_saved, schedule_error, refresh_message. #}
+   configured}, schedule_saved, schedule_error, refresh_message,
+   poll_since (encoded ISO 8601 — set only by a refresh-now confirmation). #}
 <div class="pf-market-data-panel">
     <p class="pf-market-data-panel__intro">
         Live import augments listed instruments (with a primary ISIN /
         ticker / FIGI) from external providers. It never overwrites Excel
-        data. Fetching runs out-of-process on the market-data tick — this
-        panel only sets the cadence and queues an out-of-cadence run.
+        data. The refresh itself runs in the scheduler (ADR-0117); this
+        panel sets the interval, can queue an out-of-cadence run, and shows
+        when the last one landed.
     </p>
 
     {% if schedule_saved %}
@@ -24,6 +26,27 @@
         <p class="pf-market-data-panel__flash" role="status">
             {{ refresh_message }}
         </p>
+    {% endif %}
+    {% if poll_since %}
+        {# The confirmation was the last thing the operator saw: the refresh
+           runs a tick later in the scheduler and the rendered panel never
+           learned. This element waits for it — every 15s, asking only "has a
+           run landed since the enqueue". While the answer is no the endpoint
+           returns 204 and HTMX swaps nothing; when it is yes it returns 286
+           with the refreshed panel, which both cancels the poll and replaces
+           the markup this element sits in. Nothing else here polls, and this
+           one starts only from a confirmation — never on load.
+
+           `since` is the *server's* enqueue instant, handed down by the
+           route; a client clock minutes off would make the done condition
+           fire on the first tick or never. The timeout is the server's
+           horizon too (10 minutes), so there is no JavaScript here beyond
+           these attributes (ADR-0125 §5, the ADR-0120 pattern). #}
+        <span class="pf-market-data-panel__poll" hidden
+              hx-get="/api/market-data/refresh/poll?since={{ poll_since }}"
+              hx-trigger="every 15s"
+              hx-target="#pf-market-data-panel"
+              hx-swap="innerHTML"></span>
     {% endif %}
     {% if schedule_error %}
         <p class="pf-market-data-panel__error" role="alert">

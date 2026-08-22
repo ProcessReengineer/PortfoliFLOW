@@ -65,7 +65,7 @@ import logging
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 from urllib.parse import quote
@@ -168,6 +168,12 @@ from services.watch_desk.signal_observation import (
 from services.web_research.allowlist import _KNOWN_TAGS
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
+from web.htmx_poll import (
+    POLL_HORIZON,
+    POLL_STOP_STATUS,
+    parse_poll_since,
+    poll_stop,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -271,20 +277,17 @@ _LIMIT_FAMILIES: tuple[str, ...] = ("saa", "anlv")
 # --- Briefing poll (post-enqueue refresh) ----------------------------------
 #
 # "Request analysis" enqueues; the beat runs ~a tick later in the scheduler
-# (ADR-0117), and the already-rendered page has no way to learn that. These
-# two values bound the poll that closes the gap. Both are server-side: the
-# poller carries no timeout of its own, it stops when the server says so.
-
-# HTMX's "stop polling" status for an ``every …`` trigger. Not an
-# HTTP-registered code — an htmx convention, honoured by the bundled 1.9.12 —
-# so it is spelled out here rather than taken from :mod:`http`.
-_POLL_STOP_STATUS = 286
-
-# How long after the enqueue the poller may keep asking. Caps a tab left open
-# on a beat that never runs (a stopped scheduler, a credential-gated domain)
-# instead of polling until the browser closes. At the template's 15-second
-# cadence this is at most 40 requests, each of them one indexed row read.
-_POLL_HORIZON = timedelta(minutes=10)
+# (ADR-0117), and the already-rendered page has no way to learn that. The
+# two bounds and the two primitives that close that gap moved to
+# ``web/htmx_poll.py`` when ADR-0125 §5 gave the market-data surfaces the
+# same loop: one definition, three call sites, no third copy. The four
+# private names below are kept as aliases so this module reads exactly as it
+# did — the Watch Desk's behaviour is unchanged by the extraction, and its
+# tests are the proof.
+_POLL_STOP_STATUS = POLL_STOP_STATUS
+_POLL_HORIZON = POLL_HORIZON
+_poll_stop = poll_stop
+_parse_poll_since = parse_poll_since
 
 # Human labels for the monitor's two internal groups, keyed by family.
 _FAMILY_GROUP_NAMES: dict[str, str] = {
@@ -1965,38 +1968,6 @@ async def get_briefing(
 # ---------------------------------------------------------------------------
 # Briefing poll — the post-enqueue refresh, time-boxed and self-terminating
 # ---------------------------------------------------------------------------
-
-
-def _poll_stop() -> Response:
-    """End the poll without swapping anything.
-
-    The 286 cancels the poll; ``HX-Reswap: none`` is what keeps the empty
-    body out of the page. Without it the poller's declared ``outerHTML``
-    swap would apply an empty response to ``#dc-briefing`` — deleting the
-    section the poll exists to refresh.
-    """
-    return Response(status_code=_POLL_STOP_STATUS, headers={"HX-Reswap": "none"})
-
-
-def _parse_poll_since(raw: str | None) -> datetime | None:
-    """Parse the poller's ``since`` marker; ``None`` when it is unusable.
-
-    Strict on purpose. The value is the server's own enqueue instant
-    round-tripped through a query string, so anything else is a truncated
-    or hand-edited URL and there is nothing to answer against. A naive
-    stamp is rejected rather than assumed to be UTC: guessing a zone here
-    would shift the done condition by hours in either direction — the poll
-    would terminate on the first tick, or never.
-    """
-    if raw is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.astimezone(timezone.utc)
 
 
 @router.get("/api/watch-desk/briefing/poll", response_class=HTMLResponse)

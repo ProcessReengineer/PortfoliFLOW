@@ -22,6 +22,53 @@
     text-align: right;
 }
 
+/* Freshness line — ADR-0125 §6. The .ov-meta line gained a live-data stamp
+ * and, for owners, one control. Everything below is deliberately *inline*:
+ * the line must read as one sentence, and the member view (stamp only) and
+ * the owner view (stamp + control) must sit at the same height and the same
+ * right edge — the control adds no box of its own. The post-click
+ * confirmation replaces the control with a full sentence and may therefore
+ * wrap; that is the one moment the line is allowed to grow, and it is
+ * transient. No new colours — the separator and the control both borrow
+ * .ov-meta's own secondary text. */
+.ov-meta__sep {
+    margin: 0 0.4rem;
+    opacity: 0.5;
+}
+
+.ov-meta__refresh {
+    display: inline;
+}
+
+/* The control is a text link, not a button surface: a chrome button in a
+ * 0.9rem meta line would out-weigh the AUM hero directly below it. Reset the
+ * UA button box completely and inherit everything from the paragraph. */
+.ov-meta__refresh-btn,
+.ov-meta__link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.ov-meta__refresh-btn:hover,
+.ov-meta__link:hover,
+.ov-meta__refresh-btn:focus-visible,
+.ov-meta__link:focus-visible {
+    text-decoration: underline;
+}
+
+/* The confirmation that replaces the form after a click. Same inline flow,
+ * same colour — the line simply changes what it says. */
+.ov-meta__refresh-state {
+    font: inherit;
+    color: inherit;
+}
+
 /* Hero — a single full-width surface card. Its value is the dominant
  * figure on the page (≈2.5× the metric-card value size). */
 .ov-hero {

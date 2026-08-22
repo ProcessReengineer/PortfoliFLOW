@@ -9,13 +9,20 @@
    Context (from areas/_section.html via the area template, built by
    web.routes.market_data._panel_context):
      csrf_token       — session-bound CSRF token.
-     cadence_choices  — v0 cadence vocabulary ("daily").
+     cadence_choices  — the cadence vocabulary this surface offers
+                         (ADR-0125 §2: every_15m / every_30m / hourly /
+                         daily), finest-first.
+     cadence_labels   — display label per offered choice.
      hours            — 0..23 for the preferred-hour select.
      current          — {cadence, preferred_hour, timezone, enabled,
                          next_due_at, last_run_at, configured}.
      schedule_saved   — flash after a successful save.
      schedule_error   — inline error after a rejected save.
-     refresh_message  — flash after a Refresh-now action. #}
+     refresh_message  — flash after a Refresh-now action, or after the run
+                         it queued landed.
+     poll_since       — encoded enqueue instant; set only by a refresh-now
+                         confirmation, and the sole thing that starts the
+                         panel's post-enqueue poller (ADR-0125 §5). #}
 
 <div class="pf-market-data" id="pf-market-data-root">
     <div class="pf-market-data__panel"

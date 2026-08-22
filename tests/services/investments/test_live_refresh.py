@@ -28,12 +28,22 @@ Coverage:
   contained — counted, and the tenant refresh completes for the others;
 * the fetch window's lower bound derives from ``last_run_at`` (a point before
   the last run is filtered out), leaving nothing to ingest or materialise.
+
+The kind split of ADR-0125 §4 is observed on both routing paths with a
+recording adapter (which kinds a run *requests*, as opposed to what lands):
+
+* the first run of a UTC day (``last_run_at=None``) requests every kind the
+  capability matrix routes for the identifier's scheme;
+* a later run of the same day requests the price kinds only, over the
+  ``[today, today]`` window;
+* the first run after midnight UTC requests the daily kinds again;
+* the forced-provider path (``--provider``) honours the same split.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
@@ -55,15 +65,19 @@ from core.repositories import (
 from services.investments import InvestmentService
 from services.investments import live_refresh as live_refresh_mod
 from services.investments.live_refresh import (
+    _INGESTABLE_KINDS,
     MARKET_DATA_SYSTEM_ACTOR_EMAIL,
     refresh_tenant_live_data,
 )
 from services.market_data.dto import (
+    DateWindow,
     NormalizedSeries,
     SeriesKind,
     SeriesPoint,
 )
 from services.market_data.factory import build_adapter as _real_build_adapter
+from services.market_data.factory import get_capability_matrix
+from services.market_data.provider import UnsupportedCapabilityError
 
 # A fixed "now" so the fetch windows are deterministic. The fixture dates
 # below sit a few days before it, comfortably inside the 30-day fallback.
@@ -401,3 +415,243 @@ async def test_unforced_refresh_skips_forced_only_synthetic_no_fixture(
     assert len(prices) == 1
     assert prices[0].source == "yahoo"
     assert prices[0].as_of_date == date(2026, 7, 1)
+
+
+# ---------------------------------------------------------------------------
+# Kind-aware fetching (ADR-0125 §4)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingAdapter:
+    """Network-free adapter that records every ``(kind, window)`` it is asked for.
+
+    Returns an empty series for every kind, so the kind loop runs to completion
+    with no ingestion at all and the test observes *which* kinds the run
+    requested — the ADR-0125 §4 split — rather than what happened to land.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[SeriesKind, DateWindow]] = []
+
+    async def fetch_series(self, ident, kind, window) -> NormalizedSeries:
+        self.calls.append((kind, window))
+        return NormalizedSeries(ident=ident, provider="yahoo", kind=kind, currency="EUR", points=())
+
+    @property
+    def kinds(self) -> set[SeriesKind]:
+        """The distinct kinds requested so far."""
+        return {kind for kind, _window in self.calls}
+
+
+class _RecordingShim:
+    """Records every ``(kind, window)`` and delegates to a real adapter.
+
+    Used on the forced-provider path, where the run must reach the genuine
+    synthetic adapter (fixture-driven) — the shim observes the kind list
+    without replacing the provider's behaviour.
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.calls: list[tuple[SeriesKind, DateWindow]] = []
+
+    async def fetch_series(self, ident, kind, window) -> NormalizedSeries:
+        self.calls.append((kind, window))
+        return await self._inner.fetch_series(ident, kind, window)
+
+    @property
+    def kinds(self) -> set[SeriesKind]:
+        """The distinct kinds requested so far."""
+        return {kind for kind, _window in self.calls}
+
+
+def _kinds_routed_to_yahoo_for_ticker() -> set[SeriesKind]:
+    """Return the ingestable kinds the shipped matrix routes to yahoo for ``ticker``.
+
+    Read off the matrix rather than hard-coded, so the assertion tracks the
+    capability declaration (ADR-0091) instead of restating it.
+    """
+    matrix = get_capability_matrix()
+    routed: set[SeriesKind] = set()
+    for kind in _INGESTABLE_KINDS:
+        try:
+            capability = matrix.resolve("ticker", kind)
+        except UnsupportedCapabilityError:
+            continue
+        if capability.name == "yahoo":
+            routed.add(kind)
+    return routed
+
+
+async def _seed_tenant_with_eligible_investment(
+    app_engine: AsyncEngine,
+    seed_tenant,
+) -> tuple[UUID, UUID]:
+    """Seed a tenant, its system actor and one live-eligible unitised investment.
+
+    The same shape ``test_unforced_refresh_skips_forced_only_synthetic_no_fixture``
+    seeds: ``listed_equity`` + primary ticker + an opening position, so the
+    market-linked gate admits it and the kind loop runs for it.
+    """
+    tenant_id = await seed_tenant()
+    actor_id = await _seed_system_actor(app_engine, tenant_id)
+    await _seed_investment(
+        app_engine,
+        tenant_id,
+        actor_id,
+        name="Eligible",
+        investment_type="listed_equity",
+        ticker="ACME",
+        unitised=True,
+        opening_units="100",
+    )
+    return tenant_id, actor_id
+
+
+async def test_first_run_of_the_day_requests_all_routed_kinds(
+    app_engine: AsyncEngine,
+    seed_tenant,
+    monkeypatch,
+) -> None:
+    """ADR-0125 §4: a never-run tenant requests every matrix-routed kind.
+
+    The recording adapter stands in for yahoo, so the assertion is on the
+    request list: it must equal the matrix's own ``ticker``→yahoo coverage
+    (``nav_price`` and ``dividend`` in the shipped matrix), not a narrowed set.
+    """
+    tenant_id, actor_id = await _seed_tenant_with_eligible_investment(app_engine, seed_tenant)
+    monkeypatch.delenv("MARKET_DATA_SYNTHETIC_FIXTURE", raising=False)
+
+    recorder = _RecordingAdapter()
+
+    def _fake_build(name: str):
+        if name == "yahoo":
+            return recorder
+        return _real_build_adapter(name)
+
+    monkeypatch.setattr(live_refresh_mod, "build_adapter", _fake_build)
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor_id) as session:
+        report = await refresh_tenant_live_data(
+            session, now=_NOW, last_run_at=None, forced_provider=None
+        )
+
+    expected = _kinds_routed_to_yahoo_for_ticker()
+    # Guard against a vacuous pass: the split is only observable if the matrix
+    # routes a non-price kind for this scheme at all.
+    assert {SeriesKind.NAV_PRICE, SeriesKind.DIVIDEND} <= expected
+    assert recorder.kinds == expected
+    assert report.considered == 1
+    assert report.errors == 0
+
+
+async def test_intraday_run_requests_price_kinds_only(
+    app_engine: AsyncEngine,
+    seed_tenant,
+    monkeypatch,
+) -> None:
+    """ADR-0125 §4: a later run of the same UTC day requests ``nav_price`` alone.
+
+    Also pins the consequence the ADR states plainly: the intraday window is
+    ``[today, today]``, so the run re-fetches the current day's bar and nothing
+    else.
+    """
+    tenant_id, actor_id = await _seed_tenant_with_eligible_investment(app_engine, seed_tenant)
+    monkeypatch.delenv("MARKET_DATA_SYNTHETIC_FIXTURE", raising=False)
+
+    recorder = _RecordingAdapter()
+
+    def _fake_build(name: str):
+        if name == "yahoo":
+            return recorder
+        return _real_build_adapter(name)
+
+    monkeypatch.setattr(live_refresh_mod, "build_adapter", _fake_build)
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor_id) as session:
+        report = await refresh_tenant_live_data(
+            session,
+            now=_NOW,
+            last_run_at=_NOW - timedelta(minutes=15),
+            forced_provider=None,
+        )
+
+    assert recorder.kinds == {SeriesKind.NAV_PRICE}
+    today = DateWindow(start=_NOW.date(), end=_NOW.date())
+    assert [window for _kind, window in recorder.calls] == [today]
+    assert report.considered == 1
+    assert report.errors == 0
+
+
+async def test_first_run_after_midnight_utc_requests_all_kinds_again(
+    app_engine: AsyncEngine,
+    seed_tenant,
+    monkeypatch,
+) -> None:
+    """ADR-0125 §4: crossing the UTC day boundary reopens the daily kinds.
+
+    ``last_run_at`` is 2026-07-06 23:50 UTC — twelve hours before ``_NOW`` but,
+    decisively, on the previous UTC date — so ``dividend`` is requested again.
+    """
+    tenant_id, actor_id = await _seed_tenant_with_eligible_investment(app_engine, seed_tenant)
+    monkeypatch.delenv("MARKET_DATA_SYNTHETIC_FIXTURE", raising=False)
+
+    recorder = _RecordingAdapter()
+
+    def _fake_build(name: str):
+        if name == "yahoo":
+            return recorder
+        return _real_build_adapter(name)
+
+    monkeypatch.setattr(live_refresh_mod, "build_adapter", _fake_build)
+
+    last_run = _NOW.replace(hour=23, minute=50) - timedelta(days=1)
+    async with tenant_context(app_engine, tenant_id, user_id=actor_id) as session:
+        report = await refresh_tenant_live_data(
+            session, now=_NOW, last_run_at=last_run, forced_provider=None
+        )
+
+    assert last_run == datetime(2026, 7, 6, 23, 50, tzinfo=timezone.utc)
+    assert SeriesKind.DIVIDEND in recorder.kinds
+    assert recorder.kinds == _kinds_routed_to_yahoo_for_ticker()
+    assert report.considered == 1
+    assert report.errors == 0
+
+
+async def test_forced_provider_path_honours_the_split(
+    app_engine: AsyncEngine,
+    seed_tenant,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """ADR-0125 §4: ``--provider`` narrows to the price kinds on an intraday run.
+
+    The forced path differs from the default one only in routing, so it must
+    fetch the same kind set. Synthetic declares every ingestable kind for
+    ``ticker``, which makes the narrowing visible: without the split all eight
+    would be requested.
+    """
+    tenant_id, actor_id = await _seed_tenant_with_eligible_investment(app_engine, seed_tenant)
+    fixture_path = _write_fixture(tmp_path)
+    monkeypatch.setenv("MARKET_DATA_SYNTHETIC_FIXTURE", str(fixture_path))
+
+    shim = _RecordingShim(_real_build_adapter("synthetic"))
+
+    def _fake_build(name: str):
+        if name == "synthetic":
+            return shim
+        return _real_build_adapter(name)
+
+    monkeypatch.setattr(live_refresh_mod, "build_adapter", _fake_build)
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor_id) as session:
+        report = await refresh_tenant_live_data(
+            session,
+            now=_NOW,
+            last_run_at=_NOW - timedelta(minutes=15),
+            forced_provider="synthetic",
+        )
+
+    assert shim.kinds == {SeriesKind.NAV_PRICE}
+    assert report.considered == 1
+    assert report.errors == 0

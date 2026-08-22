@@ -26,7 +26,12 @@ Flow for one tenant (all inside the caller's tenant-scoped session):
    identifier's scheme (ADR-0091 — the kind list is **driven by the matrix**,
    not hard-coded), fetch a :class:`NormalizedSeries` over a date window and
    write it via :meth:`InvestmentService.ingest_normalized_series` under the
-   Excel-precedence guard (ADR-0092), attributed to the system actor.
+   Excel-precedence guard (ADR-0092), attributed to the system actor. Since
+   ADR-0125 §4 the run first *narrows* the candidate kinds — an intraday run
+   (one that is not the first of the UTC calendar day) keeps only the price
+   kinds — and the matrix then routes within that narrowed set: the matrix
+   still decides *availability*, the run decides *necessity*
+   (:func:`_kinds_for_run`).
 4. Error containment mirrors the Irene beat: one investment's provider
    failure is logged and counted, never aborts the tenant (the tick, in
    turn, isolates one tenant's failure from the rest).
@@ -58,7 +63,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,6 +142,19 @@ _INGESTABLE_KINDS: tuple[SeriesKind, ...] = (
     SeriesKind.OTHER,
 )
 
+#: The kinds fetched on **every** run (ADR-0125 §4). A price is what actually
+#: moves between two runs of a sub-hourly cadence, so ``nav_price`` is
+#: re-fetched at whatever cadence the tenant configured; every other member of
+#: :data:`_INGESTABLE_KINDS` is a *daily* kind, fetched only on the first run
+#: of each UTC calendar day (:func:`_kinds_for_run`). Without the split a
+#: quarter-hourly cadence would multiply the provider call volume by the
+#: number of routed kinds for no new data.
+_PRICE_KINDS: tuple[SeriesKind, ...] = (SeriesKind.NAV_PRICE,)
+
+# The two tuples must not drift: a price kind outside the ingestable set would
+# be fetched and then have nowhere to land.
+assert all(kind in _INGESTABLE_KINDS for kind in _PRICE_KINDS)
+
 
 class MarketDataSystemActorMissing(PortfoliFlowError):
     """The tenant has no seeded market-data system actor (a provisioning fault).
@@ -207,6 +225,44 @@ def _fetch_window(now: datetime, last_run_at: datetime | None) -> DateWindow:
     return DateWindow(start=start, end=end)
 
 
+def _kinds_for_run(now: datetime, last_run_at: datetime | None) -> tuple[SeriesKind, ...]:
+    """Return the series kinds this run should fetch (ADR-0125 §4).
+
+    Why: a sub-hourly cadence re-fetches a price usefully and a dividend
+    pointlessly, so the run narrows its own candidate kinds rather than asking
+    the provider for everything every quarter of an hour. The full
+    :data:`_INGESTABLE_KINDS` set is fetched on the first run of each UTC
+    calendar day — and for a tenant that has never run; every later run of the
+    same day fetches :data:`_PRICE_KINDS` only.
+
+    The day boundary is **UTC by decision**: ``last_run_at`` is persisted in
+    UTC and this core knows no tenant timezone, so both instants are converted
+    to UTC before their dates are compared and the caller's zone never decides
+    the branch. For Europe/Berlin that means the daily kinds are caught up on
+    the first run after 01:00 (winter) / 02:00 (summer) local rather than at
+    local midnight, which the ADR accepts.
+
+    The failure property follows from the tick: a failed run does not advance
+    ``last_run_at`` (``mark_run_done`` runs only on success), so the next
+    attempt still sees the older timestamp and asks for every kind again — a
+    transient provider error cannot silently cost a tenant its daily kinds for
+    the day.
+
+    Args:
+        now: The current instant (timezone-aware).
+        last_run_at: The tenant's last successful refresh, or ``None``.
+
+    Returns:
+        :data:`_INGESTABLE_KINDS` on the first run of the UTC day (and for a
+        never-run tenant), else :data:`_PRICE_KINDS`.
+    """
+    if last_run_at is None:
+        return _INGESTABLE_KINDS
+    if last_run_at.astimezone(timezone.utc).date() < now.astimezone(timezone.utc).date():
+        return _INGESTABLE_KINDS
+    return _PRICE_KINDS
+
+
 def _forced_capability_serves(
     matrix: CapabilityMatrix, provider_name: str, scheme: str, kind: SeriesKind
 ) -> bool:
@@ -238,12 +294,23 @@ async def refresh_tenant_live_data(
     :class:`TenantRefreshReport`; it does not advance the schedule (the tick
     owns that, on success).
 
+    Which kinds are fetched depends on the run (ADR-0125 §4,
+    :func:`_kinds_for_run`): the first run of each UTC calendar day — and a
+    tenant that has never run — asks for every matrix-routed member of
+    :data:`_INGESTABLE_KINDS`, while every later run of the same day asks for
+    :data:`_PRICE_KINDS` only. An intraday run therefore re-fetches today's
+    ``nav_price`` bar and nothing else: the last traded price while the
+    session is open, and a repeated value (counted ``noop_live``) once it has
+    closed. The report gains no field for this — the existing counters stay
+    correct for whichever kinds ran.
+
     Args:
         session: A tenant-scoped :class:`AsyncSession` (RLS active).
         now: The current instant (timezone-aware UTC), the window's upper
             bound and the ``created_at`` reference for logging.
         last_run_at: The tenant's last successful refresh, or ``None`` — the
-            window's lower bound (falling back to a fixed lookback).
+            window's lower bound (falling back to a fixed lookback) and the
+            UTC-day marker that selects the kind set.
         forced_provider: When set (threaded from ``--provider``), route every
             fetch to this named provider instead of the matrix's priority
             order, for the kinds it declares for the scheme. Production
@@ -277,6 +344,7 @@ async def refresh_tenant_live_data(
     )
     identifiers_repo = InvestmentIdentifierRepository(session)
     window = _fetch_window(now, last_run_at)
+    kinds = _kinds_for_run(now, last_run_at)
 
     # Adapters are stateless-per-request but constructing the synthetic one
     # re-reads its fixture, so cache by name within a tenant refresh.
@@ -309,7 +377,7 @@ async def refresh_tenant_live_data(
         ident = NormalizedIdentifier(scheme=primary.scheme, value=primary.value)
         investment_had_data = False
         try:
-            for kind in _INGESTABLE_KINDS:
+            for kind in kinds:
                 provider_name = _route(resolved_matrix, primary.scheme, kind, forced_provider)
                 if provider_name is None:
                     continue  # matrix routes nothing for (scheme, kind)
@@ -364,7 +432,7 @@ async def refresh_tenant_live_data(
     )
     _LOG.info(
         "market-data refresh: considered=%d refreshed=%d errors=%d "
-        "window=[%s..%s] inserted=%d updated_live=%d skipped_excel=%d "
+        "window=[%s..%s] kinds=%s inserted=%d updated_live=%d skipped_excel=%d "
         "skipped_manual=%d noop_live=%d skipped_unit_mismatch=%d "
         "skipped_currency_mismatch=%d skipped_zero_holdings=%d%s",
         report.considered,
@@ -372,6 +440,7 @@ async def refresh_tenant_live_data(
         report.errors,
         window.start.isoformat(),
         window.end.isoformat(),
+        "all" if kinds == _INGESTABLE_KINDS else "price",
         report.inserted,
         report.updated_live,
         report.skipped_excel,

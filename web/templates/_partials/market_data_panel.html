@@ -4,9 +4,9 @@
    the container's hx-target="this" / hx-swap="innerHTML".
 
    Context (via web.routes.market_data._panel_context): csrf_token,
-   cadence_choices, hours, current{cadence,preferred_hour,timezone,enabled,
-   next_due_at,last_run_at,configured}, schedule_saved, schedule_error,
-   refresh_message. #}
+   cadence_choices, cadence_labels, hours,
+   current{cadence,preferred_hour,timezone,enabled,next_due_at,last_run_at,
+   configured}, schedule_saved, schedule_error, refresh_message. #}
 <div class="pf-market-data-panel">
     <p class="pf-market-data-panel__intro">
         Live import augments listed instruments (with a primary ISIN /
@@ -36,19 +36,19 @@
 
         <div class="pf-market-data-panel__fields">
             <label class="pf-market-data-panel__field">
-                <span class="pf-market-data-panel__label">Cadence</span>
+                <span class="pf-market-data-panel__label">Refresh interval</span>
                 <select name="cadence">
                     {% for choice in cadence_choices %}
                         <option value="{{ choice }}"
                             {% if choice == current.cadence %}selected{% endif %}>
-                            {{ choice|capitalize }}
+                            {{ cadence_labels[choice] }}
                         </option>
                     {% endfor %}
                 </select>
             </label>
 
             <label class="pf-market-data-panel__field">
-                <span class="pf-market-data-panel__label">Preferred hour</span>
+                <span class="pf-market-data-panel__label">Anchor hour</span>
                 <select name="preferred_hour">
                     {% for hour in hours %}
                         <option value="{{ hour }}"
@@ -70,6 +70,12 @@
                 <span class="pf-market-data-panel__label">Enabled</span>
             </label>
         </div>
+
+        <p class="pf-market-data-panel__hint">
+            The anchor places the grid for “Daily”; every shorter interval
+            ignores it and runs from the full hour — :00/:15/:30/:45 for the
+            15-minute interval, :00/:30 for the 30-minute one.
+        </p>
 
         <button type="submit" class="pf-btn pf-btn--primary">
             Save schedule

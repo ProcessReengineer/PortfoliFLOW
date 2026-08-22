@@ -9,6 +9,10 @@ tenant/user, session-CSRF read from the DB). They cover the deliberately
 small surface: the enable/disable + cadence CRUD, and "Refresh now" setting
 ``next_due_at := now`` on an enabled schedule (and refusing on a disabled
 one, without moving the cursor).
+
+The cadence tests keep ``daily`` — still an offered choice — and add the
+sub-hourly case ADR-0125 §2 introduced: an ``every_15m`` save must land on
+the quarter-hour grid and must render its label, not the raw value.
 """
 
 from __future__ import annotations
@@ -290,3 +294,47 @@ async def test_refresh_now_disabled_does_not_move_cursor(
     assert after is not None
     # A disabled schedule's cursor is untouched.
     assert after[1] == before[1]
+
+
+async def test_save_schedule_every_15m_lands_on_the_quarter_hour_grid(
+    web_client: AsyncClient, fresh_superuser_engine: AsyncEngine
+) -> None:
+    """A sub-hourly save round-trips through the shared cadence arithmetic.
+
+    ADR-0125 §2 adds ``every_15m`` to what this panel offers; §1 states the
+    quarter-hour grid is a *property* of the existing ``anchor + k·step``
+    arithmetic rather than a new rule. Asserting the persisted
+    ``next_due_at`` (rather than only a 200) is what proves the route feeds
+    the new vocabulary through ``compute_next_due_at`` unchanged.
+
+    The render assertions cover the other half of §2: the label map exists
+    and the template uses it — a ``|capitalize`` would emit "Every_15m".
+    """
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    resp = await web_client.post(
+        "/api/market-data/schedule",
+        data={
+            "cadence": "every_15m",
+            "preferred_hour": "0",
+            "timezone": "Europe/Berlin",
+            "enabled": "on",
+            "csrf_token": csrf,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert "Schedule saved." in resp.text
+    assert "Every 15 minutes" in resp.text, "the cadence label must be rendered, not the raw value."
+    assert "Refresh interval" in resp.text, "the panel caption is 'Refresh interval' (ADR-0125 §2)."
+    assert "Every_15m" not in resp.text, "a |capitalize fallback would betray a missing label map."
+
+    state = await _read_schedule(fresh_superuser_engine)
+    assert state is not None
+    enabled, next_due = state
+    assert enabled is True
+    assert next_due.minute in (0, 15, 30, 45), (
+        "an every_15m schedule is due on the quarter-hour grid measured from "
+        "the full hour (ADR-0125 §1)."
+    )
+    assert next_due.second == 0

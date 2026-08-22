@@ -198,6 +198,14 @@ async def test_std03_seed_installs_disabled_market_data_schedule(
         "a freshly seeded tenant must not silently start fetching — the "
         "schedule lands disabled (ADR-0093)."
     )
+    assert schedule.cadence == "every_15m", (
+        "the seeded cadence is the finest the vocabulary offers so opting a "
+        "tenant in is one checkbox, not a cadence decision (ADR-0125 §3)."
+    )
+    assert schedule.preferred_hour == 0, (
+        "the anchor is inert at a sub-hourly cadence — the quarter-hour grid "
+        "runs from the full hour — so 0 is the honest seed (ADR-0125 §3)."
+    )
 
 
 # ---------------------------------------------------------------------------

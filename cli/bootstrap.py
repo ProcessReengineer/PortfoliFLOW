@@ -888,17 +888,22 @@ async def _run_default_regions_installation(engine: AsyncEngine, sentinel_user_i
 # ---------------------------------------------------------------------------
 
 
-# Seed defaults for the tenant's disabled market-data schedule. Cadence
-# vocabulary is v0 = "daily"; the hour / timezone are sensible German-
-# deployment defaults an owner adjusts from the Admin surface. ``enabled``
-# is FALSE at seed time (ADR-0093) so no tenant silently starts fetching.
-_MARKET_DATA_DEFAULT_HOUR: int = 6
+# Seed defaults for the tenant's disabled market-data schedule. The cadence
+# is the finest the vocabulary offers (ADR-0125 §1/§3) so that opting a
+# tenant in is one checkbox rather than a cadence decision; the anchor hour
+# is 0 because a 15-minute grid runs from the full hour and the anchor is
+# inert. The timezone is a sensible German-deployment default an owner
+# adjusts from the Admin surface. ``enabled`` is FALSE at seed time
+# (ADR-0093, unchanged) so no tenant silently starts fetching.
+_MARKET_DATA_DEFAULT_CADENCE: str = "every_15m"
+_MARKET_DATA_DEFAULT_HOUR: int = 0
 _MARKET_DATA_DEFAULT_TIMEZONE: str = "Europe/Berlin"
 
 # Seed defaults for the tenant's Irene schedule (ADR-0119 §4). The morning
-# anchor sits after the market-data refresh above, so the first beat of the
-# day reads freshly imported prices. Unlike the market-data row this one is
-# seeded ENABLED — see :func:`install_irene_schedule` for why that is safe.
+# anchor sits well inside the market-data refresh grid above, so the first
+# beat of the day reads freshly imported prices. Unlike the market-data row
+# this one is seeded ENABLED — see :func:`install_irene_schedule` for why
+# that is safe.
 _IRENE_DEFAULT_CADENCE: str = "daily"
 _IRENE_DEFAULT_HOUR: int = 8
 _IRENE_DEFAULT_TIMEZONE: str = "Europe/Berlin"
@@ -954,12 +959,22 @@ async def install_market_data_schedule(
     Every tenant carries a ``market_data_schedule`` row so the Admin surface
     and the tick have a stable target, but it lands ``enabled = False``: a
     freshly provisioned tenant does not silently start fetching from external
-    providers. ``next_due_at`` is set to ``now`` — immaterial while disabled
-    (the due read gates on ``enabled AND next_due_at <= now()``); the web
-    "Save cadence" / "Refresh now" actions recompute it when the owner opts
-    in.
+    providers. ADR-0125 §3 leaves that untouched and changes only the *value*
+    the row carries: the cadence is seeded ``every_15m`` with
+    ``preferred_hour = 0`` (ADR-0125 §3), so an owner opting a tenant in
+    ticks one checkbox and saves rather than first having to pick an
+    interval. ``preferred_hour = 0`` is the honest value for an anchor that
+    is inert at a sub-hourly cadence — the quarter-hour grid runs from the
+    full hour regardless. ``next_due_at`` is set to ``now`` — immaterial
+    while disabled (the due read gates on ``enabled AND next_due_at <=
+    now()``); the web "Save cadence" / "Refresh now" actions recompute it
+    when the owner opts in.
 
-    Idempotent: a pre-existing tenant-level schedule is left untouched.
+    Idempotent: a pre-existing tenant-level schedule is left untouched. There
+    is deliberately **no backfill** of the new cadence onto existing rows
+    (ADR-0125 §3): a row still carrying ``daily`` cannot be told apart from
+    one an owner deliberately left at ``daily``, so existing tenants keep
+    what they have and are switched in Admin.
 
     Args:
         schedules: Market-data schedule repository bound to a tenant-scoped
@@ -971,13 +986,17 @@ async def install_market_data_schedule(
         _LOG.info("bootstrap: market-data schedule already present (no-op)")
         return
     await schedules.upsert_tenant_schedule(
-        cadence="daily",
+        cadence=_MARKET_DATA_DEFAULT_CADENCE,
         preferred_hour=_MARKET_DATA_DEFAULT_HOUR,
         timezone=_MARKET_DATA_DEFAULT_TIMEZONE,
         enabled=False,
         next_due_at=now,
     )
-    _LOG.info("bootstrap: created market-data schedule (disabled)")
+    _LOG.info(
+        "bootstrap: created market-data schedule (cadence=%s hour=%s, disabled)",
+        _MARKET_DATA_DEFAULT_CADENCE,
+        _MARKET_DATA_DEFAULT_HOUR,
+    )
 
 
 async def install_irene_schedule(schedules: IreneScheduleRepository, *, now: datetime) -> None:

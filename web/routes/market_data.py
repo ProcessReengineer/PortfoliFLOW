@@ -20,6 +20,9 @@ Endpoints
   recomputing ``next_due_at`` via
   :func:`services.irene.scheduling.compute_next_due_at` (the shared cadence
   arithmetic — never duplicated). Returns the refreshed panel fragment.
+  The panel offers ``every_15m`` / ``every_30m`` / ``hourly`` / ``daily``
+  (ADR-0125 §2) — this surface's own list, not the shared vocabulary in
+  full, and a fresh tenant is seeded ``every_15m`` (ADR-0125 §3).
 * ``POST /api/market-data/refresh-now`` — set the tenant schedule due now
   (:meth:`MarketDataScheduleRepository.enqueue_due_now`). No provider work,
   no process spawn. Returns a small "queued for the next tick" confirmation.
@@ -58,14 +61,50 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# v0 cadence vocabulary offered in the panel (ADR-0093 v0 = daily, shared
-# with Irene's cadence arithmetic).
-_CADENCE_CHOICES: tuple[str, ...] = ("daily",)
+# Cadence vocabulary v2 offered in the panel (ADR-0125 §1/§2), ordered
+# finest-first the way an interval picker reads. A **separate** tuple by
+# decision — deliberately not derived from ``_SUPPORTED_CADENCES``: which
+# cadences a domain offers is that domain's own call, and the Watch Desk
+# has taken a different one (ADR-0125 §2 withholds the sub-hourly members
+# there, an LLM-cost decision that area has not taken). ``every_5m`` is
+# explicitly not offered.
+#
+# This tuple is an *offer*, never a second validator: the sole check of a
+# submitted cadence stays :func:`services.irene.scheduling.compute_next_due_at`.
+# Pinned by ``tests/web/test_market_data_cadence_choices.py``.
+_CADENCE_CHOICES: tuple[str, ...] = ("every_15m", "every_30m", "hourly", "daily")
+
+# Display labels for the offered cadences — same pattern as the Watch Desk
+# router's ``CADENCE_LABELS``, and for the same reason: a ``|capitalize`` in
+# the template would render "Every_15m" (ADR-0119 §3). Defined locally, not
+# imported from the Watch Desk router, because the two surfaces offer
+# different vocabularies by decision (ADR-0125 §2) and must stay free to
+# diverge further.
+CADENCE_LABELS: dict[str, str] = {
+    "every_15m": "Every 15 minutes",
+    "every_30m": "Every 30 minutes",
+    "hourly": "Every hour",
+    "daily": "Daily",
+}
+
+
+def cadence_label(cadence: str) -> str:
+    """Return the display label for a cadence value.
+
+    Falls back to a ``|capitalize``-equivalent of the raw value on any
+    vocabulary drift, so an unknown cadence degrades to a legible label
+    rather than a ``KeyError``.
+    """
+    return CADENCE_LABELS.get(cadence, cadence.capitalize())
+
 
 # Panel defaults for a tenant with no schedule row yet. Every tenant is
-# seeded a (disabled) row, so this is a defensive fallback only.
+# seeded a (disabled) row, so this is a defensive fallback only — it mirrors
+# the seed (``every_15m`` anchored at hour 0, ADR-0125 §3) so the panel can
+# never show a defensive default that disagrees with what provisioning
+# actually wrote.
 _DEFAULT_TIMEZONE: str = "Europe/Berlin"
-_DEFAULT_PREFERRED_HOUR: int = 6
+_DEFAULT_PREFERRED_HOUR: int = 0
 
 
 def _templates(request: Request) -> Jinja2Templates:
@@ -97,7 +136,7 @@ def _panel_context(
     """
     if schedule is None:
         current = {
-            "cadence": "daily",
+            "cadence": "every_15m",
             "preferred_hour": _DEFAULT_PREFERRED_HOUR,
             "timezone": _DEFAULT_TIMEZONE,
             "enabled": False,
@@ -122,6 +161,9 @@ def _panel_context(
     return {
         "csrf_token": csrf_token,
         "cadence_choices": _CADENCE_CHOICES,
+        # Built through the helper so every rendered choice is guaranteed a
+        # label — the template can index this map without an Undefined.
+        "cadence_labels": {choice: cadence_label(choice) for choice in _CADENCE_CHOICES},
         "hours": list(range(24)),
         "current": current,
         "schedule_saved": saved,
@@ -173,8 +215,9 @@ async def save_schedule(
     now = _now()
 
     # Validate + compute next_due_at before any DB write. compute_next_due_at
-    # raises IreneCadenceInvalid for a bad cadence (shared arithmetic; v0
-    # cadence is "daily"); ZoneInfo raises for an unknown timezone.
+    # raises IreneCadenceInvalid for a bad cadence (the shared arithmetic is
+    # the only validator; the panel's own offer is :data:`_CADENCE_CHOICES`);
+    # ZoneInfo raises for an unknown timezone.
     try:
         ZoneInfo(cleaned_tz)
         next_due_at = compute_next_due_at(now, cadence, preferred_hour, cleaned_tz)

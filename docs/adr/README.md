@@ -190,6 +190,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0123 | [Report Scraper Model in the Scoped-Settings Taxonomy — Per-Tenant Resolution for the One-Shot Extraction Path](./0123-report-scraper-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-08-15) — annex amendment to ADR-0112 §3; amends ADR-0053's model dropdown | 2026-08-15 | scraper, configuration, multi-tenancy, credentials, admin, openrouter |
 | 0124 | [Installation and Release Distribution — Guided Installer, Engine-Neutral Bootstrap, and the `stable` Branch](./0124-installation-and-release-distribution.md) | Accepted (2026-08-19) — amends ADR-0040 (operator entry point only) and the dev-only password note in `db/init/01-create-app-role.sql` | 2026-08-19 | installation, release, packaging, operations, ci, developer-experience |
 | 0125 | [Sub-Hourly Market-Data Refresh Cadence, Kind-Aware Fetching, and On-Demand Refresh Feedback](./0125-market-data-refresh-cadence-and-on-demand-feedback.md) | Accepted (2026-08-22) — extends ADR-0119's cadence vocabulary and revokes its market-data choice-list statement; changes ADR-0093's seeded cadence value only | 2026-08-22 | market-data, scheduling, cadence, admin, front-office, htmx, owner-gating, deploy |
+| 0126 | [Owner-Gating of the Market Data Admin Section](./0126-owner-gating-of-the-market-data-admin-section.md) | Accepted (2026-08-23) — supersedes one sentence of ADR-0125 §6; applies the ADR-0121 §6 owner-gating pattern | 2026-08-23 | admin, market-data, owner-gating, roles, permissions, htmx, security |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -618,7 +619,39 @@ policy in the tick. Four implementation strands (M1 → M2/M3/M5; M4, startup
 refresh, was assessed and dropped before acceptance, the numbering gap kept
 deliberately).
 
-The next free ADR number is **0126**.
+**Update (2026-08-23):** ADR-0126 (owner-gating of the Market Data admin
+section) is **Accepted (2026-08-23)**. ADR-0125 §6 owner-gated "Refresh now"
+on the premise that "nothing observable changes in Admin, which is already an
+owner surface under ADR-0121" — a false premise: ADR-0121 made the **Users**
+section owner-only, while the Admin *area* renders for every authenticated
+tenant user and `is_tenant_owner` is cosmetic mirroring. Three live
+consequences: `POST /api/market-data/schedule` carried no role gate, so any
+member could change the tenant's cadence, anchor hour, timezone and enabled
+flag — a tenant-level setting that spends the tenant's provider budget; the
+section rendered for members with a "Refresh now" button that silently did
+nothing (the route 403s, HTMX swaps nothing on 4xx); and
+`README-market-data-tick.md`'s "an owner opts in" was not enforced for the
+opt-in itself. Four decisions, following the ADR-0121 §6 pattern. (1)
+`save_schedule` gains `Depends(require_role("owner"))` — authoritative, at the
+route layer — so both mutating routes of the module are gated. (2) The Market
+Data include moves inside the same `{% if is_tenant_owner %}` conditional as
+the Users section — cosmetic, at the template layer — and the dead affordance
+disappears with the section. (3) `admin_view` calls
+`load_market_data_section_context` only for owners and spreads an empty context
+otherwise, because unlike Providers & Credentials and Users this section is
+rendered **eagerly** in the `/admin` request; the missing keys are harmless as
+the only consumer sits inside the owner conditional. (4) `GET
+/api/market-data/refresh/poll` stays on `require_session` as a **deliberate
+exception**: `require_role` would route every poll through
+`require_authenticated_session` and its idle-timer touch, keeping an abandoned
+tab's session alive — exactly what the ADR-0120 poll discipline prevents. The
+cost is configuration cosmetics, not secrets, and the poll mutates nothing.
+Members' freshness surface remains the Front Office Overview line (ADR-0125
+§6). This ADR supersedes **one sentence** of ADR-0125 §6; the rest of that
+section, including the owner gate on `refresh_now`, stands, and ADR-0125 is not
+edited (ADR immutability). No migration.
+
+The next free ADR number is **0127**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

@@ -1,7 +1,7 @@
 # PortfoliFLOW — Roadmap
 
 **Status:** Active since the Phase-6 close-out
-**Last updated:** 2026-08-21
+**Last updated:** 2026-08-23
 **Owner:** Soenke (ProcessReengineer)
 
 ---
@@ -39,7 +39,7 @@ ID never encodes the category, so it survives an item moving between buckets,
 splitting, or shipping. IDs were assigned once in old-category order (A-items, then
 B, then C, then D; by old number), and are never reused.
 
-**Next free ID:** `#062`.
+**Next free ID:** `#065`.
 
 > **`#044` is unissued and stays that way.** ADR-0102 was written against a next-free marker
 > of `#045` and refers to the attribution follow-up by that number in four places (§1,
@@ -47,6 +47,13 @@ B, then C, then D; by old number), and are never reused.
 > document's own ADR-discipline rule is that **the ADR wins** on conflict — so the item was
 > raised as `#045` and `#044` was never issued to anything. It is a hole, not a lost item.
 > Consistent with "IDs are never reused", it is not to be back-filled.
+
+> **`#062` is unissued and stays that way.** ADR-0125 §Consequences named the two items it
+> commissions `#063` and `#064`, while this document's next-free marker still read `#062`. The
+> ADR is filed and immutable, and this document's own ADR-discipline rule is that **the ADR
+> wins** on conflict — so both items were registered under the numbers the ADR gave them and
+> `#062` was never issued to anything. Same handling as `#044` above: it is a hole, not a lost
+> item, and it is not to be back-filled.
 
 The old per-category IDs (A1, B5, C1, …) are preserved on each item as a `Formerly:`
 alias and in the full crosswalk near the foot of this document. Inbound references in
@@ -115,6 +122,7 @@ the Qt surface or finish what is already partly built.
 | #054 | CI & Lint/Typecheck Hardening | shipped (2026-08-16) | P1 | no | ADR-0109, ADR-0110 |
 | #056 | Chart Snapshot Persistence (session rehydration + case pinning) | in-progress (2026-08-05) | P1 | no | ADR-0114 |
 | #058 | Built-in Tick Scheduler (in-process default, systemd opt-out) | open | P1 | no | ADR-0117 |
+| #064 | Provider retry policy in the tick | open | P2 | no | ADR-0091 (assignment); commissioned by ADR-0125 §Consequences |
 
 ### #001 — Portfolio Review full build-out (PDF export + detail areas)
 
@@ -793,6 +801,34 @@ documented opt-out. Implementation prompts S2–S4.
 
 ---
 
+### #064 — Provider retry policy in the tick
+
+- **Formerly:** — (new; raised 2026-08-23)
+- **Status:** open
+- **Priority:** P2
+- **Demo-path:** no
+- **ADR:** ADR-0091 (assignment); commissioned by ADR-0125 §Consequences
+- **Dependencies:** #036 (the provider-agnostic ingest the policy sits inside);
+  none blocking
+
+**The gap.** ADR-0091 assigned retry policy to the tick job, and no slice
+delivered it. A transient provider failure — a timeout, a rate-limit response,
+a 5xx — therefore costs the affected investment its whole refresh round: the
+existing per-investment failure isolation contains the damage, but the call is
+never attempted again. ADR-0125's sub-hourly cadence brings the next scheduled
+attempt closer, which softens the symptom without discharging the assignment.
+
+**Resolution.** Bounded retries with backoff for `ProviderFetchError`, and
+**never** for `IdentifierNotResolvableError` — an unresolvable identifier is a
+book-data fact that no number of attempts changes, and retrying it would spend
+the tenant's provider budget on a guaranteed failure. Per-investment, and
+**inside** the existing failure isolation, so an investment that still fails
+after its retries degrades exactly as it does today and the rest of the round is
+unaffected. Filed under **Loose ends** because it finishes an assignment
+**ADR-0091** already made, not because it adds a capability.
+
+---
+
 ## Features
 
 New user-visible capabilities that did not exist in the Qt version or go substantially
@@ -824,6 +860,7 @@ beyond it. These are genuine product extensions, not migration close-out.
 | #057 | Watchpoint Registry & Signal Families (Watch Desk configurability) | in-progress (2026-08-11) | P1 | no | ADR-0116; ADR-0115 (rename prerequisite) |
 | #059 | Voice Configurability (per-tenant voice credentials & settings) | open | P2 | no | ADR-0118; ADR-0112 (base); ADR-0076 (input) |
 | #061 | Transactions (modelling and analysis of portfolio changes) | open | P2 | no | — (concept ADR at kickoff) |
+| #063 | Market-data trading-hours awareness | open | P2 | no | — (own concept decision at kickoff); commissioned by ADR-0125 §Consequences |
 
 ### #015 — Multi-User & Permissions
 
@@ -2019,6 +2056,42 @@ item is a placeholder for the capability, not a specification of it.
 
 ---
 
+### #063 — Market-data trading-hours awareness
+
+- **Formerly:** — (new; raised 2026-08-23)
+- **Status:** open
+- **Priority:** P2
+- **Demo-path:** no
+- **ADR:** — (own concept decision at kickoff); commissioned by ADR-0125 §Consequences
+- **Dependencies:** #036 (the provider-agnostic ingest whose fetches this would
+  skip); ADR-0125 §1/§4, which is what makes the wasted rounds frequent enough to
+  be worth naming rather than a prerequisite for building it
+
+**The gap.** The refresh core fetches price kinds on **every** run and has no
+notion of when a market is open. ADR-0125 §4 states the consequence plainly: after
+a tenant's first run of the day the intraday runs only re-fetch the current day's
+`nav_price` bar, whose close is the last traded price while the session is open
+and a repeated value (`noop_live`) once it is closed — so overnight and weekend
+runs are near-free `noop_live` rounds. Near-free is not free: at a 15-minute
+cadence a tenant spends provider calls all night and all weekend re-reading a
+number that cannot have changed. ADR-0125 accepted that cost for itself and named
+this item as its successor.
+
+**Resolution (sketch, not a decision).** Skip intraday price fetches outside the
+instrument's exchange session and on weekends. Two things the platform does not
+have are prerequisites: an **exchange-calendar source** (sessions and market
+holidays, per exchange) and a **per-identifier session lookup** — the mapping from
+a resolved identifier to the exchange whose calendar governs it. Filed under
+**Features** because it is a capability the platform does not have, not an
+unfinished state: nothing here is half-built, and ADR-0125's behaviour is correct
+as delivered. **Own concept decision at kickoff**, which must at minimum settle
+where the calendar comes from (vendored data, provider-supplied, or configured),
+where the skip is enforced (the due arithmetic or the refresh core), and what a
+skipped run does to `last_run_at` — and therefore to §4's first-run-of-the-day
+boundary for the daily kinds.
+
+---
+
 ## Shipped (record)
 
 A passive archive of completed items. This is not a backlog category; it keeps the two
@@ -2102,6 +2175,7 @@ not renumbered.
 
 | Date | Change |
 |---|---|
+| 2026-08-23 | **#063 and #064 registered per ADR-0125 §Consequences; `#062` unissued; ADR-0126 accepted.** **#063 Market-data trading-hours awareness** (Features, P2, open, own concept decision at kickoff) — skip intraday price fetches outside the instrument's exchange session and on weekends; requires an exchange-calendar source and a per-identifier session lookup. **#064 Provider retry policy in the tick** (Loose ends, P2, open, ADR-0091 assignment) — ADR-0091 assigned retry policy to the tick job and no slice delivered it; bounded retries with backoff for `ProviderFetchError`, never for `IdentifierNotResolvableError`, per-investment, inside the existing failure isolation. **`#062` is never issued:** ADR-0125 named its two commissioned items `#063`/`#064` while this document's next-free marker read `#062`; the ADR is immutable and wins, so the number lapses under the **`#044` precedent** and is not back-filled. Next free ID → **#065**. **ADR-0126** (owner-gating of the Market Data admin section) is **Accepted (2026-08-23)** and supersedes **one sentence** of ADR-0125 §6; its index row and the next-free-ADR advance to **0127** were already recorded in `docs/adr/README.md` with acceptance. **Deviation record — ADR-0125 implementation (strands M1–M5), binding, no successor ADR** (recorded here rather than by amending an immutable ADR, per the **#057** magnitude-semantics precedent): (1) **ADR inaccuracy, superseded by ADR-0126** — §6's "Admin → Market Data is already an owner surface under ADR-0121" is false; `is_tenant_owner` was cosmetic mirroring and only the `tenant_users` routes carried the authoritative gate. ADR-0126 corrects it by supersession of **that sentence only**. (2) **ADR inaccuracy, recorded not superseded** — §6 describes the terminal 286 as returning "the full Overview body", understating the delivered contract: the 286 body is whichever state is true at that instant, and the **FX-error partial also carries `#ov-section-body`**, so the `outerHTML` swap holds on the error path too. The implementation is correct; the ADR sentence is the inaccuracy. (3) **Prompt error, M2** — the form hint claimed `hourly` uses the anchor hour; it does not, the anchor applies to `daily` only. Corrected in implementation. (4) **Prompt error, M1–M3** — the prompts named `mypy` as the typechecker; the project's typechecker is **Pyright** (ADR-0110). No effect on the delivered code. (5) **ID mis-assumption** — ADR-0125 assigned #063/#064 assuming `#062` was issued; it was not. Resolved by the numbering hole above. |
 | 2026-08-21 | **ADR-0124 complete (I1–I4) — installation and release distribution.** Engine-neutral, parameterisable container bootstrap; guided installer `scripts/install.sh` (remote and local mode, six phases, `--doctor`, bash-3.2 / BSD-userland contract, documented exit-code table, never `sudo`); the `stable` branch advanced by `promote-stable.yml` on calver tags (deploy-key bypass, version guard); `release-assets.yml` publishing the GitHub Release entry and the `install.sh.sha256` asset; `installer.yml` CI (shellcheck, a Linux end-to-end install including the exit-13 idempotence and secret-free-transcript assertions, and the macOS bash-3.2 contract; weekly schedule); README installation rewritten as Options A/B/C. Deviations are recorded in the respective commits: D1–D3 (I2), D1–D2 (I3), D1–D2 (I4). This is a **local** install path only — it does not touch **#025 Hetzner Deployment**, which stays open. No roadmap item carried the work; next free ID unchanged. |
 | 2026-08-16 | **AGPL public release — #052 shipped; #053 and #054 closed with it.** All eight #052 gates ticked; repository flipped to public with a fresh history. Pre-release cleanup in the same cut: primary-tenant identity unified on Minathena Capital across tests and ADRs (text substitution only, no ADR decision changed), `SECURITY.md` added (ADR-0108 D-list extended), project contact e-mail added to CONTRIBUTING / TRADEMARKS / README / CLAs, Claude Code settings excluded from the repository. Next free ID unchanged. |
 | 2026-08-16 | **#061 Transactions raised (Features, P2, open, concept ADR at kickoff); next free ID `#061` → `#062`.** Operator-raised placeholder for a future capability: modelling and analysing *changes* to the portfolio — buy / sell / switch / rebalance as a first-class object with a before-and-after — as distinct from the portfolio *state* the platform models today. Filed under **Features** because it is a capability that does not exist, not an unfinished state. It is deliberately **not** covered by the two existing transaction-shaped constructs: **#038**'s `position_transactions` ledger is a write-path and valuation construct for unitised instruments (ADR-0097/0098), and the Planning Desk's hypothetical transactions are scenario-local overlays that never write the book (ADR-0104 §2). Scope is **not fixed**: a concept ADR at kickoff must settle booked-vs-proposed, the boundary against #038's ledger and the ADR-0104 overlay contract, the Area the surface belongs to, and what "analyse a change" concretely resolves to. |

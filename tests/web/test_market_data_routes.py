@@ -25,6 +25,10 @@ ADR-0125 §5/§6 adds two more concerns, both covered below:
   (ADR-0120): 204 while pending, 286 + the re-rendered panel once the run
   has landed, and 286 + ``HX-Reswap: none`` when there is nothing left to
   wait for.
+
+ADR-0126 extends that gate to the rest of the surface: the schedule *save*
+is owner-only too, and the Admin section is hidden from a member entirely.
+The last three tests cover both halves.
 """
 
 from __future__ import annotations
@@ -676,3 +680,102 @@ async def test_admin_poll_stops_past_horizon(
     assert beyond.status_code == 286
     assert beyond.text == ""
     assert beyond.headers["HX-Reswap"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# Owner gate on the schedule save and the section — ADR-0126
+# ---------------------------------------------------------------------------
+
+
+async def _read_schedule_shape(engine: AsyncEngine) -> tuple[str, int, str, bool] | None:
+    """Read the settings a save writes, for the refusal assertion.
+
+    ``_read_schedule`` answers the cursor questions the refresh tests ask;
+    a refused *save* has to be shown not to have changed the configuration
+    itself, which is the cadence, anchor hour, timezone and enabled flag.
+    """
+    async with engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT cadence, preferred_hour, timezone, enabled "
+                    "FROM market_data_schedule "
+                    "WHERE tenant_id = :t AND user_id IS NULL"
+                ),
+                {"t": str(SENTINEL_TENANT_ID)},
+            )
+        ).first()
+    if row is None:
+        return None
+    return str(row.cadence), int(row.preferred_hour), str(row.timezone), bool(row.enabled)
+
+
+async def test_save_schedule_member_gets_403(
+    web_client: AsyncClient,
+    seeded_member: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A member cannot change the tenant's refresh cadence (ADR-0126).
+
+    The schedule is a tenant-level resource — it governs how often the whole
+    tenant spends its provider budget — so the save carries the same
+    ``require_role("owner")`` gate as "Refresh now". Asserting the row is
+    byte-for-byte the seeded one is what separates "refused" from "refused
+    after writing".
+    """
+    _uid, member_email, password = seeded_member
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+    before = await _read_schedule_shape(fresh_superuser_engine)
+    assert before == ("every_15m", 0, "Europe/Berlin", True)
+
+    await _login(web_client, member_email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    resp = await web_client.post(
+        "/api/market-data/schedule",
+        data={
+            "cadence": "daily",
+            "preferred_hour": "6",
+            "timezone": "UTC",
+            "csrf_token": csrf,
+        },
+    )
+
+    assert resp.status_code == 403, resp.text
+    after = await _read_schedule_shape(fresh_superuser_engine)
+    assert after == before, "a refused save must not have written anything."
+
+
+async def test_the_admin_page_carries_the_market_data_section_for_an_owner(
+    web_client: AsyncClient,
+) -> None:
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+    response = await web_client.get("/admin", follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="market-data"' in body
+    assert "/api/market-data/schedule" in body
+
+
+async def test_the_admin_page_omits_the_market_data_section_for_a_member(
+    web_client: AsyncClient,
+    seeded_member: tuple[UUID, str, str],
+) -> None:
+    """Cosmetic mirroring of a gate the routes enforce on their own.
+
+    Hiding it is what removes the two dead affordances ADR-0126 names: a
+    save form that would 403 and a "Refresh now" button that swallows its
+    own refusal (HTMX swaps nothing on 4xx).
+    """
+    _uid, member_email, password = seeded_member
+    await _login(web_client, member_email, password)
+    response = await web_client.get("/admin", follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="market-data"' not in body
+    assert "/api/market-data/schedule" not in body
+    # The sections a member does get are untouched by the conditional.
+    assert 'id="data-import"' in body
+    assert 'id="providers-credentials"' in body

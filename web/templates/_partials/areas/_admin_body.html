@@ -15,12 +15,21 @@
         {% include "areas/_section.html" %}
     {% endwith %}
 
-    {% with section_slug="market-data",
-            section_title="Market Data",
-            section_pill="live import",
-            section_body_template="_partials/market_data_section.html" %}
-        {% include "areas/_section.html" %}
-    {% endwith %}
+    {# Owner-only, and cosmetically so: the gate that matters is on
+       web/routes/market_data.py, whose mutating routes refuse a member on
+       the schedule save as much as on "Refresh now" (ADR-0126).
+       ``is_tenant_owner`` comes from the Admin route's extra_context and
+       defaults to false, so a degraded render omits the section rather than
+       offering a form whose save would 403 and a refresh button that would
+       silently do nothing. #}
+    {% if is_tenant_owner %}
+        {% with section_slug="market-data",
+                section_title="Market Data",
+                section_pill="live import",
+                section_body_template="_partials/market_data_section.html" %}
+            {% include "areas/_section.html" %}
+        {% endwith %}
+    {% endif %}
 
     {% with section_slug="providers-credentials",
             section_title="Providers & Credentials",

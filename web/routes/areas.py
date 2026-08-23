@@ -353,11 +353,19 @@ async def admin_view(
     authoritative gate on every one of its endpoints — and defaults to
     ``False`` when the user could not be loaded, which is the safe way
     round for a degraded render.
+
+    The Market Data section is owner-only too (ADR-0126), and it is *not*
+    lazy — it pre-renders from a schedule read. So the same flag also
+    decides whether that read happens at all: a member's ``/admin`` no
+    longer pays a DB round-trip for a section the shell will not render.
+    The context keys go missing in that case, harmlessly — their only
+    consumer is the include inside the owner conditional.
     """
     user_email = await _resolve_user_email(request, session)
     user = getattr(request.state, "user", None)
+    is_owner = user is not None and user.has_role("owner")
     data_import_ctx = await load_data_import_section_context(request, session)
-    market_data_ctx = await load_market_data_section_context(request, session)
+    market_data_ctx = await load_market_data_section_context(request, session) if is_owner else {}
     return _render_area(
         request,
         area_slug="admin",
@@ -368,7 +376,7 @@ async def admin_view(
         extra_context={
             **data_import_ctx,
             **market_data_ctx,
-            "is_tenant_owner": user is not None and user.has_role("owner"),
+            "is_tenant_owner": is_owner,
         },
     )
 

@@ -258,6 +258,7 @@ async def save_schedule(
     enabled: str | None = Form(None),
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
+    _owner: UserDTO = Depends(require_role("owner")),
 ) -> HTMLResponse:
     """Persist the tenant's market-data schedule and return the panel.
 
@@ -267,6 +268,14 @@ async def save_schedule(
     :meth:`MarketDataScheduleRepository.upsert_tenant_schedule`. An
     unsupported cadence or unknown timezone returns a 422 with the panel
     re-rendered carrying the error, never a 500.
+
+    **Owner-gated** (ADR-0126). The schedule is a tenant-level resource, not
+    a per-user preference: its cadence, anchor hour, timezone and enabled
+    flag govern how often the whole tenant spends its provider budget. The
+    gate here is the authoritative one — the template conditional that hides
+    the section from a member is cosmetic mirroring — so a member who posts
+    directly gets the same 403 (``insufficient role``) as
+    :func:`refresh_now`, the module's other mutating route.
     """
     enabled_bool = enabled is not None
     cleaned_tz = timezone_name.strip()
@@ -360,8 +369,9 @@ async def refresh_now(
     offers it. The gate is therefore enforced here as well as in the
     templates: a member who posts directly gets the same 403 (``insufficient
     role``) as the other owner-gated routes, via
-    :func:`web.permissions.require_role`. Nothing observable changes in
-    Admin, which is already an owner surface under ADR-0121.
+    :func:`web.permissions.require_role`. The Admin Market Data section is
+    itself owner-only under ADR-0126, so the control is offered only where
+    the post will succeed.
 
     Args:
         request: The FastAPI request.
@@ -482,6 +492,15 @@ async def poll_refresh(
     poll must not keep alive a session the operator has stopped using. A
     session that expires mid-poll gets that dependency's 401 +
     ``HX-Redirect``, which navigates the tab to ``/login``.
+
+    That is also why this endpoint stays **ungated** while the rest of the
+    Market Data surface became owner-only — the documented exception in
+    ADR-0126 Decision 4: gating it through :func:`web.permissions.require_role`
+    would route every poll through ``require_authenticated_session`` and its
+    idle-timer touch, so an abandoned tab's poller would keep the session
+    alive. What a member could read by calling the URL by hand is
+    configuration cosmetics (cadence, enabled flag, last-run stamp), not
+    secrets, and nothing here mutates.
 
     Args:
         request: The FastAPI request.

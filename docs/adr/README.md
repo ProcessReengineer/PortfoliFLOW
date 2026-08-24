@@ -191,6 +191,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0124 | [Installation and Release Distribution — Guided Installer, Engine-Neutral Bootstrap, and the `stable` Branch](./0124-installation-and-release-distribution.md) | Accepted (2026-08-19) — amends ADR-0040 (operator entry point only) and the dev-only password note in `db/init/01-create-app-role.sql` | 2026-08-19 | installation, release, packaging, operations, ci, developer-experience |
 | 0125 | [Sub-Hourly Market-Data Refresh Cadence, Kind-Aware Fetching, and On-Demand Refresh Feedback](./0125-market-data-refresh-cadence-and-on-demand-feedback.md) | Accepted (2026-08-22) — extends ADR-0119's cadence vocabulary and revokes its market-data choice-list statement; changes ADR-0093's seeded cadence value only | 2026-08-22 | market-data, scheduling, cadence, admin, front-office, htmx, owner-gating, deploy |
 | 0126 | [Owner-Gating of the Market Data Admin Section](./0126-owner-gating-of-the-market-data-admin-section.md) | Accepted (2026-08-23) — supersedes one sentence of ADR-0125 §6; applies the ADR-0121 §6 owner-gating pattern | 2026-08-23 | admin, market-data, owner-gating, roles, permissions, htmx, security |
+| 0127 | [Temporal Grounding — Current-Date Injection and Actuals-First As-Of Default for Limit Coverage](./0127-temporal-grounding-current-date-injection-and-actuals-first-limit-coverage.md) | Accepted (2026-08-24) — corrects the tool-default consequence of ADR-0103 §2's horizon range resolution without editing it; extends ADR-0012 B8 prompt grounding | 2026-08-24 | shirley, ai-service, prompt, tools, limits, temporal, back-office, telegram |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -651,7 +652,44 @@ Members' freshness surface remains the Front Office Overview line (ADR-0125
 section, including the owner gate on `refresh_now`, stands, and ADR-0125 is not
 edited (ADR immutability). No migration.
 
-The next free ADR number is **0127**.
+**Update (2026-08-24):** ADR-0127 (temporal grounding — current-date
+injection and actuals-first as-of default for limit coverage) is **Accepted
+(2026-08-24)**. An observed Shirley dialogue answered a limits-headroom
+question with figures that were internally consistent and entirely wrong for
+the question: the reported Stichtag was **2030-12-31**, the end of the
+planning horizon, presented as the current state of the book. A code review
+found two independent causes. (1) `AIServiceCore.get_system_prompt` composes
+the prompt from the soul fence, the generated tool inventory (ADR-0012 B8)
+and the two context files — none of which carries a date, so the model cannot
+classify a tool-reported Stichtag as past, present or future, nor notice the
+contradiction. (2) `get_limit_coverage` passes `to_date=None`, which
+`LimitsCoverageService._resolve_date_range` resolves to `max(as_of_date)`
+across **both** NAV streams (ADR-0103 §2, correct for the Back Office
+coverage view); with plan rows seeded through the horizon and `cut_over`
+defaulting to today, every evaluation date past it draws from the plan
+stream, and the summary then labelled plan projections "present and
+historical". The review also established what this is *not*: there is **no**
+shared as-of resolver and no platform-wide contamination — statistics,
+portfolio review and the SAA comparison all pin actuals or today explicitly;
+the defect is specific to the limits tool path. One decision in three
+strands. **T1** prepends a two-line current-date block as the first content
+of every composed prompt (and of the minimal fallback prompt, so grounding
+does not depend on an intact soul file); both chat surfaces — web and
+Telegram — pass through this one seam. Per-tenant timezone is out of scope
+(the seam is synchronous and tenant-free); the Irene synthesis prompt is a
+separate seam and out of scope. **T2** changes the **tool**, not the service:
+an omitted `to_date` becomes `date.today()`, so the grid ends at the last
+month-end Stichtag in actual territory, and a resolved Stichtag past the
+cut-over is prefixed with an explicit plan-territory notice instead of the
+blanket "present and historical" claim. Changing the service's own `None`
+resolution was rejected — it would silently move the Back Office view's
+default range in the same commit. The plan horizon stays reachable via an
+explicit `to_date`. **T3** — labelling a plan-territory Stichtag in the Back
+Office Limits KPI strip — is accepted in principle and **deferred** to a
+roadmap entry; it is not a gate for `2026.09.0`. No migration; no engine or
+service signature changes.
+
+The next free ADR number is **0128**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

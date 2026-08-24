@@ -558,6 +558,19 @@ def test_C_18_core_singleton_returns_same_instance() -> None:
 _SOUL_FENCE = "# Soul_Test.md\n## System Prompt\n```\nSOUL_BODY\n```\n"
 
 
+def _grounded(*parts: str) -> str:
+    """Compose the expected prompt, including the ADR-0127 T1 prefix.
+
+    Every ``get_system_prompt`` return path is prefixed with the
+    current-date grounding block. These tests pin the *composition
+    below* it, so they state the prefix explicitly rather than
+    loosening their equality assertions to substring checks.
+    """
+    from services.ai_service_core import _temporal_grounding_block
+
+    return "\n\n".join((_temporal_grounding_block(), *parts))
+
+
 def _seed_fake_repo(root: Any) -> None:
     """Create ``docs/Soul_Shirley.md`` with a minimal fenced soul prompt."""
     docs = root / "docs"
@@ -590,7 +603,7 @@ def test_context_files_appended_in_declared_order(tmp_path: Any, monkeypatch: An
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)
     result = AIServiceCore().get_system_prompt("shirley")
 
-    assert result == "SOUL_BODY" + "\n\n" + "ANALYSIS_BODY" + "\n\n" + "TOOLORCH_BODY"
+    assert result == _grounded("SOUL_BODY", "ANALYSIS_BODY", "TOOLORCH_BODY")
     soul_idx = result.index("SOUL_BODY")
     analysis_idx = result.index("ANALYSIS_BODY")
     toolorch_idx = result.index("TOOLORCH_BODY")
@@ -621,7 +634,7 @@ def test_tool_orchestration_context_missing_falls_back_cleanly(
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)
     result = AIServiceCore().get_system_prompt("shirley")
 
-    assert result == "SOUL_BODY" + "\n\n" + "ANALYSIS_BODY"
+    assert result == _grounded("SOUL_BODY", "ANALYSIS_BODY")
     assert "TOOLORCH_BODY" not in result
 
 
@@ -650,7 +663,7 @@ def test_empty_tool_orchestration_context_does_not_append_separator(
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)
     result = AIServiceCore().get_system_prompt("shirley")
 
-    assert result == "SOUL_BODY" + "\n\n" + "ANALYSIS_BODY"
+    assert result == _grounded("SOUL_BODY", "ANALYSIS_BODY")
     assert not result.endswith("\n\n")
 
 

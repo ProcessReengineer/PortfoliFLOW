@@ -9,9 +9,13 @@ comparison, and universe-wide portfolio statistics. Each tool is a
 thin adapter over an *existing* service-layer entry point; this module
 introduces **no new business logic and no new analytics** (ADR-0069):
 
-- ``get_limit_coverage`` — present and historical Anlagegrenzen
-  coverage (SAA + AnlV families) at the most-recent month-end
-  Stichtag, via :class:`~services.limits.LimitsCoverageService`.
+- ``get_limit_coverage`` — Anlagegrenzen coverage (SAA + AnlV
+  families) at the most-recent month-end Stichtag of the requested
+  range, via :class:`~services.limits.LimitsCoverageService`. The
+  range ends **today** unless the caller says otherwise (ADR-0127
+  T2), so the default answer is observed, actual-territory coverage;
+  a Stichtag past the plan/actual cut-over is labelled a plan-stream
+  projection in the summary.
 - ``get_saa_hypothetical_comparison`` — the SAA-vs-actual question
   (allocation / selection effects and cumulative endpoints), via
   :class:`~services.benchmark_comparison.BenchmarkComparisonService`.
@@ -28,14 +32,23 @@ All three register with :class:`~services.tool_classes.ToolClass`
 Scope boundary — no forward projection
 --------------------------------------
 ``get_limit_coverage`` reports **only** the coverage the engine
-already computes for present and past Stichtage. It performs **no
-projection, no forecast, and no what-if overlay**: it answers "where
-is headroom today / what is in breach now", not "what happens at
-end-2030 if we add a €40m call". That forward capability has no engine
-in the codebase and is a deliberate Non-Goal of ADR-0069 (a roadmap
-item with its own ADR). The tool description makes this boundary
-explicit so the model declines the forward question rather than
-improvising a projection.
+already computes over the book's own NAV streams. It performs **no
+projection, no forecast, and no what-if overlay**: it cannot answer
+"what happens at end-2030 if we add a €40m call". That forward
+capability has no engine in the codebase and is a deliberate Non-Goal
+of ADR-0069 (a roadmap item with its own ADR). The tool description
+makes this boundary explicit so the model declines the forward
+question rather than improvising a projection.
+
+Reaching a future Stichtag with an explicit ``to_date`` is *not* that
+capability and must not be confused with it: the engine there simply
+evaluates the tenant's own **plan** NAV stream under the ADR-0060
+cut-over semantics — engine-computed coverage of booked plan rows,
+never a what-if overlay. Because such a figure is a projection all
+the same, the default range ends today (ADR-0127 T2) and any Stichtag
+beyond the effective cut-over is flagged as plan territory in the
+summary. The unqualified answer is therefore "where is headroom
+today"; the plan trajectory stays reachable, but never unlabelled.
 
 Pattern reuse (ADR-0047)
 ------------------------
@@ -229,21 +242,29 @@ def get_limit_coverage(
     to_date: str = "",
     cut_over: str = "",
 ) -> str:
-    """Report present and historical limit coverage (SAA + AnlV families).
+    """Report limit coverage (SAA + AnlV families) at a month-end Stichtag.
 
     Wraps :meth:`LimitsCoverageService.get_coverage`. Summarises the
-    most-recent month-end Stichtag: the breach/warn/ok KPI strip and,
-    per family, every constrained class's status, coverage percentage,
-    cap, and headroom. It exposes **only** the coverage the engine
-    already computes for present and past Stichtage — it performs no
-    projection, no forecast, and no what-if overlay (ADR-0069).
+    most-recent month-end Stichtag of the resolved range: the
+    breach/warn/ok KPI strip and, per family, every constrained
+    class's status, coverage percentage, cap, and headroom. By default
+    the range ends **today**, so the reported Stichtag lies in actual
+    territory and the answer is observed coverage (ADR-0127 T2). A
+    Stichtag past the plan/actual cut-over is reported too, but the
+    summary then opens with an explicit plan-territory notice. The
+    tool exposes **only** the coverage the engine already computes
+    over the book's own NAV streams — no projection, no forecast, and
+    no what-if overlay (ADR-0069).
 
     Args:
         from_date: Optional inclusive ISO ``YYYY-MM-DD`` lower bound of
             the evaluation range. Empty defaults to twelve months
             before ``to_date``.
         to_date: Optional inclusive ISO ``YYYY-MM-DD`` upper bound.
-            Empty defaults to the book's NAV horizon.
+            Empty defaults to **today** — the summary then reports the
+            last month-end Stichtag on or before today, in actual
+            territory. An explicit future date reaches into the plan
+            horizon and is flagged as a plan-stream projection.
         cut_over: Optional ISO ``YYYY-MM-DD`` plan/actual cut-over date.
             Empty defaults to today.
 
@@ -273,6 +294,20 @@ def get_limit_coverage(
                 f"Invalid {label} '{raw}'. Use an ISO calendar date in "
                 "YYYY-MM-DD form (e.g. 2025-12-31)."
             )
+
+    # ADR-0127 T2: an omitted upper bound means "today", not the book's
+    # NAV horizon — the service's own None-resolution (max(as_of_date)
+    # across the actual *and* plan streams, ADR-0103 §2) lands on the
+    # planning horizon and would answer "where do we stand" with plan
+    # projections. The default moves here, in the tool, so the Back
+    # Office web view keeps the horizon semantics it was designed for.
+    if parsed["to_date"] is None:
+        parsed["to_date"] = date.today()
+
+    # Mirrors LimitsCoverageService's own cut_over default (date.today())
+    # so the summary can name the Stichtag's territory without a second
+    # service call. Keep the two in step (ADR-0127 T2).
+    effective_cut_over = parsed["cut_over"] or date.today()
 
     async def _workflow() -> LimitsCoverageBundle | None:
         async with _tool_session(ctx) as db:
@@ -318,9 +353,15 @@ def get_limit_coverage(
         )
 
     kpi = bundle.kpi_strip
-    lines = [
-        f"Limit coverage as of {bundle.latest_as_of_date} (present and "
-        f"historical only — range {bundle.from_date} to {bundle.to_date}):",
+    lines: list[str] = []
+    if bundle.latest_as_of_date > effective_cut_over:
+        lines.append(
+            "NOTE: this Stichtag lies beyond the plan/actual cut-over — "
+            "figures are plan-stream projections, not observed coverage."
+        )
+    lines += [
+        f"Limit coverage as of {bundle.latest_as_of_date} "
+        f"(range {bundle.from_date} to {bundle.to_date}):",
         (
             f"  KPI strip — BREACH: {kpi.breach_count} | "
             f"WARN: {kpi.warn_count} | OK: {kpi.ok_total_count} of "
@@ -936,15 +977,21 @@ _registry.register_tool(
         "tenant at the most recent month-end Stichtag: the breach/warn/ok "
         "KPI strip plus, per SAA and AnlV family, each constrained asset "
         "class's status (OK/WARN/BREACH), coverage percentage, ceiling "
-        "(cap), and headroom in EUR. IMPORTANT: this tool reports PRESENT "
-        "and HISTORICAL coverage ONLY — it does NOT project, forecast, or "
-        "model future capital calls or exposures, and it has no what-if "
-        "overlay. Use it for 'where is headroom today' / 'what is in "
-        "breach now'. It cannot answer forward questions such as 'against "
-        "our end-2030 limits, does a future €40m call tip anything into "
-        "breach' — there is no projection engine; say so plainly rather "
-        "than improvising. Optional from_date/to_date bound the historical "
-        "evaluation range; cut_over sets the plan/actual cut-over date."
+        "(cap), and headroom in EUR. By default the evaluation range ends "
+        "TODAY, so the reported Stichtag is the last month-end on or "
+        "before today and the figures are observed, actual coverage — use "
+        "it as-is for 'where is headroom today' / 'what is in breach "
+        "now'. An explicit future to_date evaluates the tenant's booked "
+        "PLAN NAV stream instead; that result is returned but prefixed "
+        "with a plan-territory notice, and must be reported as a "
+        "projection, never as the current state of the book. IMPORTANT: "
+        "this tool does NOT model future capital calls or exposures and "
+        "has no what-if overlay. It cannot answer forward questions such "
+        "as 'against our end-2030 limits, does a future €40m call tip "
+        "anything into breach' — there is no projection engine; say so "
+        "plainly rather than improvising. Optional from_date/to_date "
+        "bound the evaluation range; cut_over sets the plan/actual "
+        "cut-over date."
     ),
     parameters={
         "type": "object",
@@ -961,7 +1008,10 @@ _registry.register_tool(
                 "type": "string",
                 "description": (
                     "Optional inclusive ISO YYYY-MM-DD upper bound. Omit to "
-                    "default to the latest NAV date in the book."
+                    "default to today, which reports the last month-end "
+                    "Stichtag on or before today in actual territory. A "
+                    "future date reaches the plan horizon and is reported "
+                    "as a flagged plan-stream projection."
                 ),
             },
             "cut_over": {

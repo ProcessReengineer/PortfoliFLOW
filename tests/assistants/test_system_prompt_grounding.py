@@ -15,9 +15,15 @@ The grounding must also *augment* rather than replace: the Soul identity
 and the refactored orchestration judgment still appear. And it must
 degrade gracefully — an empty or broken registry falls back to the
 un-grounded prompt without raising.
+
+A second, independent grounding lives at the same seam: the temporal
+block prepended ahead of everything else (ADR-0127 T1). Its tests sit
+at the foot of this file.
 """
 
 from __future__ import annotations
+
+from datetime import date
 
 from services.ai_service_core import get_ai_service_core
 from services.tool_classes import ToolClass
@@ -149,3 +155,47 @@ def test_render_tool_inventory_empty_registry_returns_blank(monkeypatch) -> None
     service = get_ai_service_core()
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)
     assert service._render_tool_inventory() == ""
+
+
+# ---------------------------------------------------------------------------
+# Temporal grounding — the current-date block (ADR-0127 T1)
+# ---------------------------------------------------------------------------
+
+_PLAN_SENTENCE = "Treat any data dated after this as plan/forecast data, not observed fact."
+
+
+def test_prompt_begins_with_current_date_block() -> None:
+    """The composed prompt opens with today's date, ahead of everything.
+
+    Shirley cannot classify a tool-reported Stichtag as past, present or
+    future without a reference point (ADR-0127 §Context). The block is
+    *prepended* so date salience does not compete with the Soul, the
+    inventory or the orchestration context for positional attention.
+    """
+    service = get_ai_service_core()
+    prompt = service.get_system_prompt("shirley")
+
+    assert prompt.startswith(f"Current date: {date.today().isoformat()}")
+    assert _PLAN_SENTENCE in prompt
+
+    date_idx = prompt.index("Current date: ")
+    soul_idx = prompt.index("You are Shirley, the AI assistant embedded")
+    inventory_idx = prompt.index(_INVENTORY_HEADING)
+    assert date_idx < soul_idx < inventory_idx, (
+        "expected the grounding block ahead of both Soul and inventory"
+    )
+
+
+def test_fallback_prompt_carries_date_block() -> None:
+    """A missing soul file still yields a temporally grounded prompt.
+
+    Temporal grounding must not depend on ``docs/Soul_<Name>.md`` being
+    present and well-formed (ADR-0127 T1), so the minimal fallback
+    carries the block too.
+    """
+    service = get_ai_service_core()
+    prompt = service.get_system_prompt("nonexistent")
+
+    assert prompt.startswith(f"Current date: {date.today().isoformat()}")
+    assert _PLAN_SENTENCE in prompt
+    assert "You are Shirley, an AI assistant for institutional portfolio management." in prompt

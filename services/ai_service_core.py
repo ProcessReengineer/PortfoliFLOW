@@ -79,6 +79,7 @@ import logging
 import threading
 from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -121,6 +122,24 @@ _MAX_TOOL_ITERATIONS = 10
 # full rationale and why this is :class:`threading.Lock` rather than
 # :class:`asyncio.Lock`.
 _TURN_LOCK = threading.Lock()
+
+
+def _temporal_grounding_block() -> str:
+    """Return the current-date grounding block (ADR-0127 T1).
+
+    Generated fresh at every prompt assembly so the date can never
+    go stale within a long-lived process. Server-local date by
+    design — per-tenant timezones are out of scope (ADR-0127).
+
+    Returns:
+        The two-line grounding block, without a trailing separator.
+    """
+    today = date.today()
+    return (
+        f"Current date: {today.isoformat()} ({today.strftime('%A')}).\n"
+        "Treat any data dated after this as plan/forecast data, "
+        "not observed fact."
+    )
 
 
 # Control tokens that some non-default models leak verbatim into the
@@ -1235,21 +1254,30 @@ class AIServiceCore:
         companion context files. Falls back to a minimal default if
         the soul file is missing or malformed.
 
+        Every return path — the composed prompt and each fallback
+        alike — is prefixed with the current-date grounding block
+        (:func:`_temporal_grounding_block`, ADR-0127 T1), generated
+        fresh here so the date cannot go stale in a long-lived
+        process. Temporal grounding must not depend on the soul file
+        being intact, hence its presence on the fallbacks too.
+
         Args:
             prompt_name: Base name of the soul file. Default
                 ``"shirley"`` resolves to ``docs/Soul_Shirley.md``.
 
         Returns:
-            The composed system prompt string.
+            The composed system prompt string, beginning with the
+            grounding block.
         """
         soul_path = _REPO_ROOT / "docs" / f"Soul_{prompt_name.capitalize()}.md"
         fallback = "You are Shirley, an AI assistant for institutional portfolio management."
+        grounded_fallback = _temporal_grounding_block() + "\n\n" + fallback
         if not soul_path.exists():
             logger.warning(
                 "AIServiceCore.get_system_prompt: '%s' not found, using fallback.",
                 soul_path,
             )
-            return fallback
+            return grounded_fallback
 
         try:
             text = soul_path.read_text(encoding="utf-8")
@@ -1259,7 +1287,7 @@ class AIServiceCore:
                     "AIServiceCore.get_system_prompt: no ``` fence in '%s', using fallback.",
                     soul_path,
                 )
-                return fallback
+                return grounded_fallback
             start = text.find("\n", first) + 1
             end = text.find("```", start)
             if end == -1:
@@ -1267,14 +1295,14 @@ class AIServiceCore:
                     "AIServiceCore.get_system_prompt: unclosed ``` fence in '%s', using fallback.",
                     soul_path,
                 )
-                return fallback
+                return grounded_fallback
             prompt = text[start:end].strip()
             if not prompt:
                 logger.warning(
                     "AIServiceCore.get_system_prompt: empty fence block in '%s', using fallback.",
                     soul_path,
                 )
-                return fallback
+                return grounded_fallback
 
             # Ground the prompt in the live ToolRegistry: inject the generated
             # tool inventory after the Soul content and before the hand-authored
@@ -1302,14 +1330,19 @@ class AIServiceCore:
                             ctx_path,
                             exc,
                         )
-            return prompt
+
+            # Prepended last so the grounding block is unconditionally the
+            # first content of the prompt — ahead of the Soul, the generated
+            # inventory and the orchestration context. Date salience must not
+            # compete with them for positional attention (ADR-0127 T1).
+            return _temporal_grounding_block() + "\n\n" + prompt
         except OSError as exc:
             logger.error(
                 "AIServiceCore.get_system_prompt: could not read '%s': %s",
                 soul_path,
                 exc,
             )
-            return fallback
+            return grounded_fallback
 
     # ------------------------------------------------------------------
     # Private helpers

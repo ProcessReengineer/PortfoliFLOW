@@ -676,12 +676,19 @@ async def seeded_limits(
 
 
 async def test_get_limit_coverage_happy_path(seeded_limits: _Seeded) -> None:
-    """A seeded coverage scenario yields the KPI strip and a family row."""
+    """An explicit historical range yields the KPI strip and a family row.
+
+    ADR-0127 T2 replaced the head line's blanket "(present and historical
+    only — …)" claim with the Stichtag plus its range; the territory is
+    now stated only when it needs stating, by the plan-territory notice.
+    An explicitly bounded past range is unchanged otherwise: the resolved
+    dates are honoured and no notice appears.
+    """
     _set_context(seeded_limits)
     result = get_limit_coverage(from_date="2023-11-30", to_date="2023-12-31")
 
-    assert "Limit coverage as of 2023-12-31" in result
-    assert "present and historical only" in result
+    assert "Limit coverage as of 2023-12-31 (range 2023-11-30 to 2023-12-31):" in result
+    assert "NOTE:" not in result
     assert "KPI strip" in result
     assert "SAA coverage:" in result
     assert "pe_class" in result
@@ -710,6 +717,164 @@ async def test_get_limit_coverage_rejects_bad_date(
     result = get_limit_coverage(from_date="31-12-2023")
     assert "Invalid from_date" in result
     assert "YYYY-MM-DD" in result
+
+
+# --- Limit coverage: actuals-first default (ADR-0127 T2) --------------------
+
+
+def _month_end(anchor: date, offset: int = 0) -> date:
+    """Return the calendar month-end ``offset`` months from ``anchor``."""
+    period = pd.Timestamp(anchor).to_period("M") + offset
+    return period.to_timestamp("M").date()
+
+
+def _last_month_end_on_or_before(anchor: date) -> date:
+    """Return the most recent calendar month-end on or before ``anchor``."""
+    end = _month_end(anchor)
+    return end if end <= anchor else _month_end(anchor, -1)
+
+
+@pytest_asyncio.fixture
+async def seeded_limits_temporal(
+    app_engine: AsyncEngine,
+    superuser_engine: AsyncEngine,
+    reset_schema: None,
+) -> _Seeded:
+    """A book whose actuals stop at a recent month-end and whose plan runs on.
+
+    The exact shape ADR-0127 T2 is about: plan NAVs seeded through a
+    planning horizon twelve months out, so the service's own
+    ``to_date=None`` resolution — ``max(as_of_date)`` across *both*
+    streams (ADR-0103 §2) — would land on that future horizon. The two
+    streams disagree on purpose (20% vs 40% of a 10m book against a 30%
+    cap), so actual and plan territory are distinguishable by their
+    numbers and not only by their Stichtag. All dates derive from
+    ``date.today()`` so the geometry holds as the calendar moves.
+    """
+    tenant_id = await _seed_tenant(superuser_engine, "Analysis-Limits-Temporal Tenant")
+
+    today = date.today()
+    last_actual = _last_month_end_on_or_before(today)
+    # Actuals reach back far enough to cover the default range's lower
+    # bound (to_date − 12 months) — the engine raises
+    # CoverageInputOutOfRange on a Stichtag preceding every NAV row.
+    actual_dates = [_month_end(last_actual, offset) for offset in range(-14, 1)]
+    plan_dates = [_month_end(today, offset) for offset in range(1, 13)]
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        actor = await UserRepository(session).create(
+            email="limits-temporal@example.com", password_hash="x" * 8
+        )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        ac_repo = AssetClassRepository(session)
+        pe_class = await ac_repo.create(code="pe_class", display_name="Private Equity")
+        cash_class = await ac_repo.create(code="cash_class", display_name="Cash")
+
+        inv_repo = InvestmentRepository(session)
+        nav_repo = InvestmentNavRepository(session)
+
+        fund = await inv_repo.create(
+            name="Alpha Fund",
+            investment_type="private_equity",
+            asset_class_id=pe_class.id,
+            currency="EUR",
+            created_by=actor.id,
+        )
+        cash = await inv_repo.create(
+            name="Cash EUR",
+            investment_type="cash",
+            asset_class_id=cash_class.id,
+            currency="EUR",
+            created_by=actor.id,
+        )
+
+        # actual territory: 2m of 10m = 20% of the book, inside the 30% cap.
+        # plan territory:   4m of 10m = 40% of the book, over it.
+        for kind, dates, fund_nav, cash_nav in (
+            ("actual", actual_dates, "2000000", "8000000"),
+            ("plan", plan_dates, "4000000", "6000000"),
+        ):
+            for investment, value in ((fund, fund_nav), (cash, cash_nav)):
+                for as_of in dates:
+                    await nav_repo.upsert(
+                        investment_id=investment.id,
+                        as_of_date=as_of,
+                        nav_kind=kind,
+                        nav_value=Decimal(value),
+                        currency="EUR",
+                        source="test-seed",
+                        created_by=actor.id,
+                    )
+
+        limits_repo = LimitsRepository(session)
+        await limits_repo.create_set_with_limits(
+            family="saa",
+            effective_from=date(2020, 1, 1),
+            label="SAA 2020",
+            notes=None,
+            limits={"pe_class": Decimal("30.0")},
+            created_by=actor.id,
+        )
+        # Both families must be in force at every Stichtag or the engine
+        # raises LimitSetNotEffective — see seeded_limits.
+        await limits_repo.create_set_with_limits(
+            family="anlv",
+            effective_from=date(2020, 1, 1),
+            label="AnlV 2020",
+            notes=None,
+            limits={"anlv_real_estate": Decimal("25.0")},
+            created_by=actor.id,
+        )
+
+    return _Seeded(database_url=DATABASE_URL, tenant_id=tenant_id)
+
+
+async def test_get_limit_coverage_defaults_to_actual_territory(
+    seeded_limits_temporal: _Seeded,
+) -> None:
+    """An omitted to_date reports today's coverage, not the plan horizon.
+
+    ADR-0127 T2: the tool defaults the upper bound to ``date.today()``,
+    so the Stichtag is the last month-end on or before today and lands
+    in actual territory — no plan-territory notice, and the planning
+    horizon nowhere in the answer.
+    """
+    _set_context(seeded_limits_temporal)
+    result = get_limit_coverage()
+
+    today = date.today()
+    expected_stichtag = _last_month_end_on_or_before(today)
+    assert f"Limit coverage as of {expected_stichtag} " in result
+    assert "NOTE:" not in result
+    assert "plan-stream projections" not in result
+    # The book's horizon — what the service's own None-default resolves to.
+    assert str(_month_end(today, 12)) not in result
+    # Actual stream: 2m of 10m against a 30% cap.
+    assert "pe_class: OK | coverage=20.00% | cap=30.00%" in result
+
+
+async def test_get_limit_coverage_future_to_date_is_flagged_as_plan(
+    seeded_limits_temporal: _Seeded,
+) -> None:
+    """An explicit future to_date still answers — prefixed with the notice.
+
+    ADR-0127 T2: the plan horizon stays reachable and the figures are
+    the engine's own plan-stream coverage (ADR-0060 cut-over semantics,
+    not a what-if overlay) — but the summary opens by saying so.
+    """
+    _set_context(seeded_limits_temporal)
+    future = _month_end(date.today(), 6)
+    result = get_limit_coverage(to_date=future.isoformat())
+
+    assert result.startswith(
+        "NOTE: this Stichtag lies beyond the plan/actual cut-over — "
+        "figures are plan-stream projections, not observed coverage."
+    )
+    assert f"Limit coverage as of {future} " in result
+    assert future > date.today()
+    # Plan stream: 4m of 10m, over the same 30% cap.
+    assert "pe_class: BREACH | coverage=40.00% | cap=30.00%" in result
 
 
 # --- SAA-hypothetical DB plumbing (no configuration) -----------------------

@@ -3,8 +3,8 @@
     <header class="pf-area__header">
         <h1 class="pf-area__title">Admin</h1>
         <p class="pf-area__subtitle">
-            Internal management — data import, application
-            settings, user administration and audit
+            Internal management — data import, market data,
+            investments, user administration and audit
             surfaces.
         </p>
     </header>
@@ -51,10 +51,14 @@
         {% endwith %}
     {% endif %}
 
-    {% with section_slug="application-settings",
-            section_title="Application Settings",
-            section_pill="planned",
-            section_placeholder="Application-wide configuration: theme, locale, feature flags, retention policies." %}
+    {# Pointer tile, not a section body: the investment maintenance
+       surface (ADR-0043 §5) is a full page of its own. Role-blind like
+       the catalogue entry — the list GET is session-gated; writes are
+       owner-gated on their routes. #}
+    {% with section_slug="investments",
+            section_title="Investments",
+            section_pill="registry",
+            section_body='<p class="pf-section__placeholder">Single-investment maintenance — NAVs, cashflows, identifiers and valuation modes — lives on the <a href="/investments">Investments list</a>.</p>' %}
         {% include "areas/_section.html" %}
     {% endwith %}
 </div>

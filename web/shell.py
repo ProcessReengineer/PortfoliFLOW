@@ -169,7 +169,12 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
         # tests/regression/test_section_catalogue_matches_body_partials.py
         # exists to prevent.
         SectionMeta(slug="users", title="Users"),
-        SectionMeta(slug="application-settings", title="Application Settings"),
+        # A pointer tile, not a section body of its own — it links out to the
+        # full-page investment maintenance surface (GET /investments, ADR-0043
+        # §5). Listed role-blind like every catalogue entry; the list GET is
+        # session-gated, writes stay owner-gated on their own routes. Replaced
+        # the never-implemented "application-settings" placeholder slot.
+        SectionMeta(slug="investments", title="Investments"),
     ),
     "investor_communication": (SectionMeta(slug="portfolio-review", title="Portfolio Review"),),
     "assistants": (

@@ -506,3 +506,29 @@ async def test_web_sidebar_toggle_open_redirect_blocked(
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/front-office"
+
+
+# ---------------------------------------------------------------------------
+# Area body content — Admin pointer tiles
+# ---------------------------------------------------------------------------
+
+
+async def test_web_admin_investments_tile_carries_settings_button(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The Admin Investments pointer tile offers the same button as Charts.
+
+    The Front-Office Charts section and this tile are the two entries to
+    the investment maintenance surface (ADR-0043 §5); they carry the same
+    label so they read as one affordance. Role-blind like the tile itself
+    — the ``/investments`` list GET is session-gated, not owner-gated.
+    """
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+
+    response = await web_client.get("/admin", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+    assert "Change investment settings" in body
+    assert 'href="/investments"' in body

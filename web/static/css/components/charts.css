@@ -99,6 +99,34 @@
     color: var(--ui-text-primary, #e8e8e8);
 }
 
+/* The article title is a link to the investment's detail page. It
+ * inherits the heading colour (whatever the cascade resolves it to)
+ * and reveals itself as a link on hover/focus only, so the "wall"
+ * keeps reading as a list of headings rather than a list of links. */
+.ch-article__title-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.ch-article__title-link:hover,
+.ch-article__title-link:focus {
+    color: var(--ui-accent-primary-hover);
+    text-decoration: underline;
+}
+
+/* Section-level action row under the article wall — a single small
+ * ghost button pointing at the investment maintenance surface. */
+.ch-actions {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.ch-actions__link {
+    font-size: 0.82rem;
+    padding: 6px 12px;
+}
+
 .ch-article__lazy {
     min-height: 320px;
     display: flex;

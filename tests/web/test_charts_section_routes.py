@@ -474,3 +474,52 @@ async def test_no_german_strings_in_charts_section(
         assert forbidden not in text_lower, (
             f"German token leaked into Charts section: {forbidden!r}"
         )
+
+
+async def test_section_article_titles_link_to_investment_detail(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Each article title is an anchor to GET /investments/{id} for that id."""
+    user_id, email, password = seeded_user
+    await _login(web_client, email, password)
+    await _seed_two_investments(user_id)
+
+    response = await web_client.get(
+        "/api/charts/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+
+    ids = re.findall(r'hx-get="/api/charts/investment/([0-9a-f-]{36})"', body)
+    assert len(ids) == 2
+    for inv_id in ids:
+        # The anchor sits inside the h3 whose id names the same investment.
+        heading_start = body.index(f'id="charts-inv-{inv_id}-title"')
+        heading_end = body.index("</h3>", heading_start)
+        heading = body[heading_start:heading_end]
+        assert f'href="/investments/{inv_id}"' in heading
+        assert 'class="ch-article__title-link"' in heading
+
+
+async def test_section_carries_change_investment_settings_button(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The non-empty section ends with the ghost button to /investments."""
+    user_id, email, password = seeded_user
+    await _login(web_client, email, password)
+    await _seed_two_investments(user_id)
+
+    response = await web_client.get(
+        "/api/charts/section",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert 'class="btn btn--ghost ch-actions__link"' in body
+    assert "Change investment settings" in body
+    assert body.count('href="/investments"') == 1

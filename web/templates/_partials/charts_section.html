@@ -7,6 +7,11 @@
    when the article scrolls into view (hx-trigger="revealed" on
    the per-investment loader).
 
+   The article title is a link to that investment's detail page
+   (GET /investments/{id}) — a full-page navigation, not an HTMX
+   fragment, so a plain href and no hx-boost. The whole title text,
+   asset-class suffix included, is the hit target.
+
    Context (from web/routes/charts.py):
      investments — list of {id, name, asset_class_name} dicts; sorted
                    alphabetically; empty list = empty-universe path.
@@ -35,7 +40,9 @@
                 <header class="ch-article__header">
                     <h3 id="charts-inv-{{ inv.id }}-title"
                         class="ch-article__title">
-                        {{ inv.name }}{% if inv.asset_class_name %}, {{ inv.asset_class_name }}{% endif %}
+                        <a class="ch-article__title-link" href="/investments/{{ inv.id }}">
+                            {{- inv.name }}{% if inv.asset_class_name %}, {{ inv.asset_class_name }}{% endif -%}
+                        </a>
                     </h3>
                 </header>
                 <div class="ch-article__lazy"
@@ -49,6 +56,13 @@
                 </div>
             </article>
         {% endfor %}
+    </div>
+
+    {# Front Office entry to the investment maintenance surface
+       (ADR-0043 §5). The Admin area carries the same button with the
+       same label, so the two entries read as one affordance. #}
+    <div class="ch-actions">
+        <a href="/investments" class="btn btn--ghost ch-actions__link">Change investment settings</a>
     </div>
 
 {% endif %}

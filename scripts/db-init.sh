@@ -38,7 +38,8 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
 readonly DEV_DB_NAME="portfoliflow_dev"
 readonly COMPOSE_SERVICE="portfoliflow-postgres"
 
@@ -200,12 +201,10 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     fi
 fi
 
-for cmd in alembic; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        log_error "Required command not found: $cmd"
-        exit 1
-    fi
-done
+if ! command -v alembic >/dev/null 2>&1; then
+    log_error "Required command not found: alembic"
+    exit 1
+fi
 
 resolve_engine
 log_step "Container engine: ${ENGINE_CMD[*]} (compose: ${COMPOSE_CMD[*]})"

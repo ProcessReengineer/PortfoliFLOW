@@ -1,7 +1,7 @@
 # PortfoliFLOW — Roadmap
 
 **Status:** Active since the Phase-6 close-out
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-25
 **Owner:** Soenke (ProcessReengineer)
 
 ---
@@ -39,7 +39,7 @@ ID never encodes the category, so it survives an item moving between buckets,
 splitting, or shipping. IDs were assigned once in old-category order (A-items, then
 B, then C, then D; by old number), and are never reused.
 
-**Next free ID:** `#065`.
+**Next free ID:** `#067`.
 
 > **`#044` is unissued and stays that way.** ADR-0102 was written against a next-free marker
 > of `#045` and refers to the attribution follow-up by that number in four places (§1,
@@ -123,6 +123,8 @@ the Qt surface or finish what is already partly built.
 | #056 | Chart Snapshot Persistence (session rehydration + case pinning) | in-progress (2026-08-05) | P1 | no | ADR-0114 |
 | #058 | Built-in Tick Scheduler (in-process default, systemd opt-out) | open | P1 | no | ADR-0117 |
 | #064 | Provider retry policy in the tick | open | P2 | no | ADR-0091 (assignment); commissioned by ADR-0125 §Consequences |
+| #065 | openai SDK 3.x migration | open | P2 | no | — |
+| #066 | Installer: `--doctor` re-resolves the engine | open | P3 | no | ADR-0124 §1.1 (engine precedence) |
 
 ### #001 — Portfolio Review full build-out (PDF export + detail areas)
 
@@ -826,6 +828,55 @@ the tenant's provider budget on a guaranteed failure. Per-investment, and
 after its retries degrades exactly as it does today and the rest of the round is
 unaffected. Filed under **Loose ends** because it finishes an assignment
 **ADR-0091** already made, not because it adds a capability.
+
+---
+
+### #065 — openai SDK 3.x migration
+
+- **Formerly:** — (new; raised 2026-08-25)
+- **Status:** open
+- **Priority:** P2
+- **Demo-path:** no
+- **ADR:** —
+- **Dependencies:** none
+
+**The gap.** `pyproject.toml` bounds `openai<3` because 3.x moves the SDK's
+HTTP layer to `httpx2`, which `pytest-httpx` does not intercept: the suite's
+mocked OpenRouter / OpenAI responses go unrequested and the calls reach the
+real endpoints instead — around twenty tests under `tests/assistants`,
+`tests/characterization` and `tests/services/voice`. The bound freezes the
+dependency; it does not migrate it.
+
+**Resolution.** Move the LLM and voice clients onto openai 3.x, and move the
+test doubles from transport-level `httpx` mocking to a mechanism that survives
+the SDK's HTTP layer — client-level injection, or an `httpx2`-aware mock. Lift
+the bound in the same change, so the freeze and its removal are one reviewable
+step rather than a version bump that silently re-opens the failure.
+
+---
+
+### #066 — Installer: `--doctor` re-resolves the engine
+
+- **Formerly:** — (new; raised 2026-08-25)
+- **Status:** open
+- **Priority:** P3
+- **Demo-path:** no
+- **ADR:** ADR-0124 §1.1 (engine precedence)
+- **Dependencies:** none
+
+**The gap.** `install.sh` does not record which container engine an
+installation used. On a machine that carries both Podman and Docker — the
+GitHub Actions Linux runner is one — `--doctor` resolves the engine afresh by
+the documented precedence (`--engine`, `PORTFOLIFLOW_ENGINE`, podman, docker)
+and can therefore inspect the wrong one: it does not see the Docker-managed
+`portfoliflow-postgres` container, reads port 5432 as held by something
+foreign, and reports a healthy installation as a port collision (exit 12). CI
+now passes `--engine docker` explicitly; a user would have to know to.
+
+**Resolution.** Persist the resolved engine in `.env` at install time (a
+`PORTFOLIFLOW_ENGINE=` line) and let doctor read it before falling back to the
+precedence chain. An installer change, so **ADR-0124 §1.1**'s precedence
+wording is the reference the fix stays consistent with, not a successor ADR.
 
 ---
 
@@ -2175,6 +2226,7 @@ not renumbered.
 
 | Date | Change |
 |---|---|
+| 2026-08-25 | **CI green before `2026.08.1` — three red workflows, none of them a defect in application code; `#065` and `#066` registered.** **openai bounded `<3`** in `pyproject.toml`: a fresh install resolves openai 3.x, whose HTTP layer moved to `httpx2`, which `pytest-httpx` does not intercept — the suite's mocked OpenRouter / OpenAI responses go unrequested and around twenty tests in `tests/assistants`, `tests/characterization` and `tests/services/voice` reach the real endpoints (401, `coroutine raised StopIteration`, `IndexError`); the operator venv holds 2.33, which is why the suite was green locally only. **`aiogram` added to the `dev` extra** — the suite exercises the Telegram bot and all four workflow installs use `.[dev]`; the `bot` extra stays the runtime opt-in (deviation **D1**, pre-approved: the line is duplicated rather than resolved through a self-referencing `portfoliflow[bot]`, which would make pip resolve the project name against the index). **`tests/cli/test_status.py`** — the two live-DB tests now set `OPENROUTER_API_KEY` and `SHIRLEY_MODEL` themselves instead of reading them from the ambient environment, which is the precondition their own docstring already stated; `test_status_returns_one_when_sentinel_missing` stays independent of them. **`installer.yml`** — the `--doctor` step now names the engine (`--engine docker`): the runner ships both engines and, unnamed, doctor resolved podman first, could not see the Docker-managed container and reported port 5432 as foreign (exit 12) after a successful install (deviation **D2**, pre-approved; the root fix is `#066`). **SC2155 / SC2043 cleared** in `scripts/db-init.sh` and `scripts/db-reset.sh` — `readonly` split from its assignment (under `set -euo pipefail` a failing `cd` is now fatal, which the combined form silently masked) and the single-item `for` loop replaced by the direct check; no behaviour change, and `scripts/install.sh` was already clean. **#065 openai SDK 3.x migration** (Loose ends, P2, open) — the bound is a freeze, not a migration: move the LLM and voice clients onto 3.x and the test doubles off transport-level `httpx` mocking, then lift it. **#066 Installer: `--doctor` re-resolves the engine** (Loose ends, P3, open, ADR-0124 §1.1) — persist the resolved engine in `.env` at install time and let doctor read it before falling back to precedence. Next free ID → **#067**. |
 | 2026-08-23 | **#063 and #064 registered per ADR-0125 §Consequences; `#062` unissued; ADR-0126 accepted.** **#063 Market-data trading-hours awareness** (Features, P2, open, own concept decision at kickoff) — skip intraday price fetches outside the instrument's exchange session and on weekends; requires an exchange-calendar source and a per-identifier session lookup. **#064 Provider retry policy in the tick** (Loose ends, P2, open, ADR-0091 assignment) — ADR-0091 assigned retry policy to the tick job and no slice delivered it; bounded retries with backoff for `ProviderFetchError`, never for `IdentifierNotResolvableError`, per-investment, inside the existing failure isolation. **`#062` is never issued:** ADR-0125 named its two commissioned items `#063`/`#064` while this document's next-free marker read `#062`; the ADR is immutable and wins, so the number lapses under the **`#044` precedent** and is not back-filled. Next free ID → **#065**. **ADR-0126** (owner-gating of the Market Data admin section) is **Accepted (2026-08-23)** and supersedes **one sentence** of ADR-0125 §6; its index row and the next-free-ADR advance to **0127** were already recorded in `docs/adr/README.md` with acceptance. **Deviation record — ADR-0125 implementation (strands M1–M5), binding, no successor ADR** (recorded here rather than by amending an immutable ADR, per the **#057** magnitude-semantics precedent): (1) **ADR inaccuracy, superseded by ADR-0126** — §6's "Admin → Market Data is already an owner surface under ADR-0121" is false; `is_tenant_owner` was cosmetic mirroring and only the `tenant_users` routes carried the authoritative gate. ADR-0126 corrects it by supersession of **that sentence only**. (2) **ADR inaccuracy, recorded not superseded** — §6 describes the terminal 286 as returning "the full Overview body", understating the delivered contract: the 286 body is whichever state is true at that instant, and the **FX-error partial also carries `#ov-section-body`**, so the `outerHTML` swap holds on the error path too. The implementation is correct; the ADR sentence is the inaccuracy. (3) **Prompt error, M2** — the form hint claimed `hourly` uses the anchor hour; it does not, the anchor applies to `daily` only. Corrected in implementation. (4) **Prompt error, M1–M3** — the prompts named `mypy` as the typechecker; the project's typechecker is **Pyright** (ADR-0110). No effect on the delivered code. (5) **ID mis-assumption** — ADR-0125 assigned #063/#064 assuming `#062` was issued; it was not. Resolved by the numbering hole above. |
 | 2026-08-21 | **ADR-0124 complete (I1–I4) — installation and release distribution.** Engine-neutral, parameterisable container bootstrap; guided installer `scripts/install.sh` (remote and local mode, six phases, `--doctor`, bash-3.2 / BSD-userland contract, documented exit-code table, never `sudo`); the `stable` branch advanced by `promote-stable.yml` on calver tags (deploy-key bypass, version guard); `release-assets.yml` publishing the GitHub Release entry and the `install.sh.sha256` asset; `installer.yml` CI (shellcheck, a Linux end-to-end install including the exit-13 idempotence and secret-free-transcript assertions, and the macOS bash-3.2 contract; weekly schedule); README installation rewritten as Options A/B/C. Deviations are recorded in the respective commits: D1–D3 (I2), D1–D2 (I3), D1–D2 (I4). This is a **local** install path only — it does not touch **#025 Hetzner Deployment**, which stays open. No roadmap item carried the work; next free ID unchanged. |
 | 2026-08-16 | **AGPL public release — #052 shipped; #053 and #054 closed with it.** All eight #052 gates ticked; repository flipped to public with a fresh history. Pre-release cleanup in the same cut: primary-tenant identity unified on Minathena Capital across tests and ADRs (text substitution only, no ADR decision changed), `SECURITY.md` added (ADR-0108 D-list extended), project contact e-mail added to CONTRIBUTING / TRADEMARKS / README / CLAs, Claude Code settings excluded from the repository. Next free ID unchanged. |

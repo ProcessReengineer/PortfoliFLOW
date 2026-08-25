@@ -197,9 +197,12 @@ async def reset_only(
 
 
 def test_status_returns_zero_when_dev_db_is_healthy(
+    monkeypatch: pytest.MonkeyPatch,
     reset_then_seed_sentinel: tuple[str, str],
 ) -> None:
     """A bootstrapped DB plus configured AI service exits 0."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-fake-key")
+    monkeypatch.setenv("SHIRLEY_MODEL", "anthropic/claude-haiku-4.5")
     _require_db()
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0, result.output
@@ -221,9 +224,12 @@ def test_status_returns_one_when_sentinel_missing(
 
 
 def test_status_json_output_is_valid_json(
+    monkeypatch: pytest.MonkeyPatch,
     reset_then_seed_sentinel: tuple[str, str],
 ) -> None:
     """The ``--json`` flag emits a parseable JSON document."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-fake-key")
+    monkeypatch.setenv("SHIRLEY_MODEL", "anthropic/claude-haiku-4.5")
     _require_db()
     result = runner.invoke(app, ["status", "--json"])
     assert result.exit_code == 0, result.output

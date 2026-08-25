@@ -107,7 +107,11 @@ jobs:
           PY
 
       - name: Doctor exits 0 on a healthy installation
-        run: ./scripts/install.sh --doctor
+        # The runner image ships Podman and Docker. Without --engine, doctor
+        # resolves podman first (documented precedence), cannot see the
+        # Docker-managed portfoliflow-postgres container and reports port
+        # 5432 as foreign (exit 12). Name the engine the install used.
+        run: ./scripts/install.sh --doctor --engine docker
 
       - name: Re-running the installer is refused with exit 13
         env:

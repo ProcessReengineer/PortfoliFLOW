@@ -1,6 +1,6 @@
 # ADR-0129: Provider Channel — Suggestion List, Zero-Knowledge Relay, Provider Portal, and Engagements
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-08-27)
 - **Date:** 2026-08-26
 - **Deciders:** PortfoliFLOW project owner
 - **Implements roadmap item:** #061 (part b — the order/hand-off flow); revives

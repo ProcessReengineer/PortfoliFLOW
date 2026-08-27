@@ -1,6 +1,6 @@
 # ADR-0128: Transactions Area — Trade-Ticket Object Model and Record Flow
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-08-27)
 - **Date:** 2026-08-26
 - **Deciders:** PortfoliFLOW project owner
 - **Implements roadmap item:** #061 — Transactions (modelling and analysis of

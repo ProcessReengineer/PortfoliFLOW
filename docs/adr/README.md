@@ -192,6 +192,8 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0125 | [Sub-Hourly Market-Data Refresh Cadence, Kind-Aware Fetching, and On-Demand Refresh Feedback](./0125-market-data-refresh-cadence-and-on-demand-feedback.md) | Accepted (2026-08-22) — extends ADR-0119's cadence vocabulary and revokes its market-data choice-list statement; changes ADR-0093's seeded cadence value only | 2026-08-22 | market-data, scheduling, cadence, admin, front-office, htmx, owner-gating, deploy |
 | 0126 | [Owner-Gating of the Market Data Admin Section](./0126-owner-gating-of-the-market-data-admin-section.md) | Accepted (2026-08-23) — supersedes one sentence of ADR-0125 §6; applies the ADR-0121 §6 owner-gating pattern | 2026-08-23 | admin, market-data, owner-gating, roles, permissions, htmx, security |
 | 0127 | [Temporal Grounding — Current-Date Injection and Actuals-First As-Of Default for Limit Coverage](./0127-temporal-grounding-current-date-injection-and-actuals-first-limit-coverage.md) | Accepted (2026-08-24) — corrects the tool-default consequence of ADR-0103 §2's horizon range resolution without editing it; extends ADR-0012 B8 prompt grounding | 2026-08-24 | shirley, ai-service, prompt, tools, limits, temporal, back-office, telegram |
+| 0128 | [Transactions Area — Trade-Ticket Object Model and Record Flow](./0128-transactions-area-trade-ticket-object-model-and-record-flow.md) | Accepted (2026-08-27) — extends the investment domain of ADR-0097/0098 with a layer *above* the ledger (ledger and materialisation unchanged); leaves the ADR-0104 §2 overlay contract untouched; adds Transactions as the ninth Area | 2026-08-26 | transactions, trade-ticket, area, schema, cash-settlement, rls, four-eyes, provenance |
+| 0129 | [Provider Channel — Suggestion List, Zero-Knowledge Relay, Provider Portal, and Engagements](./0129-provider-channel-suggestion-list-relay-portal-and-engagements.md) | Accepted (2026-08-27) — revives the provider-directory half of the Execution-Network concept ADR-0107 cut, under the conditions ADR-0107 named; honours the ADR-0108 open-client / proprietary-service split | 2026-08-26 | provider-channel, suggestion-list, relay, encryption, engagement, monetisation, agpl-boundary, regulatory |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -689,7 +691,96 @@ Office Limits KPI strip — is accepted in principle and **deferred** to a
 roadmap entry; it is not a gate for `2026.09.0`. No migration; no engine or
 service signature changes.
 
-The next free ADR number is **0128**.
+**Update (2026-08-27):** ADR-0128 (Transactions Area — trade-ticket object
+model and record flow) is **Accepted (2026-08-27)**. Roadmap #061 required a
+concept ADR settling four questions before any code: booked vs. proposed, the
+boundary against the ADR-0097 ledger and the ADR-0104 overlay, the owning Area,
+and what "analyse a change" resolves to. The gap it closes is concrete — the
+manual ledger write is **single-leg** (`investments_add_position` writes one
+`position_transactions` row and no cash leg), so after a real trade cash
+correctness depends on the user entering a second, unlinked transaction by hand.
+The decision introduces a tenant-scoped, RLS-protected **`trade_tickets`** table:
+one object with one state machine
+(`draft → proposed → approved → sent → acknowledged → executed → booked`, plus
+terminal `cancelled`), because *booked* and *proposed* are two stations of one
+lifecycle and the realised-vs-intended comparison is precisely the analytical
+value. The object is named a **trade ticket** to avoid colliding with
+`position_transactions` and with database transactions; the Area label stays
+**Transactions**. A second table **`trade_ticket_effects`** enumerates the
+emitted rows, so the ledger stays ignorant of the layer above it — no new column
+on `position_transactions`, `investment_cashflows` or `investment_navs`, and
+emitted rows reuse `ingest_origin='manual'` (Q-1), keeping the ADR-0092 triple
+intact. The core mechanic is **two-leg atomic settlement**: instrument leg and
+cash leg (price 1.0000 on the cash position of the instrument's currency) in one
+DB transaction. Negative cash **warns, never blocks** (operator decision D-2,
+Q-2): the oversell guard is lifted for `investment_type='cash'` only on the
+ticket-emission path behind an explicit capability flag, and the negative balance
+is a surfaced state until it returns to ≥ 0. Further decisions of record: a first
+purchase of a new instrument is a `buy`, not an `opening` (R-1); partial secondary
+sales are out of v1 (R-2); secondary-sale proceeds book as
+`flow_type='distribution'` so DPI/TVPI stay truthful (Q-3); the price-plausibility
+warning is a fixed 5 % constant, never a block (Q-4); "Book now" traverses
+`proposed → approved → booked` implicitly, with the four-eyes columns present from
+the first migration so enforcement is later a rule change, not a migration (Q-6,
+D-4). Both boundaries hold: the ledger remains the single source of truth for unit
+counts, and the pre-trade impact preview feeds a `proposed` ticket **read-only**
+through the pure ADR-0104 executor — no overlay ever writes the book. After
+`booked`, correction is **reversal, not mutation** (enumerated effects deleted in
+one transaction, blocked if any effect row was modified since emission).
+**Transactions joins the sidebar as the ninth Area**, between Cases and Admin,
+completing the Watch Desk → Case → Transaction provenance chain; the eight→nine
+documentation reconciliation (CLAUDE.md, `docs/architecture.md`, the ADR-0084
+glossary) runs **with** the implementation, per the ADR-0107 precedent. Migration
+number is claimed at implementation time. **Binding process note:** implementation
+proceeds in operator-gated sub-strands with deliberate pause points — each surface
+is discussed or mocked up before it is built.
+
+**Update (2026-08-27):** ADR-0129 (provider channel — suggestion list,
+zero-knowledge relay, provider portal, and engagements) is **Accepted
+(2026-08-27)**. It is the companion to ADR-0128 and covers part (b) of roadmap
+#061: the step *before* the booking — select a provider from a centrally curated
+**suggestion list**, send an encrypted order or inquiry, receive a structured
+confirmation whose fill data pre-fills the ADR-0128 booking step. It revives the
+provider-directory half of the Execution-Network concept ADR-0107 cut, under the
+conditions ADR-0107 named, and the red line is kept **structurally**: the
+provider's `executed` message never books — it pre-fills, and a human confirms
+every booking. Three constraints frame the design: the regulatory line
+(PortfoliFLOW stays a software venue, never broker or advisor), the ADR-0108 AGPL
+boundary (open client, message formats and verification keys in the repository;
+the directory and relay are a separate, centrally operated service — the moat is
+the network, not the code), and a self-hosting, data-sovereignty-motivated
+audience for whom any phone-home must be radically opt-in. Staging is
+**binding**: **Stage A** ships contract only, alongside ADR-0128 v1 — schemas,
+directory format and signature-verification code, with the `sent` /
+`acknowledged` / `executed` states unreachable; **Stage B** is the channel MVP
+(directory + relay + portal, invited providers, engagements and order hand-offs);
+**Stage C** is monetisation, behind a **hard gate: external legal counsel on the
+intermediation question before any Stage-C design work**, and Stage B carries no
+remuneration mechanics of any kind. Architecture: the directory is a static,
+versioned, **signed** document (publishing key's public half in the AGPL
+repository, successor-key rotation in the format) — key substitution via a
+compromised fetch is the real attack surface, not the cipher — fetched only when
+the tenant has enabled the channel, with suggestion filtering **client-side in the
+instance** so the service never learns the portfolio or the query. The relay is
+**zero-knowledge by design invariant**: ciphertext plus routing envelope only,
+libsodium-family sealed boxes rather than OpenPGP, status polled by the instance
+rather than webhooked into it (self-hosted instances behind NAT must not be
+required to expose an inbound endpoint). The provider surface is a **web portal**
+with client-side decryption — the provider's private key never reaches the server,
+which shifts a documented key-backup burden onto providers — and **e-mail is
+notification only, never transport**. **`engagements`** is the non-booking sibling
+object (advisory / legal / fund-selection / second-opinion) on the identical
+channel, with the ticket lifecycle minus the booking tail and an optional case
+link carrying the provenance chain; Shirley remains the in-house first opinion, an
+engagement is the external second one. The channel is opt-in per tenant, off by
+default, an owner action; what leaves the instance is a version-pinned directory
+fetch and per message the ciphertext plus envelope — **never** portfolio
+composition, holdings, AUM or analytics. With the channel disabled, ADR-0128 is
+fully functional, and no repository component gains a hard runtime dependency on
+the central service. The same operator-gated, pause-point process as ADR-0128
+binds Stage B.
+
+The next free ADR number is **0130**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

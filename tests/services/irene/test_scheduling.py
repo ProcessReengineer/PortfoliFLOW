@@ -25,6 +25,7 @@ Pure-function coverage — no DB, no network:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from itertools import pairwise
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -407,7 +408,7 @@ def test_every_15m_spring_forward_chain_keeps_fifteen_minute_spacing() -> None:
         datetime(2026, 3, 29, 2, 0, tzinfo=timezone.utc),
         datetime(2026, 3, 29, 2, 15, tzinfo=timezone.utc),
     ]
-    for earlier, later in zip(results[:-1], results[1:], strict=True):
+    for earlier, later in pairwise(results):
         assert later > earlier
         assert later - earlier == timedelta(minutes=15)
 
@@ -453,12 +454,12 @@ def test_every_15m_fall_back_chain_fires_the_repeated_hour_once() -> None:
     ]
 
     # Strictly increasing throughout — the property the due read needs.
-    for earlier, later in zip(results[:-1], results[1:], strict=True):
+    for earlier, later in pairwise(results):
         assert later > earlier
 
     # The one accepted irregularity, and only that one.
     assert results[1] - results[0] == timedelta(minutes=75)
-    for earlier, later in zip(results[1:-1], results[2:], strict=True):
+    for earlier, later in pairwise(results[1:]):
         assert later - earlier == timedelta(minutes=15)
 
     assert results[0].astimezone(tz).hour == 2  # 02:45 CEST — the first pass

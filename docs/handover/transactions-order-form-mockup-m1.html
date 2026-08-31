@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-1 · Order form (U-SELL / U-BUY) — Transactions mockup</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * M-1 — Order form mockup, Transactions area (#061, ADR-0128).
+ * Self-contained: tokens below are copied from web/static/css/theme.css
+ * (dark default theme). No dependency on the application.
+ * ------------------------------------------------------------------ */
+:root {
+    --ui-background-primary: #0A0A0A;
+    --ui-background-secondary: #141414;
+    --ui-background-section: #1A1A1A;
+    --ui-accent-primary: #E8304A;
+    --ui-accent-primary-hover: #FF4D66;
+    --ui-accent-primary-pressed: #C42840;
+    --ui-button-fg: #000000;
+    --ui-text-primary: #E8304A;
+    --ui-text-secondary: #B0B0B0;
+    --ui-text-disabled: #555555;
+    --ui-text-on-sidebar: #FFFFFF;
+    --ui-border-default: #2A2A2A;
+    --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+    --ui-font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    --ui-semantic-success: #4CAF50;
+    --ui-semantic-warning: #FFC107;
+    --ui-semantic-info: #4A9BD9;
+    --ui-semantic-error: #FF6B6B;
+    --ui-semantic-muted: #707070;
+    --pf-bg-deepest: #050505;
+    --pf-bg-surface: #141414;
+    --pf-bg-elevated: #1A1A1A;
+    --pf-bg-hover: #222222;
+    --pf-accent-soft: rgba(232, 48, 74, 0.15);
+    --pf-sidebar-width-expanded: 200px;
+    --pf-statusbar-height: 28px;
+    --pf-sticky-header-bg: rgba(20, 20, 20, 0.78);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    font-family: var(--ui-font-family);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { color: var(--ui-text-primary); margin: 0 0 0.5em 0; font-weight: 600; }
+a { color: var(--ui-accent-primary); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--ui-accent-primary); outline-offset: 2px; }
+button { cursor: pointer; font: inherit; color: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+input, select, textarea { font: inherit; color: inherit; }
+
+/* --- Mockup chrome (NOT part of the product) ----------------------- */
+.mk-chrome {
+    position: sticky; top: 0; z-index: 40;
+    background: #17110C;
+    border-bottom: 1px solid #4A3A22;
+    padding: 8px 16px;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    font-size: 0.78rem; color: #C9A227;
+}
+.mk-chrome__tag {
+    text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 700; font-size: 0.68rem;
+    border: 1px solid #4A3A22; border-radius: 3px; padding: 2px 7px;
+}
+.mk-group { display: flex; align-items: center; gap: 6px; }
+.mk-group__label { color: #8C7A4A; }
+.mk-btn {
+    background: #1F1710; border: 1px solid #4A3A22; color: #C9A227;
+    border-radius: 3px; padding: 3px 9px; font-size: 0.76rem;
+}
+.mk-btn:hover { border-color: #C9A227; }
+.mk-btn.is-on { background: #C9A227; color: #17110C; border-color: #C9A227; }
+.mk-note {
+    margin: 0; padding: 10px 16px;
+    background: #17110C; border-bottom: 1px solid #4A3A22;
+    color: #8C7A4A; font-size: 0.78rem;
+}
+
+/* --- Shell --------------------------------------------------------- */
+.pf-shell {
+    display: grid;
+    grid-template-columns: var(--pf-sidebar-width-expanded) 1fr;
+    grid-template-rows: 1fr var(--pf-statusbar-height);
+    grid-template-areas: "sidebar main" "statusbar statusbar";
+    min-height: calc(100vh - 40px);
+    background-color: var(--pf-bg-deepest);
+}
+.pf-sidebar {
+    grid-area: sidebar; display: flex; flex-direction: column;
+    background-color: var(--pf-bg-surface);
+    border-right: 1px solid var(--ui-border-default);
+}
+.pf-sidebar__brand {
+    padding: 16px; border-bottom: 1px solid var(--ui-border-default);
+    color: var(--ui-text-primary); font-weight: 700; letter-spacing: 0.04em;
+    font-size: 0.95rem;
+}
+.pf-sidebar__nav { display: flex; flex-direction: column; padding: 12px 0; gap: 2px; }
+.pf-sidebar__item {
+    padding: 9px 16px; color: var(--ui-text-secondary);
+    border-left: 3px solid transparent; font-size: 0.92rem;
+}
+.pf-sidebar__item.is-active {
+    color: var(--ui-accent-primary); background-color: var(--pf-accent-soft);
+    border-left-color: var(--ui-accent-primary); font-weight: 600;
+}
+.pf-sidebar__item.is-new::after {
+    content: "new"; margin-left: 8px; font-size: 0.62rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ui-semantic-muted);
+}
+.pf-main { grid-area: main; overflow: auto; padding: 24px 32px; background-color: var(--pf-bg-deepest); }
+.pf-statusbar {
+    grid-area: statusbar; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; background: var(--pf-bg-surface);
+    border-top: 1px solid var(--ui-border-default);
+    font-size: 0.74rem; color: var(--ui-text-disabled);
+}
+.pf-area { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.pf-area__header {
+    display: flex; flex-direction: column; gap: 4px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--ui-border-default);
+}
+.pf-area__title { color: var(--ui-text-primary); font-size: 1.5rem; margin: 0; letter-spacing: 0.02em; }
+.pf-area__subtitle { color: var(--ui-text-secondary); font-size: 0.9rem; margin: 0; }
+.pf-section {
+    background-color: var(--pf-bg-surface); border: 1px solid var(--ui-border-default);
+    border-radius: 6px; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+}
+.pf-section__header {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin: -20px -24px 0 -24px; padding: 14px 24px;
+    background-color: var(--pf-sticky-header-bg);
+    border-bottom: 1px solid var(--ui-border-default);
+    border-top-left-radius: 6px; border-top-right-radius: 6px;
+}
+.pf-section__title { color: var(--ui-text-primary); font-size: 1.05rem; margin: 0; }
+.pf-section__pill {
+    color: var(--ui-text-secondary); background-color: var(--pf-bg-elevated);
+    border: 1px solid var(--ui-border-default); border-radius: 999px;
+    padding: 2px 10px; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.pf-section--placeholder { opacity: 0.55; }
+.pf-section__placeholder { color: var(--ui-text-disabled); font-style: italic; font-size: 0.88rem; }
+
+/* --- Buttons ------------------------------------------------------- */
+.pf-btn {
+    background: var(--ui-background-secondary); color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    padding: 7px 14px; font-size: 0.84rem;
+}
+.pf-btn:hover:not(:disabled) { border-color: var(--ui-accent-primary); }
+.pf-btn--primary {
+    background: var(--ui-accent-primary); color: var(--ui-button-fg);
+    border-color: var(--ui-accent-primary); font-weight: 600;
+}
+.pf-btn--primary:hover:not(:disabled) { background: var(--ui-accent-primary-hover); }
+.pf-btn--ghost { background: transparent; }
+
+/* --- Flow chooser -------------------------------------------------- */
+.tx-flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }
+.tx-flow {
+    text-align: left; background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default); border-radius: 5px;
+    padding: 11px 13px; display: flex; flex-direction: column; gap: 3px;
+}
+.tx-flow:hover { border-color: var(--ui-accent-primary); }
+.tx-flow.is-active { border-color: var(--ui-accent-primary); background: var(--pf-accent-soft); }
+.tx-flow__name { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.88rem; }
+.tx-flow.is-active .tx-flow__name { color: var(--ui-accent-primary); }
+.tx-flow__hint { color: var(--ui-text-disabled); font-size: 0.74rem; line-height: 1.35; }
+.tx-flow__code {
+    font-family: var(--ui-font-mono); font-size: 0.66rem;
+    letter-spacing: 0.06em; color: var(--ui-semantic-muted);
+}
+
+/* --- Ticket composer ----------------------------------------------- */
+.tx-ticket {
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default); border-radius: 6px;
+}
+.tx-ticket__head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 13px 20px; border-bottom: 1px solid var(--ui-border-default);
+    background: var(--pf-bg-elevated);
+    border-top-left-radius: 6px; border-top-right-radius: 6px;
+}
+.tx-ticket__id {
+    font-family: var(--ui-font-mono); font-size: 0.82rem; color: var(--ui-text-secondary);
+}
+.tx-ticket__title { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.95rem; }
+.tx-ticket__body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
+.tx-state {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--ui-border-default); border-radius: 999px;
+    padding: 2px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ui-text-secondary);
+}
+.tx-state::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ui-semantic-muted);
+}
+.tx-state--draft::before { background: var(--ui-semantic-muted); }
+
+.tx-block { display: flex; flex-direction: column; gap: 10px; }
+.tx-block__title {
+    font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ui-semantic-muted); margin: 0; font-weight: 600;
+}
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 18px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field__label { color: var(--ui-text-secondary); font-size: 0.8rem; font-weight: 500; }
+.field__optional { color: var(--ui-text-disabled); font-weight: 400; }
+.field input[type="text"], .field input[type="number"], .field input[type="date"],
+.field select, .field textarea {
+    width: 100%; padding: 6px 9px;
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    background-color: var(--ui-background-primary); color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--ui-accent-primary);
+}
+.field__hint { color: var(--ui-text-disabled); font-size: 0.74rem; }
+.field--numeric input { font-family: var(--ui-font-mono); text-align: right; }
+
+/* Direction segmented control */
+.tx-direction { display: inline-flex; border: 1px solid var(--ui-border-default); border-radius: 4px; overflow: hidden; }
+.tx-direction button {
+    background: var(--ui-background-primary); border: none; color: var(--ui-text-secondary);
+    padding: 6px 22px; font-size: 0.88rem; font-weight: 600;
+}
+.tx-direction button + button { border-left: 1px solid var(--ui-border-default); }
+.tx-direction button.is-on { background: var(--ui-accent-primary); color: var(--ui-button-fg); }
+
+/* Instrument context strip */
+.tx-context {
+    display: flex; flex-wrap: wrap; gap: 20px;
+    background: var(--ui-background-section); border: 1px solid var(--ui-border-default);
+    border-radius: 5px; padding: 10px 14px;
+}
+.tx-context__item { display: flex; flex-direction: column; gap: 1px; }
+.tx-context__label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--ui-semantic-muted);
+}
+.tx-context__value { font-family: var(--ui-font-mono); font-size: 0.86rem; color: var(--ui-text-secondary); }
+
+/* Derived amounts */
+.tx-derived {
+    background: var(--ui-background-section); border: 1px solid var(--ui-border-default);
+    border-radius: 5px; padding: 12px 14px;
+}
+.tx-derived__row {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    padding: 3px 0; font-size: 0.87rem;
+}
+.tx-derived__row span:last-child { font-family: var(--ui-font-mono); color: var(--ui-text-secondary); }
+.tx-derived__row--formula span:first-child { color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-derived__row--total {
+    border-top: 1px solid var(--ui-border-default); margin-top: 6px; padding-top: 8px;
+    font-weight: 600;
+}
+.tx-derived__row--total span:last-child { color: var(--ui-text-on-sidebar); font-size: 1rem; }
+
+/* Ledger effect (two legs) */
+.tx-legs { border: 1px dashed var(--ui-border-default); border-radius: 5px; padding: 12px 14px; }
+.tx-legs__lead { color: var(--ui-text-disabled); font-size: 0.78rem; margin: 0 0 8px; }
+.tx-leg {
+    display: grid; grid-template-columns: 62px 1fr auto; gap: 12px; align-items: baseline;
+    padding: 4px 0; font-family: var(--ui-font-mono); font-size: 0.84rem;
+}
+.tx-leg + .tx-leg { border-top: 1px solid #1F1F1F; }
+.tx-leg__type {
+    text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em;
+    border: 1px solid var(--ui-border-default); border-radius: 3px;
+    padding: 1px 6px; text-align: center; color: var(--ui-text-secondary);
+}
+.tx-leg__type--buy { border-color: rgba(76,175,80,0.5); color: var(--ui-semantic-success); }
+.tx-leg__type--sell { border-color: rgba(232,48,74,0.5); color: var(--ui-accent-primary); }
+.tx-leg__what { font-family: var(--ui-font-family); color: var(--ui-text-secondary); font-size: 0.86rem; }
+.tx-leg__what em { font-style: normal; color: var(--ui-text-disabled); font-size: 0.78rem; }
+.tx-leg__amount { color: var(--ui-text-secondary); }
+
+/* Settlement block */
+.tx-settle {
+    border: 1px solid var(--ui-border-default); border-radius: 5px;
+    background: var(--ui-background-section); padding: 13px 15px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.tx-settle.is-unconfirmed { border-color: var(--ui-semantic-warning); }
+.tx-settle__lead { font-size: 0.82rem; color: var(--ui-text-disabled); margin: 0; }
+.tx-settle__options { display: flex; flex-direction: column; gap: 6px; }
+.tx-settle__option {
+    display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center;
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    background: var(--ui-background-primary); padding: 8px 11px; cursor: pointer;
+}
+.tx-settle__option:hover { border-color: var(--ui-accent-primary); }
+.tx-settle__option.is-selected { border-color: var(--ui-accent-primary); background: var(--pf-accent-soft); }
+.tx-settle__name { font-size: 0.88rem; color: var(--ui-text-secondary); }
+.tx-settle__balance { font-family: var(--ui-font-mono); font-size: 0.85rem; color: var(--ui-text-secondary); }
+.tx-settle__confirm {
+    display: flex; align-items: flex-start; gap: 9px;
+    font-size: 0.84rem; color: var(--ui-text-secondary); cursor: pointer;
+}
+.tx-settle__confirm input { margin-top: 3px; accent-color: var(--ui-accent-primary); }
+.tx-settle__empty {
+    display: flex; flex-direction: column; gap: 9px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background: var(--ui-background-primary); padding: 10px 13px;
+}
+.tx-settle__empty p { margin: 0; font-size: 0.85rem; }
+.tx-inline-create {
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    background: var(--ui-background-primary); padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+
+/* Messages */
+.tx-messages { display: flex; flex-direction: column; gap: 8px; }
+.tx-msg {
+    display: grid; grid-template-columns: 20px 1fr; gap: 10px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background: var(--ui-background-section); padding: 9px 13px;
+    font-size: 0.85rem; color: var(--ui-text-secondary);
+}
+.tx-msg__glyph { font-weight: 700; color: var(--ui-semantic-warning); text-align: center; }
+.tx-msg--block { border-left-color: var(--ui-semantic-error); }
+.tx-msg--block .tx-msg__glyph { color: var(--ui-semantic-error); }
+.tx-msg--consequence { border-left-color: var(--ui-semantic-info); }
+.tx-msg--consequence .tx-msg__glyph { color: var(--ui-semantic-info); }
+.tx-msg strong { color: var(--ui-text-on-sidebar); font-weight: 600; }
+.tx-msg__sub { display: block; margin-top: 4px; color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-msg__choice { display: flex; align-items: flex-start; gap: 9px; margin-top: 8px; cursor: pointer; }
+.tx-msg__choice input { margin-top: 3px; accent-color: var(--ui-accent-primary); }
+.tx-num { font-family: var(--ui-font-mono); }
+.tx-num--neg { color: var(--ui-semantic-error); }
+
+/* Actions */
+.tx-actions {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    border-top: 1px solid var(--ui-border-default); padding-top: 16px;
+}
+.tx-actions__spacer { flex: 1 1 auto; }
+.tx-actions__hint { font-size: 0.78rem; color: var(--ui-text-disabled); flex-basis: 100%; margin: 0; }
+
+/* Design notes */
+.mk-notes {
+    border: 1px dashed #4A3A22; border-radius: 6px; background: #12100C;
+    padding: 16px 20px; color: #8C7A4A; font-size: 0.84rem;
+}
+.mk-notes h3 { color: #C9A227; font-size: 0.9rem; margin: 0 0 10px; }
+.mk-notes ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.mk-notes code { font-family: var(--ui-font-mono); font-size: 0.8rem; color: #C9A227; }
+.mk-notes b { color: #C9A227; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="mk-chrome">
+    <span class="mk-chrome__tag">Mockup controls</span>
+    <span class="mk-group">
+        <span class="mk-group__label">Settlement state</span>
+        <button class="mk-btn is-on" data-settle="one">one match</button>
+        <button class="mk-btn" data-settle="many">several</button>
+        <button class="mk-btn" data-settle="none">none</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Scenario</span>
+        <button class="mk-btn" data-scenario="normal">sell, clean</button>
+        <button class="mk-btn" data-scenario="deviation">price 6 % off</button>
+        <button class="mk-btn" data-scenario="disposal">full disposal</button>
+        <button class="mk-btn" data-scenario="oversell">oversell (block)</button>
+        <button class="mk-btn" data-scenario="negcash">buy, cash short</button>
+        <button class="mk-btn" data-scenario="netneg">net ≤ 0</button>
+        <button class="mk-btn" data-scenario="future">future date</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Ticket persistence</span>
+        <button class="mk-btn is-on" data-saved="no">unsaved</button>
+        <button class="mk-btn" data-saved="yes">saved draft</button>
+    </span>
+</div>
+<p class="mk-note">
+    M-1 · Order form for U-SELL / U-BUY against an existing unitised investment.
+    Static mockup, self-contained, not connected to the application. Amounts recompute live
+    so the warning logic can be inspected honestly. Tenant shown: MinAthena Capital.
+    Today for this mockup is <b>2026-08-28</b>.
+</p>
+
+<div class="pf-shell">
+    <nav class="pf-sidebar">
+        <div class="pf-sidebar__brand">PortfoliFLOW</div>
+        <div class="pf-sidebar__nav">
+            <div class="pf-sidebar__item">Front Office</div>
+            <div class="pf-sidebar__item">Back Office</div>
+            <div class="pf-sidebar__item">Assistants</div>
+            <div class="pf-sidebar__item">Planning Desk</div>
+            <div class="pf-sidebar__item">Investor Communication</div>
+            <div class="pf-sidebar__item">Watch Desk</div>
+            <div class="pf-sidebar__item">Cases</div>
+            <div class="pf-sidebar__item is-active is-new">Transactions</div>
+            <div class="pf-sidebar__item">Admin</div>
+        </div>
+    </nav>
+
+    <main class="pf-main">
+        <div class="pf-area">
+            <header class="pf-area__header">
+                <h1 class="pf-area__title">Transactions</h1>
+                <p class="pf-area__subtitle">
+                    Record a portfolio change, keep cash correct, and keep the trail from question to booking.
+                </p>
+            </header>
+
+            <!-- ===================== New transaction ===================== -->
+            <section class="pf-section">
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">New transaction</h2>
+                    <span class="pf-section__pill">Draft</span>
+                </div>
+
+                <div class="tx-flows">
+                    <button class="tx-flow is-active" type="button">
+                        <span class="tx-flow__name">Buy or sell units</span>
+                        <span class="tx-flow__hint">An instrument already on the book.</span>
+                        <span class="tx-flow__code">U-BUY / U-SELL</span>
+                    </button>
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">Buy a new instrument</span>
+                        <span class="tx-flow__hint">Create the investment, then buy it.</span>
+                        <span class="tx-flow__code">U-NEW</span>
+                    </button>
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">New commitment</span>
+                        <span class="tx-flow__hint">Private markets. No cash moves yet.</span>
+                        <span class="tx-flow__code">R-COMMIT</span>
+                    </button>
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">Buy a stake (secondary)</span>
+                        <span class="tx-flow__hint">Acquire an existing fund interest.</span>
+                        <span class="tx-flow__code">R-SEC-BUY</span>
+                    </button>
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">Sell a stake (secondary)</span>
+                        <span class="tx-flow__hint">Exit a fund interest in full.</span>
+                        <span class="tx-flow__code">R-SEC-SELL</span>
+                    </button>
+                </div>
+
+                <!-- ------------------- Ticket composer ------------------- -->
+                <div class="tx-ticket">
+                    <div class="tx-ticket__head">
+                        <div style="display:flex;align-items:baseline;gap:14px;">
+                            <span class="tx-ticket__id" id="ticketId">New ticket</span>
+                            <span class="tx-ticket__title" id="ticketTitle">Sell units · Alpha Global Equity Fund</span>
+                        </div>
+                        <span class="tx-state tx-state--draft" id="ticketState">Unsaved</span>
+                    </div>
+
+                    <div class="tx-ticket__body">
+
+                        <!-- What -->
+                        <div class="tx-block">
+                            <p class="tx-block__title">What happened</p>
+                            <div class="tx-grid">
+                                <div class="field">
+                                    <span class="field__label">Direction</span>
+                                    <div class="tx-direction" id="direction">
+                                        <button type="button" data-dir="buy">Buy</button>
+                                        <button type="button" data-dir="sell" class="is-on">Sell</button>
+                                    </div>
+                                </div>
+                                <div class="field" style="grid-column: span 2;">
+                                    <label class="field__label" for="investment">Investment</label>
+                                    <select id="investment">
+                                        <option>Alpha Global Equity Fund — EUR</option>
+                                        <option>Nordic Credit Opportunities — EUR</option>
+                                        <option>Meridian Short Duration Bond — EUR</option>
+                                    </select>
+                                    <span class="field__hint">Unitised and active investments only.</span>
+                                </div>
+                            </div>
+
+                            <div class="tx-context">
+                                <div class="tx-context__item">
+                                    <span class="tx-context__label">Holding on trade date</span>
+                                    <span class="tx-context__value">1,250.0000 units</span>
+                                </div>
+                                <div class="tx-context__item">
+                                    <span class="tx-context__label">Currency</span>
+                                    <span class="tx-context__value">EUR</span>
+                                </div>
+                                <div class="tx-context__item">
+                                    <span class="tx-context__label">Last known price</span>
+                                    <span class="tx-context__value">104.3000 · 2026-08-27</span>
+                                </div>
+                                <div class="tx-context__item">
+                                    <span class="tx-context__label">Valuation mode</span>
+                                    <span class="tx-context__value">unitised</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Execution -->
+                        <div class="tx-block">
+                            <p class="tx-block__title">Execution</p>
+                            <div class="tx-grid">
+                                <div class="field">
+                                    <label class="field__label" for="tradeDate">Trade date</label>
+                                    <input type="date" id="tradeDate" value="2026-08-28">
+                                    <span class="field__hint">Both legs book on this date.</span>
+                                </div>
+                                <div class="field field--numeric">
+                                    <label class="field__label" for="units">Units</label>
+                                    <input type="number" id="units" step="any" value="400">
+                                </div>
+                                <div class="field field--numeric">
+                                    <label class="field__label" for="price">Price per unit (EUR)</label>
+                                    <input type="number" id="price" step="any" value="98.20">
+                                </div>
+                                <div class="field field--numeric">
+                                    <label class="field__label" for="fees">Fees <span class="field__optional">(optional)</span></label>
+                                    <input type="number" id="fees" step="any" value="180">
+                                </div>
+                                <div class="field field--numeric">
+                                    <label class="field__label" for="taxes">Taxes <span class="field__optional">(optional)</span></label>
+                                    <input type="number" id="taxes" step="any" value="45">
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="settleDate">Settlement date <span class="field__optional">(optional)</span></label>
+                                    <input type="date" id="settleDate" value="">
+                                    <span class="field__hint">Recorded only. Cash books on the trade date.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Amounts -->
+                        <div class="tx-block">
+                            <p class="tx-block__title">Amounts</p>
+                            <div class="tx-derived">
+                                <div class="tx-derived__row tx-derived__row--formula">
+                                    <span id="grossFormula">400.0000 units × 98.2000</span><span></span>
+                                </div>
+                                <div class="tx-derived__row"><span>Gross</span><span id="grossOut">39,280.00 EUR</span></div>
+                                <div class="tx-derived__row"><span>Fees</span><span id="feesOut">−180.00 EUR</span></div>
+                                <div class="tx-derived__row"><span>Taxes</span><span id="taxesOut">−45.00 EUR</span></div>
+                                <div class="tx-derived__row tx-derived__row--total">
+                                    <span id="netLabel">Net proceeds</span><span id="netOut">+39,055.00 EUR</span>
+                                </div>
+                            </div>
+
+                            <div class="tx-legs">
+                                <p class="tx-legs__lead">Ledger effect — two legs, booked together or not at all.</p>
+                                <div class="tx-leg">
+                                    <span class="tx-leg__type tx-leg__type--sell" id="leg1Type">sell</span>
+                                    <span class="tx-leg__what">Alpha Global Equity Fund <em>@ 98.2000</em></span>
+                                    <span class="tx-leg__amount" id="leg1Amount">−400.0000 units</span>
+                                </div>
+                                <div class="tx-leg">
+                                    <span class="tx-leg__type tx-leg__type--buy" id="leg2Type">buy</span>
+                                    <span class="tx-leg__what" id="leg2What">EUR Cash — Commerzbank <em>@ 1.0000</em></span>
+                                    <span class="tx-leg__amount" id="leg2Amount">+39,055.0000 units</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Settlement -->
+                        <div class="tx-block">
+                            <p class="tx-block__title">Settlement position</p>
+                            <div id="settleHost"></div>
+                        </div>
+
+                        <!-- Provenance -->
+                        <div class="tx-block">
+                            <p class="tx-block__title">Provenance</p>
+                            <div class="tx-grid">
+                                <div class="field">
+                                    <label class="field__label" for="caseLink">Linked case <span class="field__optional">(optional)</span></label>
+                                    <select id="caseLink">
+                                        <option>No case</option>
+                                        <option>Case #31 — Equity overweight vs. SAA band</option>
+                                        <option>Case #29 — Manager review, Alpha Global</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label class="field__label" for="source">Source <span class="field__optional">(optional)</span></label>
+                                    <input type="text" id="source" placeholder="Broker note, statement reference…">
+                                </div>
+                                <div class="field" style="grid-column: span 2;">
+                                    <label class="field__label" for="note">Note <span class="field__optional">(optional)</span></label>
+                                    <input type="text" id="note" placeholder="Why this trade was made.">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Messages -->
+                        <div class="tx-messages" id="messages"></div>
+
+                        <!-- Actions -->
+                        <div class="tx-actions">
+                            <button class="pf-btn pf-btn--primary" id="bookBtn" type="button">Book now</button>
+                            <button class="pf-btn" type="button">Propose</button>
+                            <button class="pf-btn" type="button">Save as draft</button>
+                            <span class="tx-actions__spacer"></span>
+                            <button class="pf-btn pf-btn--ghost" type="button">Discard</button>
+                            <p class="tx-actions__hint" id="actionHint">
+                                Booking records the decision and both ledger legs in one step.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="pf-section pf-section--placeholder">
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">Blotter</h2>
+                    <span class="pf-section__pill">S5</span>
+                </div>
+                <p class="pf-section__placeholder">Drafts, proposed and approved tickets. Out of scope for M-1.</p>
+            </section>
+
+            <section class="pf-section pf-section--placeholder">
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">History</h2>
+                    <span class="pf-section__pill">S5</span>
+                </div>
+                <p class="pf-section__placeholder">Booked and cancelled tickets. Out of scope for M-1.</p>
+            </section>
+
+            <div class="mk-notes">
+                <h3>Design notes — state after the 2026-08-28/29 review round</h3>
+                <ol>
+                    <li><b>Decided — settlement confirmation.</b> With exactly one match the position is
+                        pre-filled but "Book now" stays inactive until the confirm box is ticked. One
+                        deliberate click on every order; no silent default (D-1).</li>
+                    <li><b>Decided — settlement date.</b> Optional, visible, recorded only; the hint says
+                        so. Valuta-accurate booking stays a named successor.</li>
+                    <li><b>Decided — ticket persistence.</b> The draft row (and with it the ticket
+                        number, <code>case_number</code> precedent) is created on the first explicit
+                        gesture — Save as draft, Propose, or Book now — never on opening the composer.
+                        The header reads "New ticket · Unsaved" until then; the chrome toggle above shows
+                        both header states. No orphaned drafts, no burnt numbers.</li>
+                    <li><b>Resolved pending final confirmation — OP-06.</b> The edit-refusal clause is
+                        removed entirely: booking is never refused and CRUD edits are never refused,
+                        whatever the cash balance. The negative-balance warning carries the resulting
+                        balance and the flag notice, nothing more. Corrections stay possible through the
+                        CRUD (ADR-0128 §6 depends on that path). Named successors recorded in M-4: a
+                        Watch Desk watchpoint on negative cash; portfolio-level external contributions /
+                        withdrawals as their own flow, outside the trade-ticket object.</li>
+                    <li><b>Impact preview.</b> S6 will need room. The natural slot is between Amounts and
+                        Settlement, or as a right-hand rail. Nothing is reserved here yet.</li>
+                    <li><b>Flow chooser.</b> Five entry points, with direction living inside the order form
+                        rather than as two separate cards. Alternative: six cards with Buy and Sell split
+                        apart.</li>
+                    <li><b>Currency mismatch</b> cannot be reached from this form — currency is derived
+                        from the investment and shown read-only in the context strip. The block from the
+                        validation matrix stays a service-layer guard with no surface here.</li>
+                </ol>
+            </div>
+        </div>
+    </main>
+
+    <div class="pf-statusbar">
+        <span>MinAthena Capital · owner</span>
+        <span>Mockup M-1 · no data written</span>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var TODAY = "2026-08-28";
+    var HOLDING = 1250;
+    var LAST_PRICE = 104.30;
+    var LAST_PRICE_DATE = "2026-08-27";
+    var DEV_THRESHOLD = 0.05;
+
+    var CASH = {
+        one: [{ id: "c1", name: "EUR Cash — Commerzbank", balance: 412500 }],
+        many: [
+            { id: "c1", name: "EUR Cash — Commerzbank", balance: 412500 },
+            { id: "c2", name: "EUR Cash — DZ Bank", balance: 88120.44 },
+            { id: "c3", name: "EUR Cash — Treasury buffer", balance: 12000 }
+        ],
+        none: []
+    };
+
+    var state = {
+        direction: "sell",
+        settleState: "one",
+        selectedCash: "c1",
+        confirmed: false,
+        creatingCash: false,
+        createdCash: false,
+        setInactive: false,
+        saved: false
+    };
+
+    function num(v, d) {
+        d = d === undefined ? 2 : d;
+        return v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function signed(v, d) {
+        return (v >= 0 ? "+" : "−") + num(Math.abs(v), d);
+    }
+    function el(id) { return document.getElementById(id); }
+    function val(id) { return parseFloat(el(id).value) || 0; }
+
+    function cashList() {
+        if (state.settleState === "none") {
+            return state.createdCash
+                ? [{ id: "cnew", name: "EUR Cash — new position", balance: 0 }]
+                : [];
+        }
+        return CASH[state.settleState];
+    }
+    function currentCash() {
+        var list = cashList();
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === state.selectedCash) return list[i];
+        }
+        return null;
+    }
+
+    /* ---------------- Settlement block ---------------- */
+
+    function renderSettlement(cashEffect) {
+        var host = el("settleHost");
+        var list = cashList();
+        host.innerHTML = "";
+
+        var wrap = document.createElement("div");
+        wrap.className = "tx-settle";
+
+        if (list.length === 0) {
+            wrap.classList.add("is-unconfirmed");
+            var empty = document.createElement("div");
+            empty.className = "tx-settle__empty";
+            empty.innerHTML =
+                "<p><strong>No EUR cash position exists.</strong></p>" +
+                "<p>This ticket moves cash in EUR and PortfoliFLOW never converts on your behalf. " +
+                "Create a EUR cash position to settle against, or discard the ticket.</p>";
+            var btn = document.createElement("button");
+            btn.className = "pf-btn";
+            btn.type = "button";
+            btn.style.alignSelf = "flex-start";
+            btn.textContent = "Create a EUR cash position";
+            btn.onclick = function () { state.creatingCash = true; render(); };
+            empty.appendChild(btn);
+            wrap.appendChild(empty);
+
+            if (state.creatingCash) {
+                var form = document.createElement("div");
+                form.className = "tx-inline-create";
+                form.innerHTML =
+                    '<div class="tx-grid">' +
+                    '  <div class="field"><span class="field__label">Name</span>' +
+                    '    <input type="text" value="EUR Cash — main account"></div>' +
+                    '  <div class="field"><span class="field__label">Currency</span>' +
+                    '    <input type="text" value="EUR" readonly></div>' +
+                    '  <div class="field field--numeric"><span class="field__label">Opening balance</span>' +
+                    '    <input type="number" value="0" step="any">' +
+                    '    <span class="field__hint">Books as an opening row on the new position.</span></div>' +
+                    '</div>';
+                var row = document.createElement("div");
+                row.style.display = "flex";
+                row.style.gap = "8px";
+                var ok = document.createElement("button");
+                ok.className = "pf-btn pf-btn--primary";
+                ok.type = "button";
+                ok.textContent = "Create position";
+                ok.onclick = function () {
+                    state.createdCash = true;
+                    state.creatingCash = false;
+                    state.selectedCash = "cnew";
+                    state.confirmed = true;
+                    render();
+                };
+                var no = document.createElement("button");
+                no.className = "pf-btn pf-btn--ghost";
+                no.type = "button";
+                no.textContent = "Cancel";
+                no.onclick = function () { state.creatingCash = false; render(); };
+                row.appendChild(ok);
+                row.appendChild(no);
+                form.appendChild(row);
+                wrap.appendChild(form);
+            }
+            host.appendChild(wrap);
+            return;
+        }
+
+        var lead = document.createElement("p");
+        lead.className = "tx-settle__lead";
+        if (list.length === 1) {
+            lead.textContent = "One EUR cash position on the book. Confirm it or pick another.";
+        } else {
+            lead.textContent =
+                list.length + " EUR cash positions on the book. Pick the one the money actually moved on — " +
+                "there is no default.";
+        }
+        wrap.appendChild(lead);
+
+        var opts = document.createElement("div");
+        opts.className = "tx-settle__options";
+        list.forEach(function (c) {
+            var selected = state.selectedCash === c.id;
+            var o = document.createElement("label");
+            o.className = "tx-settle__option" + (selected ? " is-selected" : "");
+            var after = c.balance + cashEffect;
+            o.innerHTML =
+                '<input type="radio" name="cashpos" ' + (selected ? "checked" : "") + '>' +
+                '<span class="tx-settle__name">' + c.name + "</span>" +
+                '<span class="tx-settle__balance">' + num(c.balance) + " EUR" +
+                (selected ? ' <span style="color:var(--ui-text-disabled)">→</span> <span class="' +
+                    (after < 0 ? "tx-num--neg" : "") + '">' + num(after) + "</span>" : "") +
+                "</span>";
+            o.onclick = function () {
+                state.selectedCash = c.id;
+                if (list.length > 1) state.confirmed = true;
+                render();
+            };
+            opts.appendChild(o);
+        });
+        wrap.appendChild(opts);
+
+        if (list.length === 1 && !state.createdCash) {
+            var conf = document.createElement("label");
+            conf.className = "tx-settle__confirm";
+            conf.innerHTML =
+                '<input type="checkbox" ' + (state.confirmed ? "checked" : "") + ">" +
+                "<span>Settle against this position.</span>";
+            conf.onclick = function (e) {
+                e.preventDefault();
+                state.confirmed = !state.confirmed;
+                render();
+            };
+            wrap.appendChild(conf);
+            if (!state.confirmed) wrap.classList.add("is-unconfirmed");
+        }
+
+        host.appendChild(wrap);
+    }
+
+    /* ---------------- Messages ---------------- */
+
+    function msg(kind, glyph, html) {
+        var d = document.createElement("div");
+        d.className = "tx-msg" + (kind ? " tx-msg--" + kind : "");
+        d.innerHTML = '<span class="tx-msg__glyph">' + glyph + "</span><div>" + html + "</div>";
+        return d;
+    }
+
+    function render() {
+        var dir = state.direction;
+        var units = val("units");
+        var price = val("price");
+        var fees = val("fees");
+        var taxes = val("taxes");
+        var tradeDate = el("tradeDate").value;
+
+        var gross = units * price;
+        var net = dir === "sell" ? gross - fees - taxes : gross + fees + taxes;
+        var cashEffect = dir === "sell" ? net : -net;
+
+        /* Direction buttons */
+        Array.prototype.forEach.call(el("direction").children, function (b) {
+            b.classList.toggle("is-on", b.dataset.dir === dir);
+        });
+
+        /* Header + labels */
+        el("ticketId").textContent = state.saved ? "Ticket #18" : "New ticket";
+        el("ticketState").textContent = state.saved ? "Draft" : "Unsaved";
+        el("ticketTitle").textContent =
+            (dir === "sell" ? "Sell units" : "Buy units") + " · Alpha Global Equity Fund";
+        el("netLabel").textContent = dir === "sell" ? "Net proceeds" : "Net cost";
+        el("grossFormula").textContent = num(units, 4) + " units × " + num(price, 4);
+        el("grossOut").textContent = num(gross) + " EUR";
+        el("feesOut").textContent = "−" + num(fees) + " EUR";
+        el("taxesOut").textContent = "−" + num(taxes) + " EUR";
+        el("netOut").textContent = signed(cashEffect) + " EUR";
+        el("netOut").className = cashEffect < 0 ? "" : "";
+
+        /* Legs */
+        var cash = null;
+        el("leg1Type").textContent = dir === "sell" ? "sell" : "buy";
+        el("leg1Type").className = "tx-leg__type tx-leg__type--" + (dir === "sell" ? "sell" : "buy");
+        el("leg1Amount").textContent = (dir === "sell" ? "−" : "+") + num(units, 4) + " units";
+        el("leg2Type").textContent = dir === "sell" ? "buy" : "sell";
+        el("leg2Type").className = "tx-leg__type tx-leg__type--" + (dir === "sell" ? "buy" : "sell");
+        el("leg2Amount").textContent = signed(cashEffect, 4) + " units";
+
+        renderSettlement(cashEffect);
+        cash = currentCash();
+        el("leg2What").innerHTML =
+            (cash ? cash.name : "<span style='color:var(--ui-semantic-error)'>no cash position selected</span>") +
+            " <em>@ 1.0000</em>";
+
+        /* Messages */
+        var box = el("messages");
+        box.innerHTML = "";
+        var blocked = false;
+
+        /* Blocks first. */
+        if (dir === "sell" && units > HOLDING) {
+            blocked = true;
+            box.appendChild(msg("block", "✕",
+                "<strong>" + num(units, 4) + " units exceed the holding of " + num(HOLDING, 4) +
+                " units on " + tradeDate + ".</strong>" +
+                '<span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>'));
+        }
+        if (price <= 0) {
+            blocked = true;
+            box.appendChild(msg("block", "✕",
+                "<strong>A buy or sell needs an execution price.</strong>" +
+                '<span class="tx-msg__sub">Enter the price you actually traded at.</span>'));
+        }
+        if (!cash) {
+            blocked = true;
+        }
+
+        /* Warnings. */
+        if (price > 0 && Math.abs(price - LAST_PRICE) / LAST_PRICE > DEV_THRESHOLD) {
+            var pct = ((price - LAST_PRICE) / LAST_PRICE) * 100;
+            box.appendChild(msg("", "!",
+                "<strong>Execution price is " + num(Math.abs(pct), 1) + " % " +
+                (pct < 0 ? "below" : "above") + " the last known price.</strong>" +
+                '<span class="tx-msg__sub">Last price ' + num(LAST_PRICE, 4) + " EUR on " + LAST_PRICE_DATE +
+                ". The stored price may simply be stale — your execution price is the better fact.</span>"));
+        }
+        if (cash) {
+            var after = cash.balance + cashEffect;
+            if (after < 0) {
+                box.appendChild(msg("", "!",
+                    "<strong>" + cash.name + " goes to " +
+                    '<span class="tx-num tx-num--neg">' + num(after) + " EUR</span> after this ticket.</strong>" +
+                    '<span class="tx-msg__sub">Booking is allowed — the trade is your call. The position stays ' +
+                    "flagged until the balance is back at zero or above.</span>"));
+            }
+        }
+        if (dir === "sell" && net <= 0) {
+            box.appendChild(msg("", "!",
+                "<strong>Net proceeds are " + signed(net) + " EUR.</strong>" +
+                '<span class="tx-msg__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</span>'));
+        }
+        if (tradeDate > TODAY) {
+            box.appendChild(msg("", "!",
+                "<strong>Trade date " + tradeDate + " is in the future.</strong>" +
+                '<span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>'));
+        }
+
+        /* Consequence, not a warning: full disposal. */
+        if (dir === "sell" && units === HOLDING) {
+            var d = msg("consequence", "→",
+                "<strong>This sells the entire holding.</strong>" +
+                '<span class="tx-msg__sub">The position closes at zero units.</span>');
+            var choice = document.createElement("label");
+            choice.className = "tx-msg__choice";
+            choice.innerHTML =
+                '<input type="checkbox" ' + (state.setInactive ? "checked" : "") + ">" +
+                "<span>Set Alpha Global Equity Fund inactive after booking.</span>";
+            choice.onclick = function (e) {
+                e.preventDefault();
+                state.setInactive = !state.setInactive;
+                render();
+            };
+            d.lastChild.appendChild(choice);
+            box.appendChild(d);
+        }
+
+        /* Primary action */
+        var needsConfirm = cash && cashList().length === 1 && !state.createdCash && !state.confirmed;
+        var canBook = !blocked && !!cash && !needsConfirm;
+        el("bookBtn").disabled = !canBook;
+        el("actionHint").textContent = !cash
+            ? "Pick or create a settlement position before booking."
+            : needsConfirm
+                ? "Confirm the settlement position before booking."
+                : blocked
+                    ? "Fix the errors above before booking."
+                    : "Booking records the decision and both ledger legs in one step.";
+    }
+
+    /* ---------------- Wiring ---------------- */
+
+    ["units", "price", "fees", "taxes", "tradeDate"].forEach(function (id) {
+        el(id).addEventListener("input", render);
+        el(id).addEventListener("change", render);
+    });
+
+    Array.prototype.forEach.call(el("direction").children, function (b) {
+        b.onclick = function () { state.direction = b.dataset.dir; render(); };
+    });
+
+    document.querySelectorAll("[data-settle]").forEach(function (b) {
+        b.onclick = function () {
+            state.settleState = b.dataset.settle;
+            state.confirmed = false;
+            state.creatingCash = false;
+            state.createdCash = false;
+            state.selectedCash = state.settleState === "one" ? "c1" : null;
+            document.querySelectorAll("[data-settle]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+
+    document.querySelectorAll("[data-saved]").forEach(function (b) {
+        b.onclick = function () {
+            state.saved = b.dataset.saved === "yes";
+            document.querySelectorAll("[data-saved]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+
+    var SCENARIOS = {
+        normal:    { dir: "sell", units: 400, price: 104.10, fees: 180, taxes: 45, date: TODAY },
+        deviation: { dir: "sell", units: 400, price: 98.20, fees: 180, taxes: 45, date: TODAY },
+        disposal:  { dir: "sell", units: 1250, price: 104.10, fees: 420, taxes: 260, date: TODAY },
+        oversell:  { dir: "sell", units: 1400, price: 104.10, fees: 180, taxes: 45, date: TODAY },
+        negcash:   { dir: "buy", units: 5000, price: 104.10, fees: 900, taxes: 0, date: TODAY },
+        netneg:    { dir: "sell", units: 1, price: 104.10, fees: 180, taxes: 45, date: TODAY },
+        future:    { dir: "sell", units: 400, price: 104.10, fees: 180, taxes: 45, date: "2026-09-04" }
+    };
+    document.querySelectorAll("[data-scenario]").forEach(function (b) {
+        b.onclick = function () {
+            var s = SCENARIOS[b.dataset.scenario];
+            state.direction = s.dir;
+            el("units").value = s.units;
+            el("price").value = s.price;
+            el("fees").value = s.fees;
+            el("taxes").value = s.taxes;
+            el("tradeDate").value = s.date;
+            state.setInactive = false;
+            document.querySelectorAll("[data-scenario]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+
+    render();
+})();
+</script>
+</body>
+</html>

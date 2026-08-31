@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-3 · Reported flows (R-SEC-SELL / R-COMMIT / R-SEC-BUY) — Transactions mockup</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * M-3 — Reported flows, Transactions area (#061, ADR-0128).
+ * Self-contained; tokens copied from theme.css (dark default).
+ * Companion to M-1 (order form) and M-2 (U-NEW wizard); inherits their
+ * decided points (ticket persistence, settlement confirmation,
+ * payload-on-ticket master data, AnlV gate on Propose and Book now).
+ * ------------------------------------------------------------------ */
+:root {
+    --ui-background-primary: #0A0A0A;
+    --ui-background-secondary: #141414;
+    --ui-background-section: #1A1A1A;
+    --ui-accent-primary: #E8304A;
+    --ui-accent-primary-hover: #FF4D66;
+    --ui-accent-primary-pressed: #C42840;
+    --ui-button-fg: #000000;
+    --ui-text-primary: #E8304A;
+    --ui-text-secondary: #B0B0B0;
+    --ui-text-disabled: #555555;
+    --ui-text-on-sidebar: #FFFFFF;
+    --ui-border-default: #2A2A2A;
+    --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+    --ui-font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    --ui-semantic-success: #4CAF50;
+    --ui-semantic-warning: #FFC107;
+    --ui-semantic-info: #4A9BD9;
+    --ui-semantic-error: #FF6B6B;
+    --ui-semantic-muted: #707070;
+    --pf-bg-deepest: #050505;
+    --pf-bg-surface: #141414;
+    --pf-bg-elevated: #1A1A1A;
+    --pf-accent-soft: rgba(232, 48, 74, 0.15);
+    --pf-sidebar-width-expanded: 200px;
+    --pf-statusbar-height: 28px;
+    --pf-sticky-header-bg: rgba(20, 20, 20, 0.78);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+    background-color: var(--ui-background-primary); color: var(--ui-text-secondary);
+    font-family: var(--ui-font-family); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { color: var(--ui-text-primary); margin: 0 0 0.5em 0; font-weight: 600; }
+a { color: var(--ui-accent-primary); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--ui-accent-primary); outline-offset: 2px; }
+button { cursor: pointer; font: inherit; color: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+input, select, textarea { font: inherit; color: inherit; }
+
+/* --- Mockup chrome (NOT part of the product) ----------------------- */
+.mk-chrome {
+    position: sticky; top: 0; z-index: 40;
+    background: #17110C; border-bottom: 1px solid #4A3A22;
+    padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    font-size: 0.78rem; color: #C9A227;
+}
+.mk-chrome__tag {
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-size: 0.68rem;
+    border: 1px solid #4A3A22; border-radius: 3px; padding: 2px 7px;
+}
+.mk-group { display: flex; align-items: center; gap: 6px; }
+.mk-group__label { color: #8C7A4A; }
+.mk-btn {
+    background: #1F1710; border: 1px solid #4A3A22; color: #C9A227;
+    border-radius: 3px; padding: 3px 9px; font-size: 0.76rem;
+}
+.mk-btn:hover { border-color: #C9A227; }
+.mk-btn.is-on { background: #C9A227; color: #17110C; border-color: #C9A227; }
+.mk-note {
+    margin: 0; padding: 10px 16px; background: #17110C;
+    border-bottom: 1px solid #4A3A22; color: #8C7A4A; font-size: 0.78rem;
+}
+
+/* --- Shell --------------------------------------------------------- */
+.pf-shell {
+    display: grid; grid-template-columns: var(--pf-sidebar-width-expanded) 1fr;
+    grid-template-rows: 1fr var(--pf-statusbar-height);
+    grid-template-areas: "sidebar main" "statusbar statusbar";
+    min-height: calc(100vh - 40px); background-color: var(--pf-bg-deepest);
+}
+.pf-sidebar {
+    grid-area: sidebar; display: flex; flex-direction: column;
+    background-color: var(--pf-bg-surface); border-right: 1px solid var(--ui-border-default);
+}
+.pf-sidebar__brand {
+    padding: 16px; border-bottom: 1px solid var(--ui-border-default);
+    color: var(--ui-text-primary); font-weight: 700; letter-spacing: 0.04em; font-size: 0.95rem;
+}
+.pf-sidebar__nav { display: flex; flex-direction: column; padding: 12px 0; gap: 2px; }
+.pf-sidebar__item { padding: 9px 16px; color: var(--ui-text-secondary); border-left: 3px solid transparent; font-size: 0.92rem; }
+.pf-sidebar__item.is-active {
+    color: var(--ui-accent-primary); background-color: var(--pf-accent-soft);
+    border-left-color: var(--ui-accent-primary); font-weight: 600;
+}
+.pf-main { grid-area: main; overflow: auto; padding: 24px 32px; background-color: var(--pf-bg-deepest); }
+.pf-statusbar {
+    grid-area: statusbar; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; background: var(--pf-bg-surface); border-top: 1px solid var(--ui-border-default);
+    font-size: 0.74rem; color: var(--ui-text-disabled);
+}
+.pf-area { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.pf-area__header { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-border-default); }
+.pf-area__title { color: var(--ui-text-primary); font-size: 1.5rem; margin: 0; letter-spacing: 0.02em; }
+.pf-area__subtitle { color: var(--ui-text-secondary); font-size: 0.9rem; margin: 0; }
+.pf-section {
+    background-color: var(--pf-bg-surface); border: 1px solid var(--ui-border-default);
+    border-radius: 6px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.pf-section__header {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin: -20px -24px 0 -24px; padding: 14px 24px;
+    background-color: var(--pf-sticky-header-bg); border-bottom: 1px solid var(--ui-border-default);
+    border-top-left-radius: 6px; border-top-right-radius: 6px;
+}
+.pf-section__title { color: var(--ui-text-primary); font-size: 1.05rem; margin: 0; }
+.pf-section__pill {
+    color: var(--ui-text-secondary); background-color: var(--pf-bg-elevated);
+    border: 1px solid var(--ui-border-default); border-radius: 999px;
+    padding: 2px 10px; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+}
+
+/* --- Buttons ------------------------------------------------------- */
+.pf-btn {
+    background: var(--ui-background-secondary); color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    padding: 7px 14px; font-size: 0.84rem;
+}
+.pf-btn:hover:not(:disabled) { border-color: var(--ui-accent-primary); }
+.pf-btn--primary { background: var(--ui-accent-primary); color: var(--ui-button-fg); border-color: var(--ui-accent-primary); font-weight: 600; }
+.pf-btn--primary:hover:not(:disabled) { background: var(--ui-accent-primary-hover); }
+.pf-btn--ghost { background: transparent; }
+
+/* --- Flow chooser --------------------------------------------------- */
+.tx-flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }
+.tx-flow {
+    text-align: left; background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default); border-radius: 5px;
+    padding: 11px 13px; display: flex; flex-direction: column; gap: 3px;
+}
+.tx-flow:hover { border-color: var(--ui-accent-primary); }
+.tx-flow.is-active { border-color: var(--ui-accent-primary); background: var(--pf-accent-soft); }
+.tx-flow__name { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.88rem; }
+.tx-flow.is-active .tx-flow__name { color: var(--ui-accent-primary); }
+.tx-flow__hint { color: var(--ui-text-disabled); font-size: 0.74rem; line-height: 1.35; }
+.tx-flow__code { font-family: var(--ui-font-mono); font-size: 0.66rem; letter-spacing: 0.06em; color: var(--ui-semantic-muted); }
+
+/* --- Ticket composer ------------------------------------------------ */
+.tx-ticket { background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 6px; }
+.tx-ticket__head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 13px 20px; border-bottom: 1px solid var(--ui-border-default);
+    background: var(--pf-bg-elevated); border-top-left-radius: 6px; border-top-right-radius: 6px;
+}
+.tx-ticket__id { font-family: var(--ui-font-mono); font-size: 0.82rem; color: var(--ui-text-secondary); }
+.tx-ticket__title { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.95rem; }
+.tx-ticket__body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
+.tx-state {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--ui-border-default); border-radius: 999px;
+    padding: 2px 10px; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--ui-text-secondary);
+}
+.tx-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ui-semantic-muted); }
+
+/* --- Blocks / fields ------------------------------------------------ */
+.tx-block { display: flex; flex-direction: column; gap: 10px; }
+.tx-block__title { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ui-semantic-muted); margin: 0; font-weight: 600; }
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 18px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field__label { color: var(--ui-text-secondary); font-size: 0.8rem; font-weight: 500; }
+.field__optional { color: var(--ui-text-disabled); font-weight: 400; }
+.field input[type="text"], .field input[type="number"], .field input[type="date"],
+.field select, .field textarea {
+    width: 100%; padding: 6px 9px; border: 1px solid var(--ui-border-default); border-radius: 4px;
+    background-color: var(--ui-background-primary); color: var(--ui-text-secondary); font-size: 0.9rem;
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--ui-accent-primary); }
+.field__hint { color: var(--ui-text-disabled); font-size: 0.74rem; }
+.field--numeric input { font-family: var(--ui-font-mono); text-align: right; }
+.field.is-missing select { border-color: var(--ui-semantic-warning); }
+
+.tx-context {
+    display: flex; flex-wrap: wrap; gap: 20px;
+    background: var(--ui-background-section); border: 1px solid var(--ui-border-default);
+    border-radius: 5px; padding: 10px 14px;
+}
+.tx-context__item { display: flex; flex-direction: column; gap: 1px; }
+.tx-context__label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ui-semantic-muted); }
+.tx-context__value { font-family: var(--ui-font-mono); font-size: 0.86rem; color: var(--ui-text-secondary); }
+
+.tx-derived { background: var(--ui-background-section); border: 1px solid var(--ui-border-default); border-radius: 5px; padding: 12px 14px; }
+.tx-derived__row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 3px 0; font-size: 0.87rem; }
+.tx-derived__row span:last-child { font-family: var(--ui-font-mono); color: var(--ui-text-secondary); }
+.tx-derived__row--info span:first-child { color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-derived__row--total { border-top: 1px solid var(--ui-border-default); margin-top: 6px; padding-top: 8px; font-weight: 600; }
+.tx-derived__row--total span:last-child { color: var(--ui-text-on-sidebar); font-size: 1rem; }
+
+/* Emission preview */
+.tx-legs { border: 1px dashed var(--ui-border-default); border-radius: 5px; padding: 12px 14px; }
+.tx-legs__lead { color: var(--ui-text-disabled); font-size: 0.78rem; margin: 0 0 8px; }
+.tx-leg {
+    display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: baseline;
+    padding: 4px 0; font-family: var(--ui-font-mono); font-size: 0.84rem;
+}
+.tx-leg + .tx-leg { border-top: 1px solid #1F1F1F; }
+.tx-leg__type {
+    text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em;
+    border: 1px solid var(--ui-border-default); border-radius: 3px;
+    padding: 1px 6px; text-align: center; color: var(--ui-text-secondary);
+}
+.tx-leg__type--buy { border-color: rgba(76,175,80,0.5); color: var(--ui-semantic-success); }
+.tx-leg__type--sell { border-color: rgba(232,48,74,0.5); color: var(--ui-accent-primary); }
+.tx-leg__type--info { border-color: rgba(74,155,217,0.5); color: var(--ui-semantic-info); }
+.tx-leg__what { font-family: var(--ui-font-family); color: var(--ui-text-secondary); font-size: 0.86rem; }
+.tx-leg__what em { font-style: normal; color: var(--ui-text-disabled); font-size: 0.78rem; }
+.tx-leg__amount { color: var(--ui-text-secondary); }
+
+/* Settlement (single-match pattern) */
+.tx-settle {
+    border: 1px solid var(--ui-border-default); border-radius: 5px;
+    background: var(--ui-background-section); padding: 13px 15px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.tx-settle.is-unconfirmed { border-color: var(--ui-semantic-warning); }
+.tx-settle__lead { font-size: 0.82rem; color: var(--ui-text-disabled); margin: 0; }
+.tx-settle__option {
+    display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center;
+    border: 1px solid var(--ui-accent-primary); border-radius: 4px;
+    background: var(--pf-accent-soft); padding: 8px 11px;
+}
+.tx-settle__name { font-size: 0.88rem; color: var(--ui-text-secondary); }
+.tx-settle__balance { font-family: var(--ui-font-mono); font-size: 0.85rem; color: var(--ui-text-secondary); }
+.tx-settle__confirm { display: flex; align-items: flex-start; gap: 9px; font-size: 0.84rem; color: var(--ui-text-secondary); cursor: pointer; }
+.tx-settle__confirm input { margin-top: 3px; accent-color: var(--ui-accent-primary); }
+
+/* No-cash panel (R-COMMIT) */
+.tx-nocash {
+    border: 1px solid rgba(74,155,217,0.4); border-radius: 5px;
+    background: var(--ui-background-section); padding: 12px 15px;
+    font-size: 0.85rem; color: var(--ui-text-secondary);
+}
+.tx-nocash strong { color: var(--ui-semantic-info); }
+.tx-nocash p { margin: 0; }
+.tx-nocash p + p { margin-top: 5px; color: var(--ui-text-disabled); font-size: 0.8rem; }
+
+/* Fraction control (R-SEC-SELL) */
+.tx-fraction { display: flex; flex-direction: column; gap: 6px; }
+.tx-fraction__opt {
+    display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
+    border: 1px solid var(--ui-border-default); border-radius: 4px;
+    background: var(--ui-background-primary); padding: 8px 11px; cursor: pointer;
+    font-size: 0.87rem;
+}
+.tx-fraction__opt input { accent-color: var(--ui-accent-primary); margin-top: 2px; }
+.tx-fraction__opt.is-selected { border-color: var(--ui-accent-primary); background: var(--pf-accent-soft); }
+.tx-fraction__opt.is-refused { border-color: var(--ui-semantic-error); }
+.tx-fraction__sub { display: block; color: var(--ui-text-disabled); font-size: 0.78rem; margin-top: 2px; }
+
+/* Messages */
+.tx-messages { display: flex; flex-direction: column; gap: 8px; }
+.tx-msg {
+    display: grid; grid-template-columns: 20px 1fr; gap: 10px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background: var(--ui-background-section); padding: 9px 13px;
+    font-size: 0.85rem; color: var(--ui-text-secondary);
+}
+.tx-msg__glyph { font-weight: 700; color: var(--ui-semantic-warning); text-align: center; }
+.tx-msg--block { border-left-color: var(--ui-semantic-error); }
+.tx-msg--block .tx-msg__glyph { color: var(--ui-semantic-error); }
+.tx-msg--consequence { border-left-color: var(--ui-semantic-info); }
+.tx-msg--consequence .tx-msg__glyph { color: var(--ui-semantic-info); }
+.tx-msg strong { color: var(--ui-text-on-sidebar); font-weight: 600; }
+.tx-msg__sub { display: block; margin-top: 4px; color: var(--ui-text-disabled); font-size: 0.8rem; }
+
+/* Actions */
+.tx-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--ui-border-default); padding-top: 16px; }
+.tx-actions__spacer { flex: 1 1 auto; }
+.tx-actions__hint { font-size: 0.78rem; color: var(--ui-text-disabled); flex-basis: 100%; margin: 0; }
+
+/* Design notes */
+.mk-notes {
+    border: 1px dashed #4A3A22; border-radius: 6px; background: #12100C;
+    padding: 16px 20px; color: #8C7A4A; font-size: 0.84rem;
+}
+.mk-notes h3 { color: #C9A227; font-size: 0.9rem; margin: 0 0 10px; }
+.mk-notes ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.mk-notes code { font-family: var(--ui-font-mono); font-size: 0.8rem; color: #C9A227; }
+.mk-notes b { color: #C9A227; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="mk-chrome">
+    <span class="mk-chrome__tag">Mockup controls</span>
+    <span class="mk-group">
+        <span class="mk-group__label">Flow</span>
+        <button class="mk-btn is-on" data-flow="secsell">R-SEC-SELL</button>
+        <button class="mk-btn" data-flow="commit">R-COMMIT</button>
+        <button class="mk-btn" data-flow="secbuy">R-SEC-BUY</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">AnlV (creating flows)</span>
+        <button class="mk-btn is-on" data-anlv="set">set</button>
+        <button class="mk-btn" data-anlv="missing">missing (gate)</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Cash balance (R-SEC-BUY)</span>
+        <button class="mk-btn is-on" data-cash="ample">ample</button>
+        <button class="mk-btn" data-cash="short">short</button>
+    </span>
+</div>
+<p class="mk-note">
+    M-3 · Reported flows: full secondary sale, primary commitment, secondary purchase — plus the
+    R-2 refusal for a partial sale (select "Sell part of the stake" inside R-SEC-SELL).
+    Static mockup, self-contained; amounts recompute live. Settlement blocks show the one-match
+    pattern; the several/none states behave exactly as in M-1. Today for this mockup is <b>2026-08-28</b>.
+</p>
+
+<div class="pf-shell">
+    <nav class="pf-sidebar">
+        <div class="pf-sidebar__brand">PortfoliFLOW</div>
+        <div class="pf-sidebar__nav">
+            <div class="pf-sidebar__item">Front Office</div>
+            <div class="pf-sidebar__item">Back Office</div>
+            <div class="pf-sidebar__item">Assistants</div>
+            <div class="pf-sidebar__item">Planning Desk</div>
+            <div class="pf-sidebar__item">Investor Communication</div>
+            <div class="pf-sidebar__item">Watch Desk</div>
+            <div class="pf-sidebar__item">Cases</div>
+            <div class="pf-sidebar__item is-active">Transactions</div>
+            <div class="pf-sidebar__item">Admin</div>
+        </div>
+    </nav>
+
+    <main class="pf-main">
+        <div class="pf-area">
+            <header class="pf-area__header">
+                <h1 class="pf-area__title">Transactions</h1>
+                <p class="pf-area__subtitle">
+                    Record a portfolio change, keep cash correct, and keep the trail from question to booking.
+                </p>
+            </header>
+
+            <section class="pf-section">
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">New transaction</h2>
+                    <span class="pf-section__pill" id="flowPill">Secondary sale</span>
+                </div>
+
+                <div class="tx-flows">
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">Buy or sell units</span>
+                        <span class="tx-flow__hint">An instrument already on the book.</span>
+                        <span class="tx-flow__code">U-BUY / U-SELL</span>
+                    </button>
+                    <button class="tx-flow" type="button">
+                        <span class="tx-flow__name">Buy a new instrument</span>
+                        <span class="tx-flow__hint">Create the investment, then buy it.</span>
+                        <span class="tx-flow__code">U-NEW</span>
+                    </button>
+                    <button class="tx-flow" type="button" data-flowcard="commit">
+                        <span class="tx-flow__name">New commitment</span>
+                        <span class="tx-flow__hint">Private markets. No cash moves yet.</span>
+                        <span class="tx-flow__code">R-COMMIT</span>
+                    </button>
+                    <button class="tx-flow" type="button" data-flowcard="secbuy">
+                        <span class="tx-flow__name">Buy a stake (secondary)</span>
+                        <span class="tx-flow__hint">Acquire an existing fund interest.</span>
+                        <span class="tx-flow__code">R-SEC-BUY</span>
+                    </button>
+                    <button class="tx-flow is-active" type="button" data-flowcard="secsell">
+                        <span class="tx-flow__name">Sell a stake (secondary)</span>
+                        <span class="tx-flow__hint">Exit a fund interest in full.</span>
+                        <span class="tx-flow__code">R-SEC-SELL</span>
+                    </button>
+                </div>
+
+                <div class="tx-ticket">
+                    <div class="tx-ticket__head">
+                        <div style="display:flex;align-items:baseline;gap:14px;">
+                            <span class="tx-ticket__id">New ticket</span>
+                            <span class="tx-ticket__title" id="ticketTitle">Sell a stake · Cinder Ridge Buyout Fund III</span>
+                        </div>
+                        <span class="tx-state">Unsaved</span>
+                    </div>
+
+                    <div class="tx-ticket__body">
+
+                        <!-- ================= R-SEC-SELL ================= -->
+                        <div data-form="secsell" style="display:flex;flex-direction:column;gap:20px;">
+                            <div class="tx-block">
+                                <p class="tx-block__title">What happened</p>
+                                <div class="tx-grid">
+                                    <div class="field" style="grid-column: span 2;">
+                                        <label class="field__label" for="ssInv">Investment</label>
+                                        <select id="ssInv">
+                                            <option>Cinder Ridge Buyout Fund III — EUR</option>
+                                            <option>Talstrasse Growth Partners I — EUR</option>
+                                        </select>
+                                        <span class="field__hint">Reported and active investments only.</span>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="ssDate">Trade date</label>
+                                        <input type="date" id="ssDate" value="2026-08-28">
+                                    </div>
+                                </div>
+                                <div class="tx-context">
+                                    <div class="tx-context__item">
+                                        <span class="tx-context__label">Last reported NAV</span>
+                                        <span class="tx-context__value">1,920,000.00 EUR · 2026-06-30</span>
+                                    </div>
+                                    <div class="tx-context__item">
+                                        <span class="tx-context__label">Unfunded commitment</span>
+                                        <span class="tx-context__value">450,000.00 EUR</span>
+                                    </div>
+                                    <div class="tx-context__item">
+                                        <span class="tx-context__label">Vintage</span>
+                                        <span class="tx-context__value">2021</span>
+                                    </div>
+                                    <div class="tx-context__item">
+                                        <span class="tx-context__label">Valuation mode</span>
+                                        <span class="tx-context__value">reported</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Scope of the sale</p>
+                                <div class="tx-fraction" id="fraction">
+                                    <label class="tx-fraction__opt is-selected" data-frac="full">
+                                        <input type="radio" name="frac" checked>
+                                        <span>Sell the entire stake
+                                            <span class="tx-fraction__sub">NAV, unfunded commitment and the position close together.</span>
+                                        </span>
+                                    </label>
+                                    <label class="tx-fraction__opt" data-frac="partial">
+                                        <input type="radio" name="frac">
+                                        <span>Sell part of the stake
+                                            <span class="tx-fraction__sub">Not supported in v1.</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Proceeds</p>
+                                <div class="tx-grid">
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="ssGross">Sale proceeds (EUR)</label>
+                                        <input type="number" id="ssGross" step="any" value="1850000">
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="ssFees">Fees <span class="field__optional">(optional)</span></label>
+                                        <input type="number" id="ssFees" step="any" value="12500">
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="ssTaxes">Taxes <span class="field__optional">(optional)</span></label>
+                                        <input type="number" id="ssTaxes" step="any" value="0">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="ssSettleDate">Settlement date <span class="field__optional">(optional)</span></label>
+                                        <input type="date" id="ssSettleDate" value="">
+                                        <span class="field__hint">Recorded only. Cash books on the trade date.</span>
+                                    </div>
+                                </div>
+                                <div class="tx-derived">
+                                    <div class="tx-derived__row"><span>Sale proceeds</span><span id="ssGrossOut">1,850,000.00 EUR</span></div>
+                                    <div class="tx-derived__row"><span>Fees</span><span id="ssFeesOut">−12,500.00 EUR</span></div>
+                                    <div class="tx-derived__row"><span>Taxes</span><span id="ssTaxesOut">−0.00 EUR</span></div>
+                                    <div class="tx-derived__row tx-derived__row--total"><span>Net proceeds</span><span id="ssNetOut">+1,837,500.00 EUR</span></div>
+                                    <div class="tx-derived__row tx-derived__row--info">
+                                        <span>vs. last reported NAV</span><span id="ssVsNav">−4.3 %</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">On booking</p>
+                                <div class="tx-legs">
+                                    <p class="tx-legs__lead">Emitted together, or not at all:</p>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">flow</span>
+                                        <span class="tx-leg__what">Cinder Ridge Buyout Fund III <em>distribution · actual</em></span>
+                                        <span class="tx-leg__amount" id="ssLegFlow">+1,837,500.00 EUR</span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">nav</span>
+                                        <span class="tx-leg__what">NAV set to zero at trade date <em>manual origin</em></span>
+                                        <span class="tx-leg__amount">0.00 EUR</span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">status</span>
+                                        <span class="tx-leg__what">Investment set inactive <em>full disposal</em></span>
+                                        <span class="tx-leg__amount"></span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--buy">buy</span>
+                                        <span class="tx-leg__what">EUR Cash — Commerzbank <em>@ 1.0000</em></span>
+                                        <span class="tx-leg__amount" id="ssLegCash">+1,837,500.0000 units</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Settlement position</p>
+                                <div class="tx-settle" id="ssSettle">
+                                    <p class="tx-settle__lead">One EUR cash position on the book. Confirm it or pick another.</p>
+                                    <div class="tx-settle__option">
+                                        <input type="radio" checked>
+                                        <span class="tx-settle__name">EUR Cash — Commerzbank</span>
+                                        <span class="tx-settle__balance">2,750,000.00 EUR
+                                            <span style="color:var(--ui-text-disabled)">→</span>
+                                            <span id="ssAfter">4,587,500.00</span></span>
+                                    </div>
+                                    <label class="tx-settle__confirm">
+                                        <input type="checkbox" id="ssConfirm">
+                                        <span>Settle against this position.</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="tx-messages" id="ssMessages"></div>
+
+                            <div class="tx-actions">
+                                <button class="pf-btn pf-btn--primary" id="ssBook" type="button">Book now</button>
+                                <button class="pf-btn" id="ssPropose" type="button">Propose</button>
+                                <button class="pf-btn" type="button">Save as draft</button>
+                                <span class="tx-actions__spacer"></span>
+                                <button class="pf-btn pf-btn--ghost" type="button">Discard</button>
+                                <p class="tx-actions__hint" id="ssHint"></p>
+                            </div>
+                        </div>
+
+                        <!-- ================= R-COMMIT ================= -->
+                        <div data-form="commit" style="display:none;flex-direction:column;gap:20px;">
+                            <div class="tx-block">
+                                <p class="tx-block__title">New investment</p>
+                                <div class="tx-grid">
+                                    <div class="field" style="grid-column: span 2;">
+                                        <label class="field__label" for="cName">Name</label>
+                                        <input type="text" id="cName" value="Nordwind Private Credit Fund II">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="cType">Investment type</label>
+                                        <select id="cType">
+                                            <option>private_debt</option><option>private_equity</option>
+                                            <option>real_estate</option><option>infra_equity</option><option>other</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="cAc">Asset class</label>
+                                        <select id="cAc"><option>Private Credit</option><option>Real Assets</option></select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="cCcy">Currency</label>
+                                        <input type="text" id="cCcy" value="EUR" style="font-family:var(--ui-font-mono);">
+                                    </div>
+                                    <div class="field">
+                                        <span class="field__label">Valuation mode</span>
+                                        <input type="text" value="reported" readonly>
+                                        <span class="field__hint">Fixed for this flow.</span>
+                                    </div>
+                                    <div class="field is-anlv" style="grid-column: span 2;">
+                                        <label class="field__label" for="cAnlv">AnlV category</label>
+                                        <select id="cAnlv" data-anlvsel>
+                                            <option value="">— not set —</option>
+                                            <option value="anlv_17" selected>§ 2 Abs. 1 Nr. 17 AnlV — Andere Investmentvermögen</option>
+                                            <option value="anlv_13">§ 2 Abs. 1 Nr. 13 AnlV — Beteiligungen (nicht notierte Anteile und geschlossene PE-AIF)</option>
+                                            <option value="anlv_16">§ 2 Abs. 1 Nr. 16 AnlV — Offene Spezial-AIF mit festen Anlagebedingungen</option>
+                                        </select>
+                                        <span class="field__hint">Required before this ticket can be proposed or booked.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Commitment</p>
+                                <div class="tx-grid">
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="cAmount">Commitment amount (EUR)</label>
+                                        <input type="number" id="cAmount" step="any" value="5000000">
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="cVintage">Vintage year</label>
+                                        <input type="number" id="cVintage" value="2026">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="cDate">Commitment date</label>
+                                        <input type="date" id="cDate" value="2026-08-28">
+                                        <span class="field__hint">Books as the ticket's trade date.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-nocash">
+                                <p><strong>No cash moves with this ticket.</strong> Money leaves the portfolio with the
+                                capital calls, which stay ordinary cashflows on the investment — entered as they arrive,
+                                outside this ticket.</p>
+                                <p>The ticket books once, when the commitment is recorded, and remains the provenance
+                                anchor a Case can point at. Pacing and drawdown views stay with the Planning Desk.</p>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">On booking</p>
+                                <div class="tx-legs">
+                                    <p class="tx-legs__lead">Emitted together, or not at all:</p>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type">create</span>
+                                        <span class="tx-leg__what" id="cLegName">Investment · Nordwind Private Credit Fund II <em>reported</em></span>
+                                        <span class="tx-leg__amount"></span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">commit</span>
+                                        <span class="tx-leg__what">Commitment recorded <em>vintage 2026</em></span>
+                                        <span class="tx-leg__amount" id="cLegAmount">5,000,000.00 EUR</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-messages" id="cMessages"></div>
+
+                            <div class="tx-actions">
+                                <button class="pf-btn pf-btn--primary" id="cBook" type="button">Book now</button>
+                                <button class="pf-btn" id="cPropose" type="button">Propose</button>
+                                <button class="pf-btn" type="button">Save as draft</button>
+                                <span class="tx-actions__spacer"></span>
+                                <button class="pf-btn pf-btn--ghost" type="button">Discard</button>
+                                <p class="tx-actions__hint" id="cHint"></p>
+                            </div>
+                        </div>
+
+                        <!-- ================= R-SEC-BUY ================= -->
+                        <div data-form="secbuy" style="display:none;flex-direction:column;gap:20px;">
+                            <div class="tx-block">
+                                <p class="tx-block__title">New investment (acquired stake)</p>
+                                <div class="tx-grid">
+                                    <div class="field" style="grid-column: span 2;">
+                                        <label class="field__label" for="bName">Name</label>
+                                        <input type="text" id="bName" value="Halstenbek Infrastructure Partners II">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bType">Investment type</label>
+                                        <select id="bType">
+                                            <option>infra_equity</option><option>private_equity</option>
+                                            <option>private_debt</option><option>real_estate</option><option>other</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bAc">Asset class</label>
+                                        <select id="bAc"><option>Real Assets</option><option>Private Equity</option></select>
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bCcy">Currency</label>
+                                        <input type="text" id="bCcy" value="EUR" style="font-family:var(--ui-font-mono);">
+                                    </div>
+                                    <div class="field">
+                                        <span class="field__label">Valuation mode</span>
+                                        <input type="text" value="reported" readonly>
+                                        <span class="field__hint">Fixed for this flow.</span>
+                                    </div>
+                                    <div class="field is-anlv" style="grid-column: span 2;">
+                                        <label class="field__label" for="bAnlv">AnlV category</label>
+                                        <select id="bAnlv" data-anlvsel>
+                                            <option value="">— not set —</option>
+                                            <option value="anlv_13" selected>§ 2 Abs. 1 Nr. 13 AnlV — Beteiligungen (nicht notierte Anteile und geschlossene PE-AIF)</option>
+                                            <option value="anlv_17">§ 2 Abs. 1 Nr. 17 AnlV — Andere Investmentvermögen</option>
+                                            <option value="anlv_16">§ 2 Abs. 1 Nr. 16 AnlV — Offene Spezial-AIF mit festen Anlagebedingungen</option>
+                                        </select>
+                                        <span class="field__hint">Required before this ticket can be proposed or booked.</span>
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="bVintage">Vintage year</label>
+                                        <input type="number" id="bVintage" value="2022">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bDate">Trade date</label>
+                                        <input type="date" id="bDate" value="2026-08-28">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Transfer terms</p>
+                                <div class="tx-grid">
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="bPrice">Purchase price, net cash out (EUR)</label>
+                                        <input type="number" id="bPrice" step="any" value="2208000">
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="bNav">Acquired NAV at transfer (EUR)</label>
+                                        <input type="number" id="bNav" step="any" value="2400000">
+                                        <span class="field__hint">Books as the stake's opening NAV.</span>
+                                    </div>
+                                    <div class="field field--numeric">
+                                        <label class="field__label" for="bUnfunded">Assumed unfunded commitment (EUR)</label>
+                                        <input type="number" id="bUnfunded" step="any" value="600000">
+                                    </div>
+                                    <div class="field">
+                                        <label class="field__label" for="bSettleDate">Settlement date <span class="field__optional">(optional)</span></label>
+                                        <input type="date" id="bSettleDate" value="">
+                                        <span class="field__hint">Recorded only. Cash books on the trade date.</span>
+                                    </div>
+                                </div>
+                                <div class="tx-derived">
+                                    <div class="tx-derived__row"><span>Purchase price (cash out)</span><span id="bPriceOut">−2,208,000.00 EUR</span></div>
+                                    <div class="tx-derived__row"><span>Acquired NAV</span><span id="bNavOut">2,400,000.00 EUR</span></div>
+                                    <div class="tx-derived__row tx-derived__row--info">
+                                        <span>Price vs. acquired NAV</span><span id="bDiscount">−8.0 % (discount)</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">On booking</p>
+                                <div class="tx-legs">
+                                    <p class="tx-legs__lead">Emitted together, or not at all:</p>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type">create</span>
+                                        <span class="tx-leg__what" id="bLegName">Investment · Halstenbek Infrastructure Partners II <em>reported</em></span>
+                                        <span class="tx-leg__amount"></span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">nav</span>
+                                        <span class="tx-leg__what">Opening NAV at trade date <em>manual origin</em></span>
+                                        <span class="tx-leg__amount" id="bLegNav">2,400,000.00 EUR</span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--info">commit</span>
+                                        <span class="tx-leg__what">Unfunded commitment assumed <em>vintage 2022</em></span>
+                                        <span class="tx-leg__amount" id="bLegUnfunded">600,000.00 EUR</span>
+                                    </div>
+                                    <div class="tx-leg">
+                                        <span class="tx-leg__type tx-leg__type--sell">sell</span>
+                                        <span class="tx-leg__what">EUR Cash — Commerzbank <em>@ 1.0000</em></span>
+                                        <span class="tx-leg__amount" id="bLegCash">−2,208,000.0000 units</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tx-block">
+                                <p class="tx-block__title">Settlement position</p>
+                                <div class="tx-settle" id="bSettle">
+                                    <p class="tx-settle__lead">One EUR cash position on the book. Confirm it or pick another.</p>
+                                    <div class="tx-settle__option">
+                                        <input type="radio" checked>
+                                        <span class="tx-settle__name">EUR Cash — Commerzbank</span>
+                                        <span class="tx-settle__balance"><span id="bBalance">2,750,000.00</span> EUR
+                                            <span style="color:var(--ui-text-disabled)">→</span>
+                                            <span id="bAfter">542,000.00</span></span>
+                                    </div>
+                                    <label class="tx-settle__confirm">
+                                        <input type="checkbox" id="bConfirm">
+                                        <span>Settle against this position.</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="tx-messages" id="bMessages"></div>
+
+                            <div class="tx-actions">
+                                <button class="pf-btn pf-btn--primary" id="bBook" type="button">Book now</button>
+                                <button class="pf-btn" id="bPropose" type="button">Propose</button>
+                                <button class="pf-btn" type="button">Save as draft</button>
+                                <span class="tx-actions__spacer"></span>
+                                <button class="pf-btn pf-btn--ghost" type="button">Discard</button>
+                                <p class="tx-actions__hint" id="bHint"></p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </section>
+
+            <div class="mk-notes">
+                <h3>Design notes — decisions this mockup proposes</h3>
+                <ol>
+                    <li><b>Compact single-page forms, not wizards.</b> The reported flows have fewer
+                        moving parts than U-NEW; each fits one page with the same block order as M-1
+                        (what happened → amounts → on booking → settlement → messages → actions).
+                        Master data lives on the ticket as payload; the investment row is an emission
+                        effect at booking (M-2 decision applied to R-COMMIT and R-SEC-BUY).</li>
+                    <li><b>"On booking" is the teaching block.</b> Every effect the emission will write
+                        is a visible row — flow (distribution · actual), NAV, status, commitment, cash
+                        leg — before the user books. Nothing the booking does is a surprise afterwards.</li>
+                    <li><b>R-SEC-SELL consequences are emission rows, not options.</b> NAV → 0 and
+                        "investment set inactive" are inherent to a full sale, so they appear as rows in
+                        the On-booking block rather than as checkboxes. The optional set-inactive
+                        checkbox exists only in U-SELL, where selling all units is a choice, not the
+                        flow's definition.</li>
+                    <li><b>R-2 refusal.</b> "Sell part of the stake" is selectable, and selecting it
+                        produces the red refusal explaining why (NAV and unfunded must restate
+                        proportionally; interacts with plan flows) and naming the successor. Book,
+                        Propose and Save as draft are all disabled while it is selected — a partial-sale
+                        ticket cannot even exist as a draft in v1, so nothing half-designed lingers in
+                        the blotter.</li>
+                    <li><b>R-COMMIT has no settlement block at all.</b> Its absence is explained by the
+                        blue panel ("no cash moves with this ticket"), not silent. Capital calls stay
+                        ordinary cashflows outside the ticket; the ticket is the provenance anchor.</li>
+                    <li><b>Discount/premium surfaced, never judged.</b> R-SEC-BUY derives price vs.
+                        acquired NAV, R-SEC-SELL derives proceeds vs. last reported NAV — as neutral
+                        info rows in the Amounts block. Secondary discounts are normal economics, so
+                        they are context, not warnings.</li>
+                    <li><b>AnlV gate.</b> Applies to R-COMMIT and R-SEC-BUY (both create investments)
+                        on Propose and Book now, exactly as in M-2; the draft may dangle. R-SEC-SELL
+                        touches an existing investment and has no gate.</li>
+                    <li><b>Negative cash on R-SEC-BUY</b> warns with the resulting balance, exactly as
+                        in M-1 (toggle "cash short" above). Nothing blocks.</li>
+                </ol>
+            </div>
+        </div>
+    </main>
+
+    <div class="pf-statusbar">
+        <span>MinAthena Capital · owner</span>
+        <span>Mockup M-3 · no data written</span>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var TODAY = "2026-08-28";
+    var NAV_SS = 1920000;
+    var state = { flow: "secsell", anlv: "set", cash: "ample", frac: "full" };
+    var CASH_BALANCES = { ample: 2750000, short: 1900000 };
+
+    function el(id) { return document.getElementById(id); }
+    function val(id) { return parseFloat(el(id).value) || 0; }
+    function num(v, d) {
+        d = d === undefined ? 2 : d;
+        return v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function msg(kind, glyph, html) {
+        var d = document.createElement("div");
+        d.className = "tx-msg" + (kind ? " tx-msg--" + kind : "");
+        d.innerHTML = '<span class="tx-msg__glyph">' + glyph + "</span><div>" + html + "</div>";
+        return d;
+    }
+
+    var TITLES = {
+        secsell: ["Secondary sale", "Sell a stake · Cinder Ridge Buyout Fund III"],
+        commit: ["Commitment", "New commitment · Nordwind Private Credit Fund II"],
+        secbuy: ["Secondary purchase", "Buy a stake · Halstenbek Infrastructure Partners II"]
+    };
+
+    function render() {
+        ["secsell", "commit", "secbuy"].forEach(function (f) {
+            document.querySelector('[data-form="' + f + '"]').style.display =
+                state.flow === f ? "flex" : "none";
+            var card = document.querySelector('[data-flowcard="' + f + '"]');
+            if (card) card.classList.toggle("is-active", state.flow === f);
+        });
+        el("flowPill").textContent = TITLES[state.flow][0];
+        el("ticketTitle").textContent = TITLES[state.flow][1];
+
+        var anlvSet = state.anlv === "set";
+        document.querySelectorAll("[data-anlvsel]").forEach(function (s) {
+            s.value = anlvSet ? (s.id === "bAnlv" ? "anlv_13" : "anlv_17") : "";
+            s.closest(".field").classList.toggle("is-missing", !anlvSet);
+        });
+
+        /* ---------- R-SEC-SELL ---------- */
+        var ssGross = val("ssGross"), ssFees = val("ssFees"), ssTaxes = val("ssTaxes");
+        var ssNet = ssGross - ssFees - ssTaxes;
+        el("ssGrossOut").textContent = num(ssGross) + " EUR";
+        el("ssFeesOut").textContent = "−" + num(ssFees) + " EUR";
+        el("ssTaxesOut").textContent = "−" + num(ssTaxes) + " EUR";
+        el("ssNetOut").textContent = (ssNet >= 0 ? "+" : "−") + num(Math.abs(ssNet)) + " EUR";
+        var vs = ((ssNet - NAV_SS) / NAV_SS) * 100;
+        el("ssVsNav").textContent = (vs >= 0 ? "+" : "−") + num(Math.abs(vs), 1) + " %";
+        el("ssLegFlow").textContent = "+" + num(ssNet) + " EUR";
+        el("ssLegCash").textContent = "+" + num(ssNet, 4) + " units";
+        el("ssAfter").textContent = num(2750000 + ssNet);
+
+        document.querySelectorAll("#fraction .tx-fraction__opt").forEach(function (o) {
+            var sel = o.dataset.frac === state.frac;
+            o.classList.toggle("is-selected", sel && state.frac === "full");
+            o.classList.toggle("is-refused", sel && state.frac === "partial");
+            o.querySelector("input").checked = sel;
+        });
+
+        var ssBox = el("ssMessages");
+        ssBox.innerHTML = "";
+        var ssBlocked = false;
+        if (state.frac === "partial") {
+            ssBlocked = true;
+            ssBox.appendChild(msg("block", "✕",
+                "<strong>Partial secondary sales are not supported yet.</strong>" +
+                '<span class="tx-msg__sub">A partial sale must restate NAV and unfunded commitment ' +
+                "proportionally, and the unfunded split interacts with planned flows — a design of its " +
+                "own, deliberately deferred. Record a full sale, or wait for the successor.</span>"));
+        }
+        if (ssNet <= 0 && state.frac === "full") {
+            ssBox.appendChild(msg("", "!",
+                "<strong>Net proceeds are " + (ssNet >= 0 ? "+" : "−") + num(Math.abs(ssNet)) + " EUR.</strong>" +
+                '<span class="tx-msg__sub">Fees and taxes exceed the proceeds. Check the inputs before booking.</span>'));
+        }
+        if (el("ssDate").value > TODAY) {
+            ssBox.appendChild(msg("", "!",
+                "<strong>Trade date " + el("ssDate").value + " is in the future.</strong>" +
+                '<span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>'));
+        }
+        if (state.frac === "full") {
+            ssBox.appendChild(msg("consequence", "→",
+                "<strong>This closes the stake completely.</strong>" +
+                '<span class="tx-msg__sub">NAV goes to zero, the unfunded commitment ends, and the ' +
+                "investment is set inactive — shown above as emission rows.</span>"));
+        }
+        var ssNeedsConfirm = !el("ssConfirm").checked;
+        el("ssSettle").classList.toggle("is-unconfirmed", ssNeedsConfirm && !ssBlocked);
+        var ssCan = !ssBlocked && !ssNeedsConfirm;
+        el("ssBook").disabled = !ssCan;
+        el("ssPropose").disabled = !ssCan;
+        document.querySelector('[data-form="secsell"] .tx-actions .pf-btn:nth-child(3)').disabled = ssBlocked;
+        el("ssHint").textContent = ssBlocked
+            ? "A partial-sale ticket cannot be created in v1 — not even as a draft."
+            : ssNeedsConfirm
+                ? "Confirm the settlement position before booking."
+                : "Booking emits all four effects in one step.";
+
+        /* ---------- R-COMMIT ---------- */
+        el("cLegName").innerHTML = "Investment · " + el("cName").value + " <em>reported</em>";
+        el("cLegAmount").textContent = num(val("cAmount")) + " EUR";
+        var cBox = el("cMessages");
+        cBox.innerHTML = "";
+        if (!anlvSet) {
+            cBox.appendChild(msg("block", "✕",
+                "<strong>This ticket cannot be proposed or booked without an AnlV category.</strong>" +
+                '<span class="tx-msg__sub">The regulatory classification is required. Everything you ' +
+                "entered stays in the draft.</span>"));
+        }
+        if (el("cDate").value > TODAY) {
+            cBox.appendChild(msg("", "!",
+                "<strong>Commitment date " + el("cDate").value + " is in the future.</strong>" +
+                '<span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>'));
+        }
+        el("cBook").disabled = !anlvSet;
+        el("cPropose").disabled = !anlvSet;
+        el("cHint").textContent = anlvSet
+            ? "Booking creates the investment and records the commitment. No cash moves."
+            : "Book now and Propose are unavailable until the AnlV category is set.";
+
+        /* ---------- R-SEC-BUY ---------- */
+        var bPrice = val("bPrice"), bNav = val("bNav"), bUnfunded = val("bUnfunded");
+        el("bPriceOut").textContent = "−" + num(bPrice) + " EUR";
+        el("bNavOut").textContent = num(bNav) + " EUR";
+        var disc = bNav > 0 ? ((bPrice - bNav) / bNav) * 100 : 0;
+        el("bDiscount").textContent =
+            (disc >= 0 ? "+" : "−") + num(Math.abs(disc), 1) + " % (" + (disc >= 0 ? "premium" : "discount") + ")";
+        el("bLegName").innerHTML = "Investment · " + el("bName").value + " <em>reported</em>";
+        el("bLegNav").textContent = num(bNav) + " EUR";
+        el("bLegUnfunded").textContent = num(bUnfunded) + " EUR";
+        el("bLegCash").textContent = "−" + num(bPrice, 4) + " units";
+        var bBalance = CASH_BALANCES[state.cash];
+        var bAfter = bBalance - bPrice;
+        el("bBalance").textContent = num(bBalance);
+        el("bAfter").textContent = num(bAfter);
+        el("bAfter").style.color = bAfter < 0 ? "var(--ui-semantic-error)" : "";
+
+        var bBox = el("bMessages");
+        bBox.innerHTML = "";
+        if (!anlvSet) {
+            bBox.appendChild(msg("block", "✕",
+                "<strong>This ticket cannot be proposed or booked without an AnlV category.</strong>" +
+                '<span class="tx-msg__sub">The regulatory classification is required. Everything you ' +
+                "entered stays in the draft.</span>"));
+        }
+        if (bAfter < 0) {
+            bBox.appendChild(msg("", "!",
+                "<strong>EUR Cash — Commerzbank goes to " +
+                '<span style="font-family:var(--ui-font-mono);color:var(--ui-semantic-error)">' +
+                num(bAfter) + " EUR</span> after this ticket.</strong>" +
+                '<span class="tx-msg__sub">Booking is allowed — the trade is your call. The position ' +
+                "stays flagged until the balance is back at zero or above.</span>"));
+        }
+        if (el("bDate").value > TODAY) {
+            bBox.appendChild(msg("", "!",
+                "<strong>Trade date " + el("bDate").value + " is in the future.</strong>" +
+                '<span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>'));
+        }
+        var bNeedsConfirm = !el("bConfirm").checked;
+        el("bSettle").classList.toggle("is-unconfirmed", bNeedsConfirm);
+        var bCan = anlvSet && !bNeedsConfirm;
+        el("bBook").disabled = !bCan;
+        el("bPropose").disabled = !bCan;
+        el("bHint").textContent = !anlvSet
+            ? "Book now and Propose are unavailable until the AnlV category is set."
+            : bNeedsConfirm
+                ? "Confirm the settlement position before booking."
+                : "Booking creates the investment, opening NAV, commitment and cash leg in one step.";
+    }
+
+    /* Wiring */
+    document.querySelectorAll("[data-flow]").forEach(function (b) {
+        b.onclick = function () {
+            state.flow = b.dataset.flow;
+            document.querySelectorAll("[data-flow]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+    document.querySelectorAll("[data-flowcard]").forEach(function (c) {
+        c.onclick = function () {
+            state.flow = c.dataset.flowcard;
+            document.querySelectorAll("[data-flow]").forEach(function (x) {
+                x.classList.toggle("is-on", x.dataset.flow === state.flow);
+            });
+            render();
+        };
+    });
+    document.querySelectorAll("[data-anlv]").forEach(function (b) {
+        b.onclick = function () {
+            state.anlv = b.dataset.anlv;
+            document.querySelectorAll("[data-anlv]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+    document.querySelectorAll("[data-cash]").forEach(function (b) {
+        b.onclick = function () {
+            state.cash = b.dataset.cash;
+            document.querySelectorAll("[data-cash]").forEach(function (x) {
+                x.classList.toggle("is-on", x === b);
+            });
+            render();
+        };
+    });
+    document.querySelectorAll("#fraction .tx-fraction__opt").forEach(function (o) {
+        o.onclick = function () { state.frac = o.dataset.frac; render(); };
+    });
+    document.querySelectorAll("[data-anlvsel]").forEach(function (s) {
+        s.addEventListener("change", function () {
+            state.anlv = this.value ? "set" : "missing";
+            document.querySelectorAll("[data-anlv]").forEach(function (x) {
+                x.classList.toggle("is-on", x.dataset.anlv === state.anlv);
+            });
+            render();
+        });
+    });
+    ["ssGross", "ssFees", "ssTaxes", "ssDate", "cName", "cAmount", "cVintage", "cDate",
+     "bName", "bPrice", "bNav", "bUnfunded", "bDate"].forEach(function (id) {
+        el(id).addEventListener("input", render);
+        el(id).addEventListener("change", render);
+    });
+    el("ssConfirm").addEventListener("change", render);
+    el("bConfirm").addEventListener("change", render);
+
+    render();
+})();
+</script>
+</body>
+</html>

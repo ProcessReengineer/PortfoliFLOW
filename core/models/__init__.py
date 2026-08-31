@@ -49,6 +49,7 @@ from core.models.saa_correlation import SAACorrelation
 from core.models.scoped_setting import ScopedSetting
 from core.models.sector import Sector
 from core.models.tenant import Tenant
+from core.models.trade_ticket import TradeTicket, TradeTicketEffect
 from core.models.user import User
 from core.models.watchpoint import Watchpoint
 
@@ -95,6 +96,8 @@ __all__ = [
     "ScopedSetting",
     "Sector",
     "Tenant",
+    "TradeTicket",
+    "TradeTicketEffect",
     "User",
     "Watchpoint",
 ]

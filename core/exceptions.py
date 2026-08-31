@@ -425,3 +425,89 @@ class CaseClosingNoteMissing(ValidationError):
     empty; the note is enforced here in application code, not by a schema
     NOT NULL (the column is nullable so an open case has none).
     """
+
+
+# ---------------------------------------------------------------------------
+# Transactions / trade-ticket errors (ADR-0128).
+#
+# ``TicketNotFound`` is a plain :class:`PortfoliFlowError`: a missing id is
+# not a field violation, it is an absent object — and under RLS "absent" and
+# "another tenant's" are indistinguishable by design. ``TicketStateInvalid``
+# is a :class:`ValidationError` in the Case-error tradition above: it carries
+# a ``field`` and reports a state or vocabulary problem on the way in. The
+# two are deliberately distinct so a caller can tell "no such ticket" from
+# "that ticket is no longer a draft" — a silent no-op would conflate them.
+# ---------------------------------------------------------------------------
+
+
+class TicketNotFound(PortfoliFlowError):
+    """Raised when no trade ticket with the given id exists in this tenant.
+
+    Per ADR-0128 §1 trade tickets are tenant-scoped and RLS-protected, so a
+    ticket belonging to another tenant is simply not visible: this error
+    states absence and never distinguishes "does not exist" from "not
+    yours".
+    """
+
+
+class TicketStateInvalid(ValidationError):
+    """Raised for a bad ticket status, or a status-dependent op on a ticket.
+
+    Per ADR-0128 §3 a ticket's ``status`` runs over ``draft`` · ``proposed``
+    · ``approved`` · ``sent`` · ``acknowledged`` · ``executed`` · ``booked``
+    · ``cancelled`` (lowercase TEXT, application-enforced, CHECK-backed —
+    never a SQL enum). This covers a value outside that vocabulary, a value
+    outside the ``effect_type`` vocabulary of ``trade_ticket_effects``, and
+    an operation aimed at a ticket whose current status forbids it — a draft
+    edit against a ticket that has already left ``draft``.
+
+    It reports the *state*, not the *transition*: which transitions are
+    legal is service policy (ADR-0128 §3), enforced above this layer.
+    """
+
+
+class TicketIncomplete(ValidationError):
+    """Raised when a trade ticket is too incomplete, or too inconsistent, to leave ``draft``.
+
+    The propose-time (and, from S2, book-time) completeness gate of ADR-0128
+    §4. ``proposed`` means "complete and validated" (ADR-0128 §3), so the
+    fields a flow needs must be present *before* the status flips — while
+    ``draft`` may be arbitrarily sparse, because a draft exists from the
+    first explicit gesture, however early (MD-2, MD-11: ``Save as draft``
+    is never gated).
+
+    This is a **transition guard, not a schema constraint** (decision record
+    §2.8): ``investments.anlv_code`` stays nullable and the ticket columns
+    stay nullable, because the same rows must be writable by the onboarding
+    and correction paths that do not go through a ticket at all.
+
+    ``identifier`` names the specific gap so the surface can pick its copy
+    (MD-9) without parsing a message. It is one of
+    :data:`services.transactions.constants.BLOCK_IDENTIFIERS` for the gaps
+    the composer has fixed copy for — ``missing_price``, ``missing_anlv`` —
+    and one of
+    :data:`services.transactions.constants.COMPLETENESS_IDENTIFIERS` for the
+    gaps the composer prevents structurally and therefore never renders.
+
+    Distinct from :class:`TicketStateInvalid`, which reports the ticket's
+    *status* being wrong for the operation; here the status is right and the
+    content is not. Currency mismatches raise
+    :class:`CurrencyMismatchError` and oversells
+    :class:`NonNegativeHoldingsError` — the ledger's own errors, reused
+    rather than shadowed, so one violation has one type across every write
+    path.
+
+    Args:
+        message: Description of the gap.
+        identifier: The machine-readable gap identifier.
+        field: Optional offending field name, per :class:`ValidationError`.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        identifier: str = "",
+        field: str | None = None,
+    ) -> None:
+        super().__init__(message, field)
+        self.identifier = identifier

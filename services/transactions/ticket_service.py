@@ -11,10 +11,13 @@ composer should be warned about. The two are deliberately separate so the
 rules live in exactly one place rather than being half-enforced by a schema
 CHECK and half-restated in a route.
 
-Scope of this strand (S1)
--------------------------
-``create_draft`` · ``update_draft`` · ``propose`` · ``cancel``. That is the
-whole surface, and the omissions are structural rather than accidental:
+Scope so far (S1 + S2a)
+-----------------------
+``create_draft`` · ``update_draft`` · ``propose`` · ``cancel`` (S1) and
+``book`` for ``order``-kind tickets (S2a). The emission itself lives in
+:mod:`services.transactions.emission`; what stays here is the policy around
+it — which statuses may book, the re-validation, and the lifecycle walk.
+The remaining omissions are structural rather than accidental:
 
 * **No ``approve`` gesture.** In v1 the "Book now" gesture traverses
   ``proposed → approved → booked`` implicitly, writing both actor columns
@@ -22,10 +25,10 @@ whole surface, and the omissions are structural rather than accidental:
   approval gesture arrives with four-eyes enforcement, which is a
   tenant-scoped setting — a rule change, not a migration, because the
   columns and transitions already exist.
-* **No booking and no effect emission.** The two-leg atomic settlement, the
-  ``investments`` row a creating flow emits (MD-12), the
-  ``trade_ticket_effects`` rows and the ADR-0098 re-materialisation trigger
-  are **S2**.
+* **No reported-kind emission.** R-COMMIT / R-SEC-BUY / R-SEC-SELL also
+  write cashflow and NAV rows, and the creating flows write the
+  ``investments`` row itself (MD-12). :meth:`book` refuses them loudly until
+  **S2b** fills the kind dispatch.
 * **No reversal.** Cancelling a ``booked`` ticket deletes its enumerated
   effects in one DB transaction (ADR-0128 §6) and is **S2c** — which is why
   :meth:`cancel` refuses ``booked`` outright rather than flipping a status
@@ -72,15 +75,18 @@ from core.repositories.trade_ticket_repository import (
 )
 from services.investments.aum import CASH_TYPE
 from services.investments.holdings import first_negative_holding_date, holdings_as_of
+from services.investments.investment_service import InvestmentService
 from services.transactions.constants import (
     BLOCK_MISSING_ANLV,
     BLOCK_MISSING_PRICE,
+    BOOKABLE_STATUSES,
     CANCEL_REASON_REQUIRED_STATUSES,
     CANCELLABLE_STATUSES,
     DIRECTION_BUY,
     DIRECTION_SELL,
     DIRECTIONS,
     INCOMPLETE_COMMITMENT_SHAPE,
+    INCOMPLETE_INACTIVE_CASH_POSITION,
     INCOMPLETE_MISSING_AMOUNT,
     INCOMPLETE_MISSING_CANCEL_REASON,
     INCOMPLETE_MISSING_CASH_POSITION,
@@ -97,6 +103,8 @@ from services.transactions.constants import (
     MD_CURRENCY,
     MD_NAME,
     PRICE_DEVIATION_WARN_RATIO,
+    STATUS_APPROVED,
+    STATUS_BOOKED,
     STATUS_CANCELLED,
     STATUS_DRAFT,
     STATUS_PROPOSED,
@@ -105,6 +113,7 @@ from services.transactions.constants import (
     WARNING_NET_NON_POSITIVE,
     WARNING_PRICE_DEVIATION,
 )
+from services.transactions.emission import emit_order
 from services.transactions.validation import (
     TicketWarning,
     TicketWarnings,
@@ -173,6 +182,10 @@ class TicketService:
         position_transactions: Needed for the oversell block and the
             negative-cash warning — both read the ledger.
         instrument_prices: Needed for the price-deviation warning.
+        investment_service: Needed to **book** (S2a). The emission writes
+            every ledger row through this one seam and never through a
+            repository — see :meth:`book`. Validation and cancellation need
+            none of it, so it stays optional like the rest.
     """
 
     def __init__(
@@ -181,11 +194,13 @@ class TicketService:
         investments: InvestmentRepository | None = None,
         position_transactions: PositionTransactionRepository | None = None,
         instrument_prices: InstrumentPriceRepository | None = None,
+        investment_service: InvestmentService | None = None,
     ) -> None:
         self._tickets = tickets
         self._investments = investments
         self._position_transactions = position_transactions
         self._instrument_prices = instrument_prices
+        self._investment_service = investment_service
 
     # -- dependency guards --------------------------------------------------
 
@@ -217,6 +232,24 @@ class TicketService:
                 "repository; the price-deviation warning is unavailable."
             )
         return self._instrument_prices
+
+    def _require_investment_service(self) -> InvestmentService:
+        """Return the wired investment service or fail loudly.
+
+        Booking has no repository-level fallback by design (D-A): the ledger
+        write seam carries the ADR-0130 non-negativity decision and the
+        ADR-0098 materialisation trigger, and a booking that quietly went
+        around it would emit rows that look right and leave the NAV series
+        stale. Refusing loudly is the only safe behaviour.
+        """
+        if self._investment_service is None:
+            raise RuntimeError(
+                "TicketService was constructed without an investment service; "
+                "booking is unavailable. The emission writes every ledger row "
+                "through InvestmentService.add_position_transaction and has no "
+                "repository-level fallback (ADR-0128 §2, ADR-0130)."
+            )
+        return self._investment_service
 
     # -- vocabulary and shape ----------------------------------------------
 
@@ -515,6 +548,138 @@ class TicketService:
         )
         return updated, warnings
 
+    # -- book ---------------------------------------------------------------
+
+    async def book(
+        self,
+        ticket_id: UUID,
+        *,
+        booked_by: UUID,
+        now: datetime,
+        today: _date,
+    ) -> tuple[TradeTicketDTO, TicketWarnings]:
+        """Emit a ticket's ledger effects and land it in ``booked``.
+
+        The transition that makes a ticket a fact. Everything before it is
+        intent; this is where the book changes.
+
+        Order of operations, and every step of it is load-bearing:
+
+        1. Load the ticket and check its status — ``draft`` / ``proposed`` /
+           ``approved`` may book, nothing else. A ``booked`` ticket is
+           already a fact and a ``cancelled`` one is a decision reversed.
+        2. Dispatch on kind. Only ``order`` emits here; the reported kinds
+           are S2b.
+        3. Run the **full** propose-time block set again. This is not
+           belt-and-braces: an approved ticket may have been sitting for a
+           week while its holdings moved, and MD-11 / MD-21 put the gates at
+           Propose *and* Book precisely so that the second station re-asks
+           the question against the book as it stands now. A stale ticket is
+           refused here, with nothing written.
+        4. Collect warnings — exhaustively, never blocking (D-2). A U-BUY
+           that overdraws its cash position books and warns (ADR-0130).
+        5. Emit. Both legs go through the one sanctioned write seam.
+        6. Record the effects, then traverse the lifecycle to ``booked``.
+
+        **Atomicity (ADR-0128 §2).** Steps 5 to 6 run on the caller's one
+        context-scoped session and nothing in the chain commits, so the
+        emitted ledger rows, the ``trade_ticket_effects`` linkage and the
+        status flip land together or not at all. There is deliberately no
+        ``try``/``except`` anywhere in the path: a failure propagates, the
+        caller's ``tenant_context`` block rolls back, and the book is
+        exactly as it was. Catching and compensating would be strictly worse
+        — it would have to reproduce, in application code, the guarantee the
+        transaction already gives for free.
+
+        The lifecycle traversal is implicit (ADR-0128 Q-6): a draft booked
+        directly passes through ``proposed`` and ``approved`` on the way, so
+        the b034 attribution CHECKs — which require every earlier station's
+        columns on a booked row — are satisfied by construction. Stations
+        that already carry an actor keep it: a ticket proposed by A and
+        booked by B records exactly that, because overwriting A would erase
+        the only evidence that two people were involved.
+
+        Args:
+            ticket_id: The ticket to book.
+            booked_by: The booking user. Written to ``booked_by``, to any
+                unattributed earlier station, and to ``created_by`` on every
+                emitted ledger row.
+            now: The station timestamps and the new ``updated_at``.
+            today: The current date, injected by the caller (ADR-0127) — the
+                reference for the future-trade-date warning.
+
+        Returns:
+            A tuple of the booked ticket and the warnings the booking
+            carried. The warnings are informational: by the time they are
+            returned the booking has happened.
+
+        Raises:
+            TicketNotFound: If no such ticket exists in the active tenant.
+            TicketStateInvalid: If the ticket is already booked or cancelled.
+            TicketIncomplete: If a required field is missing, the settlement
+                position is unusable, or ``set_inactive`` was asked for on
+                something that is not a full disposal (MD-7).
+            CurrencyMismatchError: If the ticket, its investment and its
+                settlement position do not agree on a currency.
+            NonNegativeHoldingsError: If the sell would drive the
+                instrument's holdings below zero. Never raised for the cash
+                leg — ADR-0130 exempts cash on every write path.
+            NotImplementedError: For a non-``order`` kind, until S2b.
+        """
+        ticket = await self._tickets.get(ticket_id)
+        if ticket is None:
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        if ticket.status not in BOOKABLE_STATUSES:
+            raise TicketStateInvalid(
+                f"Trade ticket {ticket.ticket_number} is {ticket.status!r} and "
+                f"cannot be booked; only {list(BOOKABLE_STATUSES)} can. A booked "
+                "ticket is reversed, not re-booked (ADR-0128 §6).",
+                field="status",
+            )
+        if ticket.kind != KIND_ORDER:
+            # A loud placeholder, not a domain error: the ticket is fine and
+            # the user did nothing wrong — the code is simply not written yet.
+            raise NotImplementedError("Reported-kind emission lands in S2b")
+
+        await self._run_blocks(ticket, now=now)
+        warnings = await self._collect_warnings(ticket, today=today)
+
+        effect = self._cash_effect(ticket)
+        if effect is None:
+            # Unreachable behind _block_completeness, which has just proved
+            # units and price are present. Reported rather than assumed away.
+            raise RuntimeError(
+                f"Trade ticket {ticket.ticket_number} passed completeness but "
+                "states no derivable cash effect; this is a bug in the "
+                "completeness rules, not a user error."
+            )
+
+        effects = await emit_order(
+            ticket,
+            investment_service=self._require_investment_service(),
+            position_transactions=self._require_position_transactions(),
+            investments=self._require_investments(),
+            booked_by=booked_by,
+            cash_effect=effect,
+        )
+        await self._tickets.add_effects(ticket.id, effects)
+
+        # Q-6: one set_status call per station, in order, writing the booking
+        # actor only where a station has none. `set_status` writes exactly one
+        # station's attribution per call, so the walk cannot be collapsed.
+        if ticket.proposed_by is None:
+            await self._tickets.set_status(
+                ticket_id, status=STATUS_PROPOSED, actor_user_id=booked_by, now=now
+            )
+        if ticket.approved_by is None:
+            await self._tickets.set_status(
+                ticket_id, status=STATUS_APPROVED, actor_user_id=booked_by, now=now
+            )
+        updated = await self._tickets.set_status(
+            ticket_id, status=STATUS_BOOKED, actor_user_id=booked_by, now=now
+        )
+        return updated, warnings
+
     # -- blocks -------------------------------------------------------------
 
     async def _run_blocks(self, ticket: TradeTicketDTO, *, now: datetime) -> None:
@@ -648,7 +813,18 @@ class TicketService:
         exists anywhere in the platform. It must be an actual cash position
         (ADR-0100) in the ticket's currency — a mismatch would make the cash
         leg a silent FX conversion, which is precisely what ADR-0099 keeps
-        out of write paths.
+        out of write paths — and it must be **active** (D-F): a retired
+        position is not somewhere a trade can settle, and reviving it by
+        writing to it would undo a deliberate gesture.
+
+        The inactive case is a *distinct* identifier rather than a second
+        ``missing_cash_position``, because that identifier is the structured
+        signal the S4 surface turns into an inline "create a cash position"
+        offer — and creating a second position is the wrong remedy when the
+        right one exists and is merely retired.
+
+        Shared by propose and book (MD-11 / MD-21), so every one of these
+        refusals applies at both stations.
         """
         if ticket.cash_investment_id is None:
             raise TicketIncomplete(
@@ -663,6 +839,13 @@ class TicketService:
                 f"Settlement position {ticket.cash_investment_id} is not a cash "
                 f"position (investment_type={CASH_TYPE!r}).",
                 identifier=INCOMPLETE_MISSING_CASH_POSITION,
+                field="cash_investment_id",
+            )
+        if not cash.is_active:
+            raise TicketIncomplete(
+                f"Settlement position {cash.name!r} has been deactivated and "
+                "cannot settle a trade; pick a live cash position.",
+                identifier=INCOMPLETE_INACTIVE_CASH_POSITION,
                 field="cash_investment_id",
             )
         if cash.currency != ticket.currency:

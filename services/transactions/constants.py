@@ -163,6 +163,20 @@ INCOMPLETE_MISSING_CASH_POSITION: Final[str] = "missing_cash_position"
 #: ``ck_trade_tickets_commitment_shape``).
 INCOMPLETE_COMMITMENT_SHAPE: Final[str] = "commitment_shape"
 
+#: The named settlement position is a cash position in the right currency
+#: but has been deactivated (D-F). Deliberately *not*
+#: :data:`INCOMPLETE_MISSING_CASH_POSITION`: that identifier is the
+#: structured signal the S4 surface turns into an inline "create a cash
+#: position" offer, and offering to create one when a perfectly good row
+#: already exists — merely retired — would be the wrong remedy.
+INCOMPLETE_INACTIVE_CASH_POSITION: Final[str] = "inactive_cash_position"
+
+#: ``set_inactive`` was asked for on a ticket that is not a full disposal —
+#: a purchase, or a sale that leaves units behind (MD-7, D-E). A block
+#: rather than a silent no-op: an inactive investment still holding units is
+#: a corrupted book, which is exactly what D-2 reserves blocks for.
+INCOMPLETE_SET_INACTIVE_NOT_FULL_DISPOSAL: Final[str] = "set_inactive_not_full_disposal"
+
 #: Cancelling from ``proposed`` or ``approved`` without a reason.
 INCOMPLETE_MISSING_CANCEL_REASON: Final[str] = "missing_cancel_reason"
 
@@ -175,6 +189,8 @@ COMPLETENESS_IDENTIFIERS: Final[frozenset[str]] = frozenset(
         INCOMPLETE_MISSING_AMOUNT,
         INCOMPLETE_MISSING_COMMITMENT_AMOUNT,
         INCOMPLETE_MISSING_CASH_POSITION,
+        INCOMPLETE_INACTIVE_CASH_POSITION,
+        INCOMPLETE_SET_INACTIVE_NOT_FULL_DISPOSAL,
         INCOMPLETE_COMMITMENT_SHAPE,
         INCOMPLETE_MISSING_CANCEL_REASON,
     }
@@ -219,6 +235,19 @@ V1_REACHABLE_STATUSES: Final[frozenset[str]] = frozenset(
         STATUS_BOOKED,
         STATUS_CANCELLED,
     }
+)
+
+#: The statuses the "Book now" gesture may start from. Exactly the
+#: pre-terminal v1 stations: a ``booked`` ticket is already a fact and is
+#: *reversed* rather than re-booked (ADR-0128 §6), and a ``cancelled`` one is
+#: a decision that was withdrawn. Equal to :data:`CANCELLABLE_STATUSES` today
+#: and named separately on purpose — the two answer different questions, and
+#: the four-eyes setting that later narrows booking must not silently narrow
+#: cancellation with it.
+BOOKABLE_STATUSES: Final[tuple[str, ...]] = (
+    STATUS_DRAFT,
+    STATUS_PROPOSED,
+    STATUS_APPROVED,
 )
 
 #: The statuses a plain cancellation may start from. Cancelling a ``booked``
@@ -291,6 +320,7 @@ __all__ = [
     "BLOCK_MISSING_PRICE",
     "BLOCK_OVERSELL",
     "BLOCK_PARTIAL_SECONDARY_SALE",
+    "BOOKABLE_STATUSES",
     "CANCELLABLE_STATUSES",
     "CANCEL_REASON_REQUIRED_STATUSES",
     "COMPLETENESS_IDENTIFIERS",
@@ -298,6 +328,7 @@ __all__ = [
     "DIRECTION_BUY",
     "DIRECTION_SELL",
     "INCOMPLETE_COMMITMENT_SHAPE",
+    "INCOMPLETE_INACTIVE_CASH_POSITION",
     "INCOMPLETE_MISSING_AMOUNT",
     "INCOMPLETE_MISSING_CANCEL_REASON",
     "INCOMPLETE_MISSING_CASH_POSITION",
@@ -305,6 +336,7 @@ __all__ = [
     "INCOMPLETE_MISSING_INVESTMENT",
     "INCOMPLETE_MISSING_MASTER_DATA",
     "INCOMPLETE_MISSING_UNITS",
+    "INCOMPLETE_SET_INACTIVE_NOT_FULL_DISPOSAL",
     "KINDS",
     "KIND_COMMITMENT",
     "KIND_ORDER",

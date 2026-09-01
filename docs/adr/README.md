@@ -194,6 +194,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0127 | [Temporal Grounding — Current-Date Injection and Actuals-First As-Of Default for Limit Coverage](./0127-temporal-grounding-current-date-injection-and-actuals-first-limit-coverage.md) | Accepted (2026-08-24) — corrects the tool-default consequence of ADR-0103 §2's horizon range resolution without editing it; extends ADR-0012 B8 prompt grounding | 2026-08-24 | shirley, ai-service, prompt, tools, limits, temporal, back-office, telegram |
 | 0128 | [Transactions Area — Trade-Ticket Object Model and Record Flow](./0128-transactions-area-trade-ticket-object-model-and-record-flow.md) | Accepted (2026-08-27) — extends the investment domain of ADR-0097/0098 with a layer *above* the ledger (ledger and materialisation unchanged); leaves the ADR-0104 §2 overlay contract untouched; adds Transactions as the ninth Area | 2026-08-26 | transactions, trade-ticket, area, schema, cash-settlement, rls, four-eyes, provenance |
 | 0129 | [Provider Channel — Suggestion List, Zero-Knowledge Relay, Provider Portal, and Engagements](./0129-provider-channel-suggestion-list-relay-portal-and-engagements.md) | Accepted (2026-08-27) — revives the provider-directory half of the Execution-Network concept ADR-0107 cut, under the conditions ADR-0107 named; honours the ADR-0108 open-client / proprietary-service split | 2026-08-26 | provider-channel, suggestion-list, relay, encryption, engagement, monetisation, agpl-boundary, regulatory |
+| 0130 | [Non-Negative Holdings Guard: Cash Investments Are Exempt](./0130-non-negative-holdings-guard-cash-investment-exemption.md) | Accepted (2026-08-31) — supersedes the *mechanism sentence* of ADR-0128 Q-2 (path-scoped capability flag); narrows the ADR-0097 §4 write-time invariant to non-cash investment types; ADR-0128 Q-2's behavioural decision stands | 2026-08-31 | cash, holdings, ledger, invariant, transactions, crud, excel-import, overdraft |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -781,6 +782,42 @@ the central service. The same operator-gated, pause-point process as ADR-0128
 binds Stage B.
 
 The next free ADR number is **0130**.
+
+**Update (2026-08-31):** ADR-0130 (non-negative holdings guard — cash
+investments are exempt) is **Accepted (2026-08-31)**. The T-2/S2 verify-first
+phase found ADR-0128 Q-2's *mechanism sentence* — a capability flag scoped to
+the ticket-emission path — mechanically unable to deliver what the mockup
+decision record MD-5 requires: "manual-ledger CRUD edits are never refused,
+regardless of any cash balance". `first_negative_holding_date` scans the
+**entire** candidate ledger, not the candidate row's marginal effect, so the
+moment a ticket legitimately books a cash position negative — precisely the
+behaviour Q-2 arms — the unconditional guard on the CRUD path refuses every
+later add/update that does not cure the stretch from its first day, including
+the canonical correction (a deposit dated *after* the stretch began) and
+byte-identical restatements. It would close the ADR-0128 §6 correction path
+exactly when a negative balance most needs correcting. The decision is
+therefore principled rather than path-scoped: once a negative cash balance is
+a permitted state of the book, a guard whose sole purpose is to reject
+*impossible* states has no protective function on cash targets on **any** write
+path. `InvestmentService.add_position_transaction` and
+`update_position_transaction` skip the rejection when the target's
+`investment_type` is `CASH_TYPE`, covering the ticket cash leg, the ADR-0097 §7
+manual CRUD and the Excel cash-statement synthesis alike — one rule, no path
+discrimination; **no capability flag is built** and the service signatures are
+unchanged. Non-cash targets keep the ADR-0097 §4 guard unconditionally, so the
+instrument leg of an emission is guarded with no exception. The pure helpers
+(`first_negative_holding_date`, `derive_holdings`, `holdings_as_of`) keep their
+semantics and their purity — the exemption is a service-layer decision about
+*whether to raise* — and the `holdings_as_of` docstring caveat is corrected in
+passing. Surfacing is unchanged: the composition-time `negative_cash` warning
+and the persistent read-time indicator derived from the live balance, no stored
+flag. Knowingly accepted: the Excel cash-statement synthesis may write a
+negative balance — the import is the book of record and must mirror reality.
+Per the immutability rule ADR-0128 is not edited; this ADR is the correction,
+and future readers resolve the conflict in its favour. No migration; no schema
+change.
+
+The next free ADR number is **0131**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

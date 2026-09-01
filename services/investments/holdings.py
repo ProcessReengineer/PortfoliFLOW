@@ -22,7 +22,12 @@ bookkeeping, not analytics — but it observes the same purity.
 
 The service layer (:class:`services.investments.InvestmentService`) calls
 :func:`first_negative_holding_date` at write time to enforce the ADR-0097
-§4 non-negativity invariant and rejects the write with a domain error.
+§4 non-negativity invariant on **non-cash** investments and rejects the
+write with a domain error. Investments of ``investment_type='cash'`` are
+exempt on every write path (ADR-0130): a negative cash balance is a
+permitted, surfaced state rather than an impossible one. The exemption is
+that service-layer decision about whether to raise; nothing in this module
+changes with it.
 """
 
 from __future__ import annotations
@@ -130,8 +135,9 @@ def holdings_as_of(transactions: Iterable[LedgerTransaction], on: date) -> Decim
         on: The statement day to evaluate holdings at.
 
     Returns:
-        The units held on ``on`` (may be zero; negative only for a
-        malformed ledger that never passed :func:`first_negative_holding_date`).
+        The units held on ``on``. May be zero, and may legitimately be
+        negative for a cash investment — an overdraft is an economic fact
+        the book records (ADR-0130), surfaced rather than refused.
     """
     running = Decimal(0)
     for txn in _ordered(transactions):

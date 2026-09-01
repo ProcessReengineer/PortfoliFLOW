@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as _date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
@@ -136,13 +136,14 @@ from services.data_normalization import (
 from services.fx.functional_currency import (
     build_portfolio_fx_converter,
 )
-from services.investments.aum import build_nav_series, compute_aum
+from services.investments.aum import CASH_TYPE, build_nav_series, compute_aum
 from services.investments.cash_plan_materialisation import (
     CashPlanMaterialisationService,
     CashPlanReport,
 )
 from services.investments.cashflow_dedup_key import compute_cashflow_dedup_key
 from services.investments.holdings import (
+    LedgerTransaction,
     derive_holdings,
     first_negative_holding_date,
     holdings_as_of,
@@ -665,6 +666,50 @@ class InvestmentService:
             currencies, acting_user=acting_user, since=since
         )
 
+    def _enforce_non_negative_holdings(
+        self,
+        investment: InvestmentDTO,
+        transactions: Sequence[LedgerTransaction],
+        *,
+        message: str,
+        field: str,
+    ) -> None:
+        """Raise NonNegativeHoldingsError unless the target is a cash investment.
+
+        ADR-0097 §4 on every non-cash write path; ADR-0130 exempts
+        ``investment_type='cash'`` on every write path. The pure derivation is
+        unchanged — only the decision to raise is made here.
+
+        A negative cash balance is an economic fact the book must be able to
+        record (ADR-0128 Q-2), so a guard whose sole purpose is to reject
+        impossible states has nothing left to protect on a cash target. It is
+        surfaced, not refused. For every other ``investment_type`` the
+        invariant holds unconditionally: you cannot sell units you do not
+        hold, and short positions are out of scope.
+
+        Args:
+            investment: The write's target investment. Only its
+                ``investment_type`` is consulted.
+            transactions: The full candidate ledger — the rows that would
+                stand after the write, in any order.
+            message: The site's rejection text, carrying a single
+                ``{offending}`` placeholder for the first offending date.
+            field: The ``ValidationError`` field the site attributes the
+                rejection to.
+
+        Raises:
+            NonNegativeHoldingsError: If the target is not a cash investment
+                and the candidate ledger goes negative on any date.
+        """
+        if investment.investment_type == CASH_TYPE:
+            return
+        offending = first_negative_holding_date(transactions)
+        if offending is not None:
+            raise NonNegativeHoldingsError(
+                message.format(offending=offending),
+                field=field,
+            )
+
     async def add_position_transaction(
         self,
         *,
@@ -694,7 +739,9 @@ class InvestmentService:
         2. **Non-negative holdings (ADR-0097 §4).** Holdings are recomputed
            over the existing ledger plus this candidate; if any point goes
            negative the write is rejected. Short positions are out of
-           scope.
+           scope. A target of ``investment_type='cash'`` is exempt
+           (ADR-0130): a negative cash balance is a permitted state the
+           book surfaces, not an error.
 
         On success, if the investment is ``valuation_mode='unitised'``, the
         computed-NAV materialisation (ADR-0098 §3) runs synchronously in the
@@ -726,7 +773,8 @@ class InvestmentService:
             CurrencyMismatchError: If ``currency`` differs from the
                 investment's currency.
             NonNegativeHoldingsError: If the transaction would drive
-                holdings below zero on any date.
+                holdings below zero on any date and the target is not a
+                cash investment (ADR-0130).
         """
         repo = self._require_position_transactions()
 
@@ -752,14 +800,16 @@ class InvestmentService:
             created_at=datetime.now(timezone.utc),
             id=uuid4(),
         )
-        offending = first_negative_holding_date([*existing, candidate])
-        if offending is not None:
-            raise NonNegativeHoldingsError(
-                f"Transaction would drive holdings below zero on {offending} "
+        self._enforce_non_negative_holdings(
+            investment,
+            [*existing, candidate],
+            message=(
+                "Transaction would drive holdings below zero on {offending} "
                 f"for investment {investment_id}; short positions are out of "
-                "scope (ADR-0097 §4).",
-                field="units",
-            )
+                "scope (ADR-0097 §4)."
+            ),
+            field="units",
+        )
 
         created = await repo.add(
             investment_id=investment_id,
@@ -814,7 +864,8 @@ class InvestmentService:
         web surface says so.
 
         The non-negativity invariant is re-checked over the ledger with this
-        row **replaced** by its restated values — an edit that lowers an
+        row **replaced** by its restated values, unless the target is a cash
+        investment, which is exempt (ADR-0130) — an edit that lowers an
         opening below a later sell is rejected exactly as the sell would have
         been. Materialisation then reruns from ``min(old, new) trade_date``:
         a restatement that moves a row later still changes holdings from its
@@ -842,7 +893,8 @@ class InvestmentService:
         Raises:
             ValidationError: If the investment does not exist.
             NonNegativeHoldingsError: If the restatement would drive holdings
-                below zero on any date.
+                below zero on any date and the target is not a cash
+                investment (ADR-0130).
         """
         repo = self._require_position_transactions()
 
@@ -869,14 +921,17 @@ class InvestmentService:
             created_at=existing.created_at,
             id=existing.id,
         )
-        offending = first_negative_holding_date([*others, candidate])
-        if offending is not None:
-            raise NonNegativeHoldingsError(
-                f"Restated transaction would drive holdings below zero on "
-                f"{offending} for investment {investment_id}; short positions "
-                "are out of scope (ADR-0097 §4).",
-                field="units",
-            )
+        self._enforce_non_negative_holdings(
+            investment,
+            [*others, candidate],
+            message=(
+                "Restated transaction would drive holdings below zero on "
+                "{offending} for investment "
+                f"{investment_id}; short positions are out of scope "
+                "(ADR-0097 §4)."
+            ),
+            field="units",
+        )
 
         updated = await repo.update(
             transaction_id,
@@ -912,7 +967,8 @@ class InvestmentService:
 
         Deleting a ``buy`` or an ``opening`` can strand a later ``sell`` above
         the remaining holdings, so the non-negativity invariant is re-checked
-        over the ledger **without** this row before the delete is issued.
+        over the ledger **without** this row before the delete is issued —
+        unless the target is a cash investment, which is exempt (ADR-0130).
 
         Materialisation reruns from the deleted row's ``trade_date``: removing
         a transaction cannot alter holdings on any earlier date. Where the
@@ -933,7 +989,8 @@ class InvestmentService:
         Raises:
             ValidationError: If the investment does not exist.
             NonNegativeHoldingsError: If removing the transaction would drive
-                holdings below zero on any date.
+                holdings below zero on any date and the target is not a cash
+                investment (ADR-0130).
         """
         repo = self._require_position_transactions()
 
@@ -951,14 +1008,17 @@ class InvestmentService:
         remaining = [
             t for t in await repo.list_for_investment(investment_id) if t.id != existing.id
         ]
-        offending = first_negative_holding_date(remaining)
-        if offending is not None:
-            raise NonNegativeHoldingsError(
-                f"Deleting this transaction would drive holdings below zero "
-                f"on {offending} for investment {investment_id}; short "
-                "positions are out of scope (ADR-0097 §4).",
-                field="transaction_id",
-            )
+        self._enforce_non_negative_holdings(
+            investment,
+            remaining,
+            message=(
+                "Deleting this transaction would drive holdings below zero "
+                "on {offending} for investment "
+                f"{investment_id}; short positions are out of scope "
+                "(ADR-0097 §4)."
+            ),
+            field="transaction_id",
+        )
 
         deleted = await repo.delete(transaction_id)
 
@@ -2503,16 +2563,18 @@ class InvestmentService:
 
         - **no opening** → create one through
           :meth:`add_position_transaction`, the single sanctioned write
-          seam (currency equality, the non-negativity invariant, and — for
-          an already-unitised investment — computed-NAV materialisation all
-          run there). The row is ``txn_type='opening'``,
+          seam (currency equality, the non-negativity invariant on a
+          non-cash target, and — for an already-unitised investment —
+          computed-NAV materialisation all run there). The row is
+          ``txn_type='opening'``,
           ``ingest_origin='excel'``, ``price_per_unit=NULL``.
         - **an ``excel`` opening whose count and date are unchanged** →
           no-op (``Decimal`` equality ignores scale).
         - **an ``excel`` opening that changed** → update in place
           (:meth:`PositionTransactionRepository.update_opening`), after
-          re-checking the non-negativity invariant; a *unitised* investment
-          is then re-materialised from the earliest affected date.
+          re-checking the non-negativity invariant on a non-cash target
+          (ADR-0130 exempts cash); a *unitised* investment is then
+          re-materialised from the earliest affected date.
         - **an opening from another producer** (``manual`` / ``live``) →
           left untouched, mirroring how the identifier reconcile never
           rewrites non-excel rows. Structurally impossible before strand S5
@@ -2571,12 +2633,22 @@ class InvestmentService:
                 created_at=existing.created_at,
                 id=existing.id,
             )
-            offending = first_negative_holding_date([*others, candidate])
-            if offending is not None:
-                raise NonNegativeHoldingsError(
-                    f"Restated opening would drive holdings below zero on "
-                    f"{offending} for investment {investment_id}; short "
-                    "positions are out of scope (ADR-0097 §4).",
+            # Loaded once, used twice: the ADR-0130 cash exemption here and
+            # the materialisation decision after the write. A missing row is
+            # unreachable — the opening just read carries the FK — and is
+            # handled the same way both times: nothing to classify, nothing
+            # to materialise.
+            investment = await self._investments.get_by_id(investment_id)
+            if investment is not None:
+                self._enforce_non_negative_holdings(
+                    investment,
+                    [*others, candidate],
+                    message=(
+                        "Restated opening would drive holdings below zero on "
+                        "{offending} for investment "
+                        f"{investment_id}; short positions are out of scope "
+                        "(ADR-0097 §4)."
+                    ),
                     field="units",
                 )
 
@@ -2590,7 +2662,6 @@ class InvestmentService:
             # Re-materialise a unitised investment from the earliest affected
             # date (ADR-0098 §3); a 'reported' investment triggers nothing and
             # stays byte-identical.
-            investment = await self._investments.get_by_id(investment_id)
             if investment is not None and investment.valuation_mode == "unitised":
                 await self._nav_materialiser().materialise(
                     investment_id,
@@ -2646,11 +2717,13 @@ class InvestmentService:
         can dip negative even when both the old and the new ledger are
         perfectly valid — a restated opening applied before its dependent
         transfers, or an inserted deposit whose matching withdrawal is
-        already present, would abort an entirely legitimate import. The
-        invariant is a property of the **committed** ledger, so it is
-        enforced here exactly once, over the full target, with the same
-        pure :func:`first_negative_holding_date` the seam uses; the currency
-        equality rule (ADR-0097 §5) is likewise checked once per position.
+        already present, would abort an entirely legitimate import. That
+        hazard is now moot for §4: ADR-0130 exempts
+        ``investment_type='cash'`` from the non-negativity invariant on
+        every write path, and every position this seam writes is a cash
+        position, so no negativity check runs here at all. The currency
+        equality rule (ADR-0097 §5) does still apply, and is checked once
+        per position over the committed target for the same diff reason.
         The seam's third service — the in-transaction materialisation
         trigger — is subsumed by the explicit full recompute below, which
         this path needs regardless.
@@ -2688,10 +2761,6 @@ class InvestmentService:
         Raises:
             CurrencyMismatchError: If a stored price row on this position is
                 denominated in another currency than the position itself.
-            NonNegativeHoldingsError: If the target ledger drives holdings
-                below zero on any date — structurally impossible from
-                statements alone (balances are validated non-negative), so
-                only a foreign ledger row can trigger it.
         """
         prices_repo = self._require_instrument_prices()
         ledger_repo = self._require_position_transactions()
@@ -2852,10 +2921,12 @@ class InvestmentService:
         the existing ``'excel'`` rows; foreign-origin rows are neither read
         as targets nor written.
 
-        Both ADR-0097 invariants the write seam normally enforces are
-        enforced here, once, over the **target** ledger — see
+        The ADR-0097 §5 currency invariant the write seam normally enforces
+        is enforced here, once, over the **target** ledger — see
         :meth:`_reconcile_cash_statements` for why per-write enforcement is
-        wrong during a diff.
+        wrong during a diff. The §4 non-negativity invariant is not enforced
+        at all: the target is a cash position, which ADR-0130 exempts on
+        every write path.
         """
         target_opening = statements[0]
         target_transfers: dict[_date, Decimal] = {}
@@ -2897,50 +2968,12 @@ class InvestmentService:
                 field="currency",
             )
 
-        # ADR-0097 §4, checked once against the committed target: every row
-        # that survives untouched, plus the target opening and transfers.
-        now = datetime.now(timezone.utc)
-        retained = [
-            txn
-            for txn in existing
-            if not (txn.txn_type == "transfer" and txn.ingest_origin == "excel")
-            and not (
-                opening_is_ours and existing_opening is not None and txn.id == existing_opening.id
-            )
-        ]
-        write_opening = existing_opening is None or opening_is_ours
-        candidates: list = list(retained)
-        if write_opening:
-            candidates.append(
-                _LedgerCandidate(
-                    txn_type="opening",
-                    trade_date=target_opening.statement_date,
-                    units=target_opening.balance,
-                    created_at=now,
-                    id=uuid4(),
-                )
-            )
-        candidates.extend(
-            _LedgerCandidate(
-                txn_type="transfer",
-                trade_date=trade_date,
-                units=units,
-                created_at=now,
-                id=uuid4(),
-            )
-            for trade_date, units in target_transfers.items()
-        )
-        offending = first_negative_holding_date(candidates)
-        if offending is not None:
-            raise NonNegativeHoldingsError(
-                f"The statement-derived ledger would drive holdings below "
-                f"zero on {offending} for cash position {investment_id}; a "
-                "foreign ledger row must be conflicting with the statement "
-                "series (statement balances are themselves non-negative). "
-                "Short positions are out of scope (ADR-0097 §4).",
-                field="units",
-            )
-
+        # No non-negativity check: the target is a cash position by
+        # construction, and ADR-0130 exempts cash from the ADR-0097 §4 guard on
+        # every write path. The former check's secondary role — spotting a
+        # foreign ledger row that conflicts with the statement series — is
+        # knowingly given up: the import is the book of record and must mirror
+        # reality, and the negative balance is surfaced rather than refused.
         inserted = updated = deleted = 0
 
         # 1) The opening. A foreign-origin opening is left untouched — the

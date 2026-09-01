@@ -31,8 +31,11 @@ Coverage
   gets its ledger and prices but is **not** flipped, materialises nothing,
   keeps its balances as ``'excel'`` NAV rows, and raises one warning.
 * **CS-08** a backdated statement inserted between two existing ones — the
-  case that pins *why* the ledger diff enforces the ADR-0097 §4
-  non-negativity invariant over the committed target rather than per write.
+  case that pins why the ledger diff classifies against the committed
+  target rather than writing row by row.
+* **CS-10** a foreign ledger row driving the statement-derived balance
+  negative no longer aborts the import (ADR-0130): the reconcile has no
+  non-negativity check left, because every position it writes is cash.
 """
 
 from __future__ import annotations
@@ -57,6 +60,7 @@ from core.repositories import (
 )
 from services.data_normalization import InvestmentExtractor
 from services.investments import InvestmentService
+from services.investments.holdings import holdings_as_of
 from services.investments.unity_price import UNITY_PRICE
 
 
@@ -620,11 +624,15 @@ async def test_cs08_backdated_statement_insert_does_not_trip_non_negativity(
 
     Applied one row at a time, the ledger is transiently ``100, -90, -80`` —
     holdings ``-70`` — even though the ledger it is on its way to is
-    ``100, 10, 20`` and never goes near zero. A guard that re-checked
-    non-negativity on each individual write would reject this import
-    outright. The reconcile therefore validates the **target** once, with
-    the same pure ``first_negative_holding_date`` the write seam uses, and
-    then applies the diff.
+    ``100, 10, 20`` and never goes near zero. A per-write guard would reject
+    this import outright; the reconcile instead classifies against the
+    **target** and then applies the diff.
+
+    ADR-0130 has since removed the non-negativity check from this path
+    altogether (cash is exempt on every write path, and every position this
+    seam writes is cash), so what this test now pins is the diff mechanics
+    themselves: the committed ledger is the statement series, whatever order
+    the individual writes happen to take.
     """
     tenant_id = await seed_tenant()
     actor = await _seed(app_engine, tenant_id, email="cs08@example.com")
@@ -737,3 +745,79 @@ async def test_cs09_unwired_ledger_path_keeps_the_balances_as_navs(
         (date(2024, 4, 30), Decimal("1200.0000")),
     }
     assert all(n.ingest_origin == "excel" for n in navs)
+
+
+# ---------------------------------------------------------------------------
+# CS-10: a foreign row driving the derived balance negative (ADR-0130)
+# ---------------------------------------------------------------------------
+
+
+async def test_cs10_foreign_row_driving_statement_ledger_negative_no_longer_raises(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """The reconcile records the overdraft instead of refusing the import.
+
+    The shape the old check existed to catch: a ``'manual'`` row the importer
+    neither owns nor reads as a target takes the combined balance below zero.
+    Under ADR-0097 §4 that aborted the whole re-import with
+    ``NonNegativeHoldingsError``; under ADR-0130 the cash exemption applies on
+    every write path, so the import — the book of record — mirrors reality and
+    the negative balance is surfaced rather than refused.
+
+    CS-05's contract is unaffected: the ``'excel'`` rows are exactly the
+    statement deltas and the foreign row survives untouched.
+    """
+    tenant_id = await seed_tenant()
+    actor = await _seed(app_engine, tenant_id, email="cs10@example.com")
+
+    await _import(
+        app_engine,
+        tenant_id,
+        actor.id,
+        investments={"Cash EUR": _cash()},
+        statements={"Cash EUR": _SERIES},
+        file_hash="cs10-1",
+    )
+    investment, ledger, _prices, _navs = await _book(app_engine, tenant_id, "Cash EUR")
+    excel_before = {(t.id, t.trade_date, t.units) for t in ledger}
+
+    # An operator books a withdrawal larger than any balance the series ever
+    # reaches — an overdraft on the account, not an impossible state.
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        manual = await PositionTransactionRepository(session).add(
+            investment_id=investment.id,
+            txn_type="transfer",
+            trade_date=date(2024, 2, 15),
+            units=Decimal("-2500"),
+            currency="EUR",
+            ingest_origin="manual",
+            created_by=actor.id,
+            note="operator withdrawal",
+        )
+
+    result = await _import(
+        app_engine,
+        tenant_id,
+        actor.id,
+        investments={"Cash EUR": _cash()},
+        statements={"Cash EUR": _SERIES},
+        file_hash="cs10-2",
+    )
+    assert result.errors == ()
+
+    _inv, ledger, _prices, _navs = await _book(app_engine, tenant_id, "Cash EUR")
+
+    # The importer's own rows are untouched by the re-import ...
+    assert {
+        (t.id, t.trade_date, t.units) for t in ledger if t.ingest_origin == "excel"
+    } == excel_before
+    # ... and the foreign row survives (CS-05 semantics).
+    survivor = next(t for t in ledger if t.id == manual.id)
+    assert survivor.ingest_origin == "manual"
+    assert survivor.units == Decimal("-2500.00000000")
+    assert survivor.note == "operator withdrawal"
+
+    # The derived balance is negative from the withdrawal onward.
+    assert holdings_as_of(ledger, date(2024, 1, 31)) == Decimal("1000.00000000")
+    assert holdings_as_of(ledger, date(2024, 2, 15)) == Decimal("-1500.00000000")
+    assert holdings_as_of(ledger, date(2024, 4, 30)) == Decimal("-1300.00000000")

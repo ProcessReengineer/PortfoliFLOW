@@ -1,0 +1,43 @@
+{# Transactions area body — the ninth Area (ADR-0128 §7). See
+   _cases_body.html for the pattern: a pf-area header plus one section
+   block per surface.
+
+   Three surfaces, in list order: New transaction (the order and
+   record-flow composer, S4), Blotter (draft / proposed / approved, S5),
+   History (booked / cancelled, S5). At this stage (S3) every section
+   renders a placeholder sentence naming the strand that fills it — no
+   controls, no forms, no links. These are not ADR-0111 placeholders:
+   ADR-0111 retired sections for work that will not happen; each of these
+   has a concrete successor strand in the #061 track. #}
+<div class="pf-area pf-transactions" data-area="transactions">
+    <header class="pf-area__header">
+        <div>
+            <h1 class="pf-area__title">Transactions</h1>
+            <p class="pf-area__subtitle">
+                Record a portfolio change, keep cash correct, and keep the
+                trail from question to booking.
+            </p>
+        </div>
+    </header>
+
+    {% with section_slug="new",
+            section_title="New transaction",
+            section_pill="S4",
+            section_placeholder="The order and record-flow composer — buy, sell, new instrument, and reported flows — arrives with S4." %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="blotter",
+            section_title="Blotter",
+            section_pill="S5",
+            section_placeholder="Draft, proposed and approved tickets arrive with S5." %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+
+    {% with section_slug="history",
+            section_title="History",
+            section_pill="S5",
+            section_placeholder="Booked and cancelled tickets, filterable, arrive with S5." %}
+        {% include "areas/_section.html" %}
+    {% endwith %}
+</div>

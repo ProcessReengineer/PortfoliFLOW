@@ -10,6 +10,7 @@ One GET endpoint per area in ``modules/module_registry.py``, in the
     * ``GET /back-office``
     * ``GET /watch-desk`` (ADR-0089)
     * ``GET /cases`` (ADR-0107)
+    * ``GET /transactions`` (ADR-0128 §7)
     * ``GET /planning-desk`` (ADR-0104 §6)
     * ``GET /investor-communication``
     * ``GET /assistants``
@@ -128,6 +129,7 @@ _AREA_BODY_PARTIALS: dict[str, str] = {
     "front_office": "_partials/areas/_front_office_body.html",
     "watch_desk": "_partials/areas/_watch_desk_body.html",
     "cases": "_partials/areas/_cases_body.html",
+    "transactions": "_partials/areas/_transactions_body.html",
     "planning_desk": "_partials/areas/_planning_desk_body.html",
     "back_office": "_partials/areas/_back_office_body.html",
     "admin": "_partials/areas/_admin_body.html",
@@ -274,6 +276,32 @@ async def cases_view(
         request,
         area_slug="cases",
         template_name="areas/cases.html",
+        user_email=user_email,
+        csrf_token=session.csrf_token,
+        htmx=htmx,
+    )
+
+
+@router.get("/transactions", response_class=HTMLResponse)
+async def transactions_view(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+    htmx: bool = Depends(is_htmx_request),
+) -> HTMLResponse:
+    """Render the Transactions area page (ADR-0128 §7).
+
+    The ninth top-level Area — a trade ticket executes the decision a Case
+    carries. Its three Sections (New transaction, Blotter, History) render
+    placeholder bodies at this shell-registration stage (S3), so the
+    handler is a thin shell render with no DB access, exactly like
+    :func:`cases_view`. Every role reads the Area; owner gating of ticket
+    mutations is a concern of the S4 write routes.
+    """
+    user_email = await _resolve_user_email(request, session)
+    return _render_area(
+        request,
+        area_slug="transactions",
+        template_name="areas/transactions.html",
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,

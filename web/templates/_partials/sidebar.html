@@ -3,12 +3,13 @@
    ``active_area`` context variable controls which entry carries the
    ``is-active`` class.
 
-   The eight areas are listed in web/shell.py `_AREAS` order:
+   The nine areas are listed in web/shell.py `_AREAS` order:
    front_office → back_office → assistants → planning_desk →
-   investor_communication → watch_desk → cases → admin. Order is hardcoded
-   here because the area set is part of the architectural decision (ADR-0046,
-   ADR-0089, ADR-0104, ADR-0107, ADR-0122) and not derived at render time;
-   keep it in step with `_AREAS`, which carries the rationale for the order.
+   investor_communication → watch_desk → cases → transactions → admin.
+   Order is hardcoded here because the area set is part of the architectural
+   decision (ADR-0046, ADR-0089, ADR-0104, ADR-0107, ADR-0122, ADR-0128) and
+   not derived at render time; keep it in step with `_AREAS`, which carries
+   the rationale for the order.
 
    The id ``pf-sidebar`` is the OOB swap target — when the
    ``sidebar_oob`` flag is set, the rendered <aside> carries
@@ -22,6 +23,7 @@
     ("investor_communication", "Investor Communication", "/investor-communication"),
     ("watch_desk", "Watch Desk", "/watch-desk"),
     ("cases", "Cases", "/cases"),
+    ("transactions", "Transactions", "/transactions"),
     ("admin", "Admin", "/admin"),
 ] %}
 <aside id="pf-sidebar"

@@ -66,7 +66,7 @@ this document is the canonical source.
 
 | Term | Code mapping | Definition |
 |---|---|---|
-| **Area** | `module_area`, `_AREAS` | One of eight top-level operational groups, in sidebar order: Front Office, Back Office, Watch Desk, Cases, Planning Desk, Investor Communication, Assistants, Admin (Watch Desk added by ADR-0089, Planning Desk by ADR-0104 §6, Cases by ADR-0107 — inserted between Watch Desk and Planning Desk in sidebar order). Each has one directory under `modules/` and one URL `/{area-name}` in the web surface. |
+| **Area** | `module_area`, `_AREAS` | One of nine top-level operational groups, in sidebar order: Front Office, Back Office, Assistants, Planning Desk, Investor Communication, Watch Desk, Cases, Transactions, Admin (the ADR-0122 §1 order). Watch Desk was added as the sixth Area by ADR-0089; Planning Desk as the seventh by ADR-0104 §6; Cases as the eighth by ADR-0107; Transactions as the ninth by ADR-0128 §7, between Cases and Admin. ADR-0122 fixed the sidebar order above, superseding the ADR-0104 §6 order. Each has one directory under `modules/` and one URL `/{area-name}` in the web surface. |
 | **Section** | Long-scroll subdivision in a web area | A section within an Area's long-scroll page, addressable via anchor (e.g. `/front-office#charts`). Multiple sections per Area. Defined by ADR-0058. |
 | **Module** | `BaseModule` subclass, `@registry.register` | A registered unit of business logic assigned to exactly one Area. Discoverable via `ModuleRegistry`. Each module renders into a Section in its Area's web page. |
 | **Feature** | *Planning term — not a code construct* | A user-visible capability. May span Modules, Sections, and Functions. Use in product / roadmap discussions, not for code. |
@@ -163,7 +163,7 @@ Cross-cutting infrastructure that every other layer depends on. Kept minimal and
 | `logging_setup.py` | Logging initialisation. Called once per process from each entry point. |
 | `data_store.py` | In-memory named-DataFrame store. A Stage-2 sunset artefact (ADR-0094 §5): still consumed by the DataStore-coupled reporting engine and a few module shells; not used by `web/` per ADR-0041 (ADR-0004). |
 | `persistent_data_store.py` | Strangler bridge between the in-memory DataStore and Postgres. Not imported by `web/`. |
-| `models/` | SQLAlchemy 2 ORM models — `Tenant`, `User`, `Investment`, `InvestmentNav`, `InvestmentCashflow`, `InvestmentCountryWeight`, `InvestmentSectorWeight`, `InvestmentRegionWeight`, `Region`, `RegionCountryMembership`, `Country`, `Sector`, `AssetClass`, `SAAConfiguration`, `SAAAssetClassInput`, `SAACorrelation`, `DataUpload`, `AuditLog`, `DataStoreEntry`, `AnlvCategory`, `LimitSet`, `Limit`, `Benchmark`, `BenchmarkObservation`, `AssetClassBenchmarkMapping` (ADR-0061), `InvestmentBondAnalytics`, `InvestmentMaturityWeight`, `InvestmentRatingWeight` (ADR-0079), `FxRate` (ADR-0099), `InstrumentPrice`, `PositionTransaction` (ADR-0097/0098), `InvestmentIdentifier`, `MarketDataSchedule`, `IreneFinding`, `IreneSchedule`, `IreneWatchState` (ADR-0089), `Case`, `CaseEntry`, `CaseAttachment` (ADR-0107), `ScopedSetting` (ADR-0112), `Watchpoint`, `FloorCalibration` (ADR-0116). |
+| `models/` | SQLAlchemy 2 ORM models — `Tenant`, `User`, `Investment`, `InvestmentNav`, `InvestmentCashflow`, `InvestmentCountryWeight`, `InvestmentSectorWeight`, `InvestmentRegionWeight`, `Region`, `RegionCountryMembership`, `Country`, `Sector`, `AssetClass`, `SAAConfiguration`, `SAAAssetClassInput`, `SAACorrelation`, `DataUpload`, `AuditLog`, `DataStoreEntry`, `AnlvCategory`, `LimitSet`, `Limit`, `Benchmark`, `BenchmarkObservation`, `AssetClassBenchmarkMapping` (ADR-0061), `InvestmentBondAnalytics`, `InvestmentMaturityWeight`, `InvestmentRatingWeight` (ADR-0079), `FxRate` (ADR-0099), `InstrumentPrice`, `PositionTransaction` (ADR-0097/0098), `InvestmentIdentifier`, `MarketDataSchedule`, `IreneFinding`, `IreneSchedule`, `IreneWatchState` (ADR-0089), `Case`, `CaseEntry`, `CaseAttachment` (ADR-0107), `ScopedSetting` (ADR-0112), `Watchpoint`, `FloorCalibration` (ADR-0116), `TradeTicket`, `TradeTicketEffect` (ADR-0128). |
 | `repositories/` | Repository pattern over the ORM (ADR-0018). One repository per aggregate. All queries pass through these; routes and services never touch ORM directly except inside a repository. |
 | `chart_theme.py`, `ui_theme.py`, `theme_service.py` | Theme infrastructure (ADR-0021, ADR-0025, ADR-0032). |
 | `tenant_constants.py` | Sentinel tenant UUID and the GUC name (`app.tenant_id`) used by RLS policies. |
@@ -210,7 +210,7 @@ External integrations and business services. The largest layer in line count. Or
 
 ### `modules/`
 
-The registered-business-logic layer. Organised into the eight Areas that mirror a portfolio management company's operational structure (Watch Desk added as the sixth Area by ADR-0089, Planning Desk as the seventh by ADR-0104 §6, Cases as the eighth by ADR-0107). Each module is a `BaseModule` subclass registered via `@registry.register`.
+The registered-business-logic layer. Organised into the nine Areas that mirror a portfolio management company's operational structure (Watch Desk added as the sixth Area by ADR-0089, Planning Desk as the seventh by ADR-0104 §6, Cases as the eighth by ADR-0107, Transactions as the ninth by ADR-0128 §7). Each module is a `BaseModule` subclass registered via `@registry.register`.
 
 | Area | Directory | Modules (current) |
 |---|---|---|
@@ -244,7 +244,7 @@ The CLI connects to Postgres as the superuser (`DATABASE_URL_SUPERUSER`). Applic
 
 ### `db/`
 
-The database schema and infrastructure: `init/` for container-init SQL (creates the `portfoliflow_app` role on the first Postgres start), `migrations/` for Alembic versions (`b001` to `b033` at time of writing), `alembic.ini`, `postgresql.conf`, and `README.md`. The `init/` SQL is run by the Postgres container entry point on the first start against an empty data volume and never re-runs, so re-triggering it means discarding the volume — `scripts/db-reset.sh`; see `db/README.md`. Migrations are the only path that changes schema; ORM-side `Base.metadata.create_all` is never used in this project.
+The database schema and infrastructure: `init/` for container-init SQL (creates the `portfoliflow_app` role on the first Postgres start), `migrations/` for Alembic versions (`b001` to `b034` at time of writing), `alembic.ini`, `postgresql.conf`, and `README.md`. The `init/` SQL is run by the Postgres container entry point on the first start against an empty data volume and never re-runs, so re-triggering it means discarding the volume — `scripts/db-reset.sh`; see `db/README.md`. Migrations are the only path that changes schema; ORM-side `Base.metadata.create_all` is never used in this project.
 
 ### `web/`
 

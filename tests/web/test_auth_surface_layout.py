@@ -58,6 +58,7 @@ _AREA_LABELS: tuple[str, ...] = (
     "Admin",
     "Investor Communication",
     "Assistants",
+    "Transactions",
 )
 
 

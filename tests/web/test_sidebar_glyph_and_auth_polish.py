@@ -53,6 +53,7 @@ _AREAS: tuple[tuple[str, str, str], ...] = (
     ("back_office", "/back-office", "B"),
     ("watch_desk", "/watch-desk", "W"),
     ("cases", "/cases", "C"),
+    ("transactions", "/transactions", "T"),
     ("planning_desk", "/planning-desk", "P"),
     ("investor_communication", "/investor-communication", "I"),
     ("assistants", "/assistants", "A"),
@@ -204,16 +205,17 @@ async def test_sidebar_uses_single_letter_glyphs(
     assert "pf-sidebar__icon" not in body, f"{url} still emits the legacy pf-sidebar__icon class"
 
     # Each glyph span contains a single letter — extract them all and
-    # confirm the expected initials appear in render order. Eight areas since
-    # ADR-0107 added Cases ("C"); the sidebar order is Front Office → Back
-    # Office → Assistants → Planning Desk → Investor Communication → Watch
-    # Desk → Cases → Admin (ADR-0122 §1, superseding the ADR-0104 §6 order).
+    # confirm the expected initials appear in render order. Nine areas since
+    # ADR-0128 §7 added Transactions ("T"); the sidebar order is Front Office
+    # → Back Office → Assistants → Planning Desk → Investor Communication →
+    # Watch Desk → Cases → Transactions → Admin (ADR-0122 §1, superseding the
+    # ADR-0104 §6 order, with Transactions inserted between Cases and Admin).
     # Both Assistants and Admin render "A", hence the repeated initial.
     span_contents = re.findall(
         r'<span class="pf-sidebar__glyph"[^>]*>([^<]*)</span>',
         body,
     )
-    assert span_contents == ["F", "B", "A", "P", "I", "W", "C", "A"], (
+    assert span_contents == ["F", "B", "A", "P", "I", "W", "C", "T", "A"], (
         f"{url} glyph contents were {span_contents!r}"
     )
 

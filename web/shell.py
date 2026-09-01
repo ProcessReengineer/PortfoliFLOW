@@ -43,8 +43,9 @@ class AreaMeta:
 
 
 # Sidebar order, operator-confirmed in the pre-release IA review
-# (ADR-0122 §1): Front Office → Back Office → Assistants → Planning Desk →
-# Investor Communication → Watch Desk → Cases → Admin. It reads as the book
+# (ADR-0122 §1), with Transactions inserted by ADR-0128 §7: Front Office →
+# Back Office → Assistants → Planning Desk → Investor Communication →
+# Watch Desk → Cases → Transactions → Admin. It reads as the book
 # first (Front Office, Back Office), the assistant as the standing companion
 # right behind it — Shirley is the primary interactive surface for
 # day-to-day work on that book — then the forward-looking planning surface
@@ -55,7 +56,10 @@ class AreaMeta:
 #
 # The Watch Desk → Cases adjacency is deliberate and preserved from
 # ADR-0107: the Watch Desk raises a question, a Case carries it to a
-# documented close.
+# documented close. The Cases → Transactions adjacency continues that
+# chain (ADR-0128 §7): a trade ticket executes the decision a Case
+# carries, so the three surfaces read left to right as raise → decide →
+# act.
 #
 # This supersedes the ADR-0104 §6 order, which grouped the two
 # forward-looking surfaces in the middle and put Assistants seventh —
@@ -87,6 +91,10 @@ _AREAS: tuple[AreaMeta, ...] = (
     # worked to a documented close. It follows the Watch Desk, which raises
     # the question a Case then carries to that close.
     AreaMeta(slug="cases", label="Cases", url="/cases"),
+    # Ninth top-level Area *by order of introduction* (ADR-0128 §7): the
+    # Transactions Area — a trade ticket executes the decision a Case
+    # carries, completing the Watch Desk → Cases → Transactions chain.
+    AreaMeta(slug="transactions", label="Transactions", url="/transactions"),
     AreaMeta(slug="admin", label="Admin", url="/admin"),
 )
 
@@ -147,6 +155,14 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
         SectionMeta(slug="open-cases", title="Open Cases"),
         SectionMeta(slug="recently-closed", title="Recently Closed"),
         SectionMeta(slug="archive", title="Archive"),
+    ),
+    # Three sections, in list order (ADR-0128 §7): the order and
+    # record-flow composer, the blotter (draft / proposed / approved), the
+    # history (booked / cancelled). Placeholder bodies until S4 / S5.
+    "transactions": (
+        SectionMeta(slug="new", title="New transaction"),
+        SectionMeta(slug="blotter", title="Blotter"),
+        SectionMeta(slug="history", title="History"),
     ),
     "back_office": (
         SectionMeta(slug="saa", title="Strategic Asset Allocation"),

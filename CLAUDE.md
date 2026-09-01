@@ -15,10 +15,11 @@ their rationale see `docs/adr/`. For planned work see `docs/roadmap.md`.
 PortfoliFLOW is an AI-assisted portfolio management platform for
 institutional investors. It serves institutional portfolio
 management broadly — including, but not limited to, fund-of-funds
-and alternative-investment mandates — and automates eight operational
-areas — front office, back office, watch desk, cases, planning
-desk, investor communication, assistants, and admin — through a web
-application backed by Postgres with row-level security per tenant.
+and alternative-investment mandates — and automates nine operational
+areas — front office, back office, assistants, planning desk,
+investor communication, watch desk, cases, transactions, and admin —
+through a web application backed by Postgres with row-level security
+per tenant.
 
 The project is maintained by a single developer with AI assistance.
 Every AI-generated change must be reviewable by a human in a single
@@ -34,7 +35,7 @@ The primary surface is a FastAPI/Jinja2/HTMX web application under
 (ADR-0034, ADR-0035) and session-based authentication (ADR-0036).
 ORM models live in `core/models/`; tenant-scoped data access goes
 through `core/repositories/`. Business modules live under `modules/`,
-organised into the eight operational areas (ADR-0089, ADR-0104, ADR-0107). The `services/` layer
+organised into the nine operational areas (ADR-0089, ADR-0104, ADR-0107, ADR-0128). The `services/` layer
 provides pure, DB-free and Qt-free calculation engines under
 `services/analytics/`, Plotly chart specifications under
 `services/chart_specs/`, the AI service core (`services/ai_service_core.py`),
@@ -109,9 +110,10 @@ Qt surface (ADR-0094) and are not listed here.
 
 | Term | Code mapping | Definition |
 |---|---|---|
-| **Area** | `module_area`, `_AREAS` | One of eight top-level groups, in sidebar order: Front Office, Back Office, Watch Desk, Cases, Planning Desk, Investor Communication, Assistants, Admin. Watch Desk was added as the sixth Area by ADR-0089; Planning Desk as the seventh by ADR-0104 §6, which also fixed the sidebar order above; Cases as the eighth by ADR-0107, inserted between Watch Desk and Planning Desk in sidebar order. Each has one directory under `modules/` and one URL `/{area-name}` in the web surface. |
+| **Area** | `module_area`, `_AREAS` | One of nine top-level groups, in sidebar order: Front Office, Back Office, Assistants, Planning Desk, Investor Communication, Watch Desk, Cases, Transactions, Admin (the ADR-0122 §1 order). Watch Desk was added as the sixth Area by ADR-0089; Planning Desk as the seventh by ADR-0104 §6; Cases as the eighth by ADR-0107; Transactions as the ninth by ADR-0128 §7, between Cases and Admin. ADR-0122 fixed the sidebar order above, superseding the ADR-0104 §6 order. Each has one directory under `modules/` and one URL `/{area-name}` in the web surface. |
 | **Planning Desk** | `modules/planning_desk/`, `/planning-desk` | The seventh Area (ADR-0104 §6). Two stacked Sections — Cash Flow Planning and Scenario Analysis — over one parameter set. It *projects and simulates* where the Watch Desk *watches and raises*: it works on the plan world (`services/investments/plan_world`) through the pure overlay contract (`services/overlay/`), and no overlay ever writes to the book. Feature #034 re-anchored here from the retired Watch Desk `scenarios` stub (ADR-0104 §8). |
-| **Case** | `modules/cases/`, `/cases`, `Case` ORM | A tenant-scoped unit of decision work: an open question carried to a documented close (ADR-0107 §2). Carries an append-only timeline of entries (notes, decisions, and pins — documents, scenario snapshots, Shirley consultation excerpts) and is closed exactly once with a mandatory closing note. Opened manually or from an Irene finding via the fifth resolution `opened_case`. The eighth Area, sitting between the Watch Desk and the Planning Desk in sidebar order (ADR-0107). |
+| **Case** | `modules/cases/`, `/cases`, `Case` ORM | A tenant-scoped unit of decision work: an open question carried to a documented close (ADR-0107 §2). Carries an append-only timeline of entries (notes, decisions, and pins — documents, scenario snapshots, Shirley consultation excerpts) and is closed exactly once with a mandatory closing note. Opened manually or from an Irene finding via the fifth resolution `opened_case`. The eighth Area by order of introduction, sitting between the Watch Desk and Transactions in sidebar order (ADR-0107; order per ADR-0122). |
+| **Trade ticket** | `modules/transactions/`, `/transactions`, `TradeTicket` ORM | One intended or recorded portfolio change carried through a single lifecycle (`draft` → `proposed` → `approved` → `booked`, or `cancelled`), settling atomically against a cash position; the rows it emits into the ledger, cashflows and NAVs are enumerated in `TradeTicketEffect` so a booking is reversible and its provenance (Watch Desk → Case → ticket → bookings) is machine-readable (ADR-0128 §1–§3, §6). The Area label is **Transactions**; the object is a trade ticket, avoiding the collision with `position_transactions`. The ninth Area, sitting between Cases and Admin in sidebar order (ADR-0128 §7). |
 | **Section** | Long-scroll subdivision in a web area | A section within an Area's long-scroll page, addressable via anchor (e.g. `/front-office#charts`). Multiple sections per area. Per ADR-0058. |
 | **Module** | `BaseModule` subclass, `@registry.register` | A registered unit of business logic assigned to one Area. Discoverable via `ModuleRegistry`. Each module renders into a Section in its Area's web page. |
 | **Feature** | *(planning term — not a code construct)* | A user-visible capability. May span Modules, Sections, and Functions. Use in product / roadmap discussions, not for code. |
@@ -219,18 +221,21 @@ A module's `module_area` must be one of:
 
 - `front_office`
 - `back_office`
-- `watch_desk`
-- `cases`
+- `assistants`
 - `planning_desk`
 - `investor_communication`
-- `assistants`
+- `watch_desk`
+- `cases`
+- `transactions`
 - `admin`
 
-These are exactly the eight top-level Areas, listed in sidebar order.
+These are exactly the nine top-level Areas, listed in sidebar order
+(ADR-0122 §1).
 Adding a new top-level Area is an architectural decision and requires
 an ADR — the precedents are Watch Desk, added as the sixth Area
-by ADR-0089, Planning Desk, added as the seventh by ADR-0104 §6, and
-Cases, added as the eighth by ADR-0107.
+by ADR-0089, Planning Desk, added as the seventh by ADR-0104 §6,
+Cases, added as the eighth by ADR-0107, and Transactions, added as
+the ninth by ADR-0128 §7.
 Adding a new Module to an existing Area does not.
 
 ---
@@ -299,11 +304,11 @@ this way.
 
 ## How to implement a new module
 
-1. **Confirm the Area.** Decide which of the eight Areas the module
+1. **Confirm the Area.** Decide which of the nine Areas the module
    belongs to. If unclear, ask before generating code.
 2. **Create the module file** under `modules/<area>/<module_name>.py`.
    Subclass `BaseModule`, decorate with `@registry.register`, define
-   `module_area` (one of the eight) and `module_title`.
+   `module_area` (one of the nine) and `module_title`.
 3. **Implement business logic** in the module. Pure-calculation
    parts go into `services/analytics/`, integration parts go into
    `services/`, repository access goes through `core/repositories/`.
@@ -431,9 +436,10 @@ docstring and ADR-0009.
 |---|---|
 | Persistence (Postgres + RLS + Repositories) | Production |
 | Web surface (FastAPI/Jinja/HTMX) | Production — primary surface |
-| Eight Areas with long-scroll IA (ADR-0058, ADR-0089, ADR-0104) | Production |
+| Nine Areas with long-scroll IA (ADR-0058, ADR-0089, ADR-0104, ADR-0107, ADR-0128) | Production |
 | Planning Desk (seventh Area, ADR-0104) | Shipped (#049, 2026-07-23) — Cash Flow Planning and Scenario Analysis (#034 v1) live: baseline projection, hypothetical transactions, repace, market/FX shock, deltas-first results |
 | Cases (eighth Area, ADR-0107) | Shipped 2026-07-22 — three surfaces (Open cases / Case detail / Recently closed + archive), Watch Desk arming + Journal merge, Planning Desk scenario pin, Shirley case brief + consultation pin, migration `b031` |
+| Transactions (ninth Area, ADR-0128) | In progress (#061) — Area shell with placeholder sections (S3); schema `b034` and ticket service landed (S1/S2); record-flow surfaces, blotter/history and preview follow (S4–S6) |
 | Investment domain, Cashflows, NAVs | Production |
 | Charts, Statistics, Portfolio Analysis | Production |
 | Front-Office Overview (KPI strip + chart row) | Production (ADR-0067, ADR-0072) |

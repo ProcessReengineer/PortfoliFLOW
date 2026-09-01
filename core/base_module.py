@@ -47,6 +47,10 @@ VALID_AREAS = frozenset(
         # worked to a documented close, sitting between the Watch Desk
         # (watches and raises) and the Planning Desk (projects and simulates).
         "cases",
+        # Ninth top-level Area (ADR-0128 §7): the Transactions Area — trade
+        # tickets carrying a portfolio change from draft to booking, sitting
+        # between Cases and Admin.
+        "transactions",
     }
 )
 
@@ -57,7 +61,7 @@ class BaseModule(ABC):
     Subclasses **must** define:
 
     * ``module_name`` — unique snake_case identifier (e.g. ``"data_import"``).
-    * ``module_area`` — one of the seven Areas in :data:`VALID_AREAS`.
+    * ``module_area`` — one of the nine Areas in :data:`VALID_AREAS`.
     * ``run()`` — entry-point called by the GUI and by other modules.
 
     Attributes:

@@ -330,13 +330,15 @@ async def test_cmd_search_returns_full_catalogue_on_empty_query(
     assert "areas" in payload
     assert "sections" in payload
     assert "actions" in payload
-    # Eight areas (Watch Desk added in ADR-0089, Planning Desk in
-    # ADR-0104, Cases in ADR-0107), no actions today.
+    # Nine areas (Watch Desk added in ADR-0089, Planning Desk in
+    # ADR-0104, Cases in ADR-0107, Transactions in ADR-0128), no actions
+    # today.
     area_slugs = {entry["slug"] for entry in payload["areas"]}
     assert area_slugs == {
         "front_office",
         "watch_desk",
         "cases",
+        "transactions",
         "planning_desk",
         "back_office",
         "admin",

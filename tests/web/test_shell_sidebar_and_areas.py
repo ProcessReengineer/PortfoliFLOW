@@ -5,7 +5,7 @@
 
 Sub-stream 6F-1 of Phase 6 Block 1 (ADR-0046). Covers:
 
-* Per-area URL renders the sidebar with all eight areas, in order.
+* Per-area URL renders the sidebar with all nine areas, in order.
 * Active-state highlighting is correct for each area URL.
 * HTMX requests (``HX-Request: true``) get a partial fragment and
   no full ``<html>`` / ``<body>`` wrapper.
@@ -180,14 +180,14 @@ async def test_web_sidebar_renders_for_each_area(
     url: str,
     label: str,
 ) -> None:
-    """Each area URL renders the sidebar with all eight areas."""
+    """Each area URL renders the sidebar with all nine areas."""
     _id, email, password = seeded_user
     await _login(web_client, email, password)
 
     response = await web_client.get(url, follow_redirects=False)
     assert response.status_code == 200, f"{url} returned {response.status_code}"
     body = response.text
-    # All eight area labels appear in the sidebar.
+    # All nine area labels appear in the sidebar.
     for _slug2, _url2, label2 in _AREAS:
         assert label2 in body, f"{url} missing sidebar entry for {label2}"
     # The sidebar marker id is present (the OOB swap target).
@@ -203,7 +203,8 @@ async def test_web_sidebar_renders_areas_in_order(
     Sequence, not membership: the rendered ``_partials/sidebar.html`` hrefs
     must equal the catalogue order (Front Office → Back Office → Assistants
     → Planning Desk → Investor Communication → Watch Desk → Cases →
-    Admin, ADR-0122 §1). This asserts the template renders in step with
+    Transactions → Admin, ADR-0122 §1 with Transactions inserted by
+    ADR-0128 §7). This asserts the template renders in step with
     ``web.shell``; the deliberate order pin — held independently of the
     catalogue — is the glyph-sequence assert in
     ``tests/web/test_sidebar_glyph_and_auth_polish.py``.

@@ -16,3 +16,4 @@ import modules.assistants  # noqa: F401
 import modules.watch_desk  # noqa: F401
 import modules.planning_desk  # noqa: F401
 import modules.cases  # noqa: F401
+import modules.transactions  # noqa: F401

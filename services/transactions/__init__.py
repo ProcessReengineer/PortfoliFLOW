@@ -24,9 +24,10 @@ Four modules, four concerns:
   emission that hands them to the one sanctioned write seam (ADR-0128 §2).
 * :mod:`services.transactions.ticket_service` — the async workflow.
 
-Strands S1 and S2a cover ``create_draft`` / ``update_draft`` / ``propose`` /
-``cancel`` and ``book`` for ``order`` kinds. Reported-kind emission is S2b,
-reversal is S2c, and the routes and composer surfaces are S3/S4 — see
+Strands S1, S2a and S2b cover ``create_draft`` / ``update_draft`` /
+``propose`` / ``cancel`` and ``book`` for all six flows — including the three
+that *create* their ``investments`` row as an emission effect (MD-12).
+Reversal is S2c, and the routes and composer surfaces are S3/S4 — see
 :class:`TicketService`'s docstring for why each is absent rather than
 forgotten.
 
@@ -49,8 +50,14 @@ from services.transactions.constants import (
     WARNING_IDENTIFIERS,
 )
 from services.transactions.emission import (
+    MasterData,
+    emit_commitment,
+    emit_new_order,
     emit_order,
+    emit_secondary_buy,
+    emit_secondary_sell,
     investment_before_image,
+    parse_master_data,
     provenance,
 )
 from services.transactions.ticket_service import TicketService
@@ -74,13 +81,19 @@ __all__ = [
     "STATUSES",
     "V1_REACHABLE_STATUSES",
     "WARNING_IDENTIFIERS",
+    "MasterData",
     "TicketService",
     "TicketWarning",
     "TicketWarnings",
     "derive_cash_effect",
+    "emit_commitment",
+    "emit_new_order",
     "emit_order",
+    "emit_secondary_buy",
+    "emit_secondary_sell",
     "investment_before_image",
     "is_cash_moving",
     "is_investment_creating",
+    "parse_master_data",
     "provenance",
 ]

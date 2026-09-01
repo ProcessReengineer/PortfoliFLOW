@@ -531,6 +531,69 @@ class TradeTicketRepository(BaseRepository):
             field="status",
         )
 
+    async def link_investment(
+        self,
+        ticket_id: UUID,
+        *,
+        investment_id: UUID,
+        now: datetime,
+    ) -> TradeTicketDTO:
+        """Record the investment a booking created for this ticket (ADR-0128 §2).
+
+        **Mechanism, not policy.** The method neither decides that a ticket
+        should create an investment nor knows which flows do; it writes one
+        column, once. The only caller is the booking emission of an
+        investment-creating flow (U-NEW / R-COMMIT / R-SEC-BUY), where the
+        ``investments`` row is an emission effect rather than a precondition
+        (MD-12) and the ticket therefore learns its ``investment_id`` only at
+        booking.
+
+        :meth:`update_draft` cannot serve, for two independent reasons: it is
+        draft-only, and a ticket being booked is commonly ``proposed`` or
+        ``approved``; and it is the *composer's* save path, where a
+        whitelisted field may be written repeatedly. This link is written at
+        most once.
+
+        Writing twice is refused rather than allowed to overwrite. A ticket
+        whose ``investment_id`` moved would leave the first investment with
+        no trace of what created it while claiming the second was booked by a
+        ticket that never touched it — and ``trade_tickets.investment_id`` is
+        ``ON DELETE RESTRICT``, so the orphan could not even be cleaned up.
+
+        Args:
+            ticket_id: The ticket to link.
+            investment_id: The investment the booking just created.
+            now: The new ``updated_at``.
+
+        Returns:
+            The updated :class:`TradeTicketDTO`.
+
+        Raises:
+            TicketNotFound: If no such ticket exists in the active tenant.
+            TicketStateInvalid: If the ticket already names an investment.
+        """
+        existing = await self.get(ticket_id)
+        if existing is None:
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        if existing.investment_id is not None:
+            raise TicketStateInvalid(
+                f"Trade ticket {existing.ticket_number} already names investment "
+                f"{existing.investment_id}; the link a creating booking writes is "
+                "written once and never moved.",
+                field="investment_id",
+            )
+
+        stmt = (
+            update(TradeTicket)
+            .where(TradeTicket.id == ticket_id)
+            .values(investment_id=investment_id, updated_at=now)
+            .returning(*_TICKET_COLUMNS)
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        if row is None:  # pragma: no cover — :meth:`get` just saw the row
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        return TradeTicketDTO(**row._mapping)
+
     async def set_status(
         self,
         ticket_id: UUID,

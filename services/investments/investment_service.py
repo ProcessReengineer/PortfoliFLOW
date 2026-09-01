@@ -1392,6 +1392,8 @@ class InvestmentService:
         commitment_amount: Decimal | None = None,
         is_active: bool = True,
         type_specific_data: dict | None = None,
+        anlv_code: str | None = None,
+        valuation_mode: str = "reported",
     ) -> InvestmentDTO:
         """Create a new investment.
 
@@ -1410,6 +1412,18 @@ class InvestmentService:
             is_active: Active flag, defaults to ``TRUE``.
             type_specific_data: Optional Phase-5+ extension JSONB
                 (should remain ``None`` in Phase 4).
+            anlv_code: Optional AnlV-category code (FK to
+                ``anlv_categories.code``, ADR-0057). ``None`` leaves the
+                investment unclassified, which the schema permits — the
+                classification gate is a transition guard on the flows
+                that create an investment, never a constraint.
+            valuation_mode: ``'reported'`` (NAV carried directly) or
+                ``'unitised'`` (NAV materialised from holdings × price,
+                ADR-0098 §3). Defaults to ``'reported'`` so the existing
+                construction sites are unaffected; the trade-ticket
+                emission (ADR-0128 §2) states it explicitly per flow,
+                because which one a flow creates is a property of the
+                flow rather than a sensible default.
 
         Returns:
             The newly created :class:`InvestmentDTO`.
@@ -1426,6 +1440,8 @@ class InvestmentService:
             commitment_amount=commitment_amount,
             is_active=is_active,
             type_specific_data=type_specific_data,
+            anlv_code=anlv_code,
+            valuation_mode=valuation_mode,
         )
 
     async def update_investment(

@@ -55,6 +55,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
 
+# The eight canonical ``investment_type`` discriminator values (ADR-0043,
+# extended by ADR-0100 §1). Mirrors the DB CHECK on
+# ``investments.investment_type``; the set is extended only by a successor
+# ADR + migration. ``cash`` is the eighth, added so a foreign-currency cash
+# balance can be a first-class investment row.
+INVESTMENT_TYPES: frozenset[str] = frozenset(
+    {
+        "private_equity",
+        "private_debt",
+        "real_estate",
+        "infra_equity",
+        "listed_equity",
+        "listed_bonds",
+        "other",
+        "cash",
+    }
+)
+
 
 class Investment(Base):
     """One investment instrument belonging to exactly one tenant."""

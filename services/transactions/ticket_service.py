@@ -11,13 +11,15 @@ composer should be warned about. The two are deliberately separate so the
 rules live in exactly one place rather than being half-enforced by a schema
 CHECK and half-restated in a route.
 
-Scope so far (S1 + S2a)
------------------------
+Scope so far (S1 + S2a + S2b)
+-----------------------------
 ``create_draft`` · ``update_draft`` · ``propose`` · ``cancel`` (S1) and
-``book`` for ``order``-kind tickets (S2a). The emission itself lives in
+``book`` for **all six flows** — U-BUY / U-SELL (S2a) and U-NEW / R-COMMIT /
+R-SEC-BUY / R-SEC-SELL (S2b). The emission itself lives in
 :mod:`services.transactions.emission`; what stays here is the policy around
-it — which statuses may book, the re-validation, and the lifecycle walk.
-The remaining omissions are structural rather than accidental:
+it — which statuses may book, which flow a validated ticket routes to, the
+re-validation, and the lifecycle walk. The remaining omissions are
+structural rather than accidental:
 
 * **No ``approve`` gesture.** In v1 the "Book now" gesture traverses
   ``proposed → approved → booked`` implicitly, writing both actor columns
@@ -25,15 +27,24 @@ The remaining omissions are structural rather than accidental:
   approval gesture arrives with four-eyes enforcement, which is a
   tenant-scoped setting — a rule change, not a migration, because the
   columns and transitions already exist.
-* **No reported-kind emission.** R-COMMIT / R-SEC-BUY / R-SEC-SELL also
-  write cashflow and NAV rows, and the creating flows write the
-  ``investments`` row itself (MD-12). :meth:`book` refuses them loudly until
-  **S2b** fills the kind dispatch.
 * **No reversal.** Cancelling a ``booked`` ticket deletes its enumerated
   effects in one DB transaction (ADR-0128 §6) and is **S2c** — which is why
   :meth:`cancel` refuses ``booked`` outright rather than flipping a status
   and orphaning a ledger.
 * **No routes, no templates, no module registration.** S3/S4.
+
+Creating flows (S2b)
+--------------------
+Three of the six flows have no ``investments`` row until they book (MD-12):
+the master data rides on the ticket as a JSONB payload and the row is an
+*emission effect*. That moves work into this seam, because a payload has no
+schema behind it: the blocks below re-ask, at both Propose and Book, the
+questions a foreign key would otherwise have answered — is the payload
+complete and convertible (D-J / D-V), does the name already exist (D-O), do
+the ticket and its payload agree about the commitment (D-U). Everything they
+pass is then interpreted exactly once, by
+:func:`~services.transactions.emission.parse_master_data`, so a ticket that
+validates is a ticket that books.
 
 The service holds no session of its own: the caller opens
 ``core.repositories.tenant_context(...)`` and hands in repositories built on
@@ -63,13 +74,17 @@ from core.exceptions import (
     TicketIncomplete,
     TicketNotFound,
     TicketStateInvalid,
+    ValuationModeError,
 )
+from core.models.investment import INVESTMENT_TYPES
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
+from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentDTO, InvestmentRepository
 from core.repositories.position_transaction_repository import (
     PositionTransactionRepository,
 )
 from core.repositories.trade_ticket_repository import (
+    EffectInput,
     TradeTicketDTO,
     TradeTicketRepository,
 )
@@ -77,6 +92,8 @@ from services.investments.aum import CASH_TYPE
 from services.investments.holdings import first_negative_holding_date, holdings_as_of
 from services.investments.investment_service import InvestmentService
 from services.transactions.constants import (
+    BLOCK_DUPLICATE_INVESTMENT_NAME,
+    BLOCK_INVESTMENT_INACTIVE,
     BLOCK_MISSING_ANLV,
     BLOCK_MISSING_PRICE,
     BOOKABLE_STATUSES,
@@ -100,8 +117,6 @@ from services.transactions.constants import (
     KINDS,
     MD_ACQUIRED_NAV,
     MD_ANLV_CODE,
-    MD_CURRENCY,
-    MD_NAME,
     PRICE_DEVIATION_WARN_RATIO,
     STATUS_APPROVED,
     STATUS_BOOKED,
@@ -113,7 +128,17 @@ from services.transactions.constants import (
     WARNING_NET_NON_POSITIVE,
     WARNING_PRICE_DEVIATION,
 )
-from services.transactions.emission import emit_order
+from services.transactions.emission import (
+    VALUATION_MODE_REPORTED,
+    VALUATION_MODE_UNITISED,
+    emit_commitment,
+    emit_new_order,
+    emit_order,
+    emit_secondary_buy,
+    emit_secondary_sell,
+    parse_master_data,
+    reconcile_commitment,
+)
 from services.transactions.validation import (
     TicketWarning,
     TicketWarnings,
@@ -149,6 +174,25 @@ class _HypotheticalSell:
     id: UUID
 
 
+#: The ``valuation_mode`` an **existing** investment must be in for a ticket
+#: of each kind to trade it (D-Q).
+#:
+#: The working document made this implicit and the schema cannot see it: §2.1
+#: describes U-BUY / U-SELL as acting on a "unitised; active" position, and
+#: F-5 rules out unit arithmetic on a reported one ("no units exist"). A
+#: secondary sale is the mirror — a stake valued from GP statements, whose
+#: disposal is a NAV write rather than a unit sale. Booking either against the
+#: wrong mode would emit rows the investment's own valuation path cannot read.
+#:
+#: ``commitment`` is absent: it always creates its investment, so no existing
+#: row is ever resolved for it. The creating flows set the mode themselves
+#: (D-R) rather than checking one.
+_REQUIRED_VALUATION_MODE: dict[str, str] = {
+    KIND_ORDER: VALUATION_MODE_UNITISED,
+    KIND_SECONDARY: VALUATION_MODE_REPORTED,
+}
+
+
 def _cleanup_new_instrument_shell(ticket: TradeTicketDTO) -> None:
     """No-op seam for the U-NEW shell clean-up (ADR-0128 §6).
 
@@ -167,25 +211,31 @@ class TicketService:
     service neither sets nor reads ``app.tenant_id`` — that lives on the
     session, and RLS does the rest.
 
-    Only :attr:`tickets` is always required. The other three are wired
-    per-flow and guarded by ``_require_*`` helpers that fail loudly: a
-    caller that reaches a check without having wired its repository is a
-    programming error, not a user error, and a silent fallback there would
-    turn a missing dependency into a *passed* validation — the one failure
-    mode a validation seam must never have. A commitment propose, for
-    instance, legitimately needs nothing but ``tickets``.
+    Only :attr:`tickets` is always required. The others are wired per-flow
+    and guarded by ``_require_*`` helpers that fail loudly: a caller that
+    reaches a check without having wired its repository is a programming
+    error, not a user error, and a silent fallback there would turn a
+    missing dependency into a *passed* validation — the one failure mode a
+    validation seam must never have. A cancellation, for instance,
+    legitimately needs nothing but ``tickets``.
 
     Args:
         tickets: The trade-ticket repository. Always required.
         investments: Needed to resolve the traded investment and the
-            settlement cash position.
+            settlement cash position, and — since S2b — to refuse a
+            creating flow whose name is already taken (D-O).
         position_transactions: Needed for the oversell block and the
             negative-cash warning — both read the ledger.
         instrument_prices: Needed for the price-deviation warning.
-        investment_service: Needed to **book** (S2a). The emission writes
-            every ledger row through this one seam and never through a
-            repository — see :meth:`book`. Validation and cancellation need
-            none of it, so it stays optional like the rest.
+        investment_service: Needed to **book**. The emission writes every
+            ledger, cashflow, NAV and ``investments`` row through this one
+            seam and never through a repository — see :meth:`book`. A
+            creating flow whose payload carries an identifier additionally
+            needs it wired with an identifier repository (D-L).
+        navs: Needed to book a flow that writes a NAV — R-SEC-BUY and
+            R-SEC-SELL. Read-only here: the emission writes NAVs through
+            ``investment_service``, and this is the collision check that
+            keeps the write reversible (D-N).
     """
 
     def __init__(
@@ -195,12 +245,14 @@ class TicketService:
         position_transactions: PositionTransactionRepository | None = None,
         instrument_prices: InstrumentPriceRepository | None = None,
         investment_service: InvestmentService | None = None,
+        navs: InvestmentNavRepository | None = None,
     ) -> None:
         self._tickets = tickets
         self._investments = investments
         self._position_transactions = position_transactions
         self._instrument_prices = instrument_prices
         self._investment_service = investment_service
+        self._navs = navs
 
     # -- dependency guards --------------------------------------------------
 
@@ -250,6 +302,24 @@ class TicketService:
                 "repository-level fallback (ADR-0128 §2, ADR-0130)."
             )
         return self._investment_service
+
+    def _require_navs(self) -> InvestmentNavRepository:
+        """Return the wired NAV repository or fail loudly.
+
+        Used read-only, and only by the flows that write a NAV. The check it
+        backs (D-N) is what keeps that write reversible, so a missing
+        repository must refuse rather than skip: an emission that silently
+        UPSERTed over an existing NAV would look identical and be
+        unrecoverable.
+        """
+        if self._navs is None:
+            raise RuntimeError(
+                "TicketService was constructed without a NAV repository; the "
+                "reported kinds cannot book, because the trade-date collision "
+                "check that keeps their NAV write reversible is unavailable "
+                "(D-N)."
+            )
+        return self._navs
 
     # -- vocabulary and shape ----------------------------------------------
 
@@ -498,10 +568,15 @@ class TicketService:
         1. **Completeness per kind**, including the settlement position a
            cash-moving flow needs (MD-3: explicitly confirmed, never
            defaulted) and the master-data payload a creating flow carries in
-           place of an ``investments`` row (MD-12).
-        2. **Currency mismatch** against the traded investment (F-3). No
-           silent conversion — that lives at the ADR-0099 §4 reporting seam.
-           Has no UI state (MD-8); this guard is the whole enforcement.
+           place of an ``investments`` row (MD-12) — which since S2b must be
+           complete, convertible, free of a name clash, and agreed with the
+           ticket about the commitment (D-J / D-V / D-O / D-U).
+        2. **The traded investment is a usable target**, for the flows that
+           name one: live (D-P) and in the valuation mode the kind books
+           against (D-Q), and in the ticket's currency (F-3). No silent
+           conversion — that lives at the ADR-0099 §4 reporting seam. The
+           currency case has no UI state (MD-8); this guard is the whole
+           enforcement.
         3. **Oversell** of the instrument leg (ADR-0097 §4), guarded
            unconditionally (ADR-0128 Q-2 relaxes the guard for *cash*
            positions at emission, never for the instrument).
@@ -526,6 +601,8 @@ class TicketService:
                 settlement position do not agree on a currency.
             NonNegativeHoldingsError: If the sell would drive holdings below
                 zero on any date.
+            ValuationModeError: If the traded investment's valuation mode is
+                wrong for the ticket's kind (D-Q).
         """
         ticket = await self._tickets.get(ticket_id)
         if ticket is None:
@@ -568,20 +645,26 @@ class TicketService:
         1. Load the ticket and check its status — ``draft`` / ``proposed`` /
            ``approved`` may book, nothing else. A ``booked`` ticket is
            already a fact and a ``cancelled`` one is a decision reversed.
-        2. Dispatch on kind. Only ``order`` emits here; the reported kinds
-           are S2b.
-        3. Run the **full** propose-time block set again. This is not
+        2. Run the **full** propose-time block set again. This is not
            belt-and-braces: an approved ticket may have been sitting for a
            week while its holdings moved, and MD-11 / MD-21 put the gates at
            Propose *and* Book precisely so that the second station re-asks
            the question against the book as it stands now. A stale ticket is
            refused here, with nothing written.
-        4. Collect warnings — exhaustively, never blocking (D-2). A U-BUY
+        3. Collect warnings — exhaustively, never blocking (D-2). A U-BUY
            that overdraws its cash position books and warns (ADR-0130).
-        5. Emit. Both legs go through the one sanctioned write seam.
-        6. Record the effects, then traverse the lifecycle to ``booked``.
+        4. Emit, dispatching on the flow (:meth:`_emit`). Every row goes
+           through the one sanctioned write seam.
+        5. Record the effects, then traverse the lifecycle to ``booked``.
 
-        **Atomicity (ADR-0128 §2).** Steps 5 to 6 run on the caller's one
+        The dispatch is deliberately the *last* thing that happens rather
+        than the first: refusing an incomplete ticket is the same refusal
+        whichever flow it belongs to, and the blocks are what establish the
+        preconditions each emission then assumes. Sorting the flow out first
+        would put six variants of "is this bookable" in front of one
+        emission each.
+
+        **Atomicity (ADR-0128 §2).** Steps 4 to 5 run on the caller's one
         context-scoped session and nothing in the chain commits, so the
         emitted ledger rows, the ``trade_ticket_effects`` linkage and the
         status flip land together or not at all. There is deliberately no
@@ -624,7 +707,8 @@ class TicketService:
             NonNegativeHoldingsError: If the sell would drive the
                 instrument's holdings below zero. Never raised for the cash
                 leg — ADR-0130 exempts cash on every write path.
-            NotImplementedError: For a non-``order`` kind, until S2b.
+            ValuationModeError: If the traded investment's valuation mode is
+                wrong for the ticket's kind (D-Q).
         """
         ticket = await self._tickets.get(ticket_id)
         if ticket is None:
@@ -636,32 +720,10 @@ class TicketService:
                 "ticket is reversed, not re-booked (ADR-0128 §6).",
                 field="status",
             )
-        if ticket.kind != KIND_ORDER:
-            # A loud placeholder, not a domain error: the ticket is fine and
-            # the user did nothing wrong — the code is simply not written yet.
-            raise NotImplementedError("Reported-kind emission lands in S2b")
-
         await self._run_blocks(ticket, now=now)
         warnings = await self._collect_warnings(ticket, today=today)
 
-        effect = self._cash_effect(ticket)
-        if effect is None:
-            # Unreachable behind _block_completeness, which has just proved
-            # units and price are present. Reported rather than assumed away.
-            raise RuntimeError(
-                f"Trade ticket {ticket.ticket_number} passed completeness but "
-                "states no derivable cash effect; this is a bug in the "
-                "completeness rules, not a user error."
-            )
-
-        effects = await emit_order(
-            ticket,
-            investment_service=self._require_investment_service(),
-            position_transactions=self._require_position_transactions(),
-            investments=self._require_investments(),
-            booked_by=booked_by,
-            cash_effect=effect,
-        )
+        effects = await self._emit(ticket, booked_by=booked_by, now=now)
         await self._tickets.add_effects(ticket.id, effects)
 
         # Q-6: one set_status call per station, in order, writing the booking
@@ -679,6 +741,139 @@ class TicketService:
             ticket_id, status=STATUS_BOOKED, actor_user_id=booked_by, now=now
         )
         return updated, warnings
+
+    # -- emission dispatch --------------------------------------------------
+
+    async def _emit(
+        self,
+        ticket: TradeTicketDTO,
+        *,
+        booked_by: UUID,
+        now: datetime,
+    ) -> list[EffectInput]:
+        """Route a validated ticket to its flow's emission.
+
+        The six flows of ADR-0128 §1 are ``(kind, direction, creating)``
+        triples, and this is the one place the triple is resolved. The third
+        element is not decoration: ``order``/``buy`` is U-BUY or U-NEW
+        depending on whether an ``investments`` row exists yet (MD-12), and
+        the two emit different things.
+
+        A combination outside the six refuses rather than picking the nearest
+        match. It is unreachable — ``ck_trade_tickets_kind`` and
+        ``..._direction`` close the vocabulary, ``..._commitment_shape``
+        closes the commitment's shape — but "unreachable" is a claim about
+        today's callers, and the failure it guards against is silent: a
+        ``secondary``/``buy`` ticket that already named an investment would,
+        under a looser dispatch, create a *second* one.
+
+        Args:
+            ticket: The validated ticket. Every block has passed.
+            booked_by: The booking user.
+            now: The station timestamps and the new ``updated_at``.
+
+        Returns:
+            The effects the emission wrote, in emission order.
+
+        Raises:
+            TicketStateInvalid: For a ticket that is none of the six flows.
+        """
+        creating = is_investment_creating(
+            kind=ticket.kind,
+            direction=ticket.direction,
+            investment_id=ticket.investment_id,
+            master_data=ticket.master_data,
+        )
+        investment_service = self._require_investment_service()
+
+        # R-COMMIT first: it is the one flow that moves no cash (MD-19), so
+        # deriving a cash effect for it would be deriving a number that has
+        # no meaning.
+        if ticket.kind == KIND_COMMITMENT:
+            if not creating:
+                raise self._unroutable(ticket)
+            return await emit_commitment(
+                ticket,
+                master=parse_master_data(ticket.master_data or {}),
+                investment_service=investment_service,
+                tickets=self._tickets,
+                booked_by=booked_by,
+                now=now,
+            )
+
+        cash_effect = self._required_cash_effect(ticket)
+
+        if ticket.kind == KIND_ORDER:
+            if creating:
+                return await emit_new_order(
+                    ticket,
+                    master=parse_master_data(ticket.master_data or {}),
+                    investment_service=investment_service,
+                    position_transactions=self._require_position_transactions(),
+                    investments=self._require_investments(),
+                    tickets=self._tickets,
+                    booked_by=booked_by,
+                    now=now,
+                    cash_effect=cash_effect,
+                )
+            return await emit_order(
+                ticket,
+                investment_service=investment_service,
+                position_transactions=self._require_position_transactions(),
+                investments=self._require_investments(),
+                booked_by=booked_by,
+                cash_effect=cash_effect,
+            )
+
+        if ticket.kind == KIND_SECONDARY:
+            if ticket.direction == DIRECTION_SELL and not creating:
+                return await emit_secondary_sell(
+                    ticket,
+                    investment_service=investment_service,
+                    navs=self._require_navs(),
+                    investments=self._require_investments(),
+                    booked_by=booked_by,
+                    cash_effect=cash_effect,
+                )
+            if ticket.direction == DIRECTION_BUY and creating:
+                return await emit_secondary_buy(
+                    ticket,
+                    master=parse_master_data(ticket.master_data or {}),
+                    investment_service=investment_service,
+                    navs=self._require_navs(),
+                    tickets=self._tickets,
+                    booked_by=booked_by,
+                    now=now,
+                    cash_effect=cash_effect,
+                )
+
+        raise self._unroutable(ticket)
+
+    def _required_cash_effect(self, ticket: TradeTicketDTO) -> Decimal:
+        """The cash a cash-moving ticket moves, which completeness has proved derivable."""
+        effect = self._cash_effect(ticket)
+        if effect is None:
+            # Unreachable behind _block_completeness, which has just proved
+            # the amounts this flow needs are present. Reported rather than
+            # assumed away.
+            raise RuntimeError(
+                f"Trade ticket {ticket.ticket_number} passed completeness but "
+                "states no derivable cash effect; this is a bug in the "
+                "completeness rules, not a user error."
+            )
+        return effect
+
+    @staticmethod
+    def _unroutable(ticket: TradeTicketDTO) -> TicketStateInvalid:
+        """Build the refusal for a ticket that is none of the six defined flows."""
+        return TicketStateInvalid(
+            f"Trade ticket {ticket.ticket_number} is {ticket.kind!r} / "
+            f"{ticket.direction!r} and names "
+            f"{'no investment' if ticket.investment_id is None else 'an investment'}; "
+            "that is none of the six flows ADR-0128 §1 defines, so there is "
+            "nothing to emit. The b034 CHECKs should have made it unreachable.",
+            field="kind",
+        )
 
     # -- blocks -------------------------------------------------------------
 
@@ -699,6 +894,9 @@ class TicketService:
 
         await self._block_completeness(ticket, creating=creating, cash_moving=cash_moving)
         if not creating:
+            # Resolves the traded investment and vets it as a target
+            # (D-P / D-Q) on the way to the currency comparison — see
+            # :meth:`_load_investment`. A creating flow has no target yet.
             await self._block_currency_mismatch(ticket)
         await self._block_oversell(ticket, now=now)
         self._block_missing_anlv(ticket, creating=creating)
@@ -712,7 +910,7 @@ class TicketService:
     ) -> None:
         """Refuse a ticket whose flow is missing a field it cannot book without."""
         if creating:
-            self._require_master_data(ticket)
+            await self._require_master_data(ticket)
         elif ticket.investment_id is None:
             raise TicketIncomplete(
                 "This flow books against an existing investment but the ticket names none.",
@@ -746,31 +944,67 @@ class TicketService:
         if cash_moving:
             await self._require_settlement_position(ticket)
 
-    def _require_master_data(self, ticket: TradeTicketDTO) -> None:
+    async def _require_master_data(self, ticket: TradeTicketDTO) -> None:
         """Refuse a creating flow whose master-data payload cannot build a row.
 
-        Name and currency are the minimum an ``investments`` row cannot be
-        emitted without (decision record §2.5); the payload's currency must
-        also *be* the ticket's, since the investment's currency is what the
-        ticket's has to equal (F-3) and there is no conversion in a write
-        path.
+        Under MD-12 the payload *is* the ``investments`` row until booking,
+        so it has to satisfy, here, everything the table would otherwise have
+        enforced for free. Four checks, in cost order — the three that are
+        pure run before the one that queries:
+
+        1. **Parseable and complete** (D-J / D-V). The four ``NOT NULL``
+           columns must be present and convertible:
+           :func:`~services.transactions.emission.parse_master_data` does the
+           conversion, and it is the same call the emission makes, so a
+           payload that validates is a payload that books.
+        2. **A real investment type.** The eight values are read from
+           :data:`core.models.investment.INVESTMENT_TYPES` rather than
+           restated, so this cannot drift from the CHECK it mirrors.
+        3. **The ticket's currency.** The investment's currency is what the
+           ticket's has to equal (F-3), and nothing converts in a write path.
+        4. **A free name, and one commitment.** ``uq_investments_tenant_name``
+           would refuse a duplicate at Book with an ``IntegrityError`` naming
+           a constraint; refusing it at Propose names the *rule*, and does so
+           while the composer can still act on it (D-O). The commitment
+           reconciliation is D-U's.
+
+        The asset class is checked for **shape only** — a UUID, not an
+        existing row. This service has no catalogue repository, S4's picker
+        offers only real rows, and a bad FK fails loudly at the database; a
+        third read to pre-empt an unreachable error would buy a nicer message
+        at the price of another dependency in the constructor.
         """
-        payload: Mapping[str, object] = ticket.master_data or {}
-        if not payload.get(MD_NAME) or not payload.get(MD_CURRENCY):
+        master = parse_master_data(ticket.master_data or {})
+
+        if master.investment_type not in INVESTMENT_TYPES:
             raise TicketIncomplete(
-                "This flow creates the investment at booking, so its master "
-                f"data must carry at least {MD_NAME!r} and {MD_CURRENCY!r} "
-                "(MD-12, decision record §2.5).",
+                f"Master data states investment type {master.investment_type!r}, "
+                f"which is not one of the eight canonical values "
+                f"{sorted(INVESTMENT_TYPES)}.",
                 identifier=INCOMPLETE_MISSING_MASTER_DATA,
                 field="master_data",
             )
-        payload_currency = payload[MD_CURRENCY]
-        if payload_currency != ticket.currency:
+
+        if master.currency != ticket.currency:
             raise CurrencyMismatchError(
                 f"Ticket currency {ticket.currency!r} differs from the master "
-                f"data's {payload_currency!r}; the ticket currency is the "
+                f"data's {master.currency!r}; the ticket currency is the "
                 "investment's (F-3) and nothing converts in a write path.",
                 field="currency",
+            )
+
+        reconcile_commitment(ticket, master=master)
+
+        clash = await self._require_investments().get_by_name(master.name)
+        if clash is not None:
+            raise TicketIncomplete(
+                f"An investment named {master.name!r} already exists in this "
+                "tenant. This flow creates the investment at booking, and names "
+                "are the natural key the Excel re-import resolves on, so a "
+                "second row with this name cannot be created — pick another "
+                "name, or book against the existing investment.",
+                identifier=BLOCK_DUPLICATE_INVESTMENT_NAME,
+                field="master_data",
             )
 
     def _require_secondary_amounts(self, ticket: TradeTicketDTO) -> None:
@@ -876,12 +1110,25 @@ class TicketService:
             )
 
     async def _load_investment(self, ticket: TradeTicketDTO) -> InvestmentDTO:
-        """Load the traded investment, which completeness has already required.
+        """Resolve the traded investment and vet it as a trading target.
 
-        A ``None`` here means the ``investment_id`` FK points at a row that
-        is not visible in the active tenant — which RLS plus the FK make
-        unreachable in practice. It is reported rather than assumed away,
-        because assuming it away is how a validation seam silently passes.
+        The one place an existing-investment flow's target is loaded, so the
+        two properties that make a row tradeable at all are asserted here
+        rather than per-caller:
+
+        * **It is live** (D-P). Trading a deactivated investment would revive
+          it by writing to it, undoing a deliberate gesture — the same rule
+          D-F already applies to the settlement side, and a distinct
+          identifier from "no such investment" because the remedies differ.
+        * **Its valuation mode fits the kind** (D-Q,
+          :data:`_REQUIRED_VALUATION_MODE`). A unit order against a
+          statement-valued fund, or a secondary disposal of a unit-dealt one,
+          emits rows the investment's own valuation path cannot read.
+
+        A ``None`` means the ``investment_id`` FK points at a row invisible in
+        the active tenant — which RLS plus the FK make unreachable in
+        practice. It is reported rather than assumed away, because assuming
+        it away is how a validation seam silently passes.
         """
         assert ticket.investment_id is not None  # guaranteed by _block_completeness
         investment = await self._require_investments().get_by_id(ticket.investment_id)
@@ -889,6 +1136,21 @@ class TicketService:
             raise TicketIncomplete(
                 f"Investment {ticket.investment_id} is not visible in this tenant.",
                 identifier=INCOMPLETE_MISSING_INVESTMENT,
+                field="investment_id",
+            )
+        if not investment.is_active:
+            raise TicketIncomplete(
+                f"Investment {investment.name!r} has been deactivated and cannot "
+                "be traded; reactivate it first if this trade is real (D-P).",
+                identifier=BLOCK_INVESTMENT_INACTIVE,
+                field="investment_id",
+            )
+        required_mode = _REQUIRED_VALUATION_MODE.get(ticket.kind)
+        if required_mode is not None and investment.valuation_mode != required_mode:
+            raise ValuationModeError(
+                f"Investment {investment.name!r} is valued "
+                f"{investment.valuation_mode!r}, but a {ticket.kind!r} ticket "
+                f"books against a {required_mode!r} position (D-Q, ADR-0097 §1).",
                 field="investment_id",
             )
         return investment

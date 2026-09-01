@@ -24,6 +24,8 @@ Coverage
 * TT-05: the effect round-trip incl. ``prior_state``, the duplicate-effect
   constraint, and vocabulary validation *before* any write.
 * TT-06: cross-tenant invisibility on BOTH tables (RLS smoke).
+* TT-08: ``link_investment`` writes the creating booking's link once, and
+  refuses to move it.
 * TT-07: deleting a ticket cascades its effects; the ``investment_id`` FK
   really does RESTRICT.
 """
@@ -813,3 +815,77 @@ async def test_tt07_referenced_investment_cannot_be_deleted(
     assert still_there is not None
     assert still_there.investment_id == instrument.id
     assert still_there.cash_investment_id == cash.id
+
+
+# ---------------------------------------------------------------------------
+# TT-08: link_investment (ADR-0128 §2, D-T)
+# ---------------------------------------------------------------------------
+
+
+async def test_tt08_link_investment_writes_the_link_once(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """The creating flows learn their ``investment_id`` at booking (MD-12).
+
+    ``update_draft`` cannot do this: it is draft-only, and the ticket being
+    booked is commonly ``proposed`` or ``approved``. The link is written by
+    the booking emission, on whatever station the ticket is standing at.
+    """
+    tenant_id = await seed_tenant("TT-08")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt08.example"
+    )
+    later = _T0 + timedelta(hours=3)
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        ticket = await _draft(repo, actor.id, kind="commitment")
+        # A creating ticket names no investment until its booking makes one.
+        assert ticket.investment_id is None
+
+        # Not a draft any more — and the link still lands.
+        await repo.set_status(ticket.id, status="proposed", actor_user_id=actor.id, now=_T0)
+
+        linked = await repo.link_investment(ticket.id, investment_id=instrument.id, now=later)
+
+    assert linked.investment_id == instrument.id
+    assert linked.status == "proposed"
+    assert linked.updated_at == later
+    assert linked.updated_at > ticket.updated_at
+
+
+async def test_tt08_link_investment_refuses_to_move_an_existing_link(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Overwriting would orphan the first investment behind a RESTRICT FK."""
+    tenant_id = await seed_tenant("TT-08b")
+    actor, instrument, cash = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt08b.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        ticket = await _draft(repo, actor.id, investment_id=instrument.id)
+
+        with pytest.raises(TicketStateInvalid) as excinfo:
+            await repo.link_investment(ticket.id, investment_id=cash.id, now=_T0)
+
+        unchanged = await repo.get(ticket.id)
+
+    assert excinfo.value.field == "investment_id"
+    assert unchanged is not None and unchanged.investment_id == instrument.id
+
+
+async def test_tt08_link_investment_unknown_ticket_raises_not_found(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("TT-08c")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt08c.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        with pytest.raises(TicketNotFound):
+            await TradeTicketRepository(session).link_investment(
+                uuid4(), investment_id=instrument.id, now=_T0
+            )

@@ -55,7 +55,9 @@ from services.transactions.constants import (
     INCOMPLETE_MISSING_CANCEL_REASON,
     INCOMPLETE_MISSING_CASH_POSITION,
     MD_ANLV_CODE,
+    MD_ASSET_CLASS_ID,
     MD_CURRENCY,
+    MD_INVESTMENT_TYPE,
     MD_NAME,
     WARNING_FUTURE_TRADE_DATE,
     WARNING_NEGATIVE_CASH,
@@ -78,10 +80,11 @@ _OPENING_DATE = date(2026, 1, 2)
 class _Fixture:
     """The seeded world one test works against."""
 
-    def __init__(self, actor, instrument, cash) -> None:
+    def __init__(self, actor, instrument, cash, asset_class) -> None:
         self.actor = actor
         self.instrument = instrument
         self.cash = cash
+        self.asset_class = asset_class
 
 
 async def _seed(
@@ -164,7 +167,7 @@ async def _seed(
                     created_by=actor.id,
                 )
 
-    return _Fixture(actor, instrument, cash)
+    return _Fixture(actor, instrument, cash, asset_class)
 
 
 def _service(session) -> TicketService:
@@ -175,6 +178,25 @@ def _service(session) -> TicketService:
         position_transactions=PositionTransactionRepository(session),
         instrument_prices=InstrumentPriceRepository(session),
     )
+
+
+def _master_data(fixture: _Fixture, **overrides) -> dict[str, object]:
+    """A complete creating payload (D-J); override to drop or vary one key.
+
+    Since S2b the payload has to carry everything the ``investments`` row is
+    ``NOT NULL`` in — name, type, asset class, currency (MD-12, D-J) — so the
+    older two-key spelling no longer reaches the gates these tests are about.
+    Pass ``None`` for a key to remove it.
+    """
+    values: dict[str, object] = {
+        MD_NAME: "New Fund IV",
+        MD_INVESTMENT_TYPE: "private_equity",
+        MD_ASSET_CLASS_ID: str(fixture.asset_class.id),
+        MD_CURRENCY: "EUR",
+        MD_ANLV_CODE: "anlv_13",
+    }
+    values.update(overrides)
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def _order_draft_kwargs(fixture: _Fixture, **overrides):
@@ -216,7 +238,7 @@ async def test_ts01_create_draft_per_kind(app_engine: AsyncEngine, seed_tenant) 
             created_by=fixture.actor.id,
             now=_NOW,
             commitment_amount=Decimal("5000000"),
-            master_data={MD_NAME: "New Fund IV", MD_CURRENCY: "EUR"},
+            master_data=_master_data(fixture),
         )
         secondary = await service.create_draft(
             kind="secondary",
@@ -509,7 +531,10 @@ async def test_ts03_missing_anlv_blocks_investment_creating_flow(
             **_order_draft_kwargs(
                 fixture,
                 investment_id=None,
-                master_data={MD_NAME: "Brand New Fund", MD_CURRENCY: "EUR"},
+                master_data=_master_data(
+                    fixture,
+                    **{MD_NAME: "Brand New Fund", MD_ANLV_CODE: None},
+                ),
             )
         )
         with pytest.raises(TicketIncomplete) as excinfo:
@@ -564,11 +589,7 @@ async def test_ts03_secondary_buy_requires_acquired_nav(
             now=_NOW,
             cash_investment_id=fixture.cash.id,
             gross_amount=Decimal("750000"),
-            master_data={
-                MD_NAME: "Secondary Stake",
-                MD_CURRENCY: "EUR",
-                MD_ANLV_CODE: "anlv_13",
-            },
+            master_data=_master_data(fixture, **{MD_NAME: "Secondary Stake"}),
         )
         with pytest.raises(TicketIncomplete) as excinfo:
             await service.propose(draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY)
@@ -594,11 +615,7 @@ async def test_ts03_commitment_proposes_without_a_cash_position(
             created_by=fixture.actor.id,
             now=_NOW,
             commitment_amount=Decimal("5000000"),
-            master_data={
-                MD_NAME: "New Fund IV",
-                MD_CURRENCY: "EUR",
-                MD_ANLV_CODE: "anlv_13",
-            },
+            master_data=_master_data(fixture),
         )
         proposed, warnings = await service.propose(
             draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY

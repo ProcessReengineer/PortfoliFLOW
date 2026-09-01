@@ -75,12 +75,18 @@ WARNING_IDENTIFIERS: Final[frozenset[str]] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
-# Block identifiers (decision record §2.9)
+# Block identifiers (decision record §2.9, extended by S2b)
 #
 # A block is reserved for an input that would corrupt the book's invariants
-# (D-2). These five are the identifiers the S4 surface has fixed copy for
+# (D-2). The first five are the identifiers the S4 surface has fixed copy for
 # (MD-9); the service-internal completeness gaps below are a separate,
 # non-decision vocabulary.
+#
+# S2b adds three more (D-N / D-O / D-P). They guard the book's invariants in
+# exactly the §2.9 sense — a NAV silently overwritten past reversal, a second
+# investment row with an existing name, a trade booked onto a retired
+# position — but the record predates them and fixes no MD-9 copy for them, so
+# S4 must supply wording when it renders them.
 # ---------------------------------------------------------------------------
 
 #: Ticket currency differs from the investment's (F-3). No silent conversion:
@@ -110,7 +116,29 @@ BLOCK_MISSING_ANLV: Final[str] = "missing_anlv"
 #: now, Propose *and* Save as draft) and the service speak one vocabulary.
 BLOCK_PARTIAL_SECONDARY_SALE: Final[str] = "partial_secondary_sale"
 
-#: The complete block vocabulary of decision record §2.9.
+#: An ``actual`` NAV row already exists at the ticket's ``trade_date`` (D-N).
+#:
+#: ``add_nav`` UPSERTs and ``prior_state`` is reserved for
+#: ``investment_update`` effects (T-1 D-2), so a NAV the booking overwrote
+#: could not be restored by a reversal. Refusing is the only way the emission
+#: stays undoable; the user re-dates the ticket or corrects the NAV through
+#: the ordinary CRUD surface.
+BLOCK_NAV_EXISTS_AT_TRADE_DATE: Final[str] = "nav_exists_at_trade_date"
+
+#: A creating flow's master data names an investment that already exists
+#: (D-O). ``uq_investments_tenant_name`` would refuse the INSERT anyway; the
+#: block turns a driver ``IntegrityError`` at Book into a named refusal at
+#: Propose, where the composer can still do something about it.
+BLOCK_DUPLICATE_INVESTMENT_NAME: Final[str] = "duplicate_investment_name"
+
+#: An existing-investment flow names an investment that has been deactivated
+#: (D-P). The settlement side has said this since D-F
+#: (:data:`INCOMPLETE_INACTIVE_CASH_POSITION`); this is the same rule for the
+#: traded side — trading a retired position would revive it by writing to it,
+#: undoing a deliberate gesture.
+BLOCK_INVESTMENT_INACTIVE: Final[str] = "investment_inactive"
+
+#: The block vocabulary: decision record §2.9's five plus S2b's three.
 BLOCK_IDENTIFIERS: Final[frozenset[str]] = frozenset(
     {
         BLOCK_CURRENCY_MISMATCH,
@@ -118,6 +146,9 @@ BLOCK_IDENTIFIERS: Final[frozenset[str]] = frozenset(
         BLOCK_MISSING_PRICE,
         BLOCK_MISSING_ANLV,
         BLOCK_PARTIAL_SECONDARY_SALE,
+        BLOCK_NAV_EXISTS_AT_TRADE_DATE,
+        BLOCK_DUPLICATE_INVESTMENT_NAME,
+        BLOCK_INVESTMENT_INACTIVE,
     }
 )
 
@@ -315,9 +346,12 @@ MD_ASSUMED_UNFUNDED: Final[str] = "assumed_unfunded"
 
 __all__ = [
     "BLOCK_CURRENCY_MISMATCH",
+    "BLOCK_DUPLICATE_INVESTMENT_NAME",
     "BLOCK_IDENTIFIERS",
+    "BLOCK_INVESTMENT_INACTIVE",
     "BLOCK_MISSING_ANLV",
     "BLOCK_MISSING_PRICE",
+    "BLOCK_NAV_EXISTS_AT_TRADE_DATE",
     "BLOCK_OVERSELL",
     "BLOCK_PARTIAL_SECONDARY_SALE",
     "BOOKABLE_STATUSES",

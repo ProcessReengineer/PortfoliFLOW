@@ -20,12 +20,39 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select, text, update
 
 from core.models.investment import Investment
+from core.models.investment_bond_analytics import InvestmentBondAnalytics
+from core.models.investment_country_weight import InvestmentCountryWeight
+from core.models.investment_maturity_weight import InvestmentMaturityWeight
+from core.models.investment_rating_weight import InvestmentRatingWeight
+from core.models.investment_region_weight import InvestmentRegionWeight
+from core.models.investment_sector_weight import InvestmentSectorWeight
 from core.repositories.base import BaseRepository
+
+#: The analytics / weight children of an ``investments`` row, table name
+#: first, in the order :meth:`InvestmentRepository.analytics_children_with_rows`
+#: reports them.
+#:
+#: Every one is ``ON DELETE CASCADE``, so none of them *prevents* a delete —
+#: which is exactly why the question has to be asked in application code. The
+#: caller (trade-ticket reversal, ADR-0128 §6) needs to know whether deleting
+#: an investment would silently take somebody's classification work with it.
+#: The ledger, cashflow and NAV children are absent from this list on
+#: purpose: those have repositories of their own, and the NAV probe needs an
+#: ``ingest_origin`` predicate no generic emptiness check could carry.
+_ANALYTICS_CHILDREN: tuple[tuple[str, Any], ...] = (
+    ("investment_region_weights", InvestmentRegionWeight),
+    ("investment_sector_weights", InvestmentSectorWeight),
+    ("investment_country_weights", InvestmentCountryWeight),
+    ("investment_rating_weight", InvestmentRatingWeight),
+    ("investment_maturity_weight", InvestmentMaturityWeight),
+    ("investment_bond_analytics", InvestmentBondAnalytics),
+)
 
 
 @dataclass(frozen=True)
@@ -382,6 +409,46 @@ class InvestmentRepository(BaseRepository):
             .values(valuation_mode=valuation_mode, updated_at=text("NOW()"))
         )
         await self._session.flush()
+
+    async def analytics_children_with_rows(self, investment_id: UUID) -> tuple[str, ...]:
+        """Return the analytics / weight child tables that still hold rows.
+
+        A read-only emptiness probe over the six classification children of
+        an ``investments`` row — region, sector and country weights, the two
+        fixed-income weight tables, and the bond-analytics characteristics.
+        All six are ``ON DELETE CASCADE``, so a delete would take them
+        silently; a caller that wants to know *before* deciding has to ask,
+        and this is where the list of tables to ask about lives so that it is
+        stated once rather than assembled at each call site.
+
+        The sole caller is the trade-ticket reversal's shell clean-up
+        (:func:`services.transactions.emission.cleanup_new_investment_shell`,
+        ADR-0128 §6), which deletes an investment a booking created only when
+        nothing but platform artefacts is left on it. Classification work is
+        not a platform artefact — somebody typed it — so any row here retains
+        the shell instead.
+
+        One statement rather than six: each child contributes an ``EXISTS``
+        subquery, and RLS scopes every one of them to the active tenant like
+        any other read.
+
+        Args:
+            investment_id: The investment whose children to probe.
+
+        Returns:
+            The table names that hold at least one row for this investment,
+            in :data:`_ANALYTICS_CHILDREN` order. Empty when all six are.
+        """
+        stmt = select(
+            *[
+                select(model.id).where(model.investment_id == investment_id).exists().label(table)
+                for table, model in _ANALYTICS_CHILDREN
+            ]
+        )
+        row = (await self._session.execute(stmt)).one()
+        return tuple(
+            table for (table, _), present in zip(_ANALYTICS_CHILDREN, row, strict=True) if present
+        )
 
     async def delete(self, investment_id: UUID) -> bool:
         """Hard-delete an investment.

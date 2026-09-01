@@ -22,6 +22,9 @@ Coverage
 * TE-08: ``parse_master_data`` — the one interpretation of the JSONB
   payload, and every conversion failure naming its key (D-V).
 * TE-09: ``reconcile_commitment`` per flow (D-U).
+* TE-10: ``restore_from_before_image`` — the round trip, and what it refuses
+  (S2c, D-AB).
+* TE-11: ``TARGET_TABLES`` covers exactly the effect vocabulary (S2c).
 """
 
 from __future__ import annotations
@@ -34,12 +37,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from core.exceptions import TicketIncomplete
+from core.exceptions import TicketIncomplete, TicketReversalBlocked
 from core.repositories.investment_repository import InvestmentDTO
 from core.repositories.trade_ticket_repository import TradeTicketDTO
 from services.transactions.constants import (
     INCOMPLETE_COMMITMENT_SHAPE,
     INCOMPLETE_MISSING_MASTER_DATA,
+    REVERSAL_CAUSE_UNRESTORABLE,
     MD_ACQUIRED_NAV,
     MD_ANLV_CODE,
     MD_ASSET_CLASS_ID,
@@ -58,12 +62,14 @@ from services.transactions.constants import (
 )
 from services.transactions.emission import (
     CASH_UNIT_PRICE,
+    TARGET_TABLES,
     cash_leg,
     investment_before_image,
     order_legs,
     parse_master_data,
     provenance,
     reconcile_commitment,
+    restore_from_before_image,
 )
 
 _TRADE_DATE = date(2026, 8, 31)
@@ -499,3 +505,139 @@ def test_te09_a_new_order_records_no_commitment() -> None:
     ticket = _ticket(kind="order", commitment_amount=None)
 
     assert reconcile_commitment(ticket, master=parse_master_data(_payload())) is None
+
+
+# ---------------------------------------------------------------------------
+# TE-10: the before-image, read backwards (S2c, D-AB)
+# ---------------------------------------------------------------------------
+
+
+#: ``_investment`` freshly randomises ``tenant_id`` and ``asset_class_id``,
+#: which is right for TE-04 (any row will do) and wrong here: TE-10 compares
+#: two renderings of *one* row, so those two ids have to be the same on both
+#: sides or every case fails for a reason the test is not about.
+_STABLE_IDS: dict[str, object] = {"tenant_id": uuid4(), "asset_class_id": uuid4()}
+
+
+def _same_investment(**overrides) -> InvestmentDTO:
+    """``_investment`` with its randomised ids pinned to one row."""
+    return _investment(**{**_STABLE_IDS, **overrides})
+
+
+def test_te10_round_trips_a_real_before_image() -> None:
+    """What the emission recorded is what the reversal restores.
+
+    The image comes from :func:`investment_before_image` rather than being
+    hand-written, so the pair is tested as a pair: a change to the encoding
+    that the inverse did not learn about fails here rather than in
+    production.
+    """
+    before = _same_investment(is_active=True)
+    image = investment_before_image(before)
+    after = _same_investment(is_active=False)
+
+    assert restore_from_before_image(after, image) is True
+
+
+def test_te10_restores_a_false_flag_too() -> None:
+    """The inverse returns what the image says, not what a reversal expects.
+
+    Only one emission writes this field and it always writes ``False``, so a
+    ``True`` image is the normal case — but the function reads the image
+    rather than assuming it, because a rule that happens to be right is not
+    the same as one that is right.
+    """
+    image = investment_before_image(_same_investment(is_active=False))
+
+    assert restore_from_before_image(_same_investment(is_active=False), image) is False
+
+
+def test_te10_updated_at_may_move_without_blocking() -> None:
+    """The booking's own ``set_active`` bumped it; comparing it would refuse everything."""
+    image = investment_before_image(_same_investment())
+    moved = _same_investment(
+        is_active=False, updated_at=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    assert restore_from_before_image(moved, image) is True
+
+
+def test_te10_a_changed_name_is_unrestorable() -> None:
+    """A field the booking never touched has moved, so the image is evidence, not truth."""
+    image = investment_before_image(_same_investment(name="Listed Fund"))
+    renamed = _same_investment(name="Listed Fund (renamed)", is_active=False)
+
+    with pytest.raises(TicketReversalBlocked) as excinfo:
+        restore_from_before_image(renamed, image)
+
+    assert excinfo.value.cause == REVERSAL_CAUSE_UNRESTORABLE
+    assert excinfo.value.effect_type == "investment_update"
+    assert excinfo.value.effect_id == renamed.id
+    assert "name" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"commitment_amount": Decimal("6000000.0000")},
+        {"anlv_code": "anlv_14"},
+        {"valuation_mode": "reported"},
+        {"type_specific_data": {"isin": "DE0002", "nested": {"n": 1}}},
+        {"vintage_year": 2022},
+        {"manager_name": "Someone"},
+    ],
+)
+def test_te10_every_compared_field_blocks_when_it_moves(overrides: dict) -> None:
+    """Not just ``name``: the whole row is the image, and the whole row is checked."""
+    image = investment_before_image(_same_investment())
+
+    with pytest.raises(TicketReversalBlocked) as excinfo:
+        restore_from_before_image(_same_investment(is_active=False, **overrides), image)
+
+    assert excinfo.value.cause == REVERSAL_CAUSE_UNRESTORABLE
+
+
+def test_te10_an_image_missing_a_field_is_unrestorable() -> None:
+    """A truncated image cannot be checked, so it is not trusted.
+
+    Reachable for real: an effect written by an older emission would lack a
+    field a later ``InvestmentDTO`` gained. Refusing is the safe reading —
+    the alternative is restoring against a row nobody has compared.
+    """
+    image = investment_before_image(_same_investment())
+    del image["anlv_code"]
+
+    with pytest.raises(TicketReversalBlocked) as excinfo:
+        restore_from_before_image(_same_investment(is_active=False), image)
+
+    assert excinfo.value.cause == REVERSAL_CAUSE_UNRESTORABLE
+    assert "anlv_code" in str(excinfo.value)
+
+
+def test_te10_a_non_boolean_is_active_is_unrestorable() -> None:
+    """The one field that is written back has to be the type it is written as."""
+    image = investment_before_image(_same_investment())
+    image["is_active"] = "true"
+
+    with pytest.raises(TicketReversalBlocked) as excinfo:
+        restore_from_before_image(_same_investment(is_active=False), image)
+
+    assert excinfo.value.cause == REVERSAL_CAUSE_UNRESTORABLE
+
+
+# ---------------------------------------------------------------------------
+# TE-11: every effect type has a table to look in (S2c)
+# ---------------------------------------------------------------------------
+
+
+def test_te11_target_tables_covers_exactly_the_effect_vocabulary() -> None:
+    """An effect type with no target table would be an effect nothing could reverse.
+
+    The vocabulary is read from the repository rather than restated, so
+    adding a fifth effect type without teaching the reversal where its rows
+    live fails here — which is the whole point of pinning it.
+    """
+    from core.repositories.trade_ticket_repository import _VALID_EFFECT_TYPES
+
+    assert set(TARGET_TABLES) == set(_VALID_EFFECT_TYPES)
+    assert len(set(TARGET_TABLES.values())) == len(TARGET_TABLES)

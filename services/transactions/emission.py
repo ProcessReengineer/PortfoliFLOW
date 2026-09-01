@@ -149,22 +149,71 @@ A cash effect of exactly zero emits no ``position_txn`` on any flow
 (:func:`cash_leg`), so the cash row is the one entry above that a legitimate
 ticket can lack.
 
+Reversal (S2c)
+--------------
+The other half of ADR-0128 §6, in the same module because it is the same
+subject read backwards: a booking's effects are only reversible if something
+knows what they meant, and that something is the encoding above.
+
+* **D-Y — the audit log, not ``updated_at``.** An effect is *modified* iff
+  the audit engine records an ``UPDATE`` on its row strictly after the
+  effect's ``emitted_at``, and *consumed* iff the row is gone. ``updated_at``
+  cannot serve: ``position_transactions.update`` / ``update_opening`` write
+  by ORM assignment with no ``onupdate`` and no trigger behind the column, so
+  it still reads as the insert time after an edit. The audit trigger fires on
+  every path. Both ``audit_log.created_at`` and ``emitted_at`` are ``NOW()``
+  — the *transaction* timestamp — so the booking's own writes tie rather than
+  exceed, and the strict comparison excludes them exactly.
+* **D-Z — one typed error names the offending effect.**
+  :class:`~core.exceptions.TicketReversalBlocked` carries ``effect_type``,
+  ``effect_id`` and a ``cause`` from
+  :data:`~services.transactions.constants.REVERSAL_CAUSES`. Every effect is
+  checked before any row is deleted (:func:`check_effects_untouched`), the
+  all-blocks-first order ``propose`` already uses.
+* **D-AA — deletes go through** :class:`~services.investments.investment_service.InvestmentService`,
+  the same seam the emission writes through, so the ADR-0097 §4 re-check
+  (with ADR-0130's cash exemption), the ADR-0098 materialisation rerun and
+  the ADR-0103 §6 cash-plan recompute all happen without being restated here.
+  The one ``except`` in the path translates the ledger's
+  ``NonNegativeHoldingsError`` into ``holdings_consumed`` — units sold on
+  since the booking — chained, never swallowed.
+* **D-AB — restore, do not roll back.** ``prior_state`` records the whole row
+  (D-H); :func:`restore_from_before_image` writes back only ``is_active``,
+  the one field an emission can change, and refuses if any other field has
+  moved.
+* **D-AC — created shells: platform rows cascade, user rows retain.**
+  :func:`cleanup_new_investment_shell` deletes the ``investment_update`` /
+  ``prior_state IS NULL`` row when only platform artefacts remain
+  (``instrument_prices``, ``'system'`` NAVs, ``watchpoints``, the D-L
+  identifiers), unlinking the ticket first because
+  ``trade_tickets.investment_id`` is ``ON DELETE RESTRICT``. Otherwise it
+  retains the shell, deactivated, and the outcome says which table kept it.
+* **D-AD — effect rows survive.** A reversal never deletes from
+  ``trade_ticket_effects``. The rows are FK-less by design (T-1 §3) so the
+  history of what a cancelled ticket once did outlives the rows it did it to.
+
 Scope
 -----
-Emission only. Reversal is S2c, and consumes :func:`investment_before_image`
-and the D-I encoding from here.
+Emission and its reversal. What may reverse, and when, is policy and lives in
+:meth:`services.transactions.ticket_service.TicketService.reverse`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import date as _date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-from core.exceptions import TicketIncomplete
+from core.exceptions import (
+    NonNegativeHoldingsError,
+    TicketIncomplete,
+    TicketReversalBlocked,
+)
+from core.repositories.audit_log_repository import AuditLogRepository
+from core.repositories.investment_cashflow_repository import InvestmentCashflowRepository
 from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentDTO, InvestmentRepository
 from core.repositories.position_transaction_repository import (
@@ -173,6 +222,7 @@ from core.repositories.position_transaction_repository import (
 from core.repositories.trade_ticket_repository import (
     EffectInput,
     TradeTicketDTO,
+    TradeTicketEffectDTO,
     TradeTicketRepository,
 )
 from services.investments.holdings import holdings_as_of
@@ -203,6 +253,10 @@ from services.transactions.constants import (
     MD_PURCHASE_PRICE,
     MD_REGION,
     MD_VINTAGE_YEAR,
+    REVERSAL_CAUSE_CONSUMED,
+    REVERSAL_CAUSE_HOLDINGS_CONSUMED,
+    REVERSAL_CAUSE_MODIFIED,
+    REVERSAL_CAUSE_UNRESTORABLE,
 )
 
 #: The unit price of cash. Cash positions are unitised at 1.0000 (F-2,
@@ -1422,6 +1476,583 @@ async def emit_new_order(
     return [effect, *order_effects]
 
 
+# ---------------------------------------------------------------------------
+# Reversal (S2c, ADR-0128 §6)
+# ---------------------------------------------------------------------------
+
+
+#: The table each ``effect_type`` names a row in.
+#:
+#: One mapping, used twice and never restated: the audit-log modification
+#: probe needs the table name, and the "is it still there?" probe needs to
+#: know which repository owns it. The keys are exactly the ADR-0128 §2
+#: vocabulary (``ck_trade_ticket_effects_effect_type``), and a test pins that
+#: they stay exactly it — an effect type with no target table would be an
+#: effect nothing could reverse.
+TARGET_TABLES: Mapping[str, str] = {
+    EFFECT_POSITION_TXN: "position_transactions",
+    EFFECT_CASHFLOW: "investment_cashflows",
+    EFFECT_NAV: "investment_navs",
+    EFFECT_INVESTMENT_UPDATE: "investments",
+}
+
+#: The ``ingest_origin`` the platform writes its own derived rows under.
+#:
+#: Computed NAVs (ADR-0098) and projected cash-plan rows carry it. They are
+#: the platform's arithmetic rather than anybody's data, so the shell
+#: clean-up steps over them: a materialised series is re-derivable and its
+#: presence says nothing about whether a human has adopted the row.
+SYSTEM_INGEST_ORIGIN: str = "system"
+
+#: The user-owned children whose presence retains a created shell, in the
+#: order :func:`cleanup_new_investment_shell` reports them.
+_LEDGER_TABLE: str = "position_transactions"
+_CASHFLOW_TABLE: str = "investment_cashflows"
+_NAV_TABLE: str = "investment_navs"
+
+
+@dataclass(frozen=True)
+class ShellOutcome:
+    """What became of the ``investments`` row a creating booking made (D-AC).
+
+    A reversal deletes the shell when nothing but platform artefacts is left
+    on it, and retains it — deactivated — when a human has since put
+    something there. Both are correct; which one happened is not something
+    the caller should have to go and look up, so it is reported.
+
+    Args:
+        investment_id: The created row.
+        deleted: Whether it was removed. When ``False`` the row survives,
+            ``is_active`` is ``False`` (MD-12: it must not appear in a
+            picker), and the ticket still names it.
+        retained_because: The child table that kept it, or ``None`` when it
+            was deleted.
+    """
+
+    investment_id: UUID
+    deleted: bool
+    retained_because: str | None
+
+
+@dataclass(frozen=True)
+class ReversalReport:
+    """What a reversal undid (D-AD).
+
+    ``reversed`` lists the effect rows the reversal acted on — and they are
+    still there afterwards. Effect rows are **never deleted** by a reversal
+    (T-1 §3): ``trade_ticket_effects.effect_id`` carries no foreign key
+    precisely so the enumeration survives the rows it enumerated, which is
+    what lets history say *what* a cancelled ticket once did rather than only
+    that it was cancelled. ``delete_effects_for_ticket`` exists on the
+    repository and this path does not call it.
+
+    Args:
+        ticket: The ticket, now ``cancelled`` with its reason.
+        reversed: The effects that were undone, as they were enumerated.
+        shell: The created row's fate, or ``None`` for a ticket that created
+            no investment (U-BUY / U-SELL).
+    """
+
+    ticket: TradeTicketDTO
+    reversed: tuple[TradeTicketEffectDTO, ...]
+    shell: ShellOutcome | None
+
+
+def restore_from_before_image(current: InvestmentDTO, image: Mapping[str, Any]) -> bool:
+    """Check a before-image against the row it describes; return its ``is_active``.
+
+    The inverse of :func:`investment_before_image`, and deliberately only
+    *half* an inverse: it decides whether the image may be restored and hands
+    back the single field the emission can change. It writes nothing — the
+    caller owns the write, through the one sanctioned seam.
+
+    **What the restore is allowed to put back.** The only ``investments``
+    update any emission performs is ``is_active`` → ``False``
+    (:func:`deactivate`, for U-SELL's MD-7 and R-SEC-SELL's MD-17). So that
+    is the only field restored. Writing the whole image back would be a
+    reversal that reached past what the booking did and overwrote every edit
+    made in between — a before-image is evidence, not a snapshot to roll the
+    world back to.
+
+    **Why every other field is compared.** ``prior_state`` records the whole
+    row (D-H) rather than the field that changed, so the effect stays useful
+    if a later flow updates something else. That generosity is only safe if
+    the reversal checks it: if any other field has moved, this before-image
+    describes a row that no longer exists in that shape and the reversal
+    refuses rather than restoring against it. ``updated_at`` is excluded
+    because the booking's own ``set_active`` bumped it, and ``is_active``
+    because it is the field under restoration.
+
+    The comparison encodes ``current`` through :func:`investment_before_image`
+    rather than parsing the image back into ``Decimal`` / ``UUID`` /
+    ``datetime``. The pairing is then exact by construction — the same
+    transform that produced the stored side produces the compared side — and
+    no per-field type table has to be maintained alongside
+    :class:`~core.repositories.investment_repository.InvestmentDTO`, which is
+    the thing that would rot.
+
+    In practice this cannot fire: any edit to the row would have left an
+    ``UPDATE`` in the audit log and :func:`check_effects_untouched` would
+    already have refused with ``modified``. It is the belt to that check's
+    braces, and it is what makes the restore honest rather than trusting.
+
+    Args:
+        current: The investment as it stands now.
+        image: The ``prior_state`` recorded at booking.
+
+    Returns:
+        The ``is_active`` value to write back.
+
+    Raises:
+        TicketReversalBlocked: With ``cause='unrestorable'`` if any compared
+            field differs, or if the image carries no boolean ``is_active``.
+    """
+    encoded = investment_before_image(current)
+    divergent = sorted(
+        name
+        for name, value in encoded.items()
+        if name not in _RESTORE_EXCLUDED_FIELDS and image.get(name) != value
+    )
+    missing = sorted(set(encoded) - set(image) - _RESTORE_EXCLUDED_FIELDS)
+    restored = image.get("is_active")
+
+    if divergent or missing or not isinstance(restored, bool):
+        raise TicketReversalBlocked(
+            f"The before-image recorded for investment {current.id} no longer "
+            f"describes the row: {_unrestorable_detail(divergent, missing, restored)}. "
+            "Restoring it would overwrite an edit this booking never made; "
+            "correct the investment through the CRUD instead (ADR-0128 §6).",
+            effect_type=EFFECT_INVESTMENT_UPDATE,
+            effect_id=current.id,
+            cause=REVERSAL_CAUSE_UNRESTORABLE,
+        )
+    return restored
+
+
+#: Fields :func:`restore_from_before_image` does not compare.
+#:
+#: ``is_active`` is what the restore writes; ``updated_at`` was bumped by the
+#: booking's own write of it, so comparing either would refuse every
+#: legitimate reversal.
+_RESTORE_EXCLUDED_FIELDS: frozenset[str] = frozenset({"is_active", "updated_at"})
+
+
+def _unrestorable_detail(
+    divergent: list[str],
+    missing: list[str],
+    restored: object,
+) -> str:
+    """Phrase which half of the before-image check failed."""
+    parts: list[str] = []
+    if divergent:
+        parts.append(f"{', '.join(divergent)} changed")
+    if missing:
+        parts.append(f"{', '.join(missing)} absent from the image")
+    if not isinstance(restored, bool):
+        parts.append(f"is_active is {restored!r}, not a boolean")
+    return "; ".join(parts)
+
+
+async def check_effects_untouched(
+    effects: Sequence[TradeTicketEffectDTO],
+    *,
+    audit_log: AuditLogRepository,
+    position_transactions: PositionTransactionRepository,
+    cashflows: InvestmentCashflowRepository,
+    navs: InvestmentNavRepository,
+    investments: InvestmentRepository,
+) -> None:
+    """Refuse the reversal if any emitted row has moved since the booking (D-Y, D-Z).
+
+    ADR-0128 §6's precondition, asked of **every** effect before a single row
+    is deleted — the same all-blocks-before-any-write order
+    :meth:`~services.transactions.ticket_service.TicketService.propose` uses,
+    and for the same reason: a reversal that deleted three rows and then
+    discovered the fourth was untouchable would be a reversal the transaction
+    has to undo, and the operator would be told about the fourth row while
+    wondering what happened to the other three.
+
+    Two questions per effect, in this order:
+
+    * **Is the row still there?** Absence is the stronger fact and is checked
+      first: a row that was updated and then deleted is *consumed*, and
+      saying "modified" about something that no longer exists would send the
+      operator to look for it.
+    * **Has it been UPDATEd since?** Through the audit log, never through
+      ``updated_at``. ``position_transactions.update`` and
+      ``update_opening`` write the row's fields by ORM assignment with no
+      ``onupdate`` and no trigger maintaining ``updated_at``, so that column
+      still reads as the insert time after an edit — a check built on it
+      would pass for an edited ledger row, which is the one case that matters
+      most. The audit trigger fires on every path (ADR-0035 §7). Its
+      ``created_at`` and the effect's ``emitted_at`` are both the transaction
+      timestamp, so the booking's own ``UPDATE`` of a deactivated investment
+      ties rather than exceeds and is correctly not counted.
+
+    Args:
+        effects: The ticket's effects, as enumerated at booking.
+        audit_log: The read-only audit seam behind the modification probe.
+        position_transactions: Read-only — presence of ledger targets.
+        cashflows: Read-only — presence of cashflow targets.
+        navs: Read-only — presence of NAV targets.
+        investments: Read-only — presence of ``investment_update`` targets.
+
+    Raises:
+        TicketReversalBlocked: On the first effect that fails, with
+            ``cause`` ``'consumed'`` or ``'modified'`` and the effect named.
+        KeyError: For an effect type outside the ADR-0128 §2 vocabulary —
+            unreachable behind the repository's own validation and the b034
+            CHECK.
+    """
+    for effect in effects:
+        table = TARGET_TABLES[effect.effect_type]
+        if not await _target_exists(
+            effect,
+            position_transactions=position_transactions,
+            cashflows=cashflows,
+            navs=navs,
+            investments=investments,
+        ):
+            raise TicketReversalBlocked(
+                f"The {effect.effect_type} row {effect.effect_id} this booking "
+                f"emitted is gone from {table}; there is nothing left to "
+                "reverse and reversing the rest would leave a half-undone "
+                "booking (ADR-0128 §6).",
+                effect_type=effect.effect_type,
+                effect_id=effect.effect_id,
+                cause=REVERSAL_CAUSE_CONSUMED,
+            )
+        if await audit_log.has_update_since(table, effect.effect_id, after=effect.emitted_at):
+            raise TicketReversalBlocked(
+                f"The {effect.effect_type} row {effect.effect_id} this booking "
+                f"emitted has been edited in {table} since. Deleting it would "
+                "delete somebody else's correction; correct the ticket through "
+                "the CRUD and cancel it with a note instead (ADR-0128 §6).",
+                effect_type=effect.effect_type,
+                effect_id=effect.effect_id,
+                cause=REVERSAL_CAUSE_MODIFIED,
+            )
+
+
+async def _target_exists(
+    effect: TradeTicketEffectDTO,
+    *,
+    position_transactions: PositionTransactionRepository,
+    cashflows: InvestmentCashflowRepository,
+    navs: InvestmentNavRepository,
+    investments: InvestmentRepository,
+) -> bool:
+    """Report whether the row an effect names is still visible in this tenant."""
+    if effect.effect_type == EFFECT_POSITION_TXN:
+        return await position_transactions.get_by_id(effect.effect_id) is not None
+    if effect.effect_type == EFFECT_CASHFLOW:
+        return await cashflows.get_by_id(effect.effect_id) is not None
+    if effect.effect_type == EFFECT_NAV:
+        return await navs.get_by_id(effect.effect_id) is not None
+    return await investments.get_by_id(effect.effect_id) is not None
+
+
+async def undo_effects(
+    ticket: TradeTicketDTO,
+    effects: Sequence[TradeTicketEffectDTO],
+    *,
+    investment_service: InvestmentService,
+    investments: InvestmentRepository,
+    position_transactions: PositionTransactionRepository,
+    acting_user: UUID,
+) -> None:
+    """Delete what the booking wrote and restore what it changed (D-AA, D-AB).
+
+    Called only after :func:`check_effects_untouched` has passed over every
+    effect, and containing no ``try``/``except`` but the one D-AA translation
+    below. The caller's ``tenant_context`` block is the transaction boundary,
+    exactly as it is for the emission: a raise anywhere here leaves the book
+    as it was, so there is no half-reversed state to compensate for.
+
+    **Every delete goes through** :class:`~services.investments.investment_service.InvestmentService`,
+    never through a repository — the same single sanctioned seam the emission
+    writes through (D-A). It carries what this module must not restate: the
+    ADR-0097 §4 non-negativity re-check with the row removed (and ADR-0130's
+    cash exemption from it), the ADR-0098 computed-NAV materialisation rerun
+    from the deleted row's ``trade_date``, and the ADR-0103 §6 cash-plan
+    recompute behind a deleted ``plan`` flow.
+
+    **Order.** Ledger rows first, instrument leg before cash leg, then
+    cashflows, then NAVs, then the ``investment_update`` restores. Nothing
+    depends on it — the effect table cannot even recover emission order,
+    since every effect of one booking shares the transaction's ``NOW()`` —
+    but the non-negativity guard only fires on an instrument leg, and putting
+    that leg first means the operator hears about the units they sold on
+    before hearing about anything else.
+
+    ``investment_update`` effects with ``prior_state IS NULL`` are **not**
+    handled here. Under D-I those mark a row this booking *created*, and a
+    created row is not restored, it is cleaned up —
+    :func:`cleanup_new_investment_shell` — which needs a decision this
+    function has no business making.
+
+    Args:
+        ticket: The booked ticket being reversed. Read for its
+            ``investment_id``, which is what distinguishes the instrument leg
+            from the cash leg.
+        effects: Its effects, already checked untouched.
+        investment_service: The single sanctioned delete seam.
+        investments: Read-only — the current row the before-image is checked
+            against.
+        position_transactions: Read-only — resolves each ledger effect to the
+            investment that owns it.
+        acting_user: The reversing user; attributable for the materialisation
+            and cash-plan writes the deletes trigger.
+
+    Raises:
+        TicketReversalBlocked: With ``cause='holdings_consumed'`` if a ledger
+            delete would drive holdings below zero, chained from the
+            :class:`~core.exceptions.NonNegativeHoldingsError` that says so;
+            with ``cause='unrestorable'`` if a before-image no longer
+            describes its row.
+    """
+    grouped = _group_by_type(effects)
+
+    for effect in await _ledger_effects_in_undo_order(
+        grouped[EFFECT_POSITION_TXN],
+        ticket=ticket,
+        position_transactions=position_transactions,
+    ):
+        await _delete_ledger_row(
+            effect,
+            investment_service=investment_service,
+            position_transactions=position_transactions,
+            acting_user=acting_user,
+        )
+
+    for effect in grouped[EFFECT_CASHFLOW]:
+        await investment_service.delete_cashflow(effect.effect_id, acting_user=acting_user)
+
+    for effect in grouped[EFFECT_NAV]:
+        await investment_service.delete_nav(effect.effect_id)
+
+    for effect in grouped[EFFECT_INVESTMENT_UPDATE]:
+        if effect.prior_state is None:
+            continue  # D-I: a created row; the shell clean-up owns it.
+        current = await investments.get_by_id(effect.effect_id)
+        if current is None:  # pragma: no cover — check_effects_untouched saw it
+            raise TicketReversalBlocked(
+                f"Investment {effect.effect_id} vanished mid-reversal.",
+                effect_type=effect.effect_type,
+                effect_id=effect.effect_id,
+                cause=REVERSAL_CAUSE_CONSUMED,
+            )
+        await investment_service.set_investment_active(
+            effect.effect_id,
+            restore_from_before_image(current, effect.prior_state),
+        )
+
+
+def _group_by_type(
+    effects: Sequence[TradeTicketEffectDTO],
+) -> dict[str, list[TradeTicketEffectDTO]]:
+    """Bucket effects by ``effect_type``, with every vocabulary key present."""
+    grouped: dict[str, list[TradeTicketEffectDTO]] = {key: [] for key in TARGET_TABLES}
+    for effect in effects:
+        grouped[effect.effect_type].append(effect)
+    return grouped
+
+
+async def _ledger_effects_in_undo_order(
+    effects: Sequence[TradeTicketEffectDTO],
+    *,
+    ticket: TradeTicketDTO,
+    position_transactions: PositionTransactionRepository,
+) -> list[TradeTicketEffectDTO]:
+    """Return the ledger effects instrument-leg first, cash-leg second.
+
+    Which leg is which is read off the row rather than off the effect: an
+    effect records an id and a type, and the ticket's ``investment_id`` is
+    the only thing that says whose ledger a given row belongs to. A leg whose
+    row names neither the traded investment nor anything else recognisable
+    sorts with the cash legs — the ordering is a courtesy for error
+    precedence, not a correctness property, so an unclassifiable row is not
+    worth refusing over.
+    """
+    instrument: list[TradeTicketEffectDTO] = []
+    cash: list[TradeTicketEffectDTO] = []
+    for effect in effects:
+        row = await position_transactions.get_by_id(effect.effect_id)
+        target = (
+            instrument if row is not None and row.investment_id == ticket.investment_id else cash
+        )
+        target.append(effect)
+    return [*instrument, *cash]
+
+
+async def _delete_ledger_row(
+    effect: TradeTicketEffectDTO,
+    *,
+    investment_service: InvestmentService,
+    position_transactions: PositionTransactionRepository,
+    acting_user: UUID,
+) -> None:
+    """Delete one emitted ledger row, translating the holdings refusal (D-AA).
+
+    ``delete_position_transaction`` needs the owning investment, which the
+    effect does not carry, so the row is re-read for it — a session-cached
+    read, and the honest one: the effect names a row, not a position.
+
+    The only ``except`` in the reversal path. A
+    :class:`~core.exceptions.NonNegativeHoldingsError` here does not mean the
+    ledger is inconsistent; it means the units this booking created have been
+    sold on since, and the later trade has to be reversed first. That is a
+    different sentence for the operator than "holdings would go negative", so
+    it gets a different error — chained, so the ledger's own diagnosis is
+    still in the traceback. The cash leg cannot reach it: ADR-0130 exempts a
+    cash target from the guard on every write path, deletes included.
+    """
+    row = await position_transactions.get_by_id(effect.effect_id)
+    if row is None:  # pragma: no cover — check_effects_untouched saw it
+        raise TicketReversalBlocked(
+            f"Ledger row {effect.effect_id} vanished mid-reversal.",
+            effect_type=effect.effect_type,
+            effect_id=effect.effect_id,
+            cause=REVERSAL_CAUSE_CONSUMED,
+        )
+    try:
+        await investment_service.delete_position_transaction(
+            investment_id=row.investment_id,
+            transaction_id=effect.effect_id,
+            acting_user=acting_user,
+        )
+    except NonNegativeHoldingsError as exc:
+        raise TicketReversalBlocked(
+            f"The ledger row {effect.effect_id} this booking emitted cannot be "
+            f"removed: investment {row.investment_id} would hold negative units "
+            "afterwards, because the units it created have since been traded on. "
+            "Reverse the later transaction first (ADR-0097 §4, ADR-0128 §6).",
+            effect_type=effect.effect_type,
+            effect_id=effect.effect_id,
+            cause=REVERSAL_CAUSE_HOLDINGS_CONSUMED,
+        ) from exc
+
+
+async def cleanup_new_investment_shell(
+    ticket: TradeTicketDTO,
+    investment_id: UUID,
+    *,
+    tickets: TradeTicketRepository,
+    investment_service: InvestmentService,
+    position_transactions: PositionTransactionRepository,
+    cashflows: InvestmentCashflowRepository,
+    navs: InvestmentNavRepository,
+    investments: InvestmentRepository,
+    now: datetime,
+) -> ShellOutcome:
+    """Delete or retire the ``investments`` row a creating booking made (D-AC).
+
+    ADR-0128 §6's clean-up clause, and the one place in the reversal where
+    there is a judgement rather than an inverse. The row was an emission
+    effect (MD-12), so undoing the booking means undoing it — but only while
+    it is still nothing but what the booking made. The moment a human has put
+    something on it, deleting it would take their work with it silently, by
+    ``ON DELETE CASCADE``, and no amount of being right about the ticket
+    justifies that.
+
+    **What blocks the delete — user rows.** Ledger transactions, cashflows,
+    NAVs that are not the platform's own, and any of the six classification
+    children (region / sector / country weights, the two fixed-income weight
+    tables, bond analytics). This runs *after* :func:`undo_effects`, so the
+    booking's own rows are already gone and anything still standing is
+    somebody else's.
+
+    **What does not block it — platform artefacts.** ``instrument_prices``,
+    ``'system'``-origin NAVs, ``watchpoints``, and the
+    ``investment_identifiers`` written at creation (D-L). Every one of these
+    is either the platform's arithmetic, re-derivable from the market data,
+    or part of the shell itself; all of them cascade with the delete, and
+    letting a materialised NAV series veto a reversal would mean a U-NEW
+    could never be reversed at all, since booking one always produces some.
+
+    **Order is forced by the schema.** ``trade_tickets.investment_id`` is
+    ``ON DELETE RESTRICT``, so the ticket is unlinked first, in this same
+    transaction, before the row it points at can go.
+
+    **Retention is never silent.** A retained shell is deactivated —
+    ``is_active`` false, so it never appears in a picker (MD-12) — the ticket
+    keeps naming it, and the returned :class:`ShellOutcome` says which table
+    kept it. A row the operator cannot see and was never told about is worse
+    than one they were told about.
+
+    Args:
+        ticket: The booked ticket being reversed.
+        investment_id: The created row, from the ``prior_state IS NULL``
+            effect rather than from the ticket — the effect is what records
+            what this booking made.
+        tickets: For the D-AC unlink.
+        investment_service: The single sanctioned write seam, for the delete
+            and for the deactivation.
+        position_transactions: Read-only — the ledger probe.
+        cashflows: Read-only — the cashflow probe.
+        navs: Read-only — the non-``'system'`` NAV probe.
+        investments: Read-only — the six-child classification probe.
+        now: The ticket's new ``updated_at`` when it is unlinked.
+
+    Returns:
+        The :class:`ShellOutcome` describing what happened.
+
+    Raises:
+        TicketNotFound: If the ticket is gone — unreachable, the caller
+            loaded it.
+        TicketStateInvalid: If the ticket names no investment to unlink.
+    """
+    retained_by = await _first_user_child(
+        investment_id,
+        position_transactions=position_transactions,
+        cashflows=cashflows,
+        navs=navs,
+        investments=investments,
+    )
+    if retained_by is not None:
+        await investment_service.set_investment_active(investment_id, False)
+        return ShellOutcome(
+            investment_id=investment_id,
+            deleted=False,
+            retained_because=(
+                f"{retained_by} still holds rows this booking did not write; the "
+                "investment was deactivated rather than deleted"
+            ),
+        )
+
+    # RESTRICT: the link goes before the row it points at (D-T's other half).
+    await tickets.unlink_investment(ticket.id, now=now)
+    await investment_service.delete_investment(investment_id)
+    return ShellOutcome(investment_id=investment_id, deleted=True, retained_because=None)
+
+
+async def _first_user_child(
+    investment_id: UUID,
+    *,
+    position_transactions: PositionTransactionRepository,
+    cashflows: InvestmentCashflowRepository,
+    navs: InvestmentNavRepository,
+    investments: InvestmentRepository,
+) -> str | None:
+    """Return the first user-owned child table holding rows, or ``None``.
+
+    First rather than all: the outcome names one table because the operator
+    needs a reason, not an inventory — and the remedy (go and look at the
+    investment) is the same whichever it is.
+    """
+    if await position_transactions.list_for_investment(investment_id):
+        return _LEDGER_TABLE
+    if await cashflows.list_by_investment(investment_id):
+        return _CASHFLOW_TABLE
+    if any(
+        row.ingest_origin != SYSTEM_INGEST_ORIGIN
+        for row in await navs.list_by_investment(investment_id)
+    ):
+        return _NAV_TABLE
+    children = await investments.analytics_children_with_rows(investment_id)
+    return children[0] if children else None
+
+
 __all__ = [
     "CASH_UNIT_PRICE",
     "EFFECT_CASHFLOW",
@@ -1434,11 +2065,17 @@ __all__ = [
     "FLOW_TYPE_DISTRIBUTION",
     "IDENTIFIER_SCHEME_FIGI",
     "NAV_KIND_ACTUAL",
+    "SYSTEM_INGEST_ORIGIN",
+    "TARGET_TABLES",
     "VALUATION_MODE_REPORTED",
     "VALUATION_MODE_UNITISED",
     "LegSpec",
     "MasterData",
+    "ReversalReport",
+    "ShellOutcome",
     "cash_leg",
+    "check_effects_untouched",
+    "cleanup_new_investment_shell",
     "create_investment_from_ticket",
     "deactivate",
     "emit_commitment",
@@ -1451,5 +2088,7 @@ __all__ = [
     "parse_master_data",
     "provenance",
     "reconcile_commitment",
+    "restore_from_before_image",
+    "undo_effects",
     "write_nav",
 ]

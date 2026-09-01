@@ -228,6 +228,48 @@ COMPLETENESS_IDENTIFIERS: Final[frozenset[str]] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
+# Reversal causes (ADR-0128 §6)
+# ---------------------------------------------------------------------------
+#
+# Why a reversal refused, carried on
+# :class:`core.exceptions.TicketReversalBlocked` as ``cause``. Each names a
+# *different remedy*, which is the only reason there are four rather than one
+# "cannot reverse": the operator's next move differs in each case, and S4's
+# copy has to say which.
+
+#: An emitted row has been edited through the CRUD since the booking. The
+#: audit log is the witness (``UPDATE`` after the effect's ``emitted_at``),
+#: because ``updated_at`` is not maintained on every target table.
+REVERSAL_CAUSE_MODIFIED: Final[str] = "modified"
+
+#: An emitted row is gone — deleted through the CRUD, or cascaded away.
+REVERSAL_CAUSE_CONSUMED: Final[str] = "consumed"
+
+#: An emitted ledger row cannot be deleted because the units it created have
+#: since been sold on: removing it would drive holdings below zero
+#: (ADR-0097 §4). The economic form of "consumed", and named apart from it
+#: because the row is still there and the remedy is to reverse the later
+#: trade first.
+REVERSAL_CAUSE_HOLDINGS_CONSUMED: Final[str] = "holdings_consumed"
+
+#: An ``investment_update`` before-image disagrees with the row as it stands
+#: in a field the booking never touched, so restoring it would overwrite
+#: somebody else's edit. Unreachable behind the ``modified`` check, and kept
+#: because it is what makes the restore honest rather than trusting.
+REVERSAL_CAUSE_UNRESTORABLE: Final[str] = "unrestorable"
+
+#: The reversal-cause vocabulary.
+REVERSAL_CAUSES: Final[frozenset[str]] = frozenset(
+    {
+        REVERSAL_CAUSE_MODIFIED,
+        REVERSAL_CAUSE_CONSUMED,
+        REVERSAL_CAUSE_HOLDINGS_CONSUMED,
+        REVERSAL_CAUSE_UNRESTORABLE,
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle vocabulary (ADR-0128 §3)
 # ---------------------------------------------------------------------------
 
@@ -391,6 +433,11 @@ __all__ = [
     "MD_REGION",
     "MD_VINTAGE_YEAR",
     "PRICE_DEVIATION_WARN_RATIO",
+    "REVERSAL_CAUSES",
+    "REVERSAL_CAUSE_CONSUMED",
+    "REVERSAL_CAUSE_HOLDINGS_CONSUMED",
+    "REVERSAL_CAUSE_MODIFIED",
+    "REVERSAL_CAUSE_UNRESTORABLE",
     "STATUSES",
     "STATUS_ACKNOWLEDGED",
     "STATUS_APPROVED",

@@ -8,6 +8,7 @@ catch the base class when they don't need to distinguish subtypes.
 """
 
 from datetime import date
+from uuid import UUID
 
 
 class PortfoliFlowError(Exception):
@@ -511,3 +512,58 @@ class TicketIncomplete(ValidationError):
     ) -> None:
         super().__init__(message, field)
         self.identifier = identifier
+
+
+class TicketReversalBlocked(ValidationError):
+    """Raised when a booked ticket cannot be reversed as it stands (ADR-0128 §6).
+
+    Reversal undoes a booking by deleting the rows it emitted, and it is only
+    honest while those rows are still the booking's. Once someone has edited
+    an emitted row through the ordinary CRUD, deleted it, or spent the units
+    it created, deleting "what the booking wrote" would be deleting something
+    else — so the reversal refuses, and the user corrects through the CRUD
+    with the ticket annotated rather than silently reconciled.
+
+    The offending effect is named rather than described, because the caller's
+    job is to point at it: ``effect_type`` and ``effect_id`` locate the row
+    and ``cause`` says what is wrong with it, one of
+
+    * ``modified`` — an ``UPDATE`` is recorded against the row after the
+      booking's transaction (:meth:`core.repositories.audit_log_repository.AuditLogRepository.has_update_since`);
+    * ``consumed`` — the row is gone;
+    * ``holdings_consumed`` — deleting an emitted ledger row would drive
+      holdings below zero, because the units it created have since been sold
+      on (ADR-0097 §4). Chained from the
+      :class:`NonNegativeHoldingsError` the write seam raised;
+    * ``unrestorable`` — an ``investment_update``'s before-image disagrees
+      with the row as it stands, so restoring it would overwrite a field the
+      booking never touched.
+
+    The vocabulary itself lives in
+    :data:`services.transactions.constants.REVERSAL_CAUSES`; ``core`` imports
+    nothing from the project, so this docstring restates it rather than
+    referencing the constants.
+
+    Distinct from :class:`TicketStateInvalid`, which reports the *ticket's*
+    status being wrong for the operation — a ``draft`` asked to reverse. Here
+    the ticket is exactly right and the book has moved on underneath it.
+
+    Args:
+        message: What is wrong, in the operator's terms.
+        effect_type: The blocked effect's type (ADR-0128 §2 vocabulary).
+        effect_id: The emitted row's id.
+        cause: The machine-readable reason, from the four above.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        effect_type: str,
+        effect_id: UUID,
+        cause: str,
+    ) -> None:
+        super().__init__(message)
+        self.effect_type = effect_type
+        self.effect_id = effect_id
+        self.cause = cause

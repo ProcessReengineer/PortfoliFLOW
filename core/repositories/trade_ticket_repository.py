@@ -594,6 +594,66 @@ class TradeTicketRepository(BaseRepository):
             raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
         return TradeTicketDTO(**row._mapping)
 
+    async def unlink_investment(
+        self,
+        ticket_id: UUID,
+        *,
+        now: datetime,
+    ) -> TradeTicketDTO:
+        """Clear the investment link a creating booking wrote (ADR-0128 §6).
+
+        **Mechanism, not policy.** The exact inverse of
+        :meth:`link_investment`, and its only caller is the other half of the
+        same story: the reversal of a creating booking, in
+        :func:`services.transactions.emission.cleanup_new_investment_shell`.
+        Nothing else has a reason to reach it, because nothing else may take
+        the link away — a booked ticket's investment is the record of what it
+        did.
+
+        The order is forced by the schema rather than chosen.
+        ``trade_tickets.investment_id`` is ``ON DELETE RESTRICT``, so the row
+        the reversal is about to delete cannot be deleted while a ticket
+        still names it; the link must go first, in the same transaction, or
+        the delete fails at the constraint.
+
+        Clearing an already-NULL link is refused rather than treated as a
+        no-op. A caller reaching here twice is walking a reversal it has
+        already walked, and a quiet second success would let it believe it
+        had unlinked a ticket that some *other* booking may since have
+        linked.
+
+        Args:
+            ticket_id: The ticket to unlink.
+            now: The new ``updated_at``.
+
+        Returns:
+            The updated :class:`TradeTicketDTO`, with ``investment_id`` NULL.
+
+        Raises:
+            TicketNotFound: If no such ticket exists in the active tenant.
+            TicketStateInvalid: If the ticket names no investment.
+        """
+        existing = await self.get(ticket_id)
+        if existing is None:
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        if existing.investment_id is None:
+            raise TicketStateInvalid(
+                f"Trade ticket {existing.ticket_number} names no investment; "
+                "there is no link to clear.",
+                field="investment_id",
+            )
+
+        stmt = (
+            update(TradeTicket)
+            .where(TradeTicket.id == ticket_id)
+            .values(investment_id=None, updated_at=now)
+            .returning(*_TICKET_COLUMNS)
+        )
+        row = (await self._session.execute(stmt)).one_or_none()
+        if row is None:  # pragma: no cover — :meth:`get` just saw the row
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        return TradeTicketDTO(**row._mapping)
+
     async def set_status(
         self,
         ticket_id: UUID,

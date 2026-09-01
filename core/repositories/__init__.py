@@ -31,6 +31,7 @@ from core.repositories.asset_class_repository import (
     AssetClassDTO,
     AssetClassRepository,
 )
+from core.repositories.audit_log_repository import AuditLogRepository
 from core.repositories.base import BaseRepository
 from core.repositories.benchmark_observation_repository import (
     BenchmarkObservationDTO,
@@ -181,6 +182,7 @@ __all__ = [
     "AssetClassBenchmarkMappingRepository",
     "AssetClassDTO",
     "AssetClassRepository",
+    "AuditLogRepository",
     "BaseRepository",
     "BenchmarkDTO",
     "BenchmarkObservationDTO",

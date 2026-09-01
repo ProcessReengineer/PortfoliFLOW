@@ -11,15 +11,15 @@ composer should be warned about. The two are deliberately separate so the
 rules live in exactly one place rather than being half-enforced by a schema
 CHECK and half-restated in a route.
 
-Scope so far (S1 + S2a + S2b)
------------------------------
-``create_draft`` · ``update_draft`` · ``propose`` · ``cancel`` (S1) and
+Scope so far (S1 + S2)
+----------------------
+``create_draft`` · ``update_draft`` · ``propose`` · ``cancel`` (S1),
 ``book`` for **all six flows** — U-BUY / U-SELL (S2a) and U-NEW / R-COMMIT /
-R-SEC-BUY / R-SEC-SELL (S2b). The emission itself lives in
-:mod:`services.transactions.emission`; what stays here is the policy around
-it — which statuses may book, which flow a validated ticket routes to, the
-re-validation, and the lifecycle walk. The remaining omissions are
-structural rather than accidental:
+R-SEC-BUY / R-SEC-SELL (S2b) — and ``reverse`` (S2c). The emission and its
+inverse live in :mod:`services.transactions.emission`; what stays here is
+the policy around them — which statuses may book or reverse, which flow a
+validated ticket routes to, the re-validation, and the lifecycle walk. The
+remaining omissions are structural rather than accidental:
 
 * **No ``approve`` gesture.** In v1 the "Book now" gesture traverses
   ``proposed → approved → booked`` implicitly, writing both actor columns
@@ -27,11 +27,21 @@ structural rather than accidental:
   approval gesture arrives with four-eyes enforcement, which is a
   tenant-scoped setting — a rule change, not a migration, because the
   columns and transitions already exist.
-* **No reversal.** Cancelling a ``booked`` ticket deletes its enumerated
-  effects in one DB transaction (ADR-0128 §6) and is **S2c** — which is why
-  :meth:`cancel` refuses ``booked`` outright rather than flipping a status
-  and orphaning a ledger.
+* **No partial reversal.** :meth:`reverse` undoes a booking whole or refuses
+  (ADR-0128 §6). There is no gesture for undoing one leg, because a
+  half-undone settlement is exactly the state the atomic emission exists to
+  make impossible.
 * **No routes, no templates, no module registration.** S3/S4.
+
+Two terminal endings, and they are not the same one
+---------------------------------------------------
+:meth:`cancel` refuses a ``booked`` ticket and :meth:`reverse` accepts
+nothing else. Both land on ``cancelled``, and the split is the point: before
+booking a ticket is intent, and abandoning intent writes nothing; after
+booking it is a fact with a ledger behind it, and undoing a fact means
+undoing the ledger in the same transaction. One method that did both would
+have to decide, from a status, which of two very different guarantees the
+caller was asking for.
 
 Creating flows (S2b)
 --------------------
@@ -62,7 +72,7 @@ time it is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date as _date, datetime
 from decimal import Decimal
@@ -77,7 +87,9 @@ from core.exceptions import (
     ValuationModeError,
 )
 from core.models.investment import INVESTMENT_TYPES
+from core.repositories.audit_log_repository import AuditLogRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
+from core.repositories.investment_cashflow_repository import InvestmentCashflowRepository
 from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentDTO, InvestmentRepository
 from core.repositories.position_transaction_repository import (
@@ -86,6 +98,7 @@ from core.repositories.position_transaction_repository import (
 from core.repositories.trade_ticket_repository import (
     EffectInput,
     TradeTicketDTO,
+    TradeTicketEffectDTO,
     TradeTicketRepository,
 )
 from services.investments.aum import CASH_TYPE
@@ -129,8 +142,13 @@ from services.transactions.constants import (
     WARNING_PRICE_DEVIATION,
 )
 from services.transactions.emission import (
+    EFFECT_INVESTMENT_UPDATE,
     VALUATION_MODE_REPORTED,
     VALUATION_MODE_UNITISED,
+    ReversalReport,
+    ShellOutcome,
+    check_effects_untouched,
+    cleanup_new_investment_shell,
     emit_commitment,
     emit_new_order,
     emit_order,
@@ -138,6 +156,7 @@ from services.transactions.emission import (
     emit_secondary_sell,
     parse_master_data,
     reconcile_commitment,
+    undo_effects,
 )
 from services.transactions.validation import (
     TicketWarning,
@@ -193,16 +212,6 @@ _REQUIRED_VALUATION_MODE: dict[str, str] = {
 }
 
 
-def _cleanup_new_instrument_shell(ticket: TradeTicketDTO) -> None:
-    """No-op seam for the U-NEW shell clean-up (ADR-0128 §6).
-
-    Under MD-12 no investment row exists before booking, so v1 drafts
-    have no shell to remove and this seam intentionally does nothing.
-    S2c fills it for the reversal path, where ADR-0128 §6's clean-up
-    clause becomes reachable.
-    """
-
-
 class TicketService:
     """Compose, validate and advance trade tickets in the active tenant.
 
@@ -235,7 +244,15 @@ class TicketService:
         navs: Needed to book a flow that writes a NAV — R-SEC-BUY and
             R-SEC-SELL. Read-only here: the emission writes NAVs through
             ``investment_service``, and this is the collision check that
-            keeps the write reversible (D-N).
+            keeps the write reversible (D-N). :meth:`reverse` reads it too,
+            to establish that an emitted NAV is still there.
+        audit_log: Needed to **reverse**. The modification check of ADR-0128
+            §6 asks the audit engine, not ``updated_at`` — see
+            :func:`~services.transactions.emission.check_effects_untouched`
+            for why that column cannot answer. Read-only.
+        cashflows: Needed to reverse a flow that wrote a cashflow, and to
+            probe a created shell for user rows. Read-only here: the deletes
+            go through ``investment_service``.
     """
 
     def __init__(
@@ -246,6 +263,8 @@ class TicketService:
         instrument_prices: InstrumentPriceRepository | None = None,
         investment_service: InvestmentService | None = None,
         navs: InvestmentNavRepository | None = None,
+        audit_log: AuditLogRepository | None = None,
+        cashflows: InvestmentCashflowRepository | None = None,
     ) -> None:
         self._tickets = tickets
         self._investments = investments
@@ -253,6 +272,8 @@ class TicketService:
         self._instrument_prices = instrument_prices
         self._investment_service = investment_service
         self._navs = navs
+        self._audit_log = audit_log
+        self._cashflows = cashflows
 
     # -- dependency guards --------------------------------------------------
 
@@ -320,6 +341,40 @@ class TicketService:
                 "(D-N)."
             )
         return self._navs
+
+    def _require_audit_log(self) -> AuditLogRepository:
+        """Return the wired audit-log repository or fail loudly.
+
+        Reversal's modification check has no fallback. Skipping it would let
+        a reversal delete a row somebody had corrected since the booking —
+        the exact failure ADR-0128 §6 refuses — and falling back to
+        ``updated_at`` would be worse than skipping, because it would *look*
+        like a check while reading a column two of the four target tables
+        never write.
+        """
+        if self._audit_log is None:
+            raise RuntimeError(
+                "TicketService was constructed without an audit-log "
+                "repository; reversal is unavailable. The check that an "
+                "emitted row is unmodified reads the audit engine, because "
+                "`updated_at` is not maintained on every target table (D-Y)."
+            )
+        return self._audit_log
+
+    def _require_cashflows(self) -> InvestmentCashflowRepository:
+        """Return the wired cashflow repository or fail loudly.
+
+        Read-only, and needed by every reversal: the presence check runs over
+        all four effect types before anything is deleted, and a created
+        shell is probed for cashflows before it may go.
+        """
+        if self._cashflows is None:
+            raise RuntimeError(
+                "TicketService was constructed without a cashflow "
+                "repository; reversal is unavailable. The emitted-row "
+                "presence check and the created-shell probe both read it."
+            )
+        return self._cashflows
 
     # -- vocabulary and shape ----------------------------------------------
 
@@ -1346,6 +1401,183 @@ class TicketService:
             },
         )
 
+    # -- reverse ------------------------------------------------------------
+
+    async def reverse(
+        self,
+        ticket_id: UUID,
+        *,
+        cancelled_by: UUID,
+        now: datetime,
+        reason: str,
+    ) -> ReversalReport:
+        """Undo a booked ticket's effects and cancel it. Terminal.
+
+        The mirror of :meth:`book`, and the reason :meth:`cancel` refuses a
+        ``booked`` ticket outright: after booking there is a ledger, and a
+        status flip that left it standing would be a cancellation the book
+        had never heard of. ADR-0128 §6 is explicit — after ``booked`` it is
+        **reversal, not mutation**, and a correction is a cancel plus a
+        re-entry rather than an edit.
+
+        Order of operations, and every step of it is load-bearing:
+
+        1. Load, and refuse anything but ``booked`` (D-AE). A ``draft`` has
+           nothing to reverse; a ``cancelled`` ticket has been here already.
+        2. Require a reason (D-X). A reversed booking without a stated reason
+           is not an audit trail — it is a hole in one. Unlike
+           :meth:`cancel`, where a draft may be abandoned silently, there is
+           no status this is optional from.
+        3. Enumerate the effects. An empty list is a ``RuntimeError``, not a
+           quiet success: every flow emits at least one effect, so a booked
+           ticket with none is a corrupted book and the honest response is to
+           say so rather than to cancel it and call the ledger clean.
+        4. Check **all** of them untouched before touching any of them
+           (D-Y / D-Z) — the same all-blocks-first order as :meth:`propose`.
+        5. Undo: ledger rows, cashflows, NAVs, then the before-image
+           restores (D-AA / D-AB).
+        6. Clean up a created shell, if this booking made one (D-AC).
+        7. Cancel the ticket, with the reason and the actor.
+
+        **Atomicity.** Steps 5 to 7 run on the caller's one context-scoped
+        session and nothing in the chain commits, so the ledger deletions,
+        the shell decision and the status flip land together or not at all.
+        There is no ``try``/``except`` on this path except the single D-AA
+        translation inside the emission module; a failure propagates, the
+        caller's ``tenant_context`` block rolls back, and the booking is
+        exactly as it was.
+
+        **The effects survive.** ``trade_ticket_effects`` rows are never
+        deleted (D-AD, T-1 §3). They are FK-less by design, so after a
+        reversal they are the record of what this ticket once did — which is
+        what a history surface needs and what a deletion would destroy.
+
+        Args:
+            ticket_id: The booked ticket to reverse.
+            cancelled_by: The reversing user. There is no ``cancelled_by``
+                column (T-1 D-5) — the audit engine captures the actor from
+                the session's ``app.user_id`` — so this is passed through to
+                ``set_status`` and is the ``acting_user`` attributable for
+                the materialisation and cash-plan writes the deletions
+                trigger.
+            now: The ``cancelled_at`` timestamp and the new ``updated_at``.
+            reason: Why the booking is being undone. Required, non-blank.
+
+        Returns:
+            A :class:`~services.transactions.emission.ReversalReport`: the
+            cancelled ticket, the effects that were undone, and — for a
+            creating flow — what became of the ``investments`` row it made.
+
+        Raises:
+            TicketNotFound: If no such ticket exists in the active tenant.
+            TicketStateInvalid: If the ticket is not ``booked``.
+            TicketIncomplete: With ``identifier='missing_cancel_reason'`` if
+                no reason was given.
+            TicketReversalBlocked: If any emitted row has been modified,
+                deleted or consumed since the booking. Nothing is written.
+            RuntimeError: If a booked ticket enumerates no effects, or more
+                than one created investment.
+        """
+        ticket = await self._tickets.get(ticket_id)
+        if ticket is None:
+            raise TicketNotFound(f"No trade ticket {ticket_id} in this tenant.")
+        if ticket.status != STATUS_BOOKED:
+            raise TicketStateInvalid(
+                f"Trade ticket {ticket.ticket_number} is {ticket.status!r} and "
+                f"cannot be reversed; only {STATUS_BOOKED!r} tickets have "
+                "effects to undo. An unbooked ticket is cancelled instead "
+                "(ADR-0128 §6).",
+                field="status",
+            )
+        if not reason.strip():
+            raise TicketIncomplete(
+                f"Reversing booked ticket {ticket.ticket_number} requires a "
+                "reason; a booking undone without one leaves no audit trail.",
+                identifier=INCOMPLETE_MISSING_CANCEL_REASON,
+                field="reason",
+            )
+
+        effects = await self._tickets.list_effects(ticket_id)
+        if not effects:
+            raise RuntimeError(
+                f"Booked trade ticket {ticket.ticket_number} enumerates no "
+                "effects. Every flow emits at least one, so this is a "
+                "corrupted book rather than an empty reversal (ADR-0128 §2)."
+            )
+
+        investment_service = self._require_investment_service()
+        investments = self._require_investments()
+        position_transactions = self._require_position_transactions()
+        cashflows = self._require_cashflows()
+        navs = self._require_navs()
+
+        await check_effects_untouched(
+            effects,
+            audit_log=self._require_audit_log(),
+            position_transactions=position_transactions,
+            cashflows=cashflows,
+            navs=navs,
+            investments=investments,
+        )
+        await undo_effects(
+            ticket,
+            effects,
+            investment_service=investment_service,
+            investments=investments,
+            position_transactions=position_transactions,
+            acting_user=cancelled_by,
+        )
+
+        shell: ShellOutcome | None = None
+        for effect in self._created_investments(ticket, effects):
+            shell = await cleanup_new_investment_shell(
+                ticket,
+                effect.effect_id,
+                tickets=self._tickets,
+                investment_service=investment_service,
+                position_transactions=position_transactions,
+                cashflows=cashflows,
+                navs=navs,
+                investments=investments,
+                now=now,
+            )
+
+        cancelled = await self._tickets.set_status(
+            ticket_id,
+            status=STATUS_CANCELLED,
+            actor_user_id=cancelled_by,
+            now=now,
+            cancel_reason=reason,
+        )
+        return ReversalReport(ticket=cancelled, reversed=tuple(effects), shell=shell)
+
+    @staticmethod
+    def _created_investments(
+        ticket: TradeTicketDTO,
+        effects: Sequence[TradeTicketEffectDTO],
+    ) -> list[TradeTicketEffectDTO]:
+        """Return the effects marking an ``investments`` row this booking created.
+
+        The D-I encoding, read off the row the reversal is already holding:
+        ``investment_update`` with ``prior_state IS NULL`` means *created*,
+        with a dict means *updated*. There is at most one per ticket by
+        construction — the three creating flows call
+        :func:`~services.transactions.emission.create_investment_from_ticket`
+        exactly once and the other three call it not at all — so a second is
+        a corrupted book and refuses rather than picking one.
+        """
+        created = [
+            effect
+            for effect in effects
+            if effect.effect_type == EFFECT_INVESTMENT_UPDATE and effect.prior_state is None
+        ]
+        if len(created) > 1:
+            raise RuntimeError(
+                f"Trade ticket {ticket.ticket_number} records {len(created)} "
+                "created investments; a ticket creates at most one (MD-12)."
+            )
+        return created
+
     # -- cancel -------------------------------------------------------------
 
     async def cancel(
@@ -1402,8 +1634,6 @@ class TicketService:
                 identifier=INCOMPLETE_MISSING_CANCEL_REASON,
                 field="cancel_reason",
             )
-
-        _cleanup_new_instrument_shell(ticket)
 
         return await self._tickets.set_status(
             ticket_id,

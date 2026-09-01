@@ -28,6 +28,8 @@ Coverage
   refuses to move it.
 * TT-07: deleting a ticket cascades its effects; the ``investment_id`` FK
   really does RESTRICT.
+* TT-09: ``unlink_investment`` clears the link once — the RESTRICT FK's
+  release valve — and refuses when there is none.
 """
 
 from __future__ import annotations
@@ -889,3 +891,74 @@ async def test_tt08_link_investment_unknown_ticket_raises_not_found(
             await TradeTicketRepository(session).link_investment(
                 uuid4(), investment_id=instrument.id, now=_T0
             )
+
+
+# ---------------------------------------------------------------------------
+# TT-09: unlink_investment (ADR-0128 §6, D-AC)
+# ---------------------------------------------------------------------------
+
+
+async def test_tt09_unlink_investment_clears_the_link_and_frees_the_row(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """The exact inverse of TT-08, and what makes a created shell deletable.
+
+    TT-07 already pins that ``trade_tickets.investment_id`` really does
+    RESTRICT: while a ticket names an investment, that investment cannot be
+    deleted. A reversal has to delete exactly such a row, so it needs a way
+    to let go first — this is it, and the delete afterwards is the proof that
+    letting go worked.
+    """
+    tenant_id = await seed_tenant("TT-09")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt09.example"
+    )
+    later = _T0 + timedelta(hours=3)
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        ticket = await _draft(repo, actor.id, investment_id=instrument.id)
+
+        # While linked, the FK holds the investment down.
+        with pytest.raises(IntegrityError):
+            async with session.begin_nested():
+                await InvestmentRepository(session).delete(instrument.id)
+
+        unlinked = await repo.unlink_investment(ticket.id, now=later)
+        deleted = await InvestmentRepository(session).delete(instrument.id)
+
+    assert unlinked.investment_id is None
+    assert unlinked.updated_at == later
+    assert unlinked.status == ticket.status
+    assert deleted is True
+
+
+async def test_tt09_unlink_investment_refuses_when_there_is_no_link(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A second walk of a reversal is a bug, not an idempotent no-op."""
+    tenant_id = await seed_tenant("TT-09b")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt09b.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        ticket = await _draft(repo, actor.id, investment_id=instrument.id)
+        await repo.unlink_investment(ticket.id, now=_T0)
+
+        with pytest.raises(TicketStateInvalid) as excinfo:
+            await repo.unlink_investment(ticket.id, now=_T0)
+
+    assert excinfo.value.field == "investment_id"
+
+
+async def test_tt09_unlink_investment_unknown_ticket_raises_not_found(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("TT-09c")
+    actor, _, _ = await _seed_actor_and_investments(app_engine, tenant_id, email="pm@tt09c.example")
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        with pytest.raises(TicketNotFound):
+            await TradeTicketRepository(session).unlink_investment(uuid4(), now=_T0)

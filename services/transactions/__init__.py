@@ -20,16 +20,17 @@ Four modules, four concerns:
   derivations behind them (flow classification, cash effect, price
   deviation), testable without a database.
 * :mod:`services.transactions.emission` — what a booking *writes*: the pure
-  derivation from a ticket's columns to ledger rows, and the atomic
-  emission that hands them to the one sanctioned write seam (ADR-0128 §2).
+  derivation from a ticket's columns to ledger rows, the atomic emission
+  that hands them to the one sanctioned write seam (ADR-0128 §2), and the
+  inverse that undoes them (ADR-0128 §6).
 * :mod:`services.transactions.ticket_service` — the async workflow.
 
-Strands S1, S2a and S2b cover ``create_draft`` / ``update_draft`` /
-``propose`` / ``cancel`` and ``book`` for all six flows — including the three
-that *create* their ``investments`` row as an emission effect (MD-12).
-Reversal is S2c, and the routes and composer surfaces are S3/S4 — see
-:class:`TicketService`'s docstring for why each is absent rather than
-forgotten.
+Strand S1 and S2 cover ``create_draft`` / ``update_draft`` / ``propose`` /
+``cancel``, ``book`` for all six flows — including the three that *create*
+their ``investments`` row as an emission effect (MD-12) — and ``reverse``,
+which undoes a booking whole and cancels the ticket with a reason. The routes
+and composer surfaces are S3/S4 — see :class:`TicketService`'s docstring for
+why each is absent rather than forgotten.
 
 The package holds no state and opens no session: the caller opens
 ``core.repositories.tenant_context(...)`` and hands in tenant-scoped
@@ -45,12 +46,15 @@ from services.transactions.constants import (
     DIRECTIONS,
     KINDS,
     PRICE_DEVIATION_WARN_RATIO,
+    REVERSAL_CAUSES,
     STATUSES,
     V1_REACHABLE_STATUSES,
     WARNING_IDENTIFIERS,
 )
 from services.transactions.emission import (
     MasterData,
+    ReversalReport,
+    ShellOutcome,
     emit_commitment,
     emit_new_order,
     emit_order,
@@ -78,10 +82,13 @@ __all__ = [
     "DIRECTIONS",
     "KINDS",
     "PRICE_DEVIATION_WARN_RATIO",
+    "REVERSAL_CAUSES",
     "STATUSES",
     "V1_REACHABLE_STATUSES",
     "WARNING_IDENTIFIERS",
     "MasterData",
+    "ReversalReport",
+    "ShellOutcome",
     "TicketService",
     "TicketWarning",
     "TicketWarnings",

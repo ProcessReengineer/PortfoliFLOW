@@ -20,6 +20,9 @@ Coverage
 * TS-05: ``propose`` on a non-draft, and on an unknown id.
 * TS-06: ``cancel`` from draft / proposed / a hand-forged ``booked``.
 * TS-07: the cash-effect derivation, exercised directly.
+* TS-08: ``preview`` — the read-only dry run (P-0b): quiet on a sparse
+  transient ticket, writing nothing, reporting the oversell offence the
+  raising path still raises, and returning the warnings ``propose`` returns.
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from core.repositories import (
     InstrumentPriceRepository,
     InvestmentRepository,
     PositionTransactionRepository,
+    TradeTicketDTO,
     TradeTicketRepository,
     UserRepository,
     tenant_context,
@@ -51,6 +55,7 @@ from services.transactions import TicketService
 from services.transactions.constants import (
     BLOCK_MISSING_ANLV,
     BLOCK_MISSING_PRICE,
+    BLOCK_OVERSELL,
     INCOMPLETE_COMMITMENT_SHAPE,
     INCOMPLETE_MISSING_CANCEL_REASON,
     INCOMPLETE_MISSING_CASH_POSITION,
@@ -59,12 +64,17 @@ from services.transactions.constants import (
     MD_CURRENCY,
     MD_INVESTMENT_TYPE,
     MD_NAME,
+    STATUSES,
     WARNING_FUTURE_TRADE_DATE,
     WARNING_NEGATIVE_CASH,
     WARNING_NET_NON_POSITIVE,
     WARNING_PRICE_DEVIATION,
 )
-from services.transactions.validation import TicketWarnings, derive_cash_effect
+from services.transactions.validation import (
+    TicketBlock,
+    TicketWarnings,
+    derive_cash_effect,
+)
 
 _NOW = datetime(2026, 8, 31, 9, 0, tzinfo=timezone.utc)
 _TRADE_DATE = date(2026, 8, 31)
@@ -987,3 +997,246 @@ def test_ts07_cash_effect_is_none_when_nothing_is_derivable() -> None:
     assert derive_cash_effect(direction="buy") is None
     assert derive_cash_effect(direction="buy", units=Decimal("10")) is None
     assert derive_cash_effect(direction="sell", price_per_unit=Decimal("10")) is None
+
+
+# ---------------------------------------------------------------------------
+# TS-08: preview — the read-only dry run (P-0b)
+# ---------------------------------------------------------------------------
+
+
+def _transient(fixture: _Fixture, tenant: UUID, **overrides) -> TradeTicketDTO:
+    """A ticket that was never persisted — what the S4a composer will hand in.
+
+    Built directly rather than through ``create_draft`` on purpose: the whole
+    point of :meth:`TicketService.preview` is that the ticket need not exist,
+    and a test that first created a row would be exercising something else.
+    The defaults are the sparse ones — a composer that has typed almost
+    nothing — and each test overrides only the fields it is about.
+    """
+    values: dict[str, object] = {
+        "id": uuid4(),
+        "tenant_id": tenant,
+        # Never allocated: no row was created, so no number was taken.
+        "ticket_number": 0,
+        "kind": "order",
+        "direction": "buy",
+        "status": "draft",
+        "investment_id": None,
+        "cash_investment_id": None,
+        "trade_date": _TRADE_DATE,
+        "settlement_date": None,
+        "units": None,
+        "price_per_unit": None,
+        "gross_amount": None,
+        "fees": None,
+        "taxes": None,
+        "net_amount": None,
+        "currency": "EUR",
+        "commitment_amount": None,
+        "master_data": None,
+        "set_inactive": False,
+        "note": None,
+        "source": None,
+        "cancel_reason": None,
+        "case_id": None,
+        "proposed_by": None,
+        "proposed_at": None,
+        "approved_by": None,
+        "approved_at": None,
+        "booked_by": None,
+        "booked_at": None,
+        "cancelled_at": None,
+        "created_by": fixture.actor.id,
+        "created_at": _NOW,
+        "updated_at": _NOW,
+    }
+    values.update(overrides)
+    return TradeTicketDTO(**values)
+
+
+async def test_ts08_sparse_preview_is_quiet(app_engine: AsyncEngine, seed_tenant) -> None:
+    """M-1 runs on every keystroke, so an unfinished ticket must not complain."""
+    tenant = await seed_tenant("TS-08a")
+    fixture = await _seed(app_engine, tenant, email="pm@ts08a.example")
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        preview = await _service(session).preview(
+            _transient(fixture, tenant), now=_NOW, today=_TODAY
+        )
+
+    assert preview.blocks == ()
+    assert preview.warnings == TicketWarnings()
+    assert preview.cash_effect is None
+
+
+async def test_ts08_preview_writes_nothing(app_engine: AsyncEngine, seed_tenant) -> None:
+    """The dry run is dry: no row appears, and the previewed draft does not move."""
+    tenant = await seed_tenant("TS-08b")
+    fixture = await _seed(
+        app_engine,
+        tenant,
+        email="pm@ts08b.example",
+        cash_balance=Decimal("1000"),
+    )
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        tickets = TradeTicketRepository(session)
+        draft = await service.create_draft(
+            **_order_draft_kwargs(
+                fixture,
+                units=Decimal("200"),
+                price_per_unit=Decimal("10.00"),
+            )
+        )
+
+        before = await tickets.list_by_status(sorted(STATUSES))
+        transient = await service.preview(
+            _transient(
+                fixture,
+                tenant,
+                cash_investment_id=fixture.cash.id,
+                units=Decimal("200"),
+                price_per_unit=Decimal("10.00"),
+            ),
+            now=_NOW,
+            today=_TODAY,
+        )
+        persisted = await service.preview(draft, now=_NOW, today=_TODAY)
+        after = await tickets.list_by_status(sorted(STATUSES))
+
+    # Both previews did real work, so "wrote nothing" is not vacuous.
+    assert transient.warnings.identifiers == (WARNING_NEGATIVE_CASH,)
+    assert persisted.warnings.identifiers == (WARNING_NEGATIVE_CASH,)
+    assert [len(before), len(after)] == [1, 1]
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        reloaded = await TradeTicketRepository(session).get(draft.id)
+    assert reloaded is not None
+    assert reloaded.status == "draft"
+    assert reloaded.updated_at == draft.updated_at
+
+
+async def test_ts08_oversell_previews_as_a_block(app_engine: AsyncEngine, seed_tenant) -> None:
+    """The same offence, reported as a value here and raised on propose."""
+    tenant = await seed_tenant("TS-08c")
+    fixture = await _seed(
+        app_engine,
+        tenant,
+        email="pm@ts08c.example",
+        instrument_units=Decimal("100"),
+        cash_balance=Decimal("100000"),
+    )
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        preview = await service.preview(
+            _transient(
+                fixture,
+                tenant,
+                direction="sell",
+                investment_id=fixture.instrument.id,
+                cash_investment_id=fixture.cash.id,
+                units=Decimal("200"),
+                price_per_unit=Decimal("10.00"),
+            ),
+            now=_NOW,
+            today=_TODAY,
+        )
+
+        twin = await service.create_draft(
+            **_order_draft_kwargs(fixture, direction="sell", units=Decimal("200"))
+        )
+        with pytest.raises(NonNegativeHoldingsError) as excinfo:
+            await service.propose(twin.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY)
+
+    assert preview.blocks == (
+        TicketBlock(
+            identifier=BLOCK_OVERSELL,
+            data={
+                "units": Decimal("200"),
+                "trade_date": _TRADE_DATE,
+                "offending_date": _TRADE_DATE,
+            },
+        ),
+    )
+    # A block does not suppress the warning pass — both are collected.
+    assert preview.warnings == TicketWarnings()
+
+    # The refactor left the raising path byte-identical: same message, same field.
+    assert excinfo.value.message == (
+        f"Selling {twin.units} units on {_TRADE_DATE} would drive holdings "
+        f"below zero on {_TRADE_DATE} for investment {fixture.instrument.id}; "
+        "short positions are out of scope (ADR-0097 §4)."
+    )
+    assert excinfo.value.field == "units"
+    await _assert_still_draft(app_engine, tenant, fixture.actor.id, twin.id)
+
+
+async def test_ts08_preview_warnings_equal_propose_warnings(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """The one-arithmetic guarantee: the composer is shown what propose would say."""
+    tenant = await seed_tenant("TS-08d")
+    fixture = await _seed(
+        app_engine,
+        tenant,
+        email="pm@ts08d.example",
+        cash_balance=Decimal("1000"),
+        prices={_TRADE_DATE: Decimal("10.00")},
+    )
+    earlier = date(2026, 8, 1)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(
+            **_order_draft_kwargs(
+                fixture,
+                units=Decimal("200"),
+                price_per_unit=Decimal("11.00"),
+            )
+        )
+        preview = await service.preview(draft, now=_NOW, today=earlier)
+        _, proposed = await service.propose(
+            draft.id, proposed_by=fixture.actor.id, now=_NOW, today=earlier
+        )
+
+    assert preview.warnings == proposed
+    assert set(preview.warnings.identifiers) == {
+        WARNING_NEGATIVE_CASH,
+        WARNING_PRICE_DEVIATION,
+        WARNING_FUTURE_TRADE_DATE,
+    }
+    # 200 × 11.00, the number the Amounts block and the settlement radio share.
+    assert preview.cash_effect == Decimal("2200")
+
+
+async def test_ts08_preview_without_a_ledger_repository_is_loud(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A missing dependency must refuse, never preview clean (the one fatal bug)."""
+    tenant = await seed_tenant("TS-08e")
+    fixture = await _seed(
+        app_engine,
+        tenant,
+        email="pm@ts08e.example",
+        cash_balance=Decimal("1000"),
+    )
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = TicketService(tickets=TradeTicketRepository(session))
+        with pytest.raises(RuntimeError) as excinfo:
+            await service.preview(
+                _transient(
+                    fixture,
+                    tenant,
+                    investment_id=fixture.instrument.id,
+                    cash_investment_id=fixture.cash.id,
+                    units=Decimal("200"),
+                    price_per_unit=Decimal("10.00"),
+                ),
+                now=_NOW,
+                today=_TODAY,
+            )
+
+    assert "position-transaction" in str(excinfo.value)

@@ -16,9 +16,9 @@ Four modules, four concerns:
   identifiers, the lifecycle / kind / direction vocabularies, and the
   master-data payload keys. Services and (from S4) templates reference it;
   nothing re-declares these strings.
-* :mod:`services.transactions.validation` — the warning DTOs and the pure
-  derivations behind them (flow classification, cash effect, price
-  deviation), testable without a database.
+* :mod:`services.transactions.validation` — the warning, block and preview
+  DTOs and the pure derivations behind them (flow classification, cash
+  effect, price deviation), testable without a database.
 * :mod:`services.transactions.emission` — what a booking *writes*: the pure
   derivation from a ticket's columns to ledger rows, the atomic emission
   that hands them to the one sanctioned write seam (ADR-0128 §2), and the
@@ -28,9 +28,12 @@ Four modules, four concerns:
 Strand S1 and S2 cover ``create_draft`` / ``update_draft`` / ``propose`` /
 ``cancel``, ``book`` for all six flows — including the three that *create*
 their ``investments`` row as an emission effect (MD-12) — and ``reverse``,
-which undoes a booking whole and cancels the ticket with a reason. The routes
-and composer surfaces are S3/S4 — see :class:`TicketService`'s docstring for
-why each is absent rather than forgotten.
+which undoes a booking whole and cancels the ticket with a reason. Ahead of
+S4, ``preview`` (P-0b) runs those same propose-time derivations read-only
+against a ticket that need not exist, so the composer can state a
+consequence without causing one. The routes and composer surfaces are S3/S4
+— see :class:`TicketService`'s docstring for why each is absent rather than
+forgotten.
 
 The package holds no state and opens no session: the caller opens
 ``core.repositories.tenant_context(...)`` and hands in tenant-scoped
@@ -66,6 +69,8 @@ from services.transactions.emission import (
 )
 from services.transactions.ticket_service import TicketService
 from services.transactions.validation import (
+    TicketBlock,
+    TicketPreview,
     TicketWarning,
     TicketWarnings,
     derive_cash_effect,
@@ -89,6 +94,8 @@ __all__ = [
     "MasterData",
     "ReversalReport",
     "ShellOutcome",
+    "TicketBlock",
+    "TicketPreview",
     "TicketService",
     "TicketWarning",
     "TicketWarnings",

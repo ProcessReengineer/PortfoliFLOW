@@ -18,8 +18,14 @@ Scope so far (S1 + S2)
 R-SEC-BUY / R-SEC-SELL (S2b) — and ``reverse`` (S2c). The emission and its
 inverse live in :mod:`services.transactions.emission`; what stays here is
 the policy around them — which statuses may book or reverse, which flow a
-validated ticket routes to, the re-validation, and the lifecycle walk. The
-remaining omissions are structural rather than accidental:
+validated ticket routes to, the re-validation, and the lifecycle walk.
+
+:meth:`TicketService.preview` joins them ahead of S4 (P-0b) and is the one
+gesture that advances nothing: a read-only dry run of the propose-time
+derivations against a ticket that need not exist, so the composer can show a
+consequence without first causing one.
+
+The remaining omissions are structural rather than accidental:
 
 * **No ``approve`` gesture.** In v1 the "Book now" gesture traverses
   ``proposed → approved → booked`` implicitly, writing both actor columns
@@ -109,6 +115,7 @@ from services.transactions.constants import (
     BLOCK_INVESTMENT_INACTIVE,
     BLOCK_MISSING_ANLV,
     BLOCK_MISSING_PRICE,
+    BLOCK_OVERSELL,
     BOOKABLE_STATUSES,
     CANCEL_REASON_REQUIRED_STATUSES,
     CANCELLABLE_STATUSES,
@@ -159,6 +166,8 @@ from services.transactions.emission import (
     undo_effects,
 )
 from services.transactions.validation import (
+    TicketBlock,
+    TicketPreview,
     TicketWarning,
     TicketWarnings,
     derive_cash_effect,
@@ -234,8 +243,10 @@ class TicketService:
             settlement cash position, and — since S2b — to refuse a
             creating flow whose name is already taken (D-O).
         position_transactions: Needed for the oversell block and the
-            negative-cash warning — both read the ledger.
-        instrument_prices: Needed for the price-deviation warning.
+            negative-cash warning — both read the ledger — and so for
+            :meth:`preview`, which runs both.
+        instrument_prices: Needed for the price-deviation warning, and so
+            for :meth:`preview`, which collects it.
         investment_service: Needed to **book**. The emission writes every
             ledger, cashflow, NAV and ``investments`` row through this one
             seam and never through a repository — see :meth:`book`. A
@@ -679,6 +690,99 @@ class TicketService:
             now=now,
         )
         return updated, warnings
+
+    # -- preview ------------------------------------------------------------
+
+    async def preview(
+        self,
+        ticket: TradeTicketDTO,
+        *,
+        now: datetime,
+        today: _date,
+    ) -> TicketPreview:
+        """Run the propose-time derivations without proposing anything.
+
+        The read-only twin of :meth:`propose`, and the reason it exists is
+        that the composer needs the answers *before* the ticket is a ticket.
+        MD-5(a) puts the negative-cash consequence — the resulting balance,
+        not a vague caution — in front of the user while they are still
+        typing, and M-1 keeps every warning live as they type; the only
+        other ways to get those numbers would be to advance the ticket to
+        find out, which changes the book to answer a question, or to
+        re-derive them in Jinja and JS, which forks the arithmetic. This
+        method is the third way: the same code, run against a **transient**
+        :class:`~core.repositories.trade_ticket_repository.TradeTicketDTO`
+        that the caller built from form values and that may never be saved.
+
+        **Nothing is written and nothing is loaded.** ``self._tickets`` is
+        not touched — the ticket comes in as an argument, whether or not a
+        row with that id exists — and no status moves. The only failures
+        that escape are the ``_require_*`` dependency guards, which are
+        programming errors and stay deliberately loud: a preview that
+        silently reported "no problems" because a repository was unwired
+        would be worse than no preview at all.
+
+        The ticket may be as sparse as the composer currently is. Every
+        derivation beneath here already returns ``None`` on underivable
+        input, so an empty draft previews quietly rather than complaining
+        about fields the user has not reached yet.
+
+        Only **oversell** is previewable as a block in v1, and the other
+        seven are absent by decision rather than oversight:
+
+        * The completeness identifiers are prevented structurally by the
+          composer (T-1 D-2) — it does not offer Propose until the fields
+          are there, so previewing them would report gaps the user can see.
+        * ``currency_mismatch`` has no reachable UI state (MD-8): the
+          composer picks the settlement position from the ticket currency.
+        * ``missing_anlv`` is the wizard's structural finish gate
+          (MD-11 / MD-21), enforced by the surface's own progression.
+        * The three S2b blocks — ``nav_exists_at_trade_date``,
+          ``duplicate_investment_name``, ``investment_inactive`` — fire on
+          propose and book, where the ticket is about to become a fact.
+
+        Adding a block to that list is a decision, not an implementation
+        detail: it changes what a clean preview promises.
+
+        Args:
+            ticket: The ticket to dry-run. Typically transient, built from
+                the composer's current form state; a persisted DTO works
+                identically and is left untouched.
+            now: The reference instant for the oversell candidate's
+                ordering. A parameter, never a clock read (ADR-0127).
+            today: The current date, the reference for the
+                future-trade-date warning.
+
+        Returns:
+            A :class:`~services.transactions.validation.TicketPreview`
+            carrying the cash effect, the previewable blocks and exactly the
+            warnings :meth:`propose` would return for this ticket.
+
+        Raises:
+            RuntimeError: If a repository the checks need was not wired.
+        """
+        blocks: list[TicketBlock] = []
+
+        offending = await self._oversell_offence(ticket, now=now)
+        if offending is not None:
+            blocks.append(
+                TicketBlock(
+                    identifier=BLOCK_OVERSELL,
+                    data={
+                        "units": ticket.units,
+                        "trade_date": ticket.trade_date,
+                        "offending_date": offending,
+                    },
+                )
+            )
+
+        warnings = await self._collect_warnings(ticket, today=today)
+
+        return TicketPreview(
+            cash_effect=self._cash_effect(ticket),
+            blocks=tuple(blocks),
+            warnings=warnings,
+        )
 
     # -- book ---------------------------------------------------------------
 
@@ -1210,8 +1314,13 @@ class TicketService:
             )
         return investment
 
-    async def _block_oversell(self, ticket: TradeTicketDTO, *, now: datetime) -> None:
-        """Refuse a unit sale that would drive holdings below zero (ADR-0097 §4).
+    async def _oversell_offence(self, ticket: TradeTicketDTO, *, now: datetime) -> _date | None:
+        """The first date this sale would drive holdings below zero, if any.
+
+        The detection, stated once and shared by the two callers that need
+        it in different shapes: :meth:`_block_oversell` raises on it, and
+        :meth:`preview` reports it as a value. One derivation, so a composer
+        can never be shown a ticket that previews clean and then refuses.
 
         The candidate sell is appended to the persisted ledger and the whole
         thing handed to
@@ -1224,11 +1333,26 @@ class TicketService:
         The instrument leg keeps this guard **unconditionally** (ADR-0128
         Q-2): the relaxation Q-2 decides applies to *cash* positions at
         emission time, never here.
+
+        ``investment_id`` and ``units`` are ``None``-guarded rather than
+        asserted, because a previewed ticket is legitimately sparse — it is
+        whatever the composer has typed so far. Nothing is lost on the
+        raising path: it runs after :meth:`_block_completeness`, which has
+        already refused the ticket if either is missing.
+
+        Args:
+            ticket: The ticket to test. May be transient and incomplete.
+            now: The candidate row's ``created_at``, so it sorts after
+                existing same-day rows (ADR-0127 — never a clock read).
+
+        Returns:
+            The first offending date, or ``None`` when the ticket is not a
+            unit sale, is too sparse to test, or simply does not overdraw.
         """
         if ticket.kind != KIND_ORDER or ticket.direction != DIRECTION_SELL:
-            return
-        assert ticket.investment_id is not None  # guaranteed by _block_completeness
-        assert ticket.units is not None  # guaranteed by _block_completeness
+            return None
+        if ticket.investment_id is None or ticket.units is None:
+            return None
 
         ledger = await self._require_position_transactions().list_for_investment(
             ticket.investment_id
@@ -1240,7 +1364,17 @@ class TicketService:
             created_at=now,
             id=uuid4(),
         )
-        offending = first_negative_holding_date([*ledger, candidate])
+        return first_negative_holding_date([*ledger, candidate])
+
+    async def _block_oversell(self, ticket: TradeTicketDTO, *, now: datetime) -> None:
+        """Refuse a unit sale that would drive holdings below zero (ADR-0097 §4).
+
+        The refusal half of :meth:`_oversell_offence`, which does the
+        looking. Reached only after :meth:`_block_completeness`, so the
+        sparse cases that method screens out cannot arrive here silently
+        clean.
+        """
+        offending = await self._oversell_offence(ticket, now=now)
         if offending is not None:
             raise NonNegativeHoldingsError(
                 f"Selling {ticket.units} units on {ticket.trade_date} would "

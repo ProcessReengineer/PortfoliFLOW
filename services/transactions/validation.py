@@ -4,10 +4,10 @@
 """Trade-ticket validation vocabulary and its pure derivations (ADR-0128 §4).
 
 One concern: **everything the propose-time validation needs that is a
-function of values rather than of the database**. The warning DTOs the
-service returns live here alongside the arithmetic those warnings are made
-of — flow classification, the cash effect, the price deviation — so each is
-directly testable without a session, a tenant, or a seeded ledger, and so
+function of values rather than of the database**. The warning, block and
+preview DTOs the service returns live here alongside the arithmetic they are
+made of — flow classification, the cash effect, the price deviation — so each
+is directly testable without a session, a tenant, or a seeded ledger, and so
 :mod:`services.transactions.ticket_service` stays the orchestration it is
 meant to be (load, check, flip).
 
@@ -38,7 +38,7 @@ from services.transactions.constants import (
 )
 
 # ---------------------------------------------------------------------------
-# Warnings
+# Warnings, blocks and the preview
 # ---------------------------------------------------------------------------
 
 
@@ -106,6 +106,76 @@ class TicketWarnings:
 
     def __len__(self) -> int:
         return len(self.warnings)
+
+
+@dataclass(frozen=True)
+class TicketBlock:
+    """One refusal reported as a value instead of raised: identifier plus data.
+
+    The deliberate mirror of :class:`TicketWarning` — same two fields, same
+    MD-9 copy split, so a surface renders a block exactly as it renders a
+    warning and only the severity differs. What a block *means* is unchanged
+    by the spelling: it still names an input that would corrupt the book's
+    invariants (D-2), and the transitions still refuse it. This shape exists
+    because a composer needs to be told before it asks, and
+    :meth:`~services.transactions.ticket_service.TicketService.preview` can
+    only tell it by collecting.
+
+    A block that arrives here is the *same* condition the raising path
+    detects, from the same derivation, never a second opinion about it.
+
+    Attributes:
+        identifier: One of
+            :data:`services.transactions.constants.BLOCK_IDENTIFIERS`.
+        data: The structured values the message needs. The shape is fixed
+            per identifier; only one is previewable in v1:
+
+            * ``oversell`` — ``units`` (:class:`~decimal.Decimal`, the
+              unsigned quantity the ticket would sell), ``trade_date``
+              (:class:`~datetime.date`) and ``offending_date``
+              (:class:`~datetime.date`, the first day holdings would go
+              below zero — not necessarily the trade date, since a later
+              sale can be the one that breaks).
+    """
+
+    identifier: str
+    data: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class TicketPreview:
+    """What a ticket would be told if it were proposed right now.
+
+    The propose-time derivations run against a ticket that **may not
+    exist**: a transient
+    :class:`~core.repositories.trade_ticket_repository.TradeTicketDTO` built
+    from whatever the composer has typed so far, never loaded and never
+    saved. Nothing is written, no status moves, and the checks *collect*
+    where the transitions raise.
+
+    Its reason to exist is the one-arithmetic rule. MD-5(a) puts the
+    negative-cash consequence — with the resulting balance — in front of
+    the user at composition time, and M-1 keeps every warning live; without
+    this seam the surface would have to either re-derive the numbers in
+    Jinja and JS, or advance the ticket to find them out. Both are worse
+    than a read-only dry run of the identical code.
+
+    Attributes:
+        cash_effect: What the ticket moves in its own currency, or ``None``
+            when the amounts do not yet say. The composer's Amounts block
+            and the settlement radio's projected balance are this one
+            number, formatted.
+        blocks: The refusals that would fire, in detection order. Empty is
+            the ordinary case and does not mean "proposable" — only the
+            previewable subset is checked (see
+            :meth:`~services.transactions.ticket_service.TicketService.preview`).
+        warnings: Exactly what :meth:`propose` would return, from the same
+            call.
+    """
+
+    cash_effect: Decimal | None
+    blocks: tuple[TicketBlock, ...]
+    warnings: TicketWarnings
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +387,8 @@ def price_deviation_ratio(*, price: Decimal, reference: Decimal) -> Decimal | No
 
 __all__ = [
     "PricePoint",
+    "TicketBlock",
+    "TicketPreview",
     "TicketWarning",
     "TicketWarnings",
     "derive_cash_effect",

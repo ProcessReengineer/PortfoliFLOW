@@ -1,0 +1,12 @@
+{# The composer head's ticket title (M-1: "Sell units · Alpha Global Equity
+   Fund"). Derived — direction and instrument both move it — so it is one of
+   the four regions the recalc endpoint refreshes, out of band, since M-1
+   puts it in the head where no contiguous swap can reach it.
+
+   The id and the state pill beside it are NOT derived: MD-2 keeps the ticket
+   unsaved until a P-2 gesture, so they read "New ticket" and "Unsaved"
+   throughout this sub-strand.
+
+   Context: title, oob. #}
+<span class="tx-ticket__title" id="tx-ticket-title"
+      {% if oob %}hx-swap-oob="outerHTML"{% endif %}>{{ title }}</span>

@@ -84,6 +84,7 @@ from web.routes.shell import router as shell_router
 from web.routes.statistics import router as statistics_router
 from web.routes.super_admin import router as super_admin_router
 from web.routes.tenant_users import router as tenant_users_router
+from web.routes.transactions import router as transactions_router
 from web.settings import WebSettings, get_web_settings
 from web.shell import (
     all_areas,
@@ -484,6 +485,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
     app.include_router(watch_desk_router, tags=["watch-desk"])
     app.include_router(planning_desk_router, tags=["planning-desk"])
     app.include_router(cases_router, tags=["cases"])
+    app.include_router(transactions_router, tags=["transactions"])
     app.include_router(market_data_router, tags=["market-data"])
     app.include_router(areas_router, tags=["areas"])
     app.include_router(provider_credentials_router, tags=["providers-credentials"])

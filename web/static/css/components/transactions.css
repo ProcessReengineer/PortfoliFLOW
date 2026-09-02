@@ -1,0 +1,741 @@
+/* Transactions area (ADR-0128, #061).
+ *
+ * Translates docs/handover/transactions-order-form-mockup-m1.html — the
+ * binding visual spec (MD-9) — for what strand S4a has shipped: the MD-1 flow
+ * chooser and the U-BUY / U-SELL order composer with its four derived
+ * regions. The M-2 wizard (S4b) and the M-3 reported flows (S4c) extend this
+ * file; the blotter and history surfaces (S5) follow.
+ *
+ * Scoping. Every rule carries the `tx-` prefix and no rule reaches outside
+ * it. That is stricter than the `.pf-cases`-root convention next door and is
+ * deliberate: the composer's markup is HTMX-swapped into an area section and
+ * into out-of-band hosts scattered through it, so a single scoping root would
+ * have to ride on four separate fragments. Two consequences worth naming:
+ *   - form-field classes are `tx-field*` rather than base.css's shared
+ *     `.field*`. The shared class carries `margin-bottom: 14px`, which
+ *     double-spaces M-1's grid (the grid's own `gap` is the spacing), and
+ *     `.field__hint` lives in components/investments.css — a sibling
+ *     component this one must not depend on;
+ *   - buttons are `tx-btn*` rather than the mock's `.pf-btn`, which is
+ *     unstyled app-wide (components/cases.css restates it under its own
+ *     root; this file states it under the prefix instead).
+ *
+ * Tokens. Colours and fonts come from `--ui-*`, per MD-7's vocabulary:
+ * blocks red (`--ui-semantic-error`), warnings amber
+ * (`--ui-semantic-warning`), consequences blue (`--ui-semantic-info`).
+ * Three notes on the translation from the self-contained mock:
+ *   - the mock's `--pf-bg-elevated` is replaced by `--ui-background-section`,
+ *     which holds the identical value in the default theme and, unlike the
+ *     `--pf-*` family, is redefined per theme;
+ *   - mono text uses the app stack `var(--ui-font-mono, …)`, the
+ *     components/cases.css idiom, since the app defines no `--ui-font-mono`;
+ *   - `--ui-text-primary` is the accent colour in this theme, so the mock's
+ *     own use of it for emphasis carries over unchanged.
+ *
+ * Not here. The shared shell (`.pf-area*`, `.pf-section*`) is layout.css's.
+ */
+
+/* --- Flow chooser (MD-1) ------------------------------------------- */
+
+.tx-flows {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 10px;
+}
+
+.tx-flow {
+    text-align: left;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+button.tx-flow:hover {
+    border-color: var(--ui-accent-primary);
+}
+
+/* The four flows S4b / S4c arm. Rendered as plain tiles — no link, no form
+ * control — so nothing here reaches a route that does not exist yet. */
+.tx-flow--pending {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.tx-flow__name {
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+    font-size: 0.88rem;
+}
+
+.tx-flow__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.74rem;
+    line-height: 1.35;
+}
+
+.tx-flow__code {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    color: var(--ui-semantic-muted);
+}
+
+.tx-flow__pill {
+    align-self: flex-start;
+    margin-top: 4px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 0.66rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ui-semantic-muted);
+}
+
+/* --- Composer frame ------------------------------------------------- */
+
+.tx-new {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tx-ticket {
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 6px;
+}
+
+.tx-ticket__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 20px;
+    border-bottom: 1px solid var(--ui-border-default);
+    background: var(--ui-background-section);
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+.tx-ticket__ident {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+}
+
+.tx-ticket__id {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.82rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-ticket__title {
+    color: var(--ui-text-secondary);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.tx-ticket__body {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* The amounts-and-settlement swap target holds two blocks, so it restates
+ * the body's own column spacing rather than collapsing it. */
+.tx-derived-host {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.tx-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ui-text-secondary);
+}
+
+.tx-state::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ui-semantic-muted);
+}
+
+.tx-state--unsaved::before,
+.tx-state--draft::before {
+    background: var(--ui-semantic-muted);
+}
+
+/* A proposed ticket is complete and validated (ADR-0128 §3) but not yet a
+   fact; a booked one is. The pill is the only place that distinction is
+   visible once the composer has given way to the confirmation panel. */
+.tx-state--proposed::before {
+    background: var(--ui-semantic-info);
+}
+
+.tx-state--booked::before {
+    background: var(--ui-semantic-success);
+}
+
+/* --- Blocks, grid and fields ---------------------------------------- */
+
+.tx-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tx-block__title {
+    font-size: 0.72rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ui-semantic-muted);
+    margin: 0;
+    font-weight: 600;
+}
+
+.tx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px 18px;
+}
+
+.tx-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tx-field--wide {
+    grid-column: span 2;
+}
+
+.tx-field__label {
+    color: var(--ui-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.tx-field__optional {
+    color: var(--ui-text-disabled);
+    font-weight: 400;
+}
+
+.tx-field input[type="text"],
+.tx-field input[type="number"],
+.tx-field input[type="date"],
+.tx-field select {
+    width: 100%;
+    padding: 6px 9px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background-color: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    font-size: 0.9rem;
+}
+
+.tx-field input:focus,
+.tx-field select:focus {
+    outline: none;
+    border-color: var(--ui-accent-primary);
+}
+
+.tx-field__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.74rem;
+}
+
+.tx-field--numeric input {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    text-align: right;
+}
+
+/* --- Direction control ---------------------------------------------- */
+
+/* M-1 draws a two-button segmented control. Here it is two radios with
+ * their labels: the direction has to post with the rest of the form, and
+ * the labels give the same visual with no script. */
+.tx-direction {
+    display: inline-flex;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.tx-direction__radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.tx-direction__option {
+    background: var(--ui-background-primary);
+    color: var(--ui-text-secondary);
+    padding: 6px 22px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tx-direction__option + .tx-direction__radio + .tx-direction__option {
+    border-left: 1px solid var(--ui-border-default);
+}
+
+.tx-direction__radio:checked + .tx-direction__option {
+    background: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+}
+
+.tx-direction__radio:focus-visible + .tx-direction__option {
+    outline: 2px solid var(--ui-accent-primary);
+    outline-offset: 2px;
+}
+
+/* --- Instrument context strip --------------------------------------- */
+
+.tx-context {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    padding: 10px 14px;
+}
+
+.tx-context__item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.tx-context__label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ui-semantic-muted);
+}
+
+.tx-context__value {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.86rem;
+    color: var(--ui-text-secondary);
+}
+
+/* --- Derived amounts ------------------------------------------------ */
+
+.tx-derived {
+    background: var(--ui-background-section);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    padding: 12px 14px;
+}
+
+.tx-derived__row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding: 3px 0;
+    font-size: 0.87rem;
+}
+
+.tx-derived__row span:last-child {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    color: var(--ui-text-secondary);
+}
+
+.tx-derived__row--formula span:first-child {
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+}
+
+.tx-derived__row--total {
+    border-top: 1px solid var(--ui-border-default);
+    margin-top: 6px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+
+.tx-derived__row--total span:last-child {
+    color: var(--ui-text-on-sidebar);
+    font-size: 1rem;
+}
+
+/* --- Ledger effect (MD-6) ------------------------------------------- */
+
+.tx-legs {
+    border: 1px dashed var(--ui-border-default);
+    border-radius: 5px;
+    padding: 12px 14px;
+}
+
+.tx-legs__lead {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin: 0 0 8px;
+}
+
+/* D-3: what stands in for the legs until the emission is determined. */
+.tx-legs__pending {
+    color: var(--ui-text-disabled);
+    font-size: 0.82rem;
+    font-style: italic;
+    margin: 0;
+}
+
+.tx-leg {
+    display: grid;
+    grid-template-columns: 62px 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+    padding: 4px 0;
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.84rem;
+}
+
+.tx-leg + .tx-leg {
+    border-top: 1px solid var(--ui-border-default);
+}
+
+.tx-leg__type {
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    padding: 1px 6px;
+    text-align: center;
+    color: var(--ui-text-secondary);
+}
+
+.tx-leg__type--buy {
+    border-color: var(--ui-semantic-success);
+    color: var(--ui-semantic-success);
+}
+
+.tx-leg__type--sell {
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-accent-primary);
+}
+
+.tx-leg__what {
+    font-family: var(--ui-font-family);
+    color: var(--ui-text-secondary);
+    font-size: 0.86rem;
+}
+
+.tx-leg__what em {
+    font-style: normal;
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+}
+
+.tx-leg__amount {
+    color: var(--ui-text-secondary);
+}
+
+/* --- Settlement position (MD-3) ------------------------------------- */
+
+.tx-settle {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    background: var(--ui-background-section);
+    padding: 13px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tx-settle.is-unconfirmed {
+    border-color: var(--ui-semantic-warning);
+}
+
+.tx-settle__lead {
+    font-size: 0.82rem;
+    color: var(--ui-text-disabled);
+    margin: 0;
+}
+
+.tx-settle__options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tx-settle__option {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background: var(--ui-background-primary);
+    padding: 8px 11px;
+    cursor: pointer;
+}
+
+.tx-settle__option:hover {
+    border-color: var(--ui-accent-primary);
+}
+
+.tx-settle__option.is-selected {
+    border-color: var(--ui-accent-primary);
+    background: var(--pf-accent-soft);
+}
+
+.tx-settle__option input {
+    accent-color: var(--ui-accent-primary);
+}
+
+.tx-settle__name {
+    font-size: 0.88rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-settle__balance {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-settle__arrow {
+    color: var(--ui-text-disabled);
+}
+
+.tx-settle__confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 0.84rem;
+    color: var(--ui-text-secondary);
+    cursor: pointer;
+}
+
+.tx-settle__confirm input {
+    margin-top: 3px;
+    accent-color: var(--ui-accent-primary);
+}
+
+.tx-settle__empty {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background: var(--ui-background-primary);
+    padding: 10px 13px;
+}
+
+.tx-settle__empty p {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.tx-settle__empty strong {
+    color: var(--ui-text-on-sidebar);
+}
+
+/* --- Messages (MD-7 vocabulary) ------------------------------------- */
+
+.tx-outcome {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.tx-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tx-msg {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 10px;
+    border-left: 3px solid var(--ui-semantic-warning);
+    background: var(--ui-background-section);
+    padding: 9px 13px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-msg__glyph {
+    font-weight: 700;
+    color: var(--ui-semantic-warning);
+    text-align: center;
+}
+
+.tx-msg--block {
+    border-left-color: var(--ui-semantic-error);
+}
+
+.tx-msg--block .tx-msg__glyph {
+    color: var(--ui-semantic-error);
+}
+
+.tx-msg--consequence {
+    border-left-color: var(--ui-semantic-info);
+}
+
+.tx-msg--consequence .tx-msg__glyph {
+    color: var(--ui-semantic-info);
+}
+
+.tx-msg strong {
+    color: var(--ui-text-on-sidebar);
+    font-weight: 600;
+}
+
+.tx-msg__sub {
+    display: block;
+    margin-top: 4px;
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+}
+
+.tx-msg__choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 8px;
+    cursor: pointer;
+}
+
+.tx-msg__choice input {
+    margin-top: 3px;
+    accent-color: var(--ui-accent-primary);
+}
+
+.tx-num {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+}
+
+.tx-num--neg {
+    color: var(--ui-semantic-error);
+}
+
+/* --- Actions -------------------------------------------------------- */
+
+.tx-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 16px;
+}
+
+.tx-actions__spacer {
+    flex: 1 1 auto;
+}
+
+.tx-actions__hint {
+    font-size: 0.78rem;
+    color: var(--ui-text-disabled);
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.tx-btn {
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 7px 14px;
+    font: inherit;
+    font-size: 0.84rem;
+    cursor: pointer;
+}
+
+.tx-btn:hover:not(:disabled) {
+    border-color: var(--ui-accent-primary);
+}
+
+.tx-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.tx-btn--primary {
+    background: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-accent-primary);
+    font-weight: 600;
+}
+
+.tx-btn--primary:hover:not(:disabled) {
+    background: var(--ui-accent-primary-hover);
+}
+
+.tx-btn--ghost {
+    background: transparent;
+}
+
+/* --- MD-3 inline cash-position mini-form ---------------------------- */
+
+/* Sits inside the settlement block's offer state, indented under the
+   sentence that explains why it is there. Its inputs belong to the
+   composer's own form (HTML has no nested forms), so it needs no form
+   chrome of its own — only the separation that says it is a sub-task. */
+.tx-inline-create {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 14px;
+}
+
+.tx-inline-create .tx-grid {
+    width: 100%;
+}
+
+.tx-inline-create input[readonly] {
+    color: var(--ui-text-disabled);
+    cursor: default;
+}
+
+/* --- Confirmation panel (MD-16) ------------------------------------- */
+
+.tx-confirm__lead {
+    font-size: 0.82rem;
+    color: var(--ui-text-disabled);
+    margin: 0;
+}
+
+.tx-confirm__lead em {
+    font-style: normal;
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    color: var(--ui-text-secondary);
+}
+
+/* The panel's one link is a control among buttons, so it takes their box
+   and loses the underline the app gives ordinary links. */
+a.tx-btn {
+    text-decoration: none;
+    display: inline-block;
+}

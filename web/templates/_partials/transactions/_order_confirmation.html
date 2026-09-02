@@ -1,0 +1,121 @@
+{# What the booking wrote (MD-16). Replaces the composer in
+   #tx-composer-host once "Book now" has succeeded.
+
+   MD-16 asks the reported forms to list every emission row *before* the user
+   acts; this is the same inventory afterwards, and for every flow, so
+   nothing a booking did is a surprise. The rows are read back out of
+   `trade_ticket_effects` — the linkage a reversal walks (ADR-0128 §6) — so
+   what is listed here is what the database holds, not a second prediction of
+   it. Each carries the `ticket #n` provenance string the emitted row itself
+   was stamped with.
+
+   The mockups carry no panel, so every sentence below is written in M-1's
+   voice and registered as a copy gap for the operator's walk — except the
+   flag notice's second line, which is MD-9's negative-cash copy verbatim.
+
+   Nothing here can be undone from this panel. Reversing a booking is a
+   different gesture on a different surface (S5, ADR-0128 §6); what this
+   offers is a way onward — to the traded investment, or to the next ticket.
+
+   Context: ticket_number, ticket_status, trade_date, provenance,
+   investment, rows, flag_notice. #}
+<div class="tx-ticket tx-confirm">
+
+    <div class="tx-ticket__head">
+        <div class="tx-ticket__ident">
+            <span class="tx-ticket__id">Ticket #{{ ticket_number }}</span>
+            <span class="tx-ticket__title">Booked on {{ trade_date }}</span>
+        </div>
+        <span class="tx-state tx-state--{{ ticket_status }}">{{ ticket_status | capitalize }}</span>
+    </div>
+
+    <div class="tx-ticket__body">
+
+        <div class="tx-block">
+            <p class="tx-block__title">What was written</p>
+            <p class="tx-confirm__lead">
+                Every row below carries <em>{{ provenance }}</em>, and the ticket
+                keeps the list — which is what makes the booking reversible.
+            </p>
+            <div class="tx-legs">
+                {% for row in rows %}
+                    <div class="tx-leg">
+                        {% if row.missing %}
+                            {# The effect's target is gone — deleted through the
+                               CRUD, or cascaded away. Said plainly rather than
+                               dropped: a booking that wrote four rows did not
+                               write three. #}
+                            <span class="tx-leg__type">{{ row.kind }}</span>
+                            <span class="tx-leg__what">
+                                This row is no longer in the book.
+                            </span>
+                            <span class="tx-leg__amount">—</span>
+                        {% elif row.kind == "position_txn" %}
+                            <span class="tx-leg__type tx-leg__type--{{ row.txn_type }}">{{ row.txn_type }}</span>
+                            <span class="tx-leg__what">
+                                {{ row.name }}
+                                {% if row.price %}<em>@ {{ row.price }}</em>{% endif %}
+                            </span>
+                            <span class="tx-leg__amount">{{ row.units }} units</span>
+                        {% elif row.kind == "nav" %}
+                            <span class="tx-leg__type">nav</span>
+                            <span class="tx-leg__what">{{ row.name }} <em>{{ row.nav_kind }} · {{ row.as_of_date }}</em></span>
+                            <span class="tx-leg__amount">{{ row.value }} {{ row.currency }}</span>
+                        {% elif row.kind == "cashflow" %}
+                            <span class="tx-leg__type">{{ row.flow_type }}</span>
+                            <span class="tx-leg__what">{{ row.name }} <em>{{ row.flow_kind }} · {{ row.as_of_date }}</em></span>
+                            <span class="tx-leg__amount">{{ row.amount }} {{ row.currency }}</span>
+                        {% elif row.kind == "investment_update" %}
+                            <span class="tx-leg__type">investment</span>
+                            <span class="tx-leg__what">
+                                {{ row.name }}
+                                <em>
+                                    {%- if row.created -%}
+                                        created
+                                    {%- elif not row.is_active -%}
+                                        set inactive
+                                    {%- else -%}
+                                        updated
+                                    {%- endif -%}
+                                </em>
+                            </span>
+                            <span class="tx-leg__amount">—</span>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if flag_notice %}
+            {# MD-5: the booking was never in doubt — OP-06 is struck — so this
+               states where the position now stands rather than warning about
+               it. The second sentence is M-1's negative-cash copy verbatim;
+               the persistent indicator it promises is S5's. #}
+            <div class="tx-messages">
+                <div class="tx-msg">
+                    <span class="tx-msg__glyph">!</span>
+                    <div>
+                        <strong>{{ flag_notice.data.position }} now stands at
+                            <span class="tx-num tx-num--neg">{{ flag_notice.data.balance }} {{ flag_notice.data.currency }}</span>.</strong>
+                        <span class="tx-msg__sub">The position stays flagged until the balance is back at zero or above.</span>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="tx-actions">
+            {% if investment %}
+                <a class="tx-btn" href="/investments/{{ investment.id }}">Open {{ investment.name }}</a>
+            {% endif %}
+            <span class="tx-actions__spacer"></span>
+            <button class="tx-btn tx-btn--ghost" type="button"
+                    hx-get="/api/transactions/chooser"
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">New transaction</button>
+            <p class="tx-actions__hint">
+                The ticket is a fact now. Correcting it means reversing it, which
+                is the blotter's gesture, not this one.
+            </p>
+        </div>
+    </div>
+</div>

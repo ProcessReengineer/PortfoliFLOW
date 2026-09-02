@@ -1,23 +1,28 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Transactions web surface — the ninth Area (ADR-0128 §7, S3).
+"""Tests for the Transactions web surface — the ninth Area (ADR-0128 §7).
 
 ASGI-level tests over a live Postgres, mirroring the fixture pattern in
 ``tests/web/test_cases_area.py`` (login helper, superuser-seeded
-tenant/user, HTMX header simulation). They cover the S3 shell only — the
-Area renders, its three Sections carry stable anchors, and the placeholder
-bodies carry nothing clickable:
+tenant/user, HTMX header simulation). They cover the Area *shell* — that it
+renders, that its three Sections carry stable anchors, and that the sections
+still waiting on a strand carry nothing clickable:
 
 * Area/nav — ``/transactions`` renders the page and the HTMX branch the
   partial.
-* Placeholders — the three section bodies hold no control and no ``hx-``
-  attribute, so nothing here links to a route that does not exist yet.
+* Placeholders — the Blotter and History bodies hold no control and no
+  ``hx-`` attribute, so nothing there links to a route S5 has not built yet.
 * Registry — the three Modules register into the Area and construct, which
   is the ``VALID_AREAS`` guard in ``core/base_module.py``.
 
-The record-flow composer (S4) and the blotter / history lists (S5) bring
-their own tests; this file stays the Area-shell pin.
+The New-transaction section **left the no-controls pin in S4a**: it is no
+longer a placeholder but the MD-1 flow chooser, whose live tile is a control
+by design. What that section may and may not carry is pinned by
+``tests/web/test_transactions_composer.py`` instead — five tiles, exactly one
+HTMX-wired gesture, four inert ones — which is a sharper statement than "no
+controls" ever was. The pin here narrows to the two sections whose
+placeholders are still S5's; it widens again to nothing when S5 lands.
 """
 
 from __future__ import annotations
@@ -175,18 +180,17 @@ async def _login(client: AsyncClient, email: str, password: str) -> None:
     )
 
 
-def _area_markup(body: str) -> str:
-    """Slice the rendered Area markup out of a full response body.
+def _section_markup(body: str, slug: str) -> str:
+    """Slice one Section's markup out of a full response body.
 
     The OOB sidebar and the shell chrome around the Area legitimately carry
-    links and forms; only the Area's own markup is in scope for the
-    "no controls" pin. The slice runs from the ``pf-area`` marker through
-    the close of the third (and last) Section the partial emits.
+    links and forms, and since S4a so does the New-transaction section; only
+    the named Section is in scope for the "no controls" pin. No Section
+    nests another, so the slice runs from the opening tag to the first
+    ``</section>`` after it.
     """
-    start = body.index('<div class="pf-area pf-transactions"')
-    end = start
-    for _ in _SECTIONS:
-        end = body.index("</section>", end) + len("</section>")
+    start = body.index(f'<section class="pf-section" id="{slug}"')
+    end = body.index("</section>", start) + len("</section>")
     return body[start:end]
 
 
@@ -236,23 +240,27 @@ async def test_transactions_placeholders_carry_no_controls(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The S3 placeholders hold nothing clickable and nothing HTMX-wired.
+    """The Blotter and History placeholders hold nothing clickable.
 
-    Pins the shell contract: no section body links to a route S4 / S5 has
-    not built yet.
+    Pins the shell contract for the two sections S5 still owes: no
+    placeholder body links to a route that does not exist yet. The
+    New-transaction section is deliberately **not** covered — S4a filled it
+    with the MD-1 chooser, and its contract lives in
+    ``test_transactions_composer.py``.
     """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
 
     response = await web_client.get("/transactions", follow_redirects=False)
     assert response.status_code == 200
-    area = _area_markup(response.text)
 
-    for token in ("<form", "<button", "<input", "<a "):
-        assert token not in area, f"Transactions area markup carries a control: {token!r}"
-    assert re.search(r"\shx-[a-z-]+=", area) is None, (
-        "Transactions area markup carries an hx-* attribute"
-    )
+    for slug in ("blotter", "history"):
+        markup = _section_markup(response.text, slug)
+        for token in ("<form", "<button", "<input", "<a "):
+            assert token not in markup, f"{slug} placeholder carries a control: {token!r}"
+        assert re.search(r"\shx-[a-z-]+=", markup) is None, (
+            f"{slug} placeholder carries an hx-* attribute"
+        )
 
 
 # ---------------------------------------------------------------------------

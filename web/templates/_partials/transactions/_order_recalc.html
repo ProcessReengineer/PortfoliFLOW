@@ -1,0 +1,19 @@
+{# The recalculation response: the composer's four derived regions and
+   nothing else.
+
+   The first fragment replaces the swap target (#tx-derived); the other three
+   carry hx-swap-oob because M-1 interleaves them with static inputs — the
+   ticket title sits in the head, the context strip inside "What happened",
+   and the messages below the Provenance block — so no single contiguous
+   fragment could reach them.
+
+   The user's own inputs are deliberately absent from this response. Re-
+   rendering a field while it is being typed into would move the caret; the
+   server owns what is *derived*, the browser keeps what is *entered*.
+
+   Context: `oob` is true throughout, plus everything `_derived_context`
+   returns. #}
+{% include "_partials/transactions/_order_derived.html" %}
+{% include "_partials/transactions/_order_title.html" %}
+{% include "_partials/transactions/_order_context.html" %}
+{% include "_partials/transactions/_order_outcome.html" %}

@@ -1,0 +1,39 @@
+{# Instrument context strip (M-1). Four read-only facts about the picked
+   investment, refreshed out of band on every recalc because M-1 places it
+   inside the "What happened" block, above the static Execution inputs.
+
+   Currency is here and nowhere else on the form: MD-8 makes it derived from
+   the investment and read-only, so the composer offers no way to reach the
+   currency-mismatch block at all.
+
+   "Last known price" is the nearest stored price to the trade date — the
+   same series and the same pure `nearest_price` the price-deviation warning
+   measures against, so the strip and the warning can never quote two
+   different references.
+
+   Context: investment, holding, currency, reference_price, reference_date,
+   oob. #}
+<div class="tx-context" id="tx-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Holding on trade date</span>
+        <span class="tx-context__value">
+            {% if holding is not none %}{{ holding }} units{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Currency</span>
+        <span class="tx-context__value">{{ currency or "—" }}</span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Last known price</span>
+        <span class="tx-context__value">
+            {% if reference_price %}{{ reference_price }} · {{ reference_date }}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Valuation mode</span>
+        <span class="tx-context__value">
+            {% if investment %}{{ investment.valuation_mode }}{% else %}—{% endif %}
+        </span>
+    </div>
+</div>

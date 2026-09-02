@@ -1,0 +1,131 @@
+{# Messages and primary actions — the composer's fourth derived region,
+   refreshed out of band because M-1 puts the static Provenance block between
+   it and the settlement panel.
+
+   Copy is MD-9's, lifted verbatim from M-1; the route supplies only the
+   formatted values each sentence interpolates, exactly as the service
+   supplies identifiers rather than prose one layer down.
+
+   Message order is M-1's: blocks (red, they stop the ticket), then warnings
+   (amber, they never stop anything, MD-5), then the full-disposal
+   consequence (blue, MD-7 — a choice offered, not imposed).
+
+   Only `oversell` can arrive as a *previewable* block here. The other seven
+   in the vocabulary are absent by decision, not omission: `missing_price`,
+   `missing_anlv` and the completeness identifiers are prevented structurally
+   by this form's own gating, `currency_mismatch` has no reachable state
+   (MD-8), and the three S2b blocks fire on the gestures. **An empty block
+   list therefore does not mean the ticket is proposable** — it means nothing
+   previewable is wrong with it.
+
+   `error` is the other half of that: a refusal the *service* raised on a
+   gesture, rendered with its own sentence (operator decision D-5). The route
+   supplies values everywhere else on this surface and prose nowhere; this is
+   the one exception, and it is one because the service's sentences already
+   name their remedy and inventing a second wording for the same refusal is
+   how two of them come to disagree.
+
+   Context: messages, error, full_disposal, set_inactive, investment,
+   draft_enabled, propose_enabled, book_enabled, hint_key, ticket_id, oob. #}
+<div class="tx-outcome" id="tx-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-messages">
+        {% if error %}
+            <div class="tx-msg tx-msg--block">
+                <span class="tx-msg__glyph">✕</span>
+                <div><strong>{{ error }}</strong></div>
+            </div>
+        {% endif %}
+        {% for message in messages %}
+            {% set v = message.data %}
+            <div class="tx-msg{% if message.kind == 'block' %} tx-msg--block{% endif %}">
+                <span class="tx-msg__glyph">{% if message.kind == "block" %}✕{% else %}!{% endif %}</span>
+                <div>
+                    {% if message.identifier == "oversell" %}
+                        <strong>{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</strong>
+                        <span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>
+                    {% elif message.identifier == "price_deviation" %}
+                        <strong>Execution price is {{ v.percent }} % {{ v.side }} the last known price.</strong>
+                        <span class="tx-msg__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</span>
+                    {% elif message.identifier == "negative_cash" %}
+                        <strong>{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</strong>
+                        <span class="tx-msg__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</span>
+                    {% elif message.identifier == "net_non_positive" %}
+                        <strong>Net proceeds are {{ v.amount }} {{ v.currency }}.</strong>
+                        <span class="tx-msg__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</span>
+                    {% elif message.identifier == "future_trade_date" %}
+                        <strong>Trade date {{ v.trade_date }} is in the future.</strong>
+                        <span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+
+        {% if full_disposal %}
+            <div class="tx-msg tx-msg--consequence">
+                <span class="tx-msg__glyph">→</span>
+                <div>
+                    <strong>This sells the entire holding.</strong>
+                    <span class="tx-msg__sub">The position closes at zero units.</span>
+                    <label class="tx-msg__choice">
+                        <input type="checkbox" name="set_inactive" value="1"
+                               {% if set_inactive %}checked{% endif %}>
+                        <span>Set {{ investment.name }} inactive after booking.</span>
+                    </label>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    {# The three ticket gestures post the whole enclosing form and replace the
+       composer with the server's answer. Each carries its own `disabled`
+       state from this very render, and each is re-checked at the endpoint —
+       a disabled button is a courtesy, never a permission.
+
+       Save as draft is gated differently from the other two on purpose
+       (operator decision W-3): `draft` is a private workspace and may dangle,
+       so it needs only an investment and survives every warning and block,
+       while `proposed` means "complete and validated" (ADR-0128 §3).
+
+       The last button never destroys anything. Before a gesture there is
+       nothing to discard (MD-2); afterwards the draft is worth keeping, so
+       the label becomes "Close" and the composer simply gives way to the
+       chooser. Cancelling a draft and reversing a booking are S5's. #}
+    <div class="tx-actions">
+        <button class="tx-btn tx-btn--primary" type="button"
+                hx-post="/api/transactions/book"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not book_enabled %}disabled{% endif %}>Book now</button>
+        <button class="tx-btn" type="button"
+                hx-post="/api/transactions/propose"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+        <button class="tx-btn" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
+        <span class="tx-actions__spacer"></span>
+        <button class="tx-btn tx-btn--ghost" type="button"
+                hx-get="/api/transactions/chooser"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">{% if ticket_id %}Close{% else %}Discard{% endif %}</button>
+        <p class="tx-actions__hint">
+            {%- if hint_key == "incomplete" -%}
+                Fill in the investment, units and price before booking.
+            {%- elif hint_key == "no_position" -%}
+                Pick or create a settlement position before booking.
+            {%- elif hint_key == "unconfirmed" -%}
+                Confirm the settlement position before booking.
+            {%- elif hint_key == "blocked" -%}
+                Fix the errors above before booking.
+            {%- else -%}
+                Booking records the decision and both ledger legs in one step.
+            {%- endif -%}
+        </p>
+    </div>
+</div>

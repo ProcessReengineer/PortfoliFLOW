@@ -4,11 +4,13 @@
 
    Three surfaces, in list order: New transaction (the order and
    record-flow composer, S4), Blotter (draft / proposed / approved, S5),
-   History (booked / cancelled, S5). At this stage (S3) every section
-   renders a placeholder sentence naming the strand that fills it — no
-   controls, no forms, no links. These are not ADR-0111 placeholders:
-   ADR-0111 retired sections for work that will not happen; each of these
-   has a concrete successor strand in the #061 track. #}
+   History (booked / cancelled, S5).
+
+   S4a fills the first: the MD-1 flow chooser, with the U-BUY / U-SELL
+   composer behind its one live tile. Blotter and History still render a
+   placeholder sentence naming the strand that fills them. These are not
+   ADR-0111 placeholders: ADR-0111 retired sections for work that will not
+   happen; each of these has a concrete successor strand in the #061 track. #}
 <div class="pf-area pf-transactions" data-area="transactions">
     <header class="pf-area__header">
         <div>
@@ -22,8 +24,8 @@
 
     {% with section_slug="new",
             section_title="New transaction",
-            section_pill="S4",
-            section_placeholder="The order and record-flow composer — buy, sell, new instrument, and reported flows — arrives with S4." %}
+            section_pill="Draft",
+            section_body_template="_partials/transactions/_new_section.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 

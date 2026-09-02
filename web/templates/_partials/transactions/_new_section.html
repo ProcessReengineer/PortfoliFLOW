@@ -1,0 +1,11 @@
+{# Body of the Transactions area's "New transaction" section.
+
+   One HTMX host holding either the MD-1 chooser or an open composer. The
+   host is what makes web/routes/areas.py a no-DB shell render: the area page
+   ships the chooser as static markup, and the first database read happens
+   when a tile is clicked.
+
+   Context: none (the chooser is static). #}
+<div class="tx-new" id="tx-composer-host">
+    {% include "_partials/transactions/_chooser.html" %}
+</div>

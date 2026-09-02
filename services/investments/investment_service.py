@@ -190,6 +190,14 @@ _NAV_QUANTUM: Decimal = Decimal(1).scaleb(-4)
 #: uncapped control would drown the import result it is meant to annotate.
 _MAX_AUM_FINDINGS: int = 20
 
+#: The asset-class code :meth:`InvestmentService.create_cash_position` files a
+#: new cash position against. It coincides with
+#: :data:`services.investments.aum.CASH_TYPE` in spelling only: that one is an
+#: ``investments.investment_type`` value from a closed CHECK set, this one is a
+#: row in the tenant's own ``asset_classes`` catalogue (seeded by
+#: :mod:`services.saa.seeds`). Two namespaces, two constants.
+_CASH_ASSET_CLASS_CODE: str = "cash"
+
 _NON_CODE_CHARS = re.compile(r"[^a-z0-9]+")
 
 
@@ -521,6 +529,22 @@ class InvestmentService:
     :func:`core.repositories.tenant_context`). The service does not
     set or read ``app.tenant_id`` itself — that responsibility lives
     on the session.
+
+    Four further repositories are **optional**, each unlocking one group of
+    methods and each guarded by a ``_require_*`` accessor that fails loudly
+    rather than silently degrading. A construction site wires in only what
+    it uses, which is why the many three-repository sites are untouched by
+    every addition here:
+
+    =========================  ==========================================
+    Dependency                 Needed by
+    =========================  ==========================================
+    ``identifiers``            the identifier CRUD surface (ADR-0096)
+    ``position_transactions``  the ledger write path (ADR-0097)
+    ``instrument_prices``      computed-NAV materialisation and the
+                               unitised live-ingest route (ADR-0098)
+    ``asset_classes``          :meth:`create_cash_position` (ADR-0128 §2)
+    =========================  ==========================================
     """
 
     def __init__(
@@ -531,6 +555,7 @@ class InvestmentService:
         identifiers: InvestmentIdentifierRepository | None = None,
         position_transactions: PositionTransactionRepository | None = None,
         instrument_prices: InstrumentPriceRepository | None = None,
+        asset_classes: AssetClassRepository | None = None,
     ) -> None:
         self._investments = investments
         self._navs = navs
@@ -551,6 +576,13 @@ class InvestmentService:
         # (materialisation then runs in-transaction); a construction site
         # that never touches unitised investments may omit it.
         self._instrument_prices = instrument_prices
+        # Optional for the same reason (ADR-0128 §2, the S4 composer). Only
+        # :meth:`create_cash_position` needs it — to resolve the tenant's
+        # ``cash`` asset class — and it fails loudly when absent. Every other
+        # asset-class consumer in this service (the Excel transform) receives
+        # its repository as a call argument, which is why this dependency
+        # arrives seventh rather than with the original three.
+        self._asset_classes = asset_classes
 
     def _require_identifiers(self) -> InvestmentIdentifierRepository:
         """Return the wired identifier repository or fail loudly.
@@ -597,6 +629,21 @@ class InvestmentService:
                 "computed-NAV materialisation are unavailable."
             )
         return self._instrument_prices
+
+    def _require_asset_classes(self) -> AssetClassRepository:
+        """Return the wired asset-class repository or fail loudly.
+
+        :meth:`create_cash_position` (ADR-0128 §2) resolves the tenant's
+        ``cash`` asset class through this repository and is only reachable
+        from a service constructed with one. Callers that did not wire one in
+        are a programming error, not a user error.
+        """
+        if self._asset_classes is None:
+            raise RuntimeError(
+                "InvestmentService was constructed without an asset-class "
+                "repository; cash-position creation is unavailable."
+            )
+        return self._asset_classes
 
     def _nav_materialiser(self) -> NavMaterialisationService:
         """Build the computed-NAV materialisation service or fail loudly.
@@ -1443,6 +1490,160 @@ class InvestmentService:
             anlv_code=anlv_code,
             valuation_mode=valuation_mode,
         )
+
+    async def create_cash_position(
+        self,
+        *,
+        name: str,
+        currency: str,
+        opening_balance: Decimal,
+        opening_date: _date,
+        created_by: UUID,
+    ) -> InvestmentDTO:
+        """Create a complete, self-consistent cash position (ADR-0103 §1).
+
+        A cash position is not one row but a **triple**, and only the whole
+        triple is a position at all:
+
+        1. the ``investments`` row — ``investment_type='cash'``,
+           ``valuation_mode='unitised'``, in ``currency``;
+        2. one **unity** ``instrument_prices`` row at ``opening_date``; and
+        3. the ``opening`` ledger row carrying the balance, when there is one.
+
+        The unity price is the part that is easy to omit and fatal to omit.
+        ADR-0103 §1 makes cash the degenerate unitised case — units *are*
+        currency units, so a price of exactly one is the *definition* of a
+        cash price rather than a quotation — and the ADR-0098 materialised
+        set is one NAV row per ``instrument_prices`` date. A position without
+        a stored unity row therefore materialises **no NAV**, and a position
+        with no NAV is invisible to AUM (:func:`services.investments.aum
+        .compute_aum` sums NAVs) while looking perfectly healthy in the
+        investment list. Before this seam the only writer of the complete
+        triple was the private Cash-sheet importer
+        (:meth:`_reconcile_cash_statements`); a caller composing three
+        repository calls itself would be one forgotten row away from that
+        silent failure, which is precisely why the composition lives here.
+
+        **Origin is ``'manual'``.** The importer owns its ``'excel'`` rows
+        and reconciles them by classify-then-write: rows it recognises as its
+        own are restated or deleted to match the sheet. A row this seam wrote
+        must never be mistaken for one of those, so it is stamped
+        ``'manual'`` and the two writers never contend.
+
+        **Zero balance writes no ledger row.** ``ck_position_transactions
+        _sign`` requires ``units > 0`` on an ``opening``, and an unchanged
+        balance is not an event (the importer's own rule). A zero-balance
+        position simply exists, empty: the investment row and its unity price
+        stand, and its first NAV arrives with its first ledger row.
+
+        The three writes share the caller's transaction — this method opens
+        none of its own — so the triple lands atomically or not at all.
+
+        The consuming surface is the transactions composer's inline cash-
+        position mini-form (ADR-0128, MD-3), offered when a cash-moving
+        ticket reports :data:`~services.transactions.constants
+        .INCOMPLETE_MISSING_CASH_POSITION` and the tenant holds no cash row
+        in the required currency.
+
+        Args:
+            name: Tenant-unique investment name. Stripped before use.
+            currency: ISO 4217 currency code the position is denominated in.
+                It is the position's own currency throughout: the unity price
+                and the ledger row are stated in it, never converted.
+            opening_balance: The balance to open with, ``>= 0``. Zero opens
+                an empty position (see above).
+            opening_date: Statement day the position opens on — the date of
+                both the unity price and the ``opening`` ledger row.
+            created_by: UUID of the user attributable for all three writes.
+
+        Returns:
+            The newly created :class:`InvestmentDTO`.
+
+        Raises:
+            ValidationError: If ``name`` is blank, if ``opening_balance`` is
+                negative, or if the tenant's asset-class catalogue holds no
+                ``cash`` class.
+            IntegrityError: If ``name`` is already taken in this tenant
+                (``uq_investments_tenant_name``). Deliberately not
+                pre-checked: a check-then-write would race the constraint
+                anyway, and the CRUD surface already maps this to ``409``.
+            RuntimeError: If the service was constructed without the
+                ``asset_classes``, ``instrument_prices`` or
+                ``position_transactions`` repository.
+        """
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            raise ValidationError(
+                "A cash position needs a name.",
+                field="name",
+            )
+        if opening_balance < 0:
+            raise ValidationError(
+                "A cash position opens at zero or above; a negative opening "
+                "balance is not an opening but a later movement.",
+                field="opening_balance",
+            )
+
+        asset_class = await self._require_asset_classes().get_by_code(_CASH_ASSET_CLASS_CODE)
+        if asset_class is None:
+            raise ValidationError(
+                "This tenant's asset-class catalogue has no 'cash' class, so "
+                "a cash position cannot be filed against one; re-run the SAA "
+                "seed catalogue for the tenant and try again."
+            )
+
+        created = await self.create_investment(
+            name=cleaned_name,
+            investment_type=CASH_TYPE,
+            asset_class_id=asset_class.id,
+            currency=currency,
+            created_by=created_by,
+            valuation_mode="unitised",
+        )
+
+        # Prices before ledger — the importer's ordering doctrine
+        # (:meth:`_reconcile_cash_statements`, "Ordering"): the ledger write
+        # below triggers materialisation in-transaction, and it can only
+        # value the dates it finds a price for.
+        violation = unity_price_violation(UNITY_PRICE, currency, currency)
+        if violation is not None:
+            # Structurally unreachable — the price is UNITY_PRICE and both
+            # currencies are the position's own. Kept for the reason the
+            # importer keeps its equivalent: the doctrine is stated where the
+            # write happens, so a future edit to either side is caught here
+            # rather than by a silently wrong NAV.
+            raise RuntimeError(f"create_cash_position built an illegal unity price: {violation}")
+        await self._require_instrument_prices().upsert(
+            investment_id=created.id,
+            as_of_date=opening_date,
+            price=UNITY_PRICE,
+            currency=currency,
+            source=None,
+            created_by=created_by,
+            ingest_origin="manual",
+        )
+
+        if opening_balance > 0:
+            await self.add_position_transaction(
+                investment_id=created.id,
+                txn_type="opening",
+                trade_date=opening_date,
+                units=opening_balance,
+                currency=currency,
+                ingest_origin="manual",
+                created_by=created_by,
+                price_per_unit=None,
+            )
+
+        _LOG.info(
+            "create-cash-position: id=%s name=%r currency=%s opening=%s on %s",
+            created.id,
+            created.name,
+            currency,
+            opening_balance,
+            opening_date,
+        )
+        return created
 
     async def update_investment(
         self,

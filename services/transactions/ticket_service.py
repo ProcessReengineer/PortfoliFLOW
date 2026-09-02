@@ -1436,7 +1436,9 @@ class TicketService:
            (D-Y / D-Z) — the same all-blocks-first order as :meth:`propose`.
         5. Undo: ledger rows, cashflows, NAVs, then the before-image
            restores (D-AA / D-AB).
-        6. Clean up a created shell, if this booking made one (D-AC).
+        6. Clean up a created shell, if this booking made one (D-AC) —
+           deleting it, retiring it, or refusing when another ticket that is
+           still live names it (OP-17).
         7. Cancel the ticket, with the reason and the actor.
 
         **Atomicity.** Steps 5 to 7 run on the caller's one context-scoped
@@ -1474,7 +1476,9 @@ class TicketService:
             TicketIncomplete: With ``identifier='missing_cancel_reason'`` if
                 no reason was given.
             TicketReversalBlocked: If any emitted row has been modified,
-                deleted or consumed since the booking. Nothing is written.
+                deleted or consumed since the booking, or if another live
+                ticket still references an investment this booking created
+                (``cause='referenced_by_ticket'``). Nothing is written.
             RuntimeError: If a booked ticket enumerates no effects, or more
                 than one created investment.
         """

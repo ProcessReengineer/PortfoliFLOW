@@ -45,6 +45,8 @@ Coverage
 * TV-10: the gates — status, reason, and ``cancel`` still refusing ``booked``.
 * TV-11: atomicity — a failure mid-reversal restores everything.
 * TV-12: corrections are cancel plus re-enter.
+* TV-13: a live ticket referencing the created row blocks the reversal.
+* TV-14: only terminal references degrade it to the retain path.
 """
 
 from __future__ import annotations
@@ -84,6 +86,9 @@ from services.transactions.constants import (
     REVERSAL_CAUSE_CONSUMED,
     REVERSAL_CAUSE_HOLDINGS_CONSUMED,
     REVERSAL_CAUSE_MODIFIED,
+    REVERSAL_CAUSE_REFERENCED_BY_TICKET,
+    REVERSAL_CAUSE_UNRESTORABLE,
+    REVERSAL_CAUSES,
 )
 from services.transactions.emission import (
     EFFECT_CASHFLOW,
@@ -1014,3 +1019,164 @@ async def test_tv12_an_identical_ticket_books_cleanly_after_a_reversal(
         retained = await TradeTicketRepository(session).list_effects(first.id)
     assert reversed_ticket is not None and reversed_ticket.status == "cancelled"
     assert len(retained) == 2
+
+
+# ---------------------------------------------------------------------------
+# TV-13: a live ticket referencing the created row blocks the reversal (OP-17)
+# ---------------------------------------------------------------------------
+
+
+async def test_tv13_a_live_ticket_referencing_the_created_row_blocks(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Another ticket names the shell, so the reversal refuses rather than fails.
+
+    Both FK columns onto ``investments`` are ``ON DELETE RESTRICT``, and the
+    unlink the clean-up performs frees only the reversing ticket's own link.
+    Without this check the delete reaches the constraint and the operator
+    gets an ``IntegrityError`` — true, and useless. The refusal names the
+    ticket by the number the blotter shows and says whose work it is to
+    clear.
+
+    The rows already undone come back: the raise happens inside the caller's
+    one transaction, the same contract the mid-undo ``holdings_consumed``
+    refusal relies on, so the booking is exactly as it was.
+    """
+    tenant = await seed_tenant("TV-13")
+    fixture = await _seed(app_engine, tenant, email="pm@tv13.example")
+    booked, effects = await _book(
+        app_engine,
+        tenant,
+        fixture,
+        kind="secondary",
+        direction="buy",
+        currency="EUR",
+        trade_date=_TRADE_DATE,
+        created_by=fixture.actor.id,
+        now=_NOW,
+        cash_investment_id=fixture.cash.id,
+        gross_amount=Decimal("750000"),
+        fees=Decimal("5000"),
+        master_data=_master_data(fixture, acquired_nav="800000"),
+    )
+    grouped = _by_type(effects)
+    created_id = grouped[EFFECT_INVESTMENT_UPDATE][0].effect_id
+
+    # A second ticket is composed against the newly created investment.
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        follow_on = await _service(session).create_draft(
+            **_order_kwargs(fixture, investment_id=created_id, note="top-up")
+        )
+
+    with pytest.raises(TicketReversalBlocked) as excinfo:
+        await _reverse(app_engine, tenant, fixture, booked.id)
+
+    assert excinfo.value.cause == REVERSAL_CAUSE_REFERENCED_BY_TICKET
+    assert excinfo.value.effect_type == EFFECT_INVESTMENT_UPDATE
+    assert excinfo.value.effect_id == created_id
+    assert f"#{follow_on.ticket_number}" in str(excinfo.value)
+
+    # Nothing was undone: the shell, its NAV, the cash leg and the ticket all
+    # stand where the booking left them.
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        shell = await InvestmentRepository(session).get_by_id(created_id)
+        navs = await InvestmentNavRepository(session).list_by_investment(created_id)
+        cash_rows = await PositionTransactionRepository(session).list_for_investment(
+            fixture.cash.id
+        )
+        still = await TradeTicketRepository(session).get(booked.id)
+
+    assert shell is not None and shell.is_active is True
+    assert navs != []
+    assert sorted(row.txn_type for row in cash_rows) == ["opening", "sell"]
+    assert still is not None and still.status == "booked"
+    assert still.investment_id == created_id
+
+
+# ---------------------------------------------------------------------------
+# TV-14: only terminal references degrade to the retain path (OP-17)
+# ---------------------------------------------------------------------------
+
+
+async def test_tv14_a_cancelled_reference_retains_the_shell_instead_of_blocking(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A cancelled ticket keeps its foreign key forever, so refusing would strand it.
+
+    There is no operator gesture that would ever free this row: a terminal
+    ticket is a record and is not edited. Blocking would make the reversal
+    permanently impossible, so the clean-up takes the D-AC retain path
+    instead — the shell is retired rather than deleted, which is precisely
+    what "a record still points here" is supposed to mean.
+
+    The booking is still undone in full; only the created row survives.
+    """
+    tenant = await seed_tenant("TV-14")
+    fixture = await _seed(app_engine, tenant, email="pm@tv14.example")
+    booked, effects = await _book(
+        app_engine,
+        tenant,
+        fixture,
+        kind="secondary",
+        direction="buy",
+        currency="EUR",
+        trade_date=_TRADE_DATE,
+        created_by=fixture.actor.id,
+        now=_NOW,
+        cash_investment_id=fixture.cash.id,
+        gross_amount=Decimal("750000"),
+        fees=Decimal("5000"),
+        master_data=_master_data(fixture, acquired_nav="800000"),
+    )
+    grouped = _by_type(effects)
+    created_id = grouped[EFFECT_INVESTMENT_UPDATE][0].effect_id
+    booked_nav_id = grouped[EFFECT_NAV][0].effect_id
+
+    # A follow-on ticket is composed against the new row and then withdrawn.
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        follow_on = await service.create_draft(
+            **_order_kwargs(fixture, investment_id=created_id, note="top-up")
+        )
+        cancelled = await service.cancel(follow_on.id, cancelled_by=fixture.actor.id, now=_NOW)
+    assert cancelled.status == "cancelled"
+    assert cancelled.investment_id == created_id
+
+    report = await _reverse(app_engine, tenant, fixture, booked.id)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        shell = await InvestmentRepository(session).get_by_id(created_id)
+        navs = await InvestmentNavRepository(session).list_by_investment(created_id)
+        cash_rows = await PositionTransactionRepository(session).list_for_investment(
+            fixture.cash.id
+        )
+        ticket = await TradeTicketRepository(session).get(booked.id)
+
+    # The booking's own rows are gone.
+    assert booked_nav_id not in {row.id for row in navs}
+    assert [row.txn_type for row in cash_rows] == ["opening"]
+
+    # The shell survives, retired, and the outcome names what kept it.
+    assert shell is not None and shell.is_active is False
+    assert report.shell is not None
+    assert report.shell.investment_id == created_id
+    assert report.shell.deleted is False
+    assert report.shell.retained_because is not None
+    assert f"#{cancelled.ticket_number}" in report.shell.retained_because
+    assert "cancelled" in report.shell.retained_because
+
+    # The retain path never unlinks: the ticket keeps naming what it made.
+    assert ticket is not None and ticket.investment_id == created_id
+    assert ticket.status == "cancelled"
+
+
+def test_tv14_the_reversal_cause_vocabulary_has_five_members() -> None:
+    """The vocabulary is fixed here, and the new cause is part of it."""
+    assert {
+        REVERSAL_CAUSE_MODIFIED,
+        REVERSAL_CAUSE_CONSUMED,
+        REVERSAL_CAUSE_HOLDINGS_CONSUMED,
+        REVERSAL_CAUSE_UNRESTORABLE,
+        REVERSAL_CAUSE_REFERENCED_BY_TICKET,
+    } == REVERSAL_CAUSES
+    assert len(REVERSAL_CAUSES) == 5

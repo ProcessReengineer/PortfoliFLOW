@@ -233,7 +233,7 @@ COMPLETENESS_IDENTIFIERS: Final[frozenset[str]] = frozenset(
 #
 # Why a reversal refused, carried on
 # :class:`core.exceptions.TicketReversalBlocked` as ``cause``. Each names a
-# *different remedy*, which is the only reason there are four rather than one
+# *different remedy*, which is the only reason there are five rather than one
 # "cannot reverse": the operator's next move differs in each case, and S4's
 # copy has to say which.
 
@@ -258,6 +258,16 @@ REVERSAL_CAUSE_HOLDINGS_CONSUMED: Final[str] = "holdings_consumed"
 #: because it is what makes the restore honest rather than trusting.
 REVERSAL_CAUSE_UNRESTORABLE: Final[str] = "unrestorable"
 
+#: Another trade ticket still references the investment this booking created,
+#: so the shell cannot be deleted (``trade_tickets.investment_id`` and
+#: ``cash_investment_id`` are both ``ON DELETE RESTRICT``). Only a *live*
+#: reference refuses the reversal: those are the operator's to clear, and the
+#: remedy is theirs to choose — re-point the drafts or cancel the proposals.
+#: References that are themselves terminal degrade the reversal to the D-AC
+#: retain path instead of blocking it, since a cancelled ticket keeps its FK
+#: forever and no amount of operator work would ever free the row.
+REVERSAL_CAUSE_REFERENCED_BY_TICKET: Final[str] = "referenced_by_ticket"
+
 #: The reversal-cause vocabulary.
 REVERSAL_CAUSES: Final[frozenset[str]] = frozenset(
     {
@@ -265,6 +275,7 @@ REVERSAL_CAUSES: Final[frozenset[str]] = frozenset(
         REVERSAL_CAUSE_CONSUMED,
         REVERSAL_CAUSE_HOLDINGS_CONSUMED,
         REVERSAL_CAUSE_UNRESTORABLE,
+        REVERSAL_CAUSE_REFERENCED_BY_TICKET,
     }
 )
 
@@ -437,6 +448,7 @@ __all__ = [
     "REVERSAL_CAUSE_CONSUMED",
     "REVERSAL_CAUSE_HOLDINGS_CONSUMED",
     "REVERSAL_CAUSE_MODIFIED",
+    "REVERSAL_CAUSE_REFERENCED_BY_TICKET",
     "REVERSAL_CAUSE_UNRESTORABLE",
     "STATUSES",
     "STATUS_ACKNOWLEDGED",

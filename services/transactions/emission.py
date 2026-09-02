@@ -188,6 +188,10 @@ knows what they meant, and that something is the encoding above.
   identifiers), unlinking the ticket first because
   ``trade_tickets.investment_id`` is ``ON DELETE RESTRICT``. Otherwise it
   retains the shell, deactivated, and the outcome says which table kept it.
+  That ``RESTRICT`` binds *other* tickets too (OP-17): a live one refuses the
+  reversal with ``referenced_by_ticket`` — work only the operator can do —
+  while references that are all terminal take the retain path, their keys
+  being permanent.
 * **D-AD — effect rows survive.** A reversal never deletes from
   ``trade_ticket_effects``. The rows are FK-less by design (T-1 §3) so the
   history of what a cancelled ticket once did outlives the rows it did it to.
@@ -256,7 +260,10 @@ from services.transactions.constants import (
     REVERSAL_CAUSE_CONSUMED,
     REVERSAL_CAUSE_HOLDINGS_CONSUMED,
     REVERSAL_CAUSE_MODIFIED,
+    REVERSAL_CAUSE_REFERENCED_BY_TICKET,
     REVERSAL_CAUSE_UNRESTORABLE,
+    STATUS_BOOKED,
+    STATUS_CANCELLED,
 )
 
 #: The unit price of cash. Cash positions are unitised at 1.0000 (F-2,
@@ -1510,6 +1517,13 @@ _LEDGER_TABLE: str = "position_transactions"
 _CASHFLOW_TABLE: str = "investment_cashflows"
 _NAV_TABLE: str = "investment_navs"
 
+#: The ticket statuses that can never be worked on again, for the OP-17
+#: reference check. Everything else counts as live — including the three
+#: v1-unreachable stations (``sent`` / ``acknowledged`` / ``executed``),
+#: deliberately: refusing is the safe reading of a status this code did not
+#: expect, and ADR-0129 arms them without revisiting this line.
+_TERMINAL_STATUSES: frozenset[str] = frozenset({STATUS_BOOKED, STATUS_CANCELLED})
+
 
 @dataclass(frozen=True)
 class ShellOutcome:
@@ -1970,6 +1984,27 @@ async def cleanup_new_investment_shell(
     letting a materialised NAV series veto a reversal would mean a U-NEW
     could never be reversed at all, since booking one always produces some.
 
+    **What blocks the delete — other tickets (OP-17).** ``RESTRICT`` binds
+    every ticket that names the row, not only this one, and unlinking the
+    reversing ticket frees just its own link. So the delete path asks whether
+    anything else points here, through either FK column, and answers by the
+    references' *status*:
+
+    * a **live** reference — anything not yet terminal — refuses the
+      reversal with ``cause='referenced_by_ticket'``. The remedy is the
+      operator's and it is real work: re-point the drafts or clear them,
+      cancel the proposals. Nothing this function could do on their behalf
+      would be a decision it is entitled to make.
+    * references that are **all terminal** (``booked`` / ``cancelled``) take
+      the retain path instead. A cancelled ticket keeps its FK forever, so
+      no amount of clearing would ever free this row, and refusing would
+      strand the reversal permanently — while a record still pointing here
+      is exactly the D-AC retain reason.
+
+    The probe runs only on the delete path: when a user row has already
+    retained the shell, nothing is deleted and no reference can be in the
+    way.
+
     **Order is forced by the schema.** ``trade_tickets.investment_id`` is
     ``ON DELETE RESTRICT``, so the ticket is unlinked first, in this same
     transaction, before the row it points at can go.
@@ -1985,7 +2020,7 @@ async def cleanup_new_investment_shell(
         investment_id: The created row, from the ``prior_state IS NULL``
             effect rather than from the ticket — the effect is what records
             what this booking made.
-        tickets: For the D-AC unlink.
+        tickets: For the D-AC unlink, and for the OP-17 reference probe.
         investment_service: The single sanctioned write seam, for the delete
             and for the deactivation.
         position_transactions: Read-only — the ledger probe.
@@ -1998,6 +2033,9 @@ async def cleanup_new_investment_shell(
         The :class:`ShellOutcome` describing what happened.
 
     Raises:
+        TicketReversalBlocked: With ``cause='referenced_by_ticket'`` if
+            another ticket that is not yet terminal names the created row
+            (OP-17).
         TicketNotFound: If the ticket is gone — unreachable, the caller
             loaded it.
         TicketStateInvalid: If the ticket names no investment to unlink.
@@ -2020,10 +2058,55 @@ async def cleanup_new_investment_shell(
             ),
         )
 
+    # OP-17. The reversing ticket still holds its own link at this point —
+    # the unlink is below — so it is excluded rather than counted.
+    references = await tickets.list_referencing_investment(
+        investment_id, exclude_ticket_id=ticket.id
+    )
+    live = [row for row in references if row.status not in _TERMINAL_STATUSES]
+    if live:
+        # Raising here rolls back the effects undo_effects has already
+        # performed: the whole reversal runs inside the caller's one
+        # transaction, the same contract the mid-undo 'holdings_consumed'
+        # raise relies on. Nothing needs unwinding by hand.
+        raise TicketReversalBlocked(
+            f"The investment {investment_id} this booking created is still "
+            f"referenced by {_describe_tickets(live)}, so it cannot be removed. "
+            "Point those tickets at another investment or clear them, cancel any "
+            "proposal or approval among them, then reverse this ticket again "
+            "(ADR-0128 §6).",
+            effect_type=EFFECT_INVESTMENT_UPDATE,
+            effect_id=investment_id,
+            cause=REVERSAL_CAUSE_REFERENCED_BY_TICKET,
+        )
+    if references:
+        # Terminal references only: the FKs are permanent, so this shell can
+        # never be deleted. Retain it the D-AC way — and do not unlink, since
+        # the retain path never does: the ticket keeps naming what it made.
+        await investment_service.set_investment_active(investment_id, False)
+        return ShellOutcome(
+            investment_id=investment_id,
+            deleted=False,
+            retained_because=(
+                f"{_describe_tickets(references)} still reference it; the "
+                "investment was deactivated rather than deleted"
+            ),
+        )
+
     # RESTRICT: the link goes before the row it points at (D-T's other half).
     await tickets.unlink_investment(ticket.id, now=now)
     await investment_service.delete_investment(investment_id)
     return ShellOutcome(investment_id=investment_id, deleted=True, retained_because=None)
+
+
+def _describe_tickets(rows: Sequence[TradeTicketDTO]) -> str:
+    """Name tickets by number and status, for an operator to act on.
+
+    The ``ticket_number`` rather than the id, following the
+    :func:`provenance` precedent: the number is what the blotter shows and
+    what the operator can go and find.
+    """
+    return ", ".join(f"ticket #{row.ticket_number} ({row.status})" for row in rows)
 
 
 async def _first_user_child(

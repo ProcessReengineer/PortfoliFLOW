@@ -49,7 +49,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy import delete, func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from core.exceptions import TicketNotFound, TicketStateInvalid
@@ -474,6 +474,50 @@ class TradeTicketRepository(BaseRepository):
             .where(TradeTicket.status.in_(list(statuses)))
             .order_by(TradeTicket.ticket_number.desc())
         )
+        return [_ticket_to_dto(model) for model in result.scalars().all()]
+
+    async def list_referencing_investment(
+        self,
+        investment_id: UUID,
+        *,
+        exclude_ticket_id: UUID | None = None,
+    ) -> list[TradeTicketDTO]:
+        """Return the tenant's tickets that point at one investment row.
+
+        The question a reversal has to ask before it may delete the
+        ``investments`` row a creating booking made: is any *other* ticket
+        still naming it? Both FK columns are checked, because both are
+        ``ON DELETE RESTRICT`` and either one is enough to make the delete
+        fail — ``investment_id`` is the traded position, and
+        ``cash_investment_id`` the settlement position, which a draft may
+        name freely before any validation has run on it. A caller that
+        looked at only one column would get a clean answer and then an
+        ``IntegrityError``.
+
+        Ordered by ``ticket_number`` ascending — the opposite of the
+        blotter's order on purpose: this list is read out to an operator as
+        the work still to be cleared, and the oldest reference is the one
+        they will recognise first.
+
+        Args:
+            investment_id: The investment row to find references to.
+            exclude_ticket_id: A ticket to leave out — the reversing ticket
+                itself, which still holds its own link at the moment the
+                question is asked.
+
+        Returns:
+            The referencing tickets, lowest ``ticket_number`` first. Empty
+            when nothing points at the row.
+        """
+        stmt = select(TradeTicket).where(
+            or_(
+                TradeTicket.investment_id == investment_id,
+                TradeTicket.cash_investment_id == investment_id,
+            )
+        )
+        if exclude_ticket_id is not None:
+            stmt = stmt.where(TradeTicket.id != exclude_ticket_id)
+        result = await self._session.execute(stmt.order_by(TradeTicket.ticket_number))
         return [_ticket_to_dto(model) for model in result.scalars().all()]
 
     async def update_draft(self, ticket_id: UUID, **fields: Any) -> TradeTicketDTO:

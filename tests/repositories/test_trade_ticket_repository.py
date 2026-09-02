@@ -30,6 +30,8 @@ Coverage
   really does RESTRICT.
 * TT-09: ``unlink_investment`` clears the link once — the RESTRICT FK's
   release valve — and refuses when there is none.
+* TT-10: ``list_referencing_investment`` finds tickets through *both* FK
+  columns, honours the exclusion, and stays tenant-scoped.
 """
 
 from __future__ import annotations
@@ -962,3 +964,92 @@ async def test_tt09_unlink_investment_unknown_ticket_raises_not_found(
     async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
         with pytest.raises(TicketNotFound):
             await TradeTicketRepository(session).unlink_investment(uuid4(), now=_T0)
+
+
+# ---------------------------------------------------------------------------
+# TT-10: the reference query behind the OP-17 reversal check
+# ---------------------------------------------------------------------------
+
+
+async def test_tt10_finds_tickets_referencing_through_either_column(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Both FK columns are searched — either one is enough to RESTRICT a delete.
+
+    ``investment_id`` is the traded position and ``cash_investment_id`` the
+    settlement position, and TT-07 already pins that both hold the row
+    against deletion. A caller that looked at only one would get a clean
+    answer followed by an ``IntegrityError``.
+    """
+    tenant_id = await seed_tenant("TT-10a")
+    actor, instrument, cash = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt10a.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        traded = await _draft(repo, actor.id, investment_id=instrument.id)
+        settling = await _draft(repo, actor.id, cash_investment_id=instrument.id)
+        unrelated = await _draft(repo, actor.id, investment_id=cash.id)
+
+        by_instrument = await repo.list_referencing_investment(instrument.id)
+        by_cash = await repo.list_referencing_investment(cash.id)
+
+    # Ascending ticket_number: the oldest reference first.
+    assert [row.id for row in by_instrument] == [traded.id, settling.id]
+    assert [row.id for row in by_cash] == [unrelated.id]
+
+
+async def test_tt10_excludes_the_named_ticket(app_engine: AsyncEngine, seed_tenant) -> None:
+    """The reversing ticket still holds its own link when the question is asked."""
+    tenant_id = await seed_tenant("TT-10b")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt10b.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        creator = await _draft(repo, actor.id, investment_id=instrument.id)
+        other = await _draft(repo, actor.id, investment_id=instrument.id)
+
+        excluded = await repo.list_referencing_investment(
+            instrument.id, exclude_ticket_id=creator.id
+        )
+        alone = await repo.list_referencing_investment(other.id)
+
+    assert [row.id for row in excluded] == [other.id]
+    # An investment nothing points at reads back empty, not None.
+    assert alone == []
+
+
+async def test_tt10_cross_tenant_references_are_invisible(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """RLS scopes the read like every other one here (TT-06's pattern).
+
+    The check the reversal builds on must not see another tenant's ticket:
+    a false reference would refuse a reversal that is perfectly legal, and
+    would name a ticket number the operator cannot find.
+    """
+    tenant_a = await seed_tenant(name="TT-10c-A")
+    tenant_b = await seed_tenant(name="TT-10c-B")
+    actor_a, instrument_a, _ = await _seed_actor_and_investments(
+        app_engine, tenant_a, email="pm@a-tt10.example"
+    )
+    actor_b, _, _ = await _seed_actor_and_investments(
+        app_engine, tenant_b, email="pm@b-tt10.example"
+    )
+
+    async with tenant_context(app_engine, tenant_a, user_id=actor_a.id) as session:
+        ticket = await _draft(
+            TradeTicketRepository(session), actor_a.id, investment_id=instrument_a.id
+        )
+
+    async with tenant_context(app_engine, tenant_b, user_id=actor_b.id) as session:
+        assert (
+            await TradeTicketRepository(session).list_referencing_investment(instrument_a.id) == []
+        )
+
+    async with tenant_context(app_engine, tenant_a, user_id=actor_a.id) as session:
+        seen = await TradeTicketRepository(session).list_referencing_investment(instrument_a.id)
+    assert [row.id for row in seen] == [ticket.id]

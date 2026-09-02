@@ -537,7 +537,15 @@ class TicketReversalBlocked(ValidationError):
       :class:`NonNegativeHoldingsError` the write seam raised;
     * ``unrestorable`` — an ``investment_update``'s before-image disagrees
       with the row as it stands, so restoring it would overwrite a field the
-      booking never touched.
+      booking never touched;
+    * ``referenced_by_ticket`` — another trade ticket that is not yet
+      terminal names the ``investments`` row this booking created, and the
+      foreign key onto it is ``ON DELETE RESTRICT``, so the created row
+      cannot be removed while that ticket stands. The remedy is the
+      operator's: re-point those tickets or clear them, cancel any proposal
+      among them, then reverse again. References that are themselves
+      terminal do not refuse — they retire the created row instead of
+      deleting it, since their keys are permanent.
 
     The vocabulary itself lives in
     :data:`services.transactions.constants.REVERSAL_CAUSES`; ``core`` imports
@@ -552,7 +560,7 @@ class TicketReversalBlocked(ValidationError):
         message: What is wrong, in the operator's terms.
         effect_type: The blocked effect's type (ADR-0128 §2 vocabulary).
         effect_id: The emitted row's id.
-        cause: The machine-readable reason, from the four above.
+        cause: The machine-readable reason, from the five above.
     """
 
     def __init__(

@@ -1,0 +1,57 @@
+{# The wizard's field carry — every value the active step does not show.
+
+   Each Continue posts the *whole* master-data inventory, because the draft's
+   `master_data` is written as a full replacement rather than merged
+   (`_ComposerForm.master_data`). A field that only existed on the step it was
+   typed on would therefore be erased by the next Continue — so the fields the
+   step does not render ride here instead.
+
+   `visible` names what the step draws; everything else in the inventory is
+   emitted as a hidden input. Stating it as an exclusion rather than as a
+   per-step list of hidden fields is deliberate: a field added to the
+   inventory carries automatically, and only a step that means to *show* it
+   has to say so.
+
+   Empty values are still emitted. A missing input and an empty one mean the
+   same thing to `master_data()` (both omit the key), and emitting all of them
+   keeps this template free of a second rule about which absences matter.
+
+   Context: entered, trade_date, case_id, cash_investment_id via `derived`'s
+   candidates, settle_confirmed, set via `visible`. #}
+{% set carried = [
+    ("currency", entered.currency),
+    ("md_identifier_scheme", entered.md_identifier_scheme),
+    ("md_identifier_value", entered.md_identifier_value),
+    ("md_figi", entered.md_figi),
+    ("md_name", entered.md_name),
+    ("md_investment_type", entered.md_investment_type),
+    ("md_asset_class_id", entered.md_asset_class_id),
+    ("md_anlv_code", entered.md_anlv_code),
+    ("md_manager", entered.md_manager),
+    ("md_region", entered.md_region),
+    ("trade_date", trade_date),
+    ("units", entered.units),
+    ("price_per_unit", entered.price_per_unit),
+    ("fees", entered.fees),
+    ("taxes", entered.taxes),
+    ("settlement_date", entered.settlement_date),
+    ("source", entered.source),
+    ("note", entered.note),
+] %}
+{% for name, value in carried %}
+    {% if name not in visible %}
+        <input type="hidden" name="{{ name }}" value="{{ value if value is not none else '' }}">
+    {% endif %}
+{% endfor %}
+{# The settlement pair is carried apart from the inventory above: both are
+   answers to MD-3's one deliberate question, and a step that shows neither
+   must still not silently un-answer it. #}
+{% if "cash_investment_id" not in visible %}
+    {% for candidate in candidates if candidate.selected %}
+        <input type="hidden" name="cash_investment_id" value="{{ candidate.id }}">
+        {% if settle_confirmed %}<input type="hidden" name="settle_confirm" value="1">{% endif %}
+    {% endfor %}
+{% endif %}
+{% if "case_id" not in visible and case_id %}
+    <input type="hidden" name="case_id" value="{{ case_id }}">
+{% endif %}

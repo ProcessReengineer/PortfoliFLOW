@@ -2,13 +2,16 @@
    refreshed out of band because M-1 puts the static Provenance block between
    it and the settlement panel.
 
-   Copy is MD-9's, lifted verbatim from M-1; the route supplies only the
-   formatted values each sentence interpolates, exactly as the service
-   supplies identifiers rather than prose one layer down.
+   The strip itself is `_messages.html`, shared with the M-2 wizard since
+   S4b: both surfaces show the same blocks and warnings from the same
+   derivation, so there is one renderer for them and not two. What stays here
+   is the part that is the *composer's* — the full-disposal consequence
+   (blue, MD-7 — a choice offered, not imposed, and carrying a form control),
+   and the three ticket gestures.
 
-   Message order is M-1's: blocks (red, they stop the ticket), then warnings
-   (amber, they never stop anything, MD-5), then the full-disposal
-   consequence (blue, MD-7 — a choice offered, not imposed).
+   Message order is M-1's: the gesture's refusal, then blocks (red, they stop
+   the ticket), then warnings (amber, they never stop anything, MD-5), then
+   the full-disposal consequence.
 
    Only `oversell` can arrive as a *previewable* block here. The other seven
    in the vocabulary are absent by decision, not omission: `missing_price`,
@@ -18,47 +21,11 @@
    list therefore does not mean the ticket is proposable** — it means nothing
    previewable is wrong with it.
 
-   `error` is the other half of that: a refusal the *service* raised on a
-   gesture, rendered with its own sentence (operator decision D-5). The route
-   supplies values everywhere else on this surface and prose nowhere; this is
-   the one exception, and it is one because the service's sentences already
-   name their remedy and inventing a second wording for the same refusal is
-   how two of them come to disagree.
-
    Context: messages, error, full_disposal, set_inactive, investment,
    draft_enabled, propose_enabled, book_enabled, hint_key, ticket_id, oob. #}
 <div class="tx-outcome" id="tx-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
     <div class="tx-messages">
-        {% if error %}
-            <div class="tx-msg tx-msg--block">
-                <span class="tx-msg__glyph">✕</span>
-                <div><strong>{{ error }}</strong></div>
-            </div>
-        {% endif %}
-        {% for message in messages %}
-            {% set v = message.data %}
-            <div class="tx-msg{% if message.kind == 'block' %} tx-msg--block{% endif %}">
-                <span class="tx-msg__glyph">{% if message.kind == "block" %}✕{% else %}!{% endif %}</span>
-                <div>
-                    {% if message.identifier == "oversell" %}
-                        <strong>{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</strong>
-                        <span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>
-                    {% elif message.identifier == "price_deviation" %}
-                        <strong>Execution price is {{ v.percent }} % {{ v.side }} the last known price.</strong>
-                        <span class="tx-msg__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</span>
-                    {% elif message.identifier == "negative_cash" %}
-                        <strong>{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</strong>
-                        <span class="tx-msg__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</span>
-                    {% elif message.identifier == "net_non_positive" %}
-                        <strong>Net proceeds are {{ v.amount }} {{ v.currency }}.</strong>
-                        <span class="tx-msg__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</span>
-                    {% elif message.identifier == "future_trade_date" %}
-                        <strong>Trade date {{ v.trade_date }} is in the future.</strong>
-                        <span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>
-                    {% endif %}
-                </div>
-            </div>
-        {% endfor %}
+        {% include "_partials/transactions/_messages.html" %}
 
         {% if full_disposal %}
             <div class="tx-msg tx-msg--consequence">

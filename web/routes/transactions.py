@@ -1,13 +1,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Transactions area web surface — the M-1 order composer (ADR-0128, S4a).
+"""Transactions area web surface — the order composer and the M-2 wizard.
 
-The ninth Area's first working surface: the MD-1 flow chooser, the M-1
-order composer for U-BUY / U-SELL against an instrument already on the book,
-the recalculation endpoint that keeps every derived element on that form
-truthful while the user types, and the three gestures that turn what is on
-the form into a ticket.
+The ninth Area's working surfaces (ADR-0128, S4a + S4b): the MD-1 flow
+chooser, the M-1 order composer for U-BUY / U-SELL against an instrument
+already on the book, the M-2 four-step wizard for U-NEW — the purchase whose
+instrument does not exist yet — the recalculation endpoint that keeps every
+derived element truthful while the user types, and the gestures that turn
+what is on a form into a ticket.
+
+Two surfaces, one substrate (S4b)
+---------------------------------
+The wizard is a *surface over what already exists*. It adds four endpoints —
+two renders and a read — and **no write path**: Continue is
+``POST /api/transactions/draft`` with a step number on it, Propose and Book
+now are the composer's own, and the ``investments`` row the flow is about is
+created by the emission at booking and nowhere else (MD-12). The three
+places the two surfaces genuinely differ are named and small:
+
+* :class:`_ComposerForm` carries the wizard's fields in the *same* single
+  inventory, so a field cannot exist on one surface and be forgotten by the
+  other;
+* :func:`_ensure_draft` is kind-aware — one MD-2 rule, two column maps that
+  differ in ``direction`` (a flow constant, MD-14), ``investment_id``
+  (always absent, MD-12) and ``currency`` (the step-1 field, W-4);
+* :func:`_derived_context` learns one fallback, :class:`_Creating`, for the
+  facts a picked investment would otherwise supply.
+
+Everything else — the preview, the amounts, the settlement panel, the
+message strip, the confirmation panel — is reached by both, unchanged.
 
 Reads and writes, kept apart
 ----------------------------
@@ -24,6 +46,18 @@ The first explicit gesture allocates the ticket (MD-2), and that rule lives
 in exactly one function — :func:`_ensure_draft`. All three gestures go
 through it, so "Book now" on a never-saved composer writes the same draft
 row that "Save as draft" would have, and then books it.
+
+Copy gaps registered for the operator's walk (S4b)
+--------------------------------------------------
+M-2 is always fully filled in, so four states it never draws have no mockup
+copy and are written here in its voice: the missing-currency refusal
+(:data:`_WIZARD_CURRENCY_REQUIRED`), the no-match resolution
+(:data:`_RESOLVE_NO_MATCH`), the wizard's own action hints, and the
+"— not named yet —" placeholders on the Confirm step. Three M-2 *deviations*
+are registered with them: the resolved values are editable rather than
+read-only (W-4′), the identify cards both stand open rather than switching
+on a radio, and "Discard draft" reads **Close** — nothing on this surface
+destroys anything.
 
 One uniform refusal (operator decision D-5, extended)
 -----------------------------------------------------
@@ -74,12 +108,23 @@ whitelist without a translation layer:
 
 ``direction``, ``investment_id``, ``trade_date``, ``settlement_date``,
 ``units``, ``price_per_unit``, ``fees``, ``taxes``, ``cash_investment_id``,
-``settle_confirm``, ``set_inactive``, ``case_id``, ``source``, ``note``.
+``settle_confirm``, ``set_inactive``, ``case_id``, ``source``, ``note``,
+``currency``.
 
 Three names carry no column. ``ticket_id`` is the composer's own memory of
 which row it is editing — absent means "not saved yet" (MD-2) — and
 ``cash_name`` / ``cash_opening_balance`` belong to the MD-3 mini-form, which
 rides inside the composer's form because HTML has no nested forms.
+
+The wizard adds ``flow`` and ``step`` — the creating-path signal and the
+body to render, neither of which is state — and the nine ``md_*`` fields,
+which carry no column each but *are* one together:
+:meth:`_ComposerForm.master_data` projects them onto ``master_data``'s JSONB
+payload. Six of the fifteen ``MD_*`` keys stay unmapped, because no flow this
+strand ships uses them: ``vintage_year``, ``commitment_amount``,
+``purchase_price``, ``acquired_nav`` and ``assumed_unfunded`` belong to
+R-COMMIT and R-SEC-BUY (S4c), and ``currency`` is written from the ticket
+column rather than from an ``md_*`` field of its own.
 
 Copy
 ----
@@ -94,7 +139,7 @@ for the operator's walk.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, cast
@@ -116,6 +161,7 @@ from core.exceptions import (
     ValuationModeError,
 )
 from core.repositories._session import tenant_context
+from core.repositories.anlv_category_repository import AnlVCategoryRepository
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.case_repository import CaseRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
@@ -137,6 +183,10 @@ from core.repositories.trade_ticket_repository import (
 )
 from services.auth.session import SessionDTO
 from services.investments.aum import CASH_TYPE
+from services.investments.credential_resolver import (
+    CredentialResolver,
+    ProviderCredential,
+)
 from services.investments.holdings import holdings_as_of
 from services.investments.investment_service import InvestmentService
 from services.transactions.constants import (
@@ -145,11 +195,35 @@ from services.transactions.constants import (
     DIRECTION_BUY,
     DIRECTION_SELL,
     KIND_ORDER,
+    MD_ANLV_CODE,
+    MD_ASSET_CLASS_ID,
+    MD_CURRENCY,
+    MD_FIGI,
+    MD_IDENTIFIER_SCHEME,
+    MD_IDENTIFIER_VALUE,
+    MD_INVESTMENT_TYPE,
+    MD_MANAGER,
+    MD_NAME,
+    MD_REGION,
     STATUS_DRAFT,
     WARNING_FUTURE_TRADE_DATE,
     WARNING_NEGATIVE_CASH,
     WARNING_NET_NON_POSITIVE,
     WARNING_PRICE_DEVIATION,
+)
+
+# The mapping seam and the port's exceptions, named module by module rather
+# than through the package root. ADR-0093 keeps the *provider machinery* out
+# of ``web/`` — the adapters, the factory that routes to one, the refresh core
+# — and the package root imports the factory on the way past. Reaching for
+# ``normalisation`` and ``provider`` directly is the ``provider_credentials``
+# precedent and states the narrower dependency this route actually has: one
+# deterministic identifier lookup, awaited, on an operator's explicit click.
+from services.market_data.normalisation import ResolvedInstrument, resolve_instrument
+from services.market_data.provider import (
+    IdentifierNotResolvableError,
+    ProviderFetchError,
+    UnsupportedCapabilityError,
 )
 from services.transactions.emission import (
     EFFECT_CASHFLOW,
@@ -174,6 +248,78 @@ from web.auth import require_session, verify_csrf
 from web.permissions import require_role
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# The M-2 wizard's vocabulary (S4b)
+# ---------------------------------------------------------------------------
+
+#: The ``flow`` value that puts this surface on the creating path (U-NEW).
+#:
+#: One string, posted as a hidden field by every wizard step, read by
+#: :class:`_ComposerForm` and by nothing else. It is what tells a *shared*
+#: endpoint — ``draft`` and ``recalc`` serve both surfaces — which shape it is
+#: looking at, and it is deliberately not inferred from "no investment picked":
+#: a U-BUY composer with an empty picker looks exactly like that and is not
+#: creating anything (the :func:`~services.transactions.validation
+#: .is_investment_creating` distinction, one layer down).
+FLOW_NEW_INSTRUMENT: str = "new_instrument"
+
+#: The wizard's four steps, in M-2's order. Index + 1 is the step number.
+_WIZARD_STEPS: tuple[str, ...] = ("Identify", "Classify", "Order", "Confirm")
+
+#: The identifier schemes M-2's Identify select offers.
+#:
+#: Exactly the three :func:`~services.market_data.resolve_instrument` maps to
+#: an OpenFIGI ID type; the resolver refuses the rest with
+#: ``UnsupportedCapabilityError``, so offering them would be offering a
+#: control that cannot work.
+_RESOLVABLE_SCHEMES: tuple[str, ...] = ("isin", "ticker", "cusip")
+
+#: The provider key the Identify step resolves its OpenFIGI credential under.
+_OPENFIGI: str = "openfigi"
+
+#: The ``investment_type`` values M-2's Classify control offers.
+#:
+#: Seven of the eight (:data:`~core.models.investment.INVESTMENT_TYPES`), in
+#: the mockup's own order. ``cash`` is absent by design and not by omission: a
+#: cash position is what an order settles *against*, and the one way to open
+#: one on this surface is the MD-3 mini-form, which derives its currency and
+#: books an opening row the wizard has no equivalent of.
+_CLASSIFIABLE_TYPES: tuple[str, ...] = (
+    "listed_equity",
+    "listed_bonds",
+    "private_equity",
+    "private_debt",
+    "real_estate",
+    "infra_equity",
+    "other",
+)
+
+
+@dataclass(frozen=True)
+class _Creating:
+    """What the creating path substitutes for the picked investment's facts.
+
+    The composer derives its currency, its instrument name and its AnlV
+    classification from the ``investments`` row the user picked. A U-NEW
+    ticket has no such row — MD-12 makes it an emission effect — so these
+    three facts come off the form instead, and this is the one object that
+    carries them into :func:`_derived_context`.
+
+    One parameter rather than three, because it is one fallback: either the
+    surface is looking at a picked investment or it is looking at this.
+
+    Attributes:
+        currency: The step-1 currency (W-4), already shape-validated.
+        name: The Classify step's name, or ``None`` before it is typed.
+        anlv_set: Whether an AnlV category has been chosen — the MD-21 finish
+            gate's input, not a master-data value.
+    """
+
+    currency: str
+    name: str | None
+    anlv_set: bool
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +483,22 @@ def _clean(raw: str | None) -> str | None:
     return text or None
 
 
+def _step_or_first(raw: str | None) -> int:
+    """Read the wizard step to render, defaulting to the first.
+
+    The step is a **navigation value, not state**: it says which of M-2's
+    four bodies the response should show, it is posted by the button that
+    asked for it, and nothing persists it — the ticket's own content is what
+    a resumed wizard derives its step from (:func:`_resume_step`). Anything
+    outside ``1..4`` reads as 1, on the same permissive contract as every
+    other field here: a tampered step is a step that says nothing.
+    """
+    if raw is None:
+        return 1
+    text = raw.strip()
+    return int(text) if text.isdigit() and 1 <= int(text) <= len(_WIZARD_STEPS) else 1
+
+
 class _ComposerForm:
     """The composer's posted body, parsed once for every endpoint that reads it.
 
@@ -354,6 +516,16 @@ class _ComposerForm:
     sentence the surface has no better version of). ``direction`` is the one
     value narrowed on arrival, to the two-member vocabulary the ticket
     column's CHECK would otherwise refuse.
+
+    S4b adds the wizard's fields to the same inventory rather than beside it.
+    ``flow`` is the creating-path signal (empty for U-BUY / U-SELL,
+    ``new_instrument`` for the M-2 wizard), ``currency`` is the step-1 fact
+    the creating path has no investment to derive one from (operator decision
+    W-4; U-BUY / U-SELL ignore it and keep deriving from the picked row,
+    MD-8), and the nine ``md_*`` fields are the master-data payload the
+    wizard carries on the ticket until booking creates the investment
+    (MD-12). The names mirror the ``MD_*`` keys so
+    :meth:`master_data` is a rename-free projection.
 
     Attributes:
         entered: The raw strings, echoed back into the composer's own inputs
@@ -387,6 +559,19 @@ class _ComposerForm:
         ticket_id: Annotated[str, Form()] = "",
         cash_name: Annotated[str, Form()] = "",
         cash_opening_balance: Annotated[str, Form()] = "",
+        # -- the M-2 wizard's own inventory (S4b) ------------------------
+        flow: Annotated[str, Form()] = "",
+        step: Annotated[str, Form()] = "",
+        currency: Annotated[str, Form()] = "",
+        md_identifier_scheme: Annotated[str, Form()] = "",
+        md_identifier_value: Annotated[str, Form()] = "",
+        md_figi: Annotated[str, Form()] = "",
+        md_name: Annotated[str, Form()] = "",
+        md_investment_type: Annotated[str, Form()] = "",
+        md_asset_class_id: Annotated[str, Form()] = "",
+        md_anlv_code: Annotated[str, Form()] = "",
+        md_manager: Annotated[str, Form()] = "",
+        md_region: Annotated[str, Form()] = "",
     ) -> None:
         self.direction = direction if direction == DIRECTION_BUY else DIRECTION_SELL
         self.investment_id = _uuid_or_none(investment_id)
@@ -405,6 +590,18 @@ class _ComposerForm:
         self.ticket_id = _uuid_or_none(ticket_id)
         self.cash_name = _clean(cash_name)
         self.cash_opening_balance = _decimal_or_none(cash_opening_balance)
+        self.creating = flow == FLOW_NEW_INSTRUMENT
+        self.step = _step_or_first(step)
+        self.currency = _clean(currency)
+        self.md_identifier_scheme = _clean(md_identifier_scheme)
+        self.md_identifier_value = _clean(md_identifier_value)
+        self.md_figi = _clean(md_figi)
+        self.md_name = _clean(md_name)
+        self.md_investment_type = _clean(md_investment_type)
+        self.md_asset_class_id = _clean(md_asset_class_id)
+        self.md_anlv_code = _clean(md_anlv_code)
+        self.md_manager = _clean(md_manager)
+        self.md_region = _clean(md_region)
         self.entered: dict[str, str] = {
             "units": units,
             "price_per_unit": price_per_unit,
@@ -415,7 +612,58 @@ class _ComposerForm:
             "note": note,
             "cash_name": cash_name,
             "cash_opening_balance": cash_opening_balance,
+            "currency": currency,
+            "md_identifier_scheme": md_identifier_scheme,
+            "md_identifier_value": md_identifier_value,
+            "md_figi": md_figi,
+            "md_name": md_name,
+            "md_investment_type": md_investment_type,
+            "md_asset_class_id": md_asset_class_id,
+            "md_anlv_code": md_anlv_code,
+            "md_manager": md_manager,
+            "md_region": md_region,
         }
+
+    def master_data(self, *, currency: str) -> dict[str, Any]:
+        """Project the ``md_*`` fields onto the ticket's ``master_data`` payload.
+
+        A **full replacement**, computed fresh on every save. The wizard
+        carries every ``md_*`` field as a hidden input on the steps that do
+        not show it, so the posted form is always the payload's whole truth
+        and there is no merge to get wrong — a merge would also make "clear
+        this field" impossible to express.
+
+        Empty fields are *omitted* rather than stored as ``""``:
+        :func:`~services.transactions.emission.parse_master_data` refuses a
+        present-but-unusable key with the same identifier as an absent one,
+        so writing a blank would manufacture the one state that reads as a
+        malformed payload instead of an unfinished one.
+
+        ``currency`` is not read from the ``md_*`` inventory. It is the
+        ticket's own column (W-4's step-1 fact), passed in here so the
+        payload's ``currency`` and the ticket's cannot disagree — the exact
+        pair :meth:`~services.transactions.ticket_service.TicketService
+        ._require_master_data` compares (F-3).
+
+        Args:
+            currency: The ticket currency, already shape-validated.
+
+        Returns:
+            The payload, carrying only the keys that say something.
+        """
+        pairs: dict[str, str | None] = {
+            MD_NAME: self.md_name,
+            MD_INVESTMENT_TYPE: self.md_investment_type,
+            MD_ASSET_CLASS_ID: self.md_asset_class_id,
+            MD_CURRENCY: currency,
+            MD_ANLV_CODE: self.md_anlv_code,
+            MD_IDENTIFIER_SCHEME: self.md_identifier_scheme,
+            MD_IDENTIFIER_VALUE: self.md_identifier_value,
+            MD_FIGI: self.md_figi,
+            MD_MANAGER: self.md_manager,
+            MD_REGION: self.md_region,
+        }
+        return {key: value for key, value in pairs.items() if value}
 
 
 def _empty_form() -> _ComposerForm:
@@ -648,9 +896,9 @@ async def _resolve_traded(
 
 async def _cash_in_currency(
     investments: InvestmentRepository,
-    investment: InvestmentDTO | None,
+    currency: str | None,
 ) -> list[InvestmentDTO]:
-    """Return every cash row in the investment's currency, active or not.
+    """Return every cash row in ``currency``, active or not.
 
     Unfiltered on purpose: the answer needs both halves. The *active* rows
     are what may settle a ticket, and the difference between "no row in this
@@ -658,14 +906,17 @@ async def _cash_in_currency(
     decides whether the surface offers to create one (operator decision
     D-F) — and, in :func:`post_cash_position`, whether it accepts the
     creation.
+
+    Keyed on the **currency** rather than on the traded investment (S4b): the
+    settlement question is "what can settle in this currency", and a U-NEW
+    ticket asks it with no investment row to read one off (MD-12). Every
+    caller with an investment in hand passes ``investment.currency``, so the
+    U-BUY / U-SELL answer is unchanged — MD-8 still derives it, one step
+    earlier.
     """
-    if investment is None:
+    if not currency:
         return []
-    return [
-        row
-        for row in await investments.list_by_type(CASH_TYPE)
-        if row.currency == investment.currency
-    ]
+    return [row for row in await investments.list_by_type(CASH_TYPE) if row.currency == currency]
 
 
 # ---------------------------------------------------------------------------
@@ -693,6 +944,7 @@ async def _derived_context(
     note: str | None,
     ticket_status: str | None = None,
     override_warnings: TicketWarnings | None = None,
+    creating: _Creating | None = None,
 ) -> dict[str, Any]:
     """Derive every element the composer shows, from one transient ticket.
 
@@ -734,6 +986,12 @@ async def _derived_context(
             rather than a re-derivation that agrees with it today — and it
             travels the same projection as the preview's, so there is one
             warning renderer on this surface and not two.
+        creating: The M-2 wizard's substitutes for the picked investment's
+            facts (S4b), or ``None`` on the U-BUY / U-SELL path. **One
+            fallback, in one object**: where it is present the currency comes
+            off the form rather than off a row, the holding is zero because a
+            row that does not exist yet holds nothing, and the instrument leg
+            is named from the master data.
 
     Returns:
         The template context for the four derived regions.
@@ -744,14 +1002,26 @@ async def _derived_context(
     service = _build_ticket_service(db)
 
     # -- the traded instrument, and what is held on the trade date ----------
-    investment = await _resolve_investment(investments, investment_id)
+    #
+    # The creating path has neither, by construction (MD-12): there is no row
+    # to resolve and nothing is held on a row that does not exist yet, which
+    # is why M-2's context strip states the holding as a flat 0.0000 rather
+    # than as an unknown.
+    investment = await _resolve_investment(investments, investment_id) if creating is None else None
+    currency = (
+        investment.currency
+        if investment is not None
+        else (creating.currency if creating is not None else "")
+    )
 
     holding: Decimal | None = None
     if investment is not None:
         holding = holdings_as_of(await ledger_rows.list_for_investment(investment.id), trade_date)
+    elif creating is not None:
+        holding = Decimal(0)
 
     # -- settlement candidates (MD-3, and the D-F split) --------------------
-    in_currency = await _cash_in_currency(investments, investment)
+    in_currency = await _cash_in_currency(investments, currency)
     active_cash = [row for row in in_currency if row.is_active]
     selected_cash = next((row for row in active_cash if row.id == cash_investment_id), None)
 
@@ -760,7 +1030,7 @@ async def _derived_context(
         direction=direction,
         investment_id=investment.id if investment is not None else None,
         cash_investment_id=selected_cash.id if selected_cash is not None else None,
-        currency=investment.currency if investment is not None else "",
+        currency=currency,
         trade_date=trade_date,
         settlement_date=settlement_date,
         units=units,
@@ -815,7 +1085,7 @@ async def _derived_context(
     # candidate would change only which row the units land on.
     projected: Decimal | None = None
     if (
-        investment is not None
+        (investment is not None or creating is not None)
         and units is not None
         and price_per_unit is not None
         and net is not None
@@ -842,15 +1112,25 @@ async def _derived_context(
         )
 
     # -- ledger effect (D-3): a placeholder until the four inputs are in ----
+    #
+    # Two shapes, one number. On the U-BUY / U-SELL path both legs come out
+    # of `order_legs`, the pure function the booking runs. On the creating
+    # path that function refuses by design — it asserts an `investment_id`
+    # the ticket cannot have yet (MD-12) — so the *settlement* leg is taken
+    # from `cash_leg`, which the emission calls through `order_legs` anyway
+    # and which needs no traded row, and the instrument leg is stated from
+    # the master data at the flow's constant `buy` (D-AF). That constant is
+    # not arithmetic: MD-14 fixes the direction, so there is nothing here to
+    # derive and nothing that can drift from `order_legs`' sign convention.
     legs: list[dict[str, Any]] = []
-    if (
-        investment is not None
-        and selected_cash is not None
+    priced = (
+        selected_cash is not None
         and units is not None
         and price_per_unit is not None
         and net is not None
-    ):
-        instrument_leg, settlement_leg = order_legs(ticket, cash_effect=net)
+    )
+    if investment is not None and priced:
+        instrument_leg, settlement_leg = order_legs(ticket, cash_effect=cast(Decimal, net))
         legs.append(
             _project_leg(
                 instrument_leg.units,
@@ -865,11 +1145,29 @@ async def _derived_context(
                     settlement_leg.units,
                     settlement_leg.price_per_unit,
                     settlement_leg.txn_type,
-                    selected_cash.name,
+                    selected_cash.name if selected_cash is not None else "",
+                )
+            )
+    elif creating is not None and priced and creating.name:
+        legs.append(
+            _project_leg(
+                cast(Decimal, units),
+                cast(Decimal, price_per_unit),
+                DIRECTION_BUY,
+                creating.name,
+            )
+        )
+        settlement_leg = cash_leg(ticket, cash_effect=cast(Decimal, net))
+        if settlement_leg is not None:
+            legs.append(
+                _project_leg(
+                    settlement_leg.units,
+                    settlement_leg.price_per_unit,
+                    settlement_leg.txn_type,
+                    selected_cash.name if selected_cash is not None else "",
                 )
             )
 
-    currency = investment.currency if investment is not None else ""
     messages = _project_messages(
         blocks=preview.blocks,
         warnings=(preview.warnings if override_warnings is None else override_warnings).warnings,
@@ -881,7 +1179,7 @@ async def _derived_context(
 
     # -- gating (T-1 D-2 surface mapping, MD-3) -----------------------------
     complete = (
-        investment is not None
+        (investment is not None or creating is not None)
         and units is not None
         and units > 0
         and price_per_unit is not None
@@ -889,7 +1187,14 @@ async def _derived_context(
     )
     settled = selected_cash is not None and settle_confirmed
     blocked = bool(preview.blocks)
-    actions_enabled = complete and settled and not blocked
+    # MD-21's finish gate, folded into the one gating expression rather than
+    # added as a second one beside it (S4b). It withholds Propose and Book
+    # now — never Save as draft, which MD-11 lets dangle — and only on the
+    # creating path, where the AnlV category is being decided for a row that
+    # does not exist yet. The service's `missing_anlv` block stays the
+    # backstop for the race this cannot see.
+    anlv_gate = creating is not None and not creating.anlv_set
+    actions_enabled = complete and settled and not blocked and not anlv_gate
     # A saved ticket that has left ``draft`` is a record, not a form
     # (``TradeTicketRepository.update_draft``), so the two editing gestures
     # retire with the status while Book now survives to the stations
@@ -897,8 +1202,14 @@ async def _derived_context(
     editable = ticket_status is None or ticket_status == STATUS_DRAFT
     return {
         "direction": direction,
-        "title": ("Sell units" if direction == DIRECTION_SELL else "Buy units")
-        + (f" · {investment.name}" if investment is not None else ""),
+        # M-2 heads the wizard with the flow's own name rather than with the
+        # instrument's: until the last step there is no instrument to name.
+        "title": (
+            "Buy a new instrument"
+            if creating is not None
+            else ("Sell units" if direction == DIRECTION_SELL else "Buy units")
+            + (f" · {investment.name}" if investment is not None else "")
+        ),
         "investment": investment,
         "currency": currency,
         "holding": _units(holding) if holding is not None else None,
@@ -918,8 +1229,8 @@ async def _derived_context(
         "candidates": candidates,
         # The D-F split, decided above and handed to the template as two
         # exclusive booleans so no rule is restated in Jinja.
-        "offer_cash_creation": investment is not None and not in_currency,
-        "inactive_cash_only": investment is not None and bool(in_currency) and not active_cash,
+        "offer_cash_creation": bool(currency) and not in_currency,
+        "inactive_cash_only": bool(currency) and bool(in_currency) and not active_cash,
         "settle_confirmed": settle_confirmed,
         "set_inactive": set_inactive,
         "full_disposal": (
@@ -929,13 +1240,17 @@ async def _derived_context(
             and units == holding
         ),
         "messages": messages,
+        "instrument_name": investment.name
+        if investment is not None
+        else (creating.name if creating is not None else None),
         "actions_enabled": actions_enabled,
         # W-3: a draft may dangle, so Save as draft asks only for what
         # `create_draft` cannot do without — a direction, the investment the
         # currency derives from (MD-8) and a trade date, the last two of
         # which the form always carries. Neither a warning nor a block gates
         # it; only "there is not yet a ticket here" does.
-        "draft_enabled": investment is not None and editable,
+        "anlv_gate": anlv_gate,
+        "draft_enabled": (investment is not None or creating is not None) and editable,
         "propose_enabled": actions_enabled and editable,
         "book_enabled": actions_enabled
         and (ticket_status is None or ticket_status in BOOKABLE_STATUSES),
@@ -1151,6 +1466,225 @@ async def _composer_context(
     }
 
 
+# ---------------------------------------------------------------------------
+# The M-2 wizard (S4b)
+# ---------------------------------------------------------------------------
+
+
+def _resume_step(ticket: TradeTicketDTO | None) -> int:
+    """Derive which step a saved wizard ticket reopens at (MD-10).
+
+    **No stored step, and therefore no schema.** The wizard's position is a
+    property of what the draft already says, so a ticket that was abandoned
+    between two browsers, or advanced by a later slice, reopens where its
+    own content puts it rather than where a column remembers it was. The
+    predicate is the first step whose facts are incomplete:
+
+    ==== ============================================================
+    Step Incomplete when
+    ==== ============================================================
+    1    the payload carries no ``currency`` — W-4's step-1 fact
+    2    the payload lacks any of the D-J columns an ``investments``
+         row is ``NOT NULL`` in (``name`` / ``investment_type`` /
+         ``asset_class_id``), or carries no ``anlv_code``
+    3    ``units``, ``price_per_unit`` or the settlement position is
+         unset
+    4    otherwise — everything the finish needs is on the ticket
+    ==== ============================================================
+
+    Step 2 counts an unset AnlV category as incomplete even though MD-11
+    explicitly lets the draft dangle without one. The two are not in tension:
+    dangling is what makes the draft *legal*, and step 2 is where the gate is
+    answered, so a resumed ticket that cannot finish opens on the field that
+    is stopping it. Continue moves past it exactly as it did the first time.
+
+    Step 1's branch is reachable only from outside this wizard — its own trio
+    rule (:func:`_ensure_draft`) will not write a creating draft without a
+    currency. It is stated anyway so the function is total over any draft S5's
+    blotter may hand it, rather than silently answering "2" for a payload
+    that has not begun.
+
+    Args:
+        ticket: The saved draft, or ``None`` for a wizard opened fresh.
+
+    Returns:
+        The step number, ``1`` when there is no ticket yet.
+    """
+    if ticket is None:
+        return 1
+    payload: dict[str, Any] = ticket.master_data or {}
+    if not payload.get(MD_CURRENCY):
+        return 1
+    if not all(payload.get(key) for key in (MD_NAME, MD_INVESTMENT_TYPE, MD_ASSET_CLASS_ID)):
+        return 2
+    if not payload.get(MD_ANLV_CODE):
+        return 2
+    if ticket.units is None or ticket.price_per_unit is None or ticket.cash_investment_id is None:
+        return 3
+    return 4
+
+
+def _plain(value: Decimal | None) -> str:
+    """Render a stored amount the way it was typed, or ``""``.
+
+    The ``NUMERIC`` columns carry a fixed scale, so a resumed draft reads back
+    ``950.00000000`` for a ``950`` somebody entered. That is the same number,
+    but it is not the same *form*, and a resume that showed it would look like
+    the surface had rewritten the operator's input.
+
+    ``normalize`` strips the trailing zeros and ``format(..., "f")`` keeps the
+    result out of exponent notation — ``Decimal("950").normalize()`` is
+    ``9.5E+2``, which a ``type="number"`` input would accept and no operator
+    would recognise.
+    """
+    return "" if value is None else format(value.normalize(), "f")
+
+
+def _form_from_ticket(ticket: TradeTicketDTO, *, csrf_token: str) -> _ComposerForm:
+    """Rebuild the wizard's form state from a saved draft (MD-10's other half).
+
+    The resume GET has no request body, and a wizard rendered from an empty
+    one would show the operator a blank form over a ticket that is not blank.
+    So the row is read back into the same :class:`_ComposerForm` a POST would
+    have produced — every field, including ``entered``'s raw strings, since
+    those are what the inputs echo.
+
+    Nothing is interpreted here that the service would interpret differently:
+    the payload's keys are read as the strings they are stored as, and
+    :func:`~services.transactions.emission.parse_master_data` stays the one
+    place they become domain values (D-V).
+    """
+    payload: dict[str, Any] = ticket.master_data or {}
+
+    def _text(key: str) -> str:
+        value = payload.get(key)
+        return str(value) if value else ""
+
+    return _ComposerForm(
+        direction=ticket.direction,
+        trade_date=ticket.trade_date.isoformat(),
+        settlement_date=ticket.settlement_date.isoformat() if ticket.settlement_date else "",
+        units=_plain(ticket.units),
+        price_per_unit=_plain(ticket.price_per_unit),
+        fees=_plain(ticket.fees),
+        taxes=_plain(ticket.taxes),
+        cash_investment_id=(
+            str(ticket.cash_investment_id) if ticket.cash_investment_id is not None else ""
+        ),
+        # A saved settlement position is a confirmed one: the tick is what put
+        # it on the ticket (MD-3), so a resume that dropped it would ask the
+        # operator to re-answer a question the row already records.
+        settle_confirm="1" if ticket.cash_investment_id is not None else None,
+        case_id=str(ticket.case_id) if ticket.case_id is not None else "",
+        source=ticket.source or "",
+        note=ticket.note or "",
+        ticket_id=str(ticket.id),
+        flow=FLOW_NEW_INSTRUMENT,
+        currency=ticket.currency,
+        md_identifier_scheme=_text(MD_IDENTIFIER_SCHEME),
+        md_identifier_value=_text(MD_IDENTIFIER_VALUE),
+        md_figi=_text(MD_FIGI),
+        md_name=_text(MD_NAME),
+        md_investment_type=_text(MD_INVESTMENT_TYPE),
+        md_asset_class_id=_text(MD_ASSET_CLASS_ID),
+        md_anlv_code=_text(MD_ANLV_CODE),
+        md_manager=_text(MD_MANAGER),
+        md_region=_text(MD_REGION),
+    )
+
+
+async def _wizard_context(
+    db: AsyncSession,
+    *,
+    session: SessionDTO,
+    form: _ComposerForm,
+    ticket: TradeTicketDTO | None,
+    step: int,
+    error: str | None = None,
+    resolved: ResolvedInstrument | None = None,
+    resolve_error: str | None = None,
+    override_warnings: TicketWarnings | None = None,
+) -> dict[str, Any]:
+    """Build the context for one wizard step — every render goes through here.
+
+    The wizard's counterpart to :func:`_composer_context`, and the same
+    argument for existing: the fresh GET, the resume GET, a Continue, a Back,
+    a refused Propose and a resolve all differ in a handful of values and in
+    nothing else, so assembling them once is what keeps a refused step from
+    quietly showing a different catalogue or a stale settlement panel.
+
+    The catalogues are read on **every** step rather than only on step 2.
+    They are two small tenant-scoped selects, and fetching them conditionally
+    would make the Classify render depend on which gesture reached it.
+
+    Args:
+        db: The tenant-scoped session.
+        session: The authenticated session.
+        form: The parsed body, or :func:`_form_from_ticket`'s reconstruction.
+        ticket: The saved draft once one exists (MD-2), else ``None``.
+        step: Which of M-2's four bodies to render.
+        error: A service refusal's own sentence (D-5). Never composed here.
+        resolved: What OpenFIGI said, on the render that follows a Resolve.
+        resolve_error: Why it said nothing, on the render that follows a
+            failed one.
+        override_warnings: Warnings a gesture returned; see
+            :func:`_derived_context`.
+
+    Returns:
+        The template context for ``_wizard.html``.
+    """
+    currency = _validate_currency(form.currency) or ""
+    derived = await _derived_context(
+        db,
+        session=session,
+        direction=DIRECTION_BUY,
+        investment_id=None,
+        trade_date=form.trade_date,
+        settlement_date=form.settlement_date,
+        units=form.units,
+        price_per_unit=form.price_per_unit,
+        fees=form.fees,
+        taxes=form.taxes,
+        cash_investment_id=form.cash_investment_id,
+        settle_confirmed=form.settle_confirmed,
+        set_inactive=False,
+        case_id=form.case_id,
+        source=form.source,
+        note=form.note,
+        ticket_status=ticket.status if ticket is not None else None,
+        override_warnings=override_warnings,
+        creating=_Creating(
+            currency=currency,
+            name=form.md_name,
+            anlv_set=form.md_anlv_code is not None,
+        ),
+    )
+    asset_classes = await AssetClassRepository(db).list_all()
+    anlv_categories = await AnlVCategoryRepository(db).list_all()
+    return {
+        "csrf_token": session.csrf_token,
+        "flow": FLOW_NEW_INSTRUMENT,
+        "step": step,
+        "steps": _WIZARD_STEPS,
+        "schemes": _RESOLVABLE_SCHEMES,
+        "investment_types": _CLASSIFIABLE_TYPES,
+        "asset_classes": asset_classes,
+        "anlv_categories": anlv_categories,
+        "cases": await CaseRepository(db).list_open(),
+        "trade_date": form.trade_date,
+        "entered": form.entered,
+        "case_id": form.case_id,
+        "ticket_id": str(ticket.id) if ticket is not None else None,
+        "ticket_number": ticket.ticket_number if ticket is not None else None,
+        "ticket_status": ticket.status if ticket is not None else None,
+        "error": error,
+        "resolved": resolved,
+        "resolve_error": resolve_error,
+        "oob": False,
+        **derived,
+    }
+
+
 def _render(request: Request, template: str, context: dict[str, Any]) -> HTMLResponse:
     """Render one of this module's partials."""
     return cast(
@@ -1190,38 +1724,76 @@ _DRAFT_MINIMUM: str = (
     "A ticket needs a direction, an investment and a trade date before it can be saved."
 )
 
+#: The same refusal for the creating path, which asks for a currency instead.
+#:
+#: The wizard has no investment to derive a currency from (MD-12), so W-4
+#: makes the currency a step-1 fact and this is what stands in the way when it
+#: is missing or malformed. Written in M-2's voice and registered as a copy
+#: gap: the mockup's step 1 is always filled in, so it never renders one.
+_WIZARD_CURRENCY_REQUIRED: str = (
+    "A new instrument needs a currency before the draft can be saved — three "
+    "letters, ISO 4217 (EUR, USD, CHF)."
+)
+
 
 async def _ensure_draft(
     service: TicketService,
     *,
     session: SessionDTO,
     form: _ComposerForm,
-    investment: InvestmentDTO,
+    investment: InvestmentDTO | None,
     cash_investment_id: UUID | None,
+    currency: str,
 ) -> TradeTicketDTO:
     """Create the ticket, or update the one this composer is already editing.
 
     **MD-2 lives here and nowhere else.** The first explicit gesture — any of
-    the three — allocates the row and with it the tenant-sequential ticket
-    number; a second gesture on the same composer updates that row rather
-    than burning another number. Book now on a never-saved composer therefore
-    writes exactly the draft Save as draft would have written, and then books
-    it, instead of having a creation path of its own.
+    the three, and the wizard's first Continue — allocates the row and with
+    it the tenant-sequential ticket number; a second gesture on the same
+    composer updates that row rather than burning another number. Book now on
+    a never-saved composer therefore writes exactly the draft Save as draft
+    would have written, and then books it, instead of having a creation path
+    of its own.
 
-    The field map is the repository's draft whitelist and nothing else. Two
-    of the columns are *derived* rather than taken from the body: ``currency``
-    is the investment's (MD-8 — the client never states it) and ``kind`` is
-    fixed at creation, since this composer builds one kind of ticket and the
-    whitelist would happily accept another.
+    The field map is the repository's draft whitelist and nothing else, and
+    it is **kind-aware** (S4b) rather than duplicated per surface. Both
+    shapes write ``kind='order'`` — U-NEW is a purchase whose instrument did
+    not exist yet, not a fourth kind — and they differ in exactly three
+    entries:
+
+    ============= ============================ ==============================
+    Column        U-BUY / U-SELL               U-NEW (``form.creating``)
+    ============= ============================ ==============================
+    ``direction`` the form's, narrowed to two  fixed ``buy`` (MD-14)
+    ``investment_id`` the picked row           always ``None`` (MD-12)
+    ``currency``  the investment's (MD-8)      the step-1 field (W-4)
+    ============= ============================ ==============================
+
+    Two more columns are constants on the creating path rather than form
+    values. ``master_data`` is :meth:`_ComposerForm.master_data`'s full
+    replacement — the payload that *is* the ``investments`` row until booking
+    — and ``set_inactive`` is forced ``False``, because MD-7's full-disposal
+    choice is a sell concept and the wizard offers no control for it; taking
+    it from a tampered body would ask the emission to deactivate the row it
+    had just created.
+
+    ``direction`` being a flow constant is the same rule as ``kind``: MD-14
+    gives the wizard no direction control, so the value is the flow's and a
+    posted ``sell`` is ignored rather than refused — the surface never
+    offered the choice, so there is no user error to report.
 
     Args:
         service: The wired ticket service.
         session: The authenticated session; supplies the acting user.
         form: The parsed body.
-        investment: The resolved traded investment — the currency's source,
-            so this is never called without one.
+        investment: The resolved traded investment, or ``None`` on the
+            creating path.
         cash_investment_id: The settlement position, already verified against
             the active candidates for this currency, or ``None``.
+        currency: The ticket currency — the investment's on the ordinary
+            path, the validated step-1 field on the creating one. Resolved by
+            :func:`_gesture_context`, so this function has one source for it
+            rather than two branches.
 
     Returns:
         The draft, created or updated.
@@ -1231,21 +1803,23 @@ async def _ensure_draft(
         TicketStateInvalid: If it names a ticket that has left ``draft``.
     """
     fields: dict[str, Any] = {
-        "direction": form.direction,
-        "investment_id": investment.id,
+        "direction": DIRECTION_BUY if form.creating else form.direction,
+        "investment_id": None if form.creating else cast(InvestmentDTO, investment).id,
         "cash_investment_id": cash_investment_id,
-        "currency": investment.currency,
+        "currency": currency,
         "trade_date": form.trade_date,
         "settlement_date": form.settlement_date,
         "units": form.units,
         "price_per_unit": form.price_per_unit,
         "fees": form.fees,
         "taxes": form.taxes,
-        "set_inactive": form.set_inactive,
+        "set_inactive": False if form.creating else form.set_inactive,
         "note": form.note,
         "source": form.source,
         "case_id": form.case_id,
     }
+    if form.creating:
+        fields["master_data"] = form.master_data(currency=currency)
     if form.ticket_id is None:
         return await service.create_draft(
             kind=KIND_ORDER,
@@ -1275,30 +1849,69 @@ async def _reload_ticket(
     return await TradeTicketRepository(db).get(form.ticket_id)
 
 
+def _validate_currency(value: str | None) -> str | None:
+    """Return ``value`` as a three-letter ISO 4217 code, or ``None``.
+
+    The ``web/routes/investments.py`` shape rule (P-3a flag F-B), restated
+    here rather than imported — ``web/routes/`` modules do not import one
+    another — with one difference that follows from where it is used. That
+    one raises a 400; this one **answers with ``None``**, because the
+    currency arrives on a form the wizard re-renders rather than on a JSON
+    CRUD body, and the caller turns the absence into
+    :data:`_WIZARD_CURRENCY_REQUIRED` with the field still on screen.
+
+    ISO 4217 is a convention here and not a whitelist: only the structural
+    shape is checked (ADR-0043 §4), so a resolver pre-fill the operator
+    overrides passes on the same terms an ordinary tenant currency does.
+    """
+    if value is None:
+        return None
+    cleaned = value.strip().upper()
+    return cleaned if len(cleaned) == 3 and cleaned.isalpha() else None
+
+
 async def _gesture_context(
     db: AsyncSession,
     *,
     session: SessionDTO,
     form: _ComposerForm,
-) -> tuple[TicketService, InvestmentDTO | None, UUID | None]:
+) -> tuple[TicketService, InvestmentDTO | None, UUID | None, str | None]:
     """Re-resolve, server-side, everything a gesture is about to act on.
 
     The surface gated these already; that is not the point. The form arrived
     over the wire and may say anything, so the investment is re-read
     (:func:`_resolve_traded`) and the settlement position re-checked against
-    the active candidates for that investment's currency. A
+    the active candidates for the ticket's currency. A
     ``cash_investment_id`` that no longer qualifies is dropped to ``None``,
     which the service then refuses in its own words rather than this route
     inventing a sentence for a state the user cannot see.
+
+    The **currency** is resolved here too, and it is the one value whose
+    source differs between the two paths: the picked investment's on the
+    ordinary path (MD-8), the shape-validated step-1 field on the creating
+    one (W-4 / F-B). Returning it rather than recomputing it in each caller
+    is what lets :func:`_ensure_draft` take a single ``currency`` argument
+    instead of branching on the flow a second time.
+
+    Returns:
+        ``(service, investment, cash_investment_id, currency)``. ``currency``
+        is ``None`` exactly when the gesture has no ticket to make — no
+        investment picked, or a creating path whose currency is missing or
+        malformed.
     """
     investments = InvestmentRepository(db)
-    investment = await _resolve_traded(investments, form.investment_id)
+    investment = None if form.creating else await _resolve_traded(investments, form.investment_id)
+    currency = (
+        _validate_currency(form.currency)
+        if form.creating
+        else (investment.currency if investment is not None else None)
+    )
     cash_id: UUID | None = None
-    if investment is not None and form.cash_investment_id is not None:
-        active = [row for row in await _cash_in_currency(investments, investment) if row.is_active]
+    if currency is not None and form.cash_investment_id is not None:
+        active = [row for row in await _cash_in_currency(investments, currency) if row.is_active]
         if any(row.id == form.cash_investment_id for row in active):
             cash_id = form.cash_investment_id
-    return _build_ticket_service(db), investment, cash_id
+    return _build_ticket_service(db), investment, cash_id, currency
 
 
 @router.post(
@@ -1336,11 +1949,18 @@ async def post_draft(
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        service, investment, cash_id = await _gesture_context(db, session=session, form=form)
+        service, investment, cash_id, currency = await _gesture_context(
+            db, session=session, form=form
+        )
         ticket: TradeTicketDTO | None = None
         error: str | None = None
-        if investment is None:
-            error = _DRAFT_MINIMUM
+        # The one refusal that names a field on a step the operator has
+        # already left, and therefore the one that changes where the answer
+        # is rendered. Tracked as a flag rather than re-read off `error`:
+        # matching on a sentence would make the copy load-bearing.
+        currency_missing = currency is None
+        if currency_missing:
+            error = _WIZARD_CURRENCY_REQUIRED if form.creating else _DRAFT_MINIMUM
         else:
             try:
                 ticket = await _ensure_draft(
@@ -1349,16 +1969,37 @@ async def post_draft(
                     form=form,
                     investment=investment,
                     cash_investment_id=cash_id,
+                    currency=cast(str, currency),
                 )
             except TicketNotFound as exc:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
             except _REFUSALS as exc:
                 error = str(exc)
+        ticket = await _reload_ticket(db, form=form, ticket=ticket)
+        if form.creating:
+            # Continue is Save-as-draft with a step number on it: the gesture
+            # endpoint is reused whole (MC §3) and only the render differs.
+            #
+            # A missing currency sends the render *back* one step, because
+            # that is where the field is — the wizard shows it on Identify
+            # and again on Classify, and the operator cannot have passed
+            # both without one. Every other refusal is about the step that
+            # was just posted, so it renders there: advancing past a
+            # sentence the operator has to act on would hide it.
+            wizard = await _wizard_context(
+                db,
+                session=session,
+                form=form,
+                ticket=ticket,
+                step=max(form.step - 1, 1) if currency_missing else form.step,
+                error=error,
+            )
+            return _render(request, "_wizard.html", wizard)
         context = await _composer_context(
             db,
             session=session,
             form=form,
-            ticket=await _reload_ticket(db, form=form, ticket=ticket),
+            ticket=ticket,
             error=error,
         )
     return _render(request, "_order_composer.html", context)
@@ -1463,12 +2104,14 @@ async def _advance(
     confirmation: dict[str, Any] | None = None
     context: dict[str, Any] = {}
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        service, investment, cash_id = await _gesture_context(db, session=session, form=form)
+        service, investment, cash_id, currency = await _gesture_context(
+            db, session=session, form=form
+        )
         ticket: TradeTicketDTO | None = None
         error: str | None = None
         warnings: TicketWarnings | None = None
-        if investment is None:
-            error = _DRAFT_MINIMUM
+        if currency is None:
+            error = _WIZARD_CURRENCY_REQUIRED if form.creating else _DRAFT_MINIMUM
         else:
             try:
                 ticket = await _ensure_draft(
@@ -1477,6 +2120,7 @@ async def _advance(
                     form=form,
                     investment=investment,
                     cash_investment_id=cash_id,
+                    currency=currency,
                 )
                 if book:
                     ticket, warnings = await service.book(
@@ -1493,6 +2137,19 @@ async def _advance(
 
         if book and error is None and ticket is not None and warnings is not None:
             confirmation = await _confirmation_context(db, ticket=ticket, warnings=warnings)
+        elif form.creating:
+            # A refused Propose or Book on the wizard comes back as the
+            # wizard's own Confirm step, carrying the service's sentence
+            # (D-5). Nothing was written, or a draft was and stays one.
+            context = await _wizard_context(
+                db,
+                session=session,
+                form=form,
+                ticket=await _reload_ticket(db, form=form, ticket=ticket),
+                step=form.step,
+                error=error,
+                override_warnings=warnings,
+            )
         else:
             context = await _composer_context(
                 db,
@@ -1504,6 +2161,8 @@ async def _advance(
             )
     if confirmation is not None:
         return _render(request, "_order_confirmation.html", confirmation)
+    if form.creating:
+        return _render(request, "_wizard.html", context)
     return _render(request, "_order_composer.html", context)
 
 
@@ -1752,25 +2411,35 @@ async def post_cash_position(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         investments = InvestmentRepository(db)
-        investment = await _resolve_traded(investments, form.investment_id)
-        if investment is None:
-            return _bad_request(_CASH_NO_INVESTMENT, field="investment_id")
-        existing = await _cash_in_currency(investments, investment)
+        # MD-8 on one path, W-4 on the other: the currency is the picked
+        # investment's, or — when the wizard is creating that investment —
+        # the step-1 field. Never the mini-form's own, on either path.
+        if form.creating:
+            currency = _validate_currency(form.currency)
+        else:
+            investment = await _resolve_traded(investments, form.investment_id)
+            currency = investment.currency if investment is not None else None
+        if currency is None:
+            return _bad_request(
+                _WIZARD_CURRENCY_REQUIRED if form.creating else _CASH_NO_INVESTMENT,
+                field="currency" if form.creating else "investment_id",
+            )
+        existing = await _cash_in_currency(investments, currency)
         if any(row.is_active for row in existing):
             return _bad_request(
-                _CASH_ALREADY_EXISTS.format(currency=investment.currency),
+                _CASH_ALREADY_EXISTS.format(currency=currency),
                 field="cash_investment_id",
             )
         if existing:
             return _bad_request(
-                _CASH_ONLY_RETIRED.format(currency=investment.currency),
+                _CASH_ONLY_RETIRED.format(currency=currency),
                 field="cash_investment_id",
             )
 
         try:
             created = await _build_investment_service(db).create_cash_position(
                 name=form.cash_name or "",
-                currency=investment.currency,
+                currency=currency,
                 opening_balance=form.cash_opening_balance or Decimal(0),
                 # W-1: the ticket's own trade date, so the position is
                 # already open — and priced — on the day the booking lands.
@@ -1788,6 +2457,17 @@ async def post_cash_position(
         # The new row becomes the selected candidate; the tick does not
         # follow it (MD-3). `settle_confirmed` is left exactly as it arrived.
         form.cash_investment_id = created.id
+        if form.creating:
+            ticket = (
+                await TradeTicketRepository(db).get(form.ticket_id)
+                if form.ticket_id is not None
+                else None
+            )
+            # Step 3, stated rather than taken from the body: the offer
+            # block renders on the Order step and nowhere else, so that is
+            # the step this answer belongs on.
+            wizard = await _wizard_context(db, session=session, form=form, ticket=ticket, step=3)
+            return _render(request, "_wizard.html", wizard)
         context = await _composer_context(db, session=session, form=form)
     return _render(request, "_order_composer.html", context)
 
@@ -1818,6 +2498,173 @@ async def get_order_form(
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _composer_context(db, session=session, form=_empty_form())
     return _render(request, "_order_composer.html", context)
+
+
+#: What the Identify step says when OpenFIGI knows the identifier is nothing.
+#:
+#: M-2 draws only the resolved card, so the no-match state has no mockup copy.
+#: Written in M-2's voice — it names the two remedies the step actually
+#: offers — and registered as a copy gap for the operator's walk.
+_RESOLVE_NO_MATCH: str = (
+    "No instrument matched {scheme} {value}. Check the identifier, or use "
+    "the second card and name the instrument yourself."
+)
+
+
+@router.get("/api/transactions/wizard", response_class=HTMLResponse)
+async def get_wizard(
+    request: Request,
+    ticket_id: str = "",
+    step: str = "",
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Open the M-2 new-instrument wizard, fresh or on a saved draft (MD-10).
+
+    Two readings of one address, and the difference is a query parameter
+    rather than a second endpoint, because they answer the same question —
+    "show me this wizard" — and only differ in whether a ticket exists yet.
+
+    Without ``ticket_id`` this is the chooser's U-NEW tile: step 1, nothing
+    written. MD-2 holds here as everywhere on this surface — opening the
+    wizard allocates no row and burns no ticket number, and the head reads
+    "New ticket · Unsaved" until the first Continue.
+
+    With one it is the **resume** (MD-10: a mid-wizard draft "reopens where
+    it stopped"), and this is the URL S5's blotter links a U-NEW row to. The
+    step comes from :func:`_resume_step` — the draft's own content — unless
+    ``step`` overrides it, which is how Back re-renders the previous step
+    without writing anything. A ticket that has left ``draft`` renders with
+    the editing gestures already retired, exactly as the composer reads that
+    status; nothing here decides it a second time.
+
+    Args:
+        request: The live request.
+        ticket_id: The draft to reopen, or empty for a fresh wizard.
+        step: The step to render, or empty to derive it from the draft.
+        session: The authenticated session.
+
+    Returns:
+        The wizard at one step.
+
+    Raises:
+        HTTPException: 404 if ``ticket_id`` names no ticket this tenant can
+            see, or names one that is not this wizard's — a ticket of another
+            kind, or one that already carries an investment, is not a U-NEW
+            in progress and this surface has nothing to show for it (D-AG).
+    """
+    engine = _engine(request)
+    wanted = _uuid_or_none(ticket_id)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket: TradeTicketDTO | None = None
+        if wanted is not None:
+            ticket = await TradeTicketRepository(db).get(wanted)
+            if ticket is None or ticket.kind != KIND_ORDER or ticket.investment_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"No new-instrument ticket {wanted} in this tenant.",
+                )
+        form = (
+            _form_from_ticket(ticket, csrf_token=session.csrf_token)
+            if ticket is not None
+            else _ComposerForm(flow=FLOW_NEW_INSTRUMENT, direction=DIRECTION_BUY)
+        )
+        asked = _step_or_first(step) if step else _resume_step(ticket)
+        context = await _wizard_context(db, session=session, form=form, ticket=ticket, step=asked)
+    return _render(request, "_wizard.html", context)
+
+
+@router.post("/api/transactions/resolve-identifier", response_class=HTMLResponse)
+async def post_resolve_identifier(
+    request: Request,
+    form: _ComposerForm = Depends(),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Resolve the Identify step's identifier through OpenFIGI. **Writes nothing.**
+
+    A POST for the same reason ``recalc`` is one — it carries the whole form
+    and takes this surface's uniform CSRF posture — and, like ``recalc``, it
+    is not role-gated and touches no row. Neither the FIGI nor the identifier
+    pair is persisted anywhere by this call: they ride on the form, reach the
+    ticket's ``master_data`` at the next Continue, and become
+    ``investment_identifiers`` rows only when the emission creates the
+    investment (MD-13, ``emission._write_identifiers``).
+
+    The API key comes from the :class:`~services.investments.credential_resolver
+    .CredentialResolver` and never from the environment directly (P-3a flag
+    F-G). ``openfigi`` is declared *optional* with ``env_fallback: allowed``,
+    so an unconfigured tenant resolves to
+    :class:`~services.investments.credential_resolver.NoCredential` rather
+    than an error and the call is made keyless at the lower public rate limit
+    — the documented v1 posture, not a degraded one.
+
+    **Everything it learns is a pre-fill, not a fact** (operator decision
+    W-4′). The FIGI, the name and the currency come back into *editable*
+    inputs, and a currency OpenFIGI does not state comes back empty rather
+    than as an error: the recorded fixtures do not evidence the field at all
+    (P-3a flag F-A), so ``None`` is the normal case here.
+
+    Returns:
+        The Identify step, re-rendered with whatever was learned.
+
+    Raises:
+        HTTPException: 400 if the scheme is not one OpenFIGI can map — a
+            state the select cannot reach, so only a tampered body arrives
+            here.
+    """
+    engine = _engine(request)
+    scheme = form.md_identifier_scheme or ""
+    value = form.md_identifier_value or ""
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        resolved: ResolvedInstrument | None = None
+        resolve_error: str | None = None
+        if scheme and value:
+            credential = await CredentialResolver(session=db).resolve(
+                _OPENFIGI, tenant_id=session.tenant_id, user_id=session.user_id
+            )
+            api_key = (
+                credential.payload.get("api_key")
+                if isinstance(credential, ProviderCredential)
+                else None
+            )
+            try:
+                resolved = await resolve_instrument(scheme, value, api_key=api_key)
+            except IdentifierNotResolvableError:
+                resolve_error = _RESOLVE_NO_MATCH.format(scheme=scheme, value=value)
+            except ProviderFetchError as exc:
+                resolve_error = str(exc)
+            except UnsupportedCapabilityError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+
+        if resolved is not None:
+            # The pre-fill lands on the form before the render, so the
+            # editable inputs and the "Resolved" card state one set of values
+            # rather than two — and so a Continue posted straight afterwards
+            # carries what the operator can see.
+            form.md_figi = resolved.figi
+            form.md_name = form.md_name or resolved.name
+            form.currency = form.currency or _validate_currency(resolved.currency)
+            form.entered["currency"] = form.currency or ""
+            form.entered["md_figi"] = resolved.figi
+            form.entered["md_name"] = form.md_name or ""
+
+        ticket = (
+            await TradeTicketRepository(db).get(form.ticket_id)
+            if form.ticket_id is not None
+            else None
+        )
+        context = await _wizard_context(
+            db,
+            session=session,
+            form=form,
+            ticket=ticket,
+            step=1,
+            resolved=resolved,
+            resolve_error=resolve_error,
+        )
+    return _render(request, "_wizard.html", context)
 
 
 @router.get("/api/transactions/chooser", response_class=HTMLResponse)
@@ -1879,8 +2726,8 @@ async def post_recalc(
         derived = await _derived_context(
             db,
             session=session,
-            direction=form.direction,
-            investment_id=form.investment_id,
+            direction=DIRECTION_BUY if form.creating else form.direction,
+            investment_id=None if form.creating else form.investment_id,
             trade_date=form.trade_date,
             settlement_date=form.settlement_date,
             units=form.units,
@@ -1889,19 +2736,30 @@ async def post_recalc(
             taxes=form.taxes,
             cash_investment_id=form.cash_investment_id,
             settle_confirmed=form.settle_confirmed,
-            set_inactive=form.set_inactive,
+            set_inactive=False if form.creating else form.set_inactive,
             case_id=form.case_id,
             source=form.source,
             note=form.note,
             ticket_status=ticket.status if ticket is not None else None,
+            creating=(
+                _Creating(
+                    currency=_validate_currency(form.currency) or "",
+                    name=form.md_name,
+                    anlv_set=form.md_anlv_code is not None,
+                )
+                if form.creating
+                else None
+            ),
         )
 
     return _render(
         request,
-        "_order_recalc.html",
+        "_wizard_recalc.html" if form.creating else "_order_recalc.html",
         {
             "csrf_token": session.csrf_token,
             "oob": True,
+            "flow": FLOW_NEW_INSTRUMENT if form.creating else "",
+            "step": form.step,
             # The head's ticket number and state pill are not out-of-band
             # regions, so a keystroke never disturbs them; the id travels
             # because the action row's own label depends on it, and `entered`

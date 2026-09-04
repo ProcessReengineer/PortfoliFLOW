@@ -1,0 +1,19 @@
+{# M-2's four-step progress indicator.
+
+   Purely a read of `step`: a step behind the active one is done (a tick), the
+   active one is active, the rest are pending. It offers no navigation — M-2
+   draws the dots as indicators and puts every move on the Back and Continue
+   buttons, which are the only two controls that know whether the draft has
+   been written.
+
+   Context: step, steps. #}
+<div class="tx-stepper">
+    {% for label in steps %}
+        {% set number = loop.index %}
+        {% if not loop.first %}<div class="tx-stepper__bar"></div>{% endif %}
+        <div class="tx-step{% if number < step %} is-done{% elif number == step %} is-active{% endif %}">
+            <span class="tx-step__dot">{% if number < step %}✓{% else %}{{ number }}{% endif %}</span>
+            <span class="tx-step__label">{{ label }}</span>
+        </div>
+    {% endfor %}
+</div>

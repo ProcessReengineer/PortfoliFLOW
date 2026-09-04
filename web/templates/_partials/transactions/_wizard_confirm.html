@@ -1,0 +1,107 @@
+{# Step 4 · Confirm — the whole ticket in two cards, and the three finishing
+   gestures.
+
+   Nothing on this step is a control except the buttons: it restates what the
+   ticket says so the operator reads it once more before it becomes a fact.
+   Every value is pre-formatted by the route — the amounts by the same
+   `derive_cash_effect` that produced them on step 3, the legs by the same
+   projection — so the summary cannot state a different number from the step
+   it summarises.
+
+   The ledger-effect block leads with the creation, because that is the thing
+   about this flow: booking writes an `investments` row *and* both legs, in
+   one transaction, or writes nothing (ADR-0128 §2, MD-12).
+
+   Context: entered, currency, legs, gross, fees, taxes, net, net_label,
+   trade_date, instrument_name, candidates, asset_classes, anlv_categories,
+   plus the gating `_derived_context` returns. #}
+<div class="tx-wizard-body">
+    <div class="tx-summary">
+        <div class="tx-sumcard">
+            <h4>New investment</h4>
+            <dl>
+                <dt>Name</dt>
+                <dd{% if not entered.md_name %} class="is-missing"{% endif %}>
+                    {{ entered.md_name or "not set" }}
+                </dd>
+                <dt>Type</dt><dd>{{ entered.md_investment_type or "not set" }}</dd>
+                <dt>Asset class</dt>
+                <dd{% if not entered.md_asset_class_id %} class="is-missing"{% endif %}>
+                    {%- for option in asset_classes if option.id | string == entered.md_asset_class_id -%}
+                        {{ option.display_name }}
+                    {%- else -%}
+                        not set
+                    {%- endfor -%}
+                </dd>
+                <dt>Currency</dt><dd>{{ currency or "not set" }}</dd>
+                <dt>Valuation</dt><dd>unitised</dd>
+                <dt>Identifiers</dt>
+                <dd>
+                    {%- if entered.md_identifier_value and entered.md_figi -%}
+                        {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }} · figi {{ entered.md_figi }}
+                    {%- elif entered.md_identifier_value -%}
+                        {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }}
+                    {%- else -%}
+                        — none —
+                    {%- endif -%}
+                </dd>
+                <dt>AnlV</dt>
+                <dd{% if anlv_gate %} class="is-missing"{% endif %}>
+                    {%- for option in anlv_categories if option.code == entered.md_anlv_code -%}
+                        {{ option.code }} · {{ option.display_name }}
+                    {%- else -%}
+                        not set
+                    {%- endfor -%}
+                </dd>
+            </dl>
+        </div>
+        <div class="tx-sumcard">
+            <h4>Order</h4>
+            <dl>
+                <dt>Direction</dt><dd>buy (first purchase)</dd>
+                <dt>Trade date</dt><dd>{{ trade_date }}</dd>
+                <dt>Units</dt><dd>{{ entered.units or "not set" }}</dd>
+                <dt>Price</dt>
+                <dd>{% if entered.price_per_unit %}{{ entered.price_per_unit }} {{ currency }}{% else %}not set{% endif %}</dd>
+                <dt>Fees / taxes</dt>
+                <dd>{{ fees or "0.00" }} / {{ taxes or "0.00" }} {{ currency }}</dd>
+                <dt>{{ net_label }}</dt><dd>{{ net or "—" }} {{ currency }}</dd>
+                <dt>Settles against</dt>
+                <dd>
+                    {%- for candidate in candidates if candidate.selected -%}
+                        {{ candidate.name }}
+                    {%- else -%}
+                        not confirmed
+                    {%- endfor -%}
+                </dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="tx-legs">
+        <p class="tx-legs__lead">On booking, in one step:</p>
+        <div class="tx-leg">
+            <span class="tx-leg__type">create</span>
+            <span class="tx-leg__what">Investment · {{ instrument_name or "— not named yet —" }}</span>
+            <span class="tx-leg__amount"></span>
+        </div>
+        {% for leg in legs %}
+            <div class="tx-leg">
+                <span class="tx-leg__type tx-leg__type--{{ leg.txn_type }}">{{ leg.txn_type }}</span>
+                <span class="tx-leg__what">{{ leg.name }} <em>@ {{ leg.price }}</em></span>
+                <span class="tx-leg__amount">{{ leg.units }} units</span>
+            </div>
+        {% else %}
+            <p class="tx-legs__pending">
+                Both legs appear here once the units, price and settlement position
+                are set.
+            </p>
+        {% endfor %}
+    </div>
+
+    {% with visible = [] %}
+        {% include "_partials/transactions/_wizard_hidden.html" %}
+    {% endwith %}
+
+    {% include "_partials/transactions/_wizard_outcome.html" %}
+</div>

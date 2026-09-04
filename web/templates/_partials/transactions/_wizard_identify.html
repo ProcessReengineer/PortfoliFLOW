@@ -1,0 +1,144 @@
+{# Step 1 · Identify — how this instrument is known, and in what currency.
+
+   M-2's two cards, with three deviations registered for the operator's walk:
+
+   1. **Both cards stand open** (D-AK). M-2 puts a radio on each and switches
+      between them; a radio that hides a card needs script, and this surface
+      has none. Nothing is lost — leaving the identifier fields blank *is*
+      the second path, since the emission writes identifier rows only for a
+      scheme/value pair that says something — so the second card becomes the
+      explanation of that choice rather than a control (the D-H precedent
+      from M-1's mini-form).
+   2. **The resolved values are editable** (D-AL). M-2 prints FIGI, name and
+      currency as text in the Resolved card. Operator decision W-4′ makes
+      them the operator's to overwrite: the resolver's answer is a pre-fill,
+      not a fact, and its own docstring says the consumer owns the result.
+   3. **Currency is a control on this step** (D-AL). M-2 has no currency field until
+      Classify. Operator decision W-4 makes it a step-1 fact — the ticket
+      needs one before it can exist and there is no investment row to derive
+      it from (MD-12) — and W-4′ makes it editable on both paths, which is
+      why it sits under the two cards rather than inside either.
+
+   A currency the resolver did not state comes back empty, and that is the
+   normal case rather than a failure: the recorded OpenFIGI fixtures do not
+   evidence the field at all (P-3a flag F-A).
+
+   Nothing here writes. Resolve is a read (`POST
+   /api/transactions/resolve-identifier` writes no row), and the draft
+   arrives with Continue.
+
+   Context: schemes, entered, resolved, resolve_error, error, messages,
+   ticket_id, csrf_token. #}
+<div class="tx-wizard-body">
+    <div class="tx-identify">
+        <div class="tx-idcard is-active">
+            <span class="tx-idcard__title">Public identifier</span>
+            <p class="tx-idcard__hint">
+                ISIN, ticker or CUSIP. PortfoliFLOW resolves it to a FIGI and
+                pre-fills what it learns. Market data attaches automatically later.
+            </p>
+            <div class="tx-idrow">
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-id-scheme">Scheme</label>
+                    <select id="tx-id-scheme" name="md_identifier_scheme">
+                        {% for scheme in schemes %}
+                            <option value="{{ scheme }}"
+                                    {% if entered.md_identifier_scheme == scheme %}selected{% endif %}>
+                                {{ scheme }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-id-value">Value</label>
+                    <input type="text" id="tx-id-value" name="md_identifier_value"
+                           class="tx-mono" value="{{ entered.md_identifier_value }}">
+                </div>
+                {# A read, so it takes the session's CSRF posture and no role
+                   gate — the same posture as recalc. It replaces the whole
+                   wizard because the pre-fill lands on fields in two
+                   different blocks of this step. #}
+                <button class="tx-btn" type="button"
+                        hx-post="/api/transactions/resolve-identifier"
+                        hx-include="closest form"
+                        hx-target="#tx-composer-host"
+                        hx-swap="innerHTML">Resolve</button>
+            </div>
+
+            {% if resolve_error %}
+                <div class="tx-msg tx-msg--block">
+                    <span class="tx-msg__glyph">✕</span>
+                    <div><strong>{{ resolve_error }}</strong></div>
+                </div>
+            {% elif resolved or entered.md_figi %}
+                <div class="tx-resolved">
+                    <span class="tx-resolved__head">Resolved</span>
+                    <div class="tx-resolved__row">
+                        <div class="tx-field">
+                            <label class="tx-field__label" for="tx-id-figi">FIGI</label>
+                            <input type="text" id="tx-id-figi" name="md_figi"
+                                   class="tx-mono" value="{{ entered.md_figi }}">
+                        </div>
+                        <div class="tx-field">
+                            <label class="tx-field__label" for="tx-id-name">Name</label>
+                            <input type="text" id="tx-id-name" name="md_name"
+                                   value="{{ entered.md_name }}">
+                        </div>
+                    </div>
+                    <span class="tx-resolved__note">
+                        Both identifiers ({{ entered.md_identifier_scheme or "scheme" }}, figi)
+                        will be stored on the new investment.
+                    </span>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="tx-idcard">
+            <span class="tx-idcard__title">No public identifier</span>
+            <p class="tx-idcard__hint">
+                For instruments without a listed identifier — a Spezial-AIF share
+                class, a club deal, a note. You name and classify it yourself in the
+                next step; an internal identifier can be added later.
+            </p>
+            <p class="tx-idcard__hint">
+                Leave the fields beside this card empty and continue. Nothing is
+                stored as an identifier that you did not state.
+            </p>
+        </div>
+    </div>
+
+    <div class="tx-block">
+        <div class="tx-grid">
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-currency">Currency</label>
+                <input type="text" id="tx-currency" name="currency" class="tx-mono"
+                       maxlength="3" value="{{ entered.currency }}">
+                <span class="tx-field__hint">Becomes the ticket currency.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tx-messages">
+        {% include "_partials/transactions/_messages.html" %}
+    </div>
+
+    {% with visible = ["md_identifier_scheme", "md_identifier_value", "md_figi",
+                       "md_name", "currency"] %}
+        {% include "_partials/transactions/_wizard_hidden.html" %}
+    {% endwith %}
+
+    <div class="tx-actions">
+        <span class="tx-actions__spacer"></span>
+        {% include "_partials/transactions/_wizard_close.html" %}
+        <button class="tx-btn tx-btn--primary" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-vals='{"step": "2"}'
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">Continue</button>
+        <p class="tx-actions__hint">
+            Continue creates the draft ticket. It appears in the Blotter and you can
+            come back to it any time.
+        </p>
+    </div>
+</div>

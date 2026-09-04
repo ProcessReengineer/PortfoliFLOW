@@ -739,3 +739,255 @@ a.tx-btn {
     text-decoration: none;
     display: inline-block;
 }
+
+/* --- M-2 wizard (S4b) ------------------------------------------------ */
+
+/* Translates docs/handover/transactions-new-instrument-wizard-mockup-m2.html
+ * for what strand S4b ships. Only the classes M-2 introduces are here; every
+ * block, field, message and settlement rule above is reused unchanged, which
+ * is what keeps the wizard's Order step visually identical to M-1's composer
+ * rather than merely similar.
+ *
+ * The mock's `.field*` and `.pf-btn` become this file's `tx-`-prefixed
+ * equivalents for the reasons the header states; its `--pf-*` tokens become
+ * the theme-aware `--ui-*` family.
+ */
+
+.tx-wizard-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* --- Stepper -------------------------------------------------------- */
+
+.tx-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.tx-step {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.tx-step__dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--ui-border-default);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ui-text-disabled);
+    background: var(--ui-background-primary);
+    flex: 0 0 auto;
+}
+
+.tx-step__label {
+    font-size: 0.82rem;
+    color: var(--ui-text-disabled);
+    white-space: nowrap;
+}
+
+.tx-step.is-done .tx-step__dot {
+    border-color: var(--ui-semantic-success);
+    color: var(--ui-semantic-success);
+}
+
+.tx-step.is-done .tx-step__label {
+    color: var(--ui-text-secondary);
+}
+
+.tx-step.is-active .tx-step__dot {
+    border-color: var(--ui-accent-primary);
+    background: var(--ui-accent-primary);
+    color: var(--ui-button-fg);
+}
+
+.tx-step.is-active .tx-step__label {
+    color: var(--ui-accent-primary);
+    font-weight: 600;
+}
+
+.tx-stepper__bar {
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--ui-border-default);
+    margin: 0 12px;
+    min-width: 18px;
+}
+
+/* --- Identify step -------------------------------------------------- */
+
+/* Both cards stand open (no radio, no script), so neither takes the mock's
+ * pointer cursor: nothing here is clickable but the Resolve button. */
+.tx-identify {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 860px) {
+    .tx-identify {
+        grid-template-columns: 1fr;
+    }
+}
+
+.tx-idcard {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    background: var(--ui-background-section);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+}
+
+.tx-idcard.is-active {
+    border-color: var(--ui-accent-primary);
+}
+
+.tx-idcard__title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-idcard__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin: 0;
+}
+
+.tx-idrow {
+    display: grid;
+    grid-template-columns: 130px 1fr auto;
+    gap: 10px;
+    align-items: end;
+}
+
+/* The resolved values are inputs rather than text (operator decision W-4′),
+ * so the card is a form row inside a success frame. */
+.tx-resolved {
+    border: 1px solid var(--ui-semantic-success);
+    border-radius: 4px;
+    background: var(--ui-background-primary);
+    padding: 10px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tx-resolved__head {
+    color: var(--ui-semantic-success);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.tx-resolved__row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+@media (max-width: 620px) {
+    .tx-resolved__row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.tx-resolved__note {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+}
+
+.tx-mono {
+    font-family: var(--ui-font-mono, "SFMono-Regular", "Consolas", "Liberation Mono", monospace);
+}
+
+/* --- Classify step: the AnlV field when the gate is open ------------- */
+
+.tx-field.is-missing input,
+.tx-field.is-missing select {
+    border-color: var(--ui-semantic-warning);
+}
+
+/* --- Confirm step summary ------------------------------------------- */
+
+.tx-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+@media (max-width: 860px) {
+    .tx-summary {
+        grid-template-columns: 1fr;
+    }
+}
+
+.tx-sumcard {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 5px;
+    background: var(--ui-background-section);
+    padding: 13px 16px;
+}
+
+.tx-sumcard h4 {
+    font-size: 0.72rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ui-semantic-muted);
+    margin: 0 0 9px;
+    font-weight: 600;
+}
+
+.tx-sumcard dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 16px;
+    font-size: 0.85rem;
+}
+
+.tx-sumcard dt {
+    color: var(--ui-text-disabled);
+}
+
+.tx-sumcard dd {
+    margin: 0;
+    color: var(--ui-text-secondary);
+    font-family: var(--ui-font-mono, "SFMono-Regular", "Consolas", "Liberation Mono", monospace);
+    font-size: 0.83rem;
+    text-align: right;
+}
+
+.tx-sumcard dd.is-missing {
+    color: var(--ui-semantic-warning);
+    font-family: inherit;
+}
+
+/* The AnlV gate's jump-back is a control among prose, not a navigation link:
+ * it swaps a step in rather than changing the address, so it is a button
+ * wearing a link's clothes. */
+.tx-msg__link {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ui-accent-primary);
+    font: inherit;
+    font-size: 0.82rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.tx-msg__link:hover {
+    color: var(--ui-text-on-sidebar);
+}

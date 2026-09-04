@@ -3,12 +3,12 @@
    Copy is lifted verbatim from the M-1 mockup (MD-9), tile names, hints and
    flow codes alike.
 
-   Exactly one tile is live: "Buy or sell units" swaps the U-BUY / U-SELL
-   composer into #tx-composer-host (S4a). The other four carry the strand
+   Two tiles are live: "Buy or sell units" swaps the U-BUY / U-SELL composer
+   into #tx-composer-host (S4a), and "Buy a new instrument" swaps the M-2
+   wizard into the same host (S4b). The three reported flows carry the strand
    that arms them and are deliberately inert — no link, no form control —
    because a tile that opened a half-built surface would be worse than one
-   that says when it arrives. S4b replaces the U-NEW pill with the wizard;
-   S4c replaces the three reported-flow pills.
+   that says when it arrives. S4c replaces those three pills.
 
    Context: none. The chooser is static markup, which is what keeps
    web/routes/areas.py a no-DB shell render — everything needing the
@@ -22,12 +22,14 @@
         <span class="tx-flow__hint">An instrument already on the book.</span>
         <span class="tx-flow__code">U-BUY / U-SELL</span>
     </button>
-    <div class="tx-flow tx-flow--pending">
+    <button class="tx-flow" type="button"
+            hx-get="/api/transactions/wizard"
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">
         <span class="tx-flow__name">Buy a new instrument</span>
         <span class="tx-flow__hint">Create the investment, then buy it.</span>
         <span class="tx-flow__code">U-NEW</span>
-        <span class="tx-flow__pill">Arrives with S4b</span>
-    </div>
+    </button>
     <div class="tx-flow tx-flow--pending">
         <span class="tx-flow__name">New commitment</span>
         <span class="tx-flow__hint">Private markets. No cash moves yet.</span>

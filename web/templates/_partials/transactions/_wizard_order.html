@@ -1,0 +1,103 @@
+{# Step 3 · Order — the purchase itself, on M-1's machinery.
+
+   Everything derived here is the *composer's*: the amounts, the ledger legs
+   and the settlement panel are `_order_derived.html`, included unchanged, and
+   the numbers in it came from `TicketService.preview` and the pure emission
+   helpers exactly as they do for a U-BUY. That is what M-2 means when it says
+   the settlement states "behave exactly as in M-1" — they are the same
+   template, not a copy of it.
+
+   MD-14: no direction control. A U-NEW is a purchase; the server fixes `buy`
+   whatever arrives, and the instrument leg below carries that constant rather
+   than deriving a sign from a field nobody can set.
+
+   This body carries the recalculation trigger rather than the enclosing form:
+   input events bubble to it from every control below, and no other step has a
+   `#tx-derived` for the response to swap into.
+
+   Context: entered, trade_date, plus everything `_derived_context` returns. #}
+<div class="tx-wizard-body"
+     hx-post="/api/transactions/recalc"
+     hx-trigger="input delay:300ms, change delay:300ms"
+     hx-include="closest form"
+     hx-vals='{"step": "3"}'
+     hx-target="#tx-derived"
+     hx-swap="outerHTML">
+    {% include "_partials/transactions/_wizard_context.html" %}
+
+    <div class="tx-block">
+        <p class="tx-block__title">Execution</p>
+        <div class="tx-grid">
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-trade-date">Trade date</label>
+                <input type="date" id="tx-trade-date" name="trade_date" value="{{ trade_date }}">
+                <span class="tx-field__hint">Both legs book on this date.</span>
+            </div>
+            <div class="tx-field tx-field--numeric">
+                <label class="tx-field__label" for="tx-units">Units</label>
+                <input type="number" id="tx-units" name="units" step="any"
+                       value="{{ entered.units }}">
+            </div>
+            <div class="tx-field tx-field--numeric">
+                <label class="tx-field__label" for="tx-price">Price per unit{% if currency %} ({{ currency }}){% endif %}</label>
+                <input type="number" id="tx-price" name="price_per_unit" step="any"
+                       value="{{ entered.price_per_unit }}">
+            </div>
+            <div class="tx-field tx-field--numeric">
+                <label class="tx-field__label" for="tx-fees">Fees <span class="tx-field__optional">(optional)</span></label>
+                <input type="number" id="tx-fees" name="fees" step="any" value="{{ entered.fees }}">
+            </div>
+            <div class="tx-field tx-field--numeric">
+                <label class="tx-field__label" for="tx-taxes">Taxes <span class="tx-field__optional">(optional)</span></label>
+                <input type="number" id="tx-taxes" name="taxes" step="any" value="{{ entered.taxes }}">
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-settlement-date">Settlement date <span class="tx-field__optional">(optional)</span></label>
+                <input type="date" id="tx-settlement-date" name="settlement_date"
+                       value="{{ entered.settlement_date }}">
+                <span class="tx-field__hint">Recorded only. Cash books on the trade date.</span>
+            </div>
+        </div>
+    </div>
+
+    {% include "_partials/transactions/_order_derived.html" %}
+
+    {# Provenance is M-1's block, kept because a U-NEW carries the same
+       Watch Desk → Case → ticket lineage a U-BUY does (ADR-0128 §6) and the
+       wizard has no other step that could hold it. #}
+    <div class="tx-block">
+        <p class="tx-block__title">Provenance</p>
+        <div class="tx-grid">
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-case">Linked case <span class="tx-field__optional">(optional)</span></label>
+                <select id="tx-case" name="case_id">
+                    <option value="">No case</option>
+                    {% for case in cases %}
+                        <option value="{{ case.id }}"
+                                {% if case_id and case.id == case_id %}selected{% endif %}>
+                            Case #{{ case.case_number }} — {{ case.title }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-source">Source <span class="tx-field__optional">(optional)</span></label>
+                <input type="text" id="tx-source" name="source" value="{{ entered.source }}"
+                       placeholder="Broker note, statement reference…">
+            </div>
+            <div class="tx-field tx-field--wide">
+                <label class="tx-field__label" for="tx-note">Note <span class="tx-field__optional">(optional)</span></label>
+                <input type="text" id="tx-note" name="note" value="{{ entered.note }}"
+                       placeholder="Why this trade was made.">
+            </div>
+        </div>
+    </div>
+
+    {% with visible = ["trade_date", "units", "price_per_unit", "fees", "taxes",
+                       "settlement_date", "cash_investment_id", "case_id",
+                       "source", "note"] %}
+        {% include "_partials/transactions/_wizard_hidden.html" %}
+    {% endwith %}
+
+    {% include "_partials/transactions/_wizard_outcome.html" %}
+</div>

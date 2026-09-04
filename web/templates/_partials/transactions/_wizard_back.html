@@ -1,0 +1,20 @@
+{# The wizard's Back control.
+
+   A **GET**, and that is the whole design: Back writes nothing (D-AH). It re-renders
+   the previous step from the draft the ticket already is, rather than saving
+   the current step on the way out — going backwards is how an operator
+   inspects what they entered, and a step that saved itself on the way back
+   would let a half-corrected field overwrite a good one.
+
+   The consequence is worth stating plainly, because it is the price: an edit
+   made on this step and not confirmed with Continue is not carried
+   backwards. What comes back is what the ticket holds.
+
+   The step is a query parameter rather than stored state; see `_resume_step`
+   for what the same endpoint answers when no step is named.
+
+   Context: step, ticket_id. #}
+<button class="tx-btn" type="button"
+        hx-get="/api/transactions/wizard?step={{ step - 1 }}{% if ticket_id %}&ticket_id={{ ticket_id }}{% endif %}"
+        hx-target="#tx-composer-host"
+        hx-swap="innerHTML">Back</button>

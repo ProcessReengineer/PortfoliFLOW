@@ -1,0 +1,41 @@
+{# The wizard's instrument context strip (M-2, step 3).
+
+   M-1's strip read from a picked ``investments`` row. This one has no row to
+   read — MD-12 makes it an emission effect — so three of its four facts are
+   what the wizard already knows and the fourth is what nothing can know yet:
+
+   * **Instrument** is the Classify step's name, not a stored one;
+   * **Holding on trade date** is a flat 0.0000, derived in the route rather
+     than written here: a row that does not exist holds nothing, which is
+     M-2's own "0.0000 units";
+   * **Currency** is the step-1 fact (W-4);
+   * **Last known price** is "— none yet —", because the instrument-price
+     series a price would come from is keyed on an investment id that will
+     not exist until this ticket books. The composer's strip says "—" for
+     "not derivable yet"; M-2 says something stronger here, and it is true:
+     there will be no price until the first booking writes one.
+
+   Out of band, like M-1's, because M-2 puts it above the static Execution
+   inputs that the recalculation must not disturb.
+
+   Context: instrument_name, holding, currency, oob. #}
+<div class="tx-context" id="tx-wizard-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Instrument</span>
+        <span class="tx-context__value">{{ instrument_name or "— not named yet —" }}</span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Holding on trade date</span>
+        <span class="tx-context__value">
+            {% if holding is not none %}{{ holding }} units{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Currency</span>
+        <span class="tx-context__value">{{ currency or "—" }}</span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Last known price</span>
+        <span class="tx-context__value">— none yet —</span>
+    </div>
+</div>

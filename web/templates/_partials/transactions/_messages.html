@@ -1,0 +1,54 @@
+{# The message strip — one renderer for every surface in this Area.
+
+   Extracted from `_order_outcome.html` when the M-2 wizard (S4b) acquired a
+   message strip of its own. The composer's strip and the wizard's show the
+   same blocks and the same warnings, derived by the same `_derived_context`
+   call, and a second copy of this five-branch chain is how two of them would
+   come to word one identifier differently.
+
+   Copy is MD-9's, lifted verbatim from M-1; the route supplies only the
+   formatted values each sentence interpolates, exactly as the service
+   supplies identifiers rather than prose one layer down.
+
+   Order is M-1's: `error` first (a gesture's own refusal), then blocks (red,
+   they stop the ticket), then warnings (amber, they never stop anything,
+   MD-5). The full-disposal consequence is *not* here — it is a U-SELL
+   concept (MD-7) with a form control inside it, and it stays in the
+   composer's own outcome panel.
+
+   `error` is the route's one exception to supplying values rather than
+   prose: it is a refusal the *service* raised, rendered with the service's
+   own sentence (operator decision D-5), because those sentences already name
+   their remedy and inventing a second wording is how two of them disagree.
+
+   Context: error, messages. #}
+{% if error %}
+    <div class="tx-msg tx-msg--block">
+        <span class="tx-msg__glyph">✕</span>
+        <div><strong>{{ error }}</strong></div>
+    </div>
+{% endif %}
+{% for message in messages %}
+    {% set v = message.data %}
+    <div class="tx-msg{% if message.kind == 'block' %} tx-msg--block{% endif %}">
+        <span class="tx-msg__glyph">{% if message.kind == "block" %}✕{% else %}!{% endif %}</span>
+        <div>
+            {% if message.identifier == "oversell" %}
+                <strong>{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</strong>
+                <span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>
+            {% elif message.identifier == "price_deviation" %}
+                <strong>Execution price is {{ v.percent }} % {{ v.side }} the last known price.</strong>
+                <span class="tx-msg__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</span>
+            {% elif message.identifier == "negative_cash" %}
+                <strong>{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</strong>
+                <span class="tx-msg__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</span>
+            {% elif message.identifier == "net_non_positive" %}
+                <strong>Net proceeds are {{ v.amount }} {{ v.currency }}.</strong>
+                <span class="tx-msg__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</span>
+            {% elif message.identifier == "future_trade_date" %}
+                <strong>Trade date {{ v.trade_date }} is in the future.</strong>
+                <span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>
+            {% endif %}
+        </div>
+    </div>
+{% endfor %}

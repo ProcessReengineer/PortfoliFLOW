@@ -1,0 +1,132 @@
+{# Step 2 · Classify — the master data that becomes the investments row.
+
+   Everything on this step is payload, not a row: MD-12 makes the investment
+   an emission effect, so these values live on the ticket's `master_data`
+   until booking creates it. The four the table is NOT NULL in — name,
+   investment type, asset class, currency — are what the service requires
+   before the ticket may leave `draft` (D-J).
+
+   Valuation mode is stated and not offered: U-NEW is unit-dealt by
+   definition (the ticket carries units and a price), so the emission fixes
+   `unitised` (D-R) and a control here would be a control over nothing.
+
+   The AnlV category is the one field that is optional to *save* and required
+   to *finish* (MD-11 / MD-21). M-2's amber notice says so on this step and
+   the gate itself lives on step 4, which is where Propose and Book now are.
+
+   The notice is rendered, not live (D-AM). M-2's mockup clears it the moment
+   the select changes; this step runs no recalculation — it has no derived
+   region for a response to swap into — so the notice reflects the last
+   render and refreshes on Continue. The field hint beneath the select states
+   the rule unconditionally, so nothing is only knowable from the notice.
+
+   Context: entered, investment_types, asset_classes, anlv_categories,
+   error, messages, anlv_gate. #}
+<div class="tx-wizard-body">
+    <div class="tx-block">
+        <p class="tx-block__title">Master data</p>
+        <div class="tx-grid">
+            <div class="tx-field tx-field--wide">
+                <label class="tx-field__label" for="tx-md-name">Name</label>
+                <input type="text" id="tx-md-name" name="md_name" value="{{ entered.md_name }}">
+                <span class="tx-field__hint">
+                    Pre-filled from the resolved identifier. Must be unique in this tenant.
+                </span>
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-md-type">Investment type</label>
+                <select id="tx-md-type" name="md_investment_type">
+                    {% for option in investment_types %}
+                        <option value="{{ option }}"
+                                {% if entered.md_investment_type == option %}selected{% endif %}>
+                            {{ option }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-md-asset-class">Asset class</label>
+                <select id="tx-md-asset-class" name="md_asset_class_id">
+                    <option value="">Pick an asset class…</option>
+                    {% for option in asset_classes %}
+                        <option value="{{ option.id }}"
+                                {% if entered.md_asset_class_id == option.id | string %}selected{% endif %}>
+                            {{ option.display_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <span class="tx-field__hint">Tenant catalogue.</span>
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-md-currency">Currency</label>
+                <input type="text" id="tx-md-currency" name="currency" class="tx-mono"
+                       maxlength="3" value="{{ entered.currency }}">
+                <span class="tx-field__hint">Becomes the ticket currency.</span>
+            </div>
+            <div class="tx-field">
+                <span class="tx-field__label">Valuation mode</span>
+                <input type="text" value="unitised" readonly>
+                <span class="tx-field__hint">
+                    Fixed for this flow. Reported stakes go through Commitment or Secondary.
+                </span>
+            </div>
+            <div class="tx-field tx-field--wide{% if anlv_gate %} is-missing{% endif %}">
+                <label class="tx-field__label" for="tx-md-anlv">AnlV category</label>
+                <select id="tx-md-anlv" name="md_anlv_code">
+                    <option value="">— not set —</option>
+                    {% for option in anlv_categories %}
+                        <option value="{{ option.code }}"
+                                {% if entered.md_anlv_code == option.code %}selected{% endif %}>
+                            {{ option.paragraph_label }} — {{ option.display_name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <span class="tx-field__hint">
+                    Required before the wizard can finish. You can continue and set it later;
+                    the ticket stays a draft until it is set.
+                </span>
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-md-manager">Manager <span class="tx-field__optional">(optional)</span></label>
+                <input type="text" id="tx-md-manager" name="md_manager" value="{{ entered.md_manager }}">
+            </div>
+            <div class="tx-field">
+                <label class="tx-field__label" for="tx-md-region">Region <span class="tx-field__optional">(optional)</span></label>
+                <input type="text" id="tx-md-region" name="md_region" value="{{ entered.md_region }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="tx-messages">
+        {% include "_partials/transactions/_messages.html" %}
+        {% if anlv_gate %}
+            <div class="tx-msg">
+                <span class="tx-msg__glyph">!</span>
+                <div>
+                    <strong>The AnlV category is not set.</strong>
+                    <span class="tx-msg__sub">
+                        You can continue — but this ticket cannot be proposed or booked
+                        until the category is set. Regulatory reporting depends on it.
+                    </span>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    {% with visible = ["md_name", "md_investment_type", "md_asset_class_id",
+                       "currency", "md_anlv_code", "md_manager", "md_region"] %}
+        {% include "_partials/transactions/_wizard_hidden.html" %}
+    {% endwith %}
+
+    <div class="tx-actions">
+        {% include "_partials/transactions/_wizard_back.html" %}
+        <span class="tx-actions__spacer"></span>
+        {% include "_partials/transactions/_wizard_close.html" %}
+        <button class="tx-btn tx-btn--primary" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-vals='{"step": "3"}'
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">Continue</button>
+    </div>
+</div>

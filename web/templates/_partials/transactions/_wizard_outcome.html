@@ -1,0 +1,111 @@
+{# The wizard's messages-and-actions region, for steps 3 and 4.
+
+   One region rather than two, refreshed out of band on step 3 because the
+   recalculation must not disturb the Execution inputs above it, and rendered
+   inline on step 4 where there is nothing to type and nothing to recalculate.
+
+   The message strip is `_messages.html`, shared with the composer. The
+   *action row* is the wizard's own and is where the two surfaces genuinely
+   differ: M-1 offers three gestures at once, M-2 offers a Continue on step 3
+   and the three finishing gestures on step 4.
+
+   The finish gate is one expression's answer, computed in the route
+   (`anlv_gate`) and rendered here — never re-derived in Jinja. MD-11 keeps
+   Keep as draft out of it: the draft may dangle, and it is the control that
+   makes an unfinished wizard safe to leave.
+
+   Context: step, messages, error, anlv_gate, hint_key, draft_enabled,
+   propose_enabled, book_enabled, ticket_id, oob. #}
+<div class="tx-outcome" id="tx-wizard-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-messages">
+        {% include "_partials/transactions/_messages.html" %}
+        {% if step == 4 and anlv_gate %}
+            <div class="tx-msg tx-msg--block">
+                <span class="tx-msg__glyph">✕</span>
+                <div>
+                    <strong>This wizard cannot finish without an AnlV category.</strong>
+                    <span class="tx-msg__sub">
+                        The regulatory classification is required for booking and for
+                        proposing. The ticket keeps everything you entered as a draft.
+                    </span>
+                    <button class="tx-msg__link" type="button"
+                            hx-get="/api/transactions/wizard?step=2{% if ticket_id %}&ticket_id={{ ticket_id }}{% endif %}"
+                            hx-target="#tx-composer-host"
+                            hx-swap="innerHTML">Set the category in step 2</button>
+                </div>
+            </div>
+        {% elif step == 4 and hint_key in ("no_position", "unconfirmed") %}
+            <div class="tx-msg">
+                <span class="tx-msg__glyph">!</span>
+                <div>
+                    <strong>The settlement position is not confirmed.</strong>
+                    <span class="tx-msg__sub">
+                        Go back to the order step and confirm the position this
+                        trade settles on.
+                    </span>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="tx-actions">
+        {% include "_partials/transactions/_wizard_back.html" %}
+        <span class="tx-actions__spacer"></span>
+        {% include "_partials/transactions/_wizard_close.html" %}
+        {% if step == 3 %}
+            <button class="tx-btn tx-btn--primary" type="button"
+                    hx-post="/api/transactions/draft"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Continue</button>
+        {% else %}
+            {# Keep as draft is the same gesture Continue is — one endpoint,
+               one MD-2 rule — asking to stay on this step rather than to
+               advance. MD-11 leaves it ungated by the AnlV finish gate. #}
+            <button class="tx-btn" type="button"
+                    hx-post="/api/transactions/draft"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not draft_enabled %}disabled{% endif %}>Keep as draft</button>
+            <button class="tx-btn" type="button"
+                    hx-post="/api/transactions/propose"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+            <button class="tx-btn tx-btn--primary" type="button"
+                    hx-post="/api/transactions/book"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not book_enabled %}disabled{% endif %}>Book now</button>
+        {% endif %}
+        <p class="tx-actions__hint">
+            {%- if step == 3 -%}
+                {%- if hint_key == "incomplete" -%}
+                    Fill in the units and price before continuing.
+                {%- elif hint_key == "no_position" -%}
+                    Pick or create a settlement position before continuing.
+                {%- elif hint_key == "unconfirmed" -%}
+                    Confirm the settlement position before continuing.
+                {%- elif hint_key == "blocked" -%}
+                    Fix the errors above before continuing.
+                {%- else -%}
+                    Continue reviews everything before it becomes a fact.
+                {%- endif -%}
+            {%- elif anlv_gate -%}
+                Book now and Propose are unavailable until the AnlV category is set.
+                Keep as draft is always available.
+            {%- elif hint_key != "ready" -%}
+                Confirm the settlement position in step 3 before finishing.
+            {%- else -%}
+                Booking creates the investment and both ledger legs in one step.
+            {%- endif -%}
+        </p>
+    </div>
+</div>

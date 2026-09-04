@@ -10,9 +10,11 @@ session-bound CSRF token).
 
 What is pinned here:
 
-* **The chooser** (MD-1) — five tiles with the mockup's copy, exactly one of
-  them wired, four inert. This is the sharper successor to the "no controls"
-  pin the New-transaction section left behind when S4a filled it.
+* **The chooser** (MD-1) — five tiles with the mockup's copy, the shipped
+  flows wired and the rest inert. This is the sharper successor to the "no
+  controls" pin the New-transaction section left behind when S4a filled it.
+  S4b armed the second tile and moved the count with it; the assertion is
+  otherwise the one S4a wrote.
 * **The picker** — unitised, active, non-cash, and tenant-scoped.
 * **That nothing is written.** The recalculation endpoint is a read: a
   warning-heavy round trip leaves the ``trade_tickets`` and ``investments``
@@ -386,11 +388,19 @@ def _recalc_form(**overrides: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def test_chooser_renders_five_tiles_one_of_them_live(
+async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The MD-1 chooser: five tiles, one wired, four pilled and inert."""
+    """The MD-1 chooser: five tiles, the shipped ones wired, the rest inert.
+
+    Updated by S4b, which armed the U-NEW tile — the one assertion in this
+    module the wizard could not leave standing, since a live tile is a second
+    button where this test counted one. Everything the test was *for* is kept:
+    the mockup's copy on all five, exactly one control per shipped flow, and
+    no stray form or link anywhere in the chooser. The wizard's own coverage
+    of the tile it armed is in ``test_transactions_wizard.py``.
+    """
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
 
@@ -409,8 +419,9 @@ async def test_chooser_renders_five_tiles_one_of_them_live(
         assert code in section
 
     assert section.count('hx-get="/api/transactions/order-form"') == 1
-    assert section.count("<button") == 1, "only the U-BUY / U-SELL tile is a control"
-    assert section.count("Arrives with S4b") == 1
+    assert section.count('hx-get="/api/transactions/wizard"') == 1
+    assert section.count("<button") == 2, "the two shipped flows are the only controls"
+    assert "Arrives with S4b" not in section, "S4b shipped; the U-NEW tile is live"
     assert section.count("Arrives with S4c") == 3
     for token in ("<form", "<input", "<a "):
         assert token not in section, f"the chooser carries an unexpected control: {token!r}"

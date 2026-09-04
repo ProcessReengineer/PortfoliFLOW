@@ -10,9 +10,14 @@
    `order_legs` — the very function the booking uses. Nothing on this page
    multiplies units by a price.
 
+   Shared with the M-2 wizard's Order step (S4b) unchanged: M-2 states that
+   its settlement states "behave exactly as in M-1", and the way to keep that
+   true is for them to be the same template. `flow` is the one value it reads
+   to tell the two apart, and it chooses a sentence — never a number.
+
    Context (all pre-formatted): formula, gross, fees, taxes, net, net_label,
    currency, direction, legs, candidates, offer_cash_creation,
-   inactive_cash_only, settle_confirmed, investment, entered. #}
+   inactive_cash_only, settle_confirmed, investment, entered, flow. #}
 <div class="tx-derived-host" id="tx-derived">
 
     <div class="tx-block">
@@ -44,6 +49,12 @@
                     {%- else -%}—{%- endif -%}
                 </span>
             </div>
+            {# D-AI: the magnitude, with the label carrying its direction —
+               "Net cost" or "Net proceeds". M-2 draws a leading minus on the
+               wizard's Order step and none on its Confirm card; one
+               convention across both surfaces beats matching each drawing,
+               and the signed movement is stated in the cash leg above, where
+               the ledger will record it. #}
             <div class="tx-derived__row tx-derived__row--total">
                 <span>{{ net_label }}</span>
                 <span>{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
@@ -74,10 +85,20 @@
 
     <div class="tx-block">
         <p class="tx-block__title">Settlement position</p>
-        {% if not investment %}
+        {% if not currency %}
+            {# Keyed on the currency rather than on the picked row (S4b). On
+               the composer the two say the same thing — MD-8 derives the
+               currency from the investment, so "no currency" is exactly "no
+               investment picked" — while the wizard has a currency and never
+               a row (MD-12), and testing for the row would hide the whole
+               settlement block from it. #}
             <div class="tx-settle">
                 <p class="tx-settle__lead">
-                    Pick an investment first — the settlement position follows its currency.
+                    {% if flow %}
+                        Set the currency first — the settlement position follows it.
+                    {% else %}
+                        Pick an investment first — the settlement position follows its currency.
+                    {% endif %}
                 </p>
             </div>
         {% elif offer_cash_creation %}

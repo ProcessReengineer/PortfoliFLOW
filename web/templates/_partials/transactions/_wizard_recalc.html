@@ -1,0 +1,17 @@
+{# The recalculation response for the wizard's Order step.
+
+   The wizard's counterpart to `_order_recalc.html`, and the same three-part
+   shape for the same reason: M-2 interleaves its derived regions with static
+   inputs, so only the amounts-and-settlement block can be a contiguous swap
+   and the rest travel out of band.
+
+   Swap target: `#tx-derived` (`_order_derived.html`, shared with M-1).
+   Out of band: the wizard's context strip and its messages-and-actions
+   region. The head is deliberately not among them — a keystroke must not
+   move the ticket number or the state pill.
+
+   Context: everything `_derived_context` returns, plus oob, step, flow,
+   entered, csrf_token. #}
+{% include "_partials/transactions/_order_derived.html" %}
+{% include "_partials/transactions/_wizard_context.html" %}
+{% include "_partials/transactions/_wizard_outcome.html" %}

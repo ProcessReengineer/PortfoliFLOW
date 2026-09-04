@@ -1,0 +1,19 @@
+{# The wizard's leave control.
+
+   M-2 labels it "Discard" on step 1 and "Discard draft" afterwards. It reads
+   **Close** on every step here (D-AJ), and the deviation is deliberate rather than a
+   translation slip: nothing on this surface destroys anything. Before the
+   first Continue there is no ticket to discard (MD-2); after it the draft is
+   the operator's saved work, reachable from the Blotter and resumable, and a
+   control that quietly cancelled it would be the one gesture on this surface
+   with no way back. Cancelling a draft is S5's, with its own confirmation.
+
+   This is the same label and the same reasoning the composer's own leave
+   control carries once a ticket exists (the P-2 Discard→Close precedent);
+   the wizard simply has no state in which the other label would be true.
+
+   Context: none. #}
+<button class="tx-btn tx-btn--ghost" type="button"
+        hx-get="/api/transactions/chooser"
+        hx-target="#tx-composer-host"
+        hx-swap="innerHTML">Close</button>

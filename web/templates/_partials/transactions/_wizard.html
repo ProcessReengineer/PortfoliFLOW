@@ -1,0 +1,68 @@
+{# M-2 new-instrument wizard — U-NEW, the flow that creates the investment
+   and buys it in one booking (ADR-0128, S4b). Swapped into
+   #tx-composer-host by the chooser's "Buy a new instrument" tile; Close
+   swaps the chooser back.
+
+   A surface over what already exists. It writes through the S4a gesture
+   endpoints unchanged — Continue *is* `POST /api/transactions/draft` with a
+   step number on it — and the investment it is about is not created here at
+   all: the master data rides on the ticket as a payload and the emission
+   makes the row at booking (MD-12). Nothing in this template family calls
+   for a second write path, and there is none.
+
+   One form, four bodies. All four steps share the enclosing form, but only
+   the active body renders; every field the active step does not show rides
+   as a hidden input (`_wizard_hidden.html`), so each Continue posts the
+   whole master-data inventory and the draft's payload is a full replacement
+   rather than a merge.
+
+   The step is navigation, not state. It is posted by the button that asks
+   for it — as `hx-vals`, never as a hidden input, so exactly one value for
+   it leaves this form — and stored nowhere: a resumed ticket derives its
+   step from its own content (`_resume_step`), which is why MD-10's "reopens
+   where it stopped" needs no column and no migration.
+
+   Recalculation is the Order step's alone. The form itself posts nothing on
+   input; step 3's body carries the `recalc` trigger, because it is the only
+   step with a derived region to refresh and a keystroke on any other would
+   ask htmx to swap a target that is not on the page.
+
+   MD-2 as everywhere on this surface: the head reads "New ticket · Unsaved"
+   until the first Continue, and from then on "Ticket #n" with its status
+   pill. MD-14: there is no direction control anywhere here — U-NEW is a
+   purchase by definition, and the server fixes `buy` regardless of what
+   arrives.
+
+   Context: csrf_token, flow, step, steps, ticket_id, ticket_number,
+   ticket_status, plus each step body's own. #}
+<form class="tx-ticket" id="tx-wizard-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="flow" value="{{ flow }}">
+    {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
+
+    <div class="tx-ticket__head">
+        <div class="tx-ticket__ident">
+            <span class="tx-ticket__id">
+                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
+            </span>
+            <span class="tx-ticket__title" id="tx-ticket-title">{{ title }}</span>
+        </div>
+        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
+            {{ ticket_status | default("unsaved", true) | capitalize }}
+        </span>
+    </div>
+
+    <div class="tx-ticket__body">
+        {% include "_partials/transactions/_wizard_stepper.html" %}
+
+        {% if step == 1 %}
+            {% include "_partials/transactions/_wizard_identify.html" %}
+        {% elif step == 2 %}
+            {% include "_partials/transactions/_wizard_classify.html" %}
+        {% elif step == 3 %}
+            {% include "_partials/transactions/_wizard_order.html" %}
+        {% else %}
+            {% include "_partials/transactions/_wizard_confirm.html" %}
+        {% endif %}
+    </div>
+</form>

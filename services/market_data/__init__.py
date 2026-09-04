@@ -53,7 +53,11 @@ from services.market_data.factory import (
     load_capability_matrix,
     resolve_provider_name,
 )
-from services.market_data.normalisation import resolve_figi
+from services.market_data.normalisation import (
+    ResolvedInstrument,
+    resolve_figi,
+    resolve_instrument,
+)
 from services.market_data.provider import (
     IdentifierNotResolvableError,
     MarketDataConfigurationError,
@@ -88,5 +92,7 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "build_adapter",
     "get_provider",
     # OpenFIGI normalisation
+    "ResolvedInstrument",
     "resolve_figi",
+    "resolve_instrument",
 ]

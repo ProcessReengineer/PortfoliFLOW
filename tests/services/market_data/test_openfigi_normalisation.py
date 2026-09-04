@@ -9,6 +9,11 @@ now driven purely by the injected ``api_key`` parameter (ADR-0095 §5 —
 credential-source-blindness; the module no longer reads the environment), and
 the mapping of no-match / unsupported-scheme / HTTP failure onto the port error
 types.
+
+:func:`~services.market_data.normalisation.resolve_instrument` is the sibling
+seam reading the *same* first entry more completely; its tests pin that the
+FIGI stays required while ``name`` / ``currency`` are best-effort pre-fill —
+``None`` is an honest absence, never a fabricated or coerced value.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import pytest
 from services.market_data.normalisation import (
     _API_KEY_HEADER,
     resolve_figi,
+    resolve_instrument,
 )
 from services.market_data.provider import (
     IdentifierNotResolvableError,
@@ -124,3 +130,113 @@ class TestErrors:
         httpx_mock.add_response(status_code=500, text="boom")
         with pytest.raises(ProviderFetchError, match="HTTP 500"):
             await resolve_figi("isin", "US0378331005")
+
+
+class TestResolveInstrument:
+    """The pre-fill seam: FIGI required, name/currency opportunistic (W-4′)."""
+
+    async def test_full_entry_populates_all_three_fields(self, httpx_mock) -> None:
+        httpx_mock.add_response(
+            json=[
+                {
+                    "data": [
+                        {"figi": "BBG000B9XRY4", "name": "APPLE INC", "currency": "USD"},
+                    ]
+                }
+            ]
+        )
+        instrument = await resolve_instrument("isin", "US0378331005")
+        assert instrument.figi == "BBG000B9XRY4"
+        assert instrument.name == "APPLE INC"
+        assert instrument.currency == "USD"
+
+    async def test_name_only_entry_leaves_currency_none(self, httpx_mock) -> None:
+        # The shape the recorded fixtures actually evidence: a mapping entry
+        # with a name and no currency. `None` is the honest answer.
+        httpx_mock.add_response(json=[{"data": [{"figi": "BBG000B9XRY4", "name": "APPLE INC"}]}])
+        instrument = await resolve_instrument("isin", "US0378331005")
+        assert instrument.figi == "BBG000B9XRY4"
+        assert instrument.name == "APPLE INC"
+        assert instrument.currency is None
+
+    async def test_bare_figi_entry_leaves_both_none(self, httpx_mock) -> None:
+        httpx_mock.add_response(json=[{"data": [{"figi": "BBG000BVPV84"}]}])
+        instrument = await resolve_instrument("ticker", "AMZN")
+        assert instrument.figi == "BBG000BVPV84"
+        assert instrument.name is None
+        assert instrument.currency is None
+
+    async def test_non_string_values_read_as_none(self, httpx_mock) -> None:
+        # Defensive read: a non-string payload value is not coerced into a
+        # string pre-fill — it reads as an absence (ADR-0090: no inference).
+        httpx_mock.add_response(
+            json=[{"data": [{"figi": "BBG000B9XRY4", "name": 42, "currency": ["USD"]}]}]
+        )
+        instrument = await resolve_instrument("isin", "US0378331005")
+        assert instrument.figi == "BBG000B9XRY4"
+        assert instrument.name is None
+        assert instrument.currency is None
+
+    async def test_null_values_read_as_none(self, httpx_mock) -> None:
+        httpx_mock.add_response(
+            json=[{"data": [{"figi": "BBG000B9XRY4", "name": None, "currency": None}]}]
+        )
+        instrument = await resolve_instrument("isin", "US0378331005")
+        assert instrument.name is None
+        assert instrument.currency is None
+
+    async def test_first_match_is_deterministic(self, httpx_mock) -> None:
+        # Same first-match rule as resolve_figi: data[0] wins, whole entry.
+        httpx_mock.add_response(
+            json=[
+                {
+                    "data": [
+                        {"figi": "BBG000FIRST0", "name": "FIRST CO", "currency": "EUR"},
+                        {"figi": "BBG000SECOND", "name": "SECOND CO", "currency": "USD"},
+                    ]
+                }
+            ]
+        )
+        instrument = await resolve_instrument("isin", "US0378331005")
+        assert instrument.figi == "BBG000FIRST0"
+        assert instrument.name == "FIRST CO"
+        assert instrument.currency == "EUR"
+
+    async def test_entry_without_figi_is_not_resolvable(self, httpx_mock) -> None:
+        # A name alone is not a resolution: the FIGI is the required field.
+        httpx_mock.add_response(json=[{"data": [{"name": "APPLE INC", "currency": "USD"}]}])
+        with pytest.raises(IdentifierNotResolvableError):
+            await resolve_instrument("isin", "US0378331005")
+
+    async def test_warning_maps_to_not_resolvable(self, httpx_mock) -> None:
+        httpx_mock.add_response(json=[{"warning": "No identifier found."}])
+        with pytest.raises(IdentifierNotResolvableError):
+            await resolve_instrument("isin", "XX0000000000")
+
+    async def test_unsupported_scheme_raises(self) -> None:
+        # Same gate as resolve_figi, before any HTTP call is made.
+        with pytest.raises(UnsupportedCapabilityError):
+            await resolve_instrument("figi", "BBG000B9XRY4")
+
+    async def test_error_payload_maps_to_fetch_error(self, httpx_mock) -> None:
+        httpx_mock.add_response(json=[{"error": "Invalid idType."}])
+        with pytest.raises(ProviderFetchError):
+            await resolve_instrument("cusip", "037833100")
+
+    async def test_http_500_maps_to_fetch_error(self, httpx_mock) -> None:
+        httpx_mock.add_response(status_code=500, text="boom")
+        with pytest.raises(ProviderFetchError, match="HTTP 500"):
+            await resolve_instrument("isin", "US0378331005")
+
+    async def test_keyed_sends_api_key_header(self, httpx_mock) -> None:
+        # Parity with the resolve_figi key tests: one request shape, one rule.
+        httpx_mock.add_response(json=[{"data": [{"figi": "BBG000B9XRY4"}]}])
+        await resolve_instrument("isin", "US0378331005", api_key="secret-key")
+        request = httpx_mock.get_requests()[0]
+        assert request.headers.get(_API_KEY_HEADER) == "secret-key"
+
+    async def test_keyless_sends_no_api_key_header(self, httpx_mock) -> None:
+        httpx_mock.add_response(json=[{"data": [{"figi": "BBG000B9XRY4"}]}])
+        await resolve_instrument("isin", "US0378331005")
+        request = httpx_mock.get_requests()[0]
+        assert _API_KEY_HEADER not in request.headers

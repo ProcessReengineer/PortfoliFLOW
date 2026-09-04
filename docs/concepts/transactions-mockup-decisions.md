@@ -29,8 +29,8 @@ ADRs if ever needed — none is needed: every decision below is compatible with
 ADR-0128's text).
 
 All decisions were made by the operator in the T-0 review rounds of
-2026-08-28/29 unless marked otherwise. Exactly one item (MD-18) carries a
-**confirm-at-commit** marker; striking that marker at commit time makes it
+2026-08-28/29 unless marked otherwise. Exactly one item (MD-18) carried a
+**confirm-at-commit** marker; it was **confirmed on 2026-09-04** and is
 final.
 
 ---
@@ -176,7 +176,7 @@ notice — no checkbox (contrast MD-7's U-SELL case). Proceeds book as
 `distribution` / `actual` (ADR-0128's Q-3 resolution), shown literally in the
 flow row. The derived "vs. last reported NAV" line is neutral information.
 
-**MD-18 — R-2 refusal blocks even the draft.** *(confirm at commit)*
+**MD-18 — R-2 refusal blocks even the draft.** *(confirmed 2026-09-04)*
 "Sell part of the stake" is selectable and selecting it produces the red
 refusal (proportional NAV and unfunded restatement, plan-flow interaction;
 successor named). While selected, **Book now, Propose and Save as draft are
@@ -273,3 +273,52 @@ Control before proceeding.
    `docs(transactions): add T-0 mockups M-1..M-3 and decision record (#061)`
 4. Report MD-2, MD-3, MD-4, MD-5, MD-12, MD-18 and §2 to Mission Control as
    the schema-touching set; Mission Control releases kickoff T-1 with them.
+
+## 6. Addenda — decisions of record from implementation (S2–S4a)
+
+Mirrored from the T-2 and T-4 reports so this record stays the single
+place downstream strands read. Sources: T-2 closing report (2026-09-01),
+T-4 S4a interim note (2026-09-04), Mission Control board.
+
+- **A-1 · Creation invariant (resolves the D-I question).** An
+  `investment_update` effect with `prior_state IS NULL` means "this
+  investment row was created by this booking"; a dict before-image means
+  "updated" (only `is_active` is ever changed by an emission). No fifth
+  effect type; pinned by S2b/S2c tests.
+- **A-2 · Block vocabulary widened (§2.9 note).** `BLOCK_IDENTIFIERS` now
+  carries eight identifiers: the §2.9 five plus S2b's
+  `nav_exists_at_trade_date`, `duplicate_investment_name`,
+  `investment_inactive`.
+- **A-3 · MD-17 confirmed against a contrary kickoff line.** R-SEC-SELL
+  deactivates the investment unconditionally; `set_inactive` is a U-SELL
+  choice only (T-2 D-S).
+- **A-4 · Reversal causes.** `TicketReversalBlocked.cause ∈ {modified,
+  consumed, holdings_consumed, unrestorable, referenced_by_ticket}`. Live
+  references (draft/proposed/approved tickets on a booking-created
+  investment) block with `referenced_by_ticket`; exclusively terminal
+  references degrade to the retained-shell path. `retained_because`
+  carries ticket numbers or the retaining table's plain-language name for
+  user rows — surfaces render it verbatim (T-2 D-AC, T-4 OP-17).
+- **A-5 · Retained shells.** Reversing a creating flow deletes the shell
+  iff only platform artefacts remain; user rows retain it with
+  `is_active=False` and the ticket stays linked — an inactive investment
+  the operator owns and S5 surfaces.
+- **A-6 · Settlement position hygiene (refines MD-3).**
+  `inactive_cash_position` is its own block identifier and must not
+  trigger the inline-creation offer; only `missing_cash_position` does
+  (T-2 D-E/D-F).
+- **A-7 · Refusal copy, uniform rule (refines MD-9).** Every typed
+  service error renders `str(exc)` as the red block — service sentences
+  are the copy; routes invent no wording. Mockup copy remains binding
+  where it exists (T-4 D-5).
+- **A-8 · Inline cash creation (refines MD-3).** The mini-form's
+  `opening_date` is the composer's trade date, via the sanctioned
+  `InvestmentService.create_cash_position` seam (T-4 W-1, P-0c).
+- **A-9 · Draft gating (refines MD-2/MD-11).** Save as draft requires
+  only direction, investment/currency and trade date, and stays available
+  under warnings and blocks; Propose/Book keep full gating. MD-18 is the
+  named exception and lands as a block-aware `draft_enabled` in S4c
+  (T-4 W-3).
+- **A-10 · Preview discipline.** `TicketService.preview` is read-only and
+  previews only `oversell` in v1; adding a previewable block is a
+  decision, not a follow-up (T-4 D-2/P-0b).

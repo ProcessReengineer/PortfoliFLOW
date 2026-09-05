@@ -1,0 +1,155 @@
+{# M-3 R-SEC-SELL composer — the full disposal of a statement-valued stake
+   (ADR-0128, S4c). Swapped into #tx-composer-host by the chooser's fifth
+   tile; Discard swaps the chooser back.
+
+   A surface over what already exists. It writes through the S4a gesture
+   endpoints unchanged — Save as draft, Propose and Book now are M-1's own
+   three — and adds no write path of its own; the only new endpoint is the
+   GET that opens this form.
+
+   The form is the unit of state, exactly as in M-1: every field posts to
+   POST /api/transactions/recalc on input or change (and on `submit`, so a
+   stray Enter recalculates rather than navigating away), and the response
+   re-renders the four derived regions — the ticket title, the context strip,
+   the proceeds/emission/settlement panel and the messages/actions panel. The
+   static half is never re-rendered, so nothing being typed into moves.
+
+   MD-17: there is no direction control and no full-disposal checkbox. A
+   secondary sale is a full disposal by definition, so the server fixes
+   `sell`, writes `set_inactive` as False, and the consequences appear as
+   emission rows in the On-booking block rather than as choices.
+
+   MD-18: "Sell part of the stake" is selectable and refused. It is the one
+   block this surface owns outright — the schema has no fraction column, so
+   no service can refuse it — and it is the only block that reaches Save as
+   draft: a partial-sale ticket cannot exist in v1 even as a draft.
+
+   MD-2 as everywhere here: the header reads "New ticket · Unsaved" until the
+   first gesture, then "Ticket #n" with its status pill, and `ticket_id` rides
+   in a hidden field so the next gesture updates that row.
+
+   Context: csrf_token, flow, investments (the reported picker set), cases,
+   trade_date, entered, case_id, ticket_id, ticket_number, ticket_status,
+   error, plus everything `_derived_context` returns. #}
+<form class="tx-ticket" id="tx-secsell-form"
+      hx-post="/api/transactions/recalc"
+      hx-trigger="input delay:300ms, change delay:300ms, submit"
+      hx-target="#tx-derived"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="flow" value="{{ flow }}">
+    {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
+
+    <div class="tx-ticket__head">
+        <div class="tx-ticket__ident">
+            <span class="tx-ticket__id">
+                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
+            </span>
+            {% include "_partials/transactions/_order_title.html" %}
+        </div>
+        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
+            {{ ticket_status | default("unsaved", true) | capitalize }}
+        </span>
+    </div>
+
+    <div class="tx-ticket__body">
+
+        {# ---------------------------- What happened -------------------- #}
+        <div class="tx-block">
+            <p class="tx-block__title">What happened</p>
+            <div class="tx-grid">
+                <div class="tx-field tx-field--wide">
+                    <label class="tx-field__label" for="tx-secsell-investment">Investment</label>
+                    <select id="tx-secsell-investment" name="investment_id">
+                        <option value="">Pick an investment…</option>
+                        {% for option in investments %}
+                            <option value="{{ option.id }}"
+                                    {% if investment and option.id == investment.id %}selected{% endif %}>
+                                {{ option.name }} — {{ option.currency }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <span class="tx-field__hint">Reported and active investments only.</span>
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-secsell-date">Trade date</label>
+                    <input type="date" id="tx-secsell-date" name="trade_date" value="{{ trade_date }}">
+                    <span class="tx-field__hint">Every effect books on this date.</span>
+                </div>
+            </div>
+
+            {% include "_partials/transactions/_secondary_sale_context.html" %}
+        </div>
+
+        {# --------------------------- Scope of the sale ------------------ #}
+        {% include "_partials/transactions/_secondary_sale_scope.html" %}
+
+        {# ------------------------------- Proceeds ---------------------- #}
+        <div class="tx-block">
+            <p class="tx-block__title">Proceeds</p>
+            <div class="tx-grid">
+                <div class="tx-field tx-field--numeric">
+                    <label class="tx-field__label" for="tx-secsell-gross">Sale proceeds{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input type="number" id="tx-secsell-gross" name="gross_amount" step="any"
+                           value="{{ entered.gross_amount }}">
+                </div>
+                <div class="tx-field tx-field--numeric">
+                    <label class="tx-field__label" for="tx-secsell-fees">Fees <span class="tx-field__optional">(optional)</span></label>
+                    <input type="number" id="tx-secsell-fees" name="fees" step="any"
+                           value="{{ entered.fees }}">
+                </div>
+                <div class="tx-field tx-field--numeric">
+                    <label class="tx-field__label" for="tx-secsell-taxes">Taxes <span class="tx-field__optional">(optional)</span></label>
+                    <input type="number" id="tx-secsell-taxes" name="taxes" step="any"
+                           value="{{ entered.taxes }}">
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-secsell-settlement-date">Settlement date <span class="tx-field__optional">(optional)</span></label>
+                    <input type="date" id="tx-secsell-settlement-date" name="settlement_date"
+                           value="{{ entered.settlement_date }}">
+                    <span class="tx-field__hint">Recorded only. Cash books on the trade date.</span>
+                </div>
+            </div>
+        </div>
+
+        {# ------------ Derived rows, emission preview and settlement ----- #}
+        {% include "_partials/transactions/_secondary_sale_derived.html" %}
+
+        {# ----------------------------- Provenance ---------------------- #}
+        {# M-3 draws no Provenance block; M-1's is kept because a secondary
+           sale carries the same Watch Desk → Case → ticket lineage every
+           other flow does (ADR-0128 §6), and dropping it here would make the
+           one flow most likely to *come from* a case the only one that
+           cannot record which. Registered as a copy gap for the walk. #}
+        <div class="tx-block">
+            <p class="tx-block__title">Provenance</p>
+            <div class="tx-grid">
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-secsell-case">Linked case <span class="tx-field__optional">(optional)</span></label>
+                    <select id="tx-secsell-case" name="case_id">
+                        <option value="">No case</option>
+                        {% for case in cases %}
+                            <option value="{{ case.id }}"
+                                    {% if case_id and case.id == case_id %}selected{% endif %}>
+                                Case #{{ case.case_number }} — {{ case.title }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-secsell-source">Source <span class="tx-field__optional">(optional)</span></label>
+                    <input type="text" id="tx-secsell-source" name="source" value="{{ entered.source }}"
+                           placeholder="Broker note, statement reference…">
+                </div>
+                <div class="tx-field tx-field--wide">
+                    <label class="tx-field__label" for="tx-secsell-note">Note <span class="tx-field__optional">(optional)</span></label>
+                    <input type="text" id="tx-secsell-note" name="note" value="{{ entered.note }}"
+                           placeholder="Why this trade was made.">
+                </div>
+            </div>
+        </div>
+
+        {# --------------------- Messages and actions --------------------- #}
+        {% include "_partials/transactions/_secondary_sale_outcome.html" %}
+    </div>
+</form>

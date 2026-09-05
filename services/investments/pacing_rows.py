@@ -292,14 +292,14 @@ def build_pacing_rows(
                 name=investment.name,
                 currency=investment.currency.upper(),
                 plan_source=generated or (PLAN_SOURCE_REPORTED if flows else None),
-                unfunded=_unfunded(investment, called_by_investment.get(investment_id)),
+                unfunded=unfunded_commitment(investment, called_by_investment.get(investment_id)),
                 profile_end=max((flow.as_of_date for flow in flows), default=None),
             )
         )
     return tuple(rows)
 
 
-def _unfunded(investment: InvestmentDTO, called: Decimal | None) -> Decimal | None:
+def unfunded_commitment(investment: InvestmentDTO, called: Decimal | None) -> Decimal | None:
     """Return the fund's unfunded commitment, or ``None`` if unstatable.
 
     ``commitment_amount − Σ|realised capital calls|`` — the formulation
@@ -465,4 +465,5 @@ __all__ = [
     "load_called_amounts",
     "quarter_shift",
     "repaceable_flows",
+    "unfunded_commitment",
 ]

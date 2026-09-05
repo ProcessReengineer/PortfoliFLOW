@@ -1,0 +1,35 @@
+{# MD-18's scope control (M-3, "Scope of the sale").
+
+   Two options, and the second one refuses. It is offered rather than hidden
+   because MD-18's answer is a *reason*, not an absence: an operator who came
+   here to record a partial sale needs to be told why they cannot, and what to
+   do instead — which the red block below the form then says.
+
+   Out of band, like the context strip and the message panel, because the
+   option states are derived: which one carries `is-selected` and which one
+   `is-refused` is the server's answer to what was posted, and the block sits
+   above the static Proceeds inputs that a recalculation must not disturb.
+
+   Both radios carry a stable id, which is what lets the selection survive the
+   swap: htmx restores focus to the element with the same id afterwards.
+
+   Context: partial_sale, oob. #}
+<div class="tx-block" id="tx-secsell-scope" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <p class="tx-block__title">Scope of the sale</p>
+    <div class="tx-fraction">
+        <label class="tx-fraction__opt{% if not partial_sale %} is-selected{% endif %}">
+            <input type="radio" id="tx-secsell-frac-full" name="fraction" value="full"
+                   {% if not partial_sale %}checked{% endif %}>
+            <span>Sell the entire stake
+                <span class="tx-fraction__sub">NAV, unfunded commitment and the position close together.</span>
+            </span>
+        </label>
+        <label class="tx-fraction__opt{% if partial_sale %} is-refused{% endif %}">
+            <input type="radio" id="tx-secsell-frac-partial" name="fraction" value="partial"
+                   {% if partial_sale %}checked{% endif %}>
+            <span>Sell part of the stake
+                <span class="tx-fraction__sub">Not supported in v1.</span>
+            </span>
+        </label>
+    </div>
+</div>

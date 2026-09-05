@@ -12,9 +12,10 @@
 
    Order is M-1's: `error` first (a gesture's own refusal), then blocks (red,
    they stop the ticket), then warnings (amber, they never stop anything,
-   MD-5). The full-disposal consequence is *not* here — it is a U-SELL
-   concept (MD-7) with a form control inside it, and it stays in the
-   composer's own outcome panel.
+   MD-5). Neither consequence message is here — U-SELL's carries a form
+   control (MD-7) and R-SEC-SELL's states a definition (MD-17), and each
+   belongs to the one surface that means it. Each stays in its own outcome
+   panel.
 
    `error` is the route's one exception to supplying values rather than
    prose: it is a refusal the *service* raised, rendered with the service's
@@ -33,7 +34,17 @@
     <div class="tx-msg{% if message.kind == 'block' %} tx-msg--block{% endif %}">
         <span class="tx-msg__glyph">{% if message.kind == "block" %}✕{% else %}!{% endif %}</span>
         <div>
-            {% if message.identifier == "oversell" %}
+            {% if message.identifier == "partial_secondary_sale" %}
+                {# MD-18. The only block on this surface that no service
+                   derived: a partial sale is not representable in the schema,
+                   so `preview` has nothing to refuse and the route supplies
+                   the identifier directly. It renders in the same shape as
+                   the derived blocks because it stops the ticket in the same
+                   way — harder, in fact: it is the one block that also
+                   withholds Save as draft. #}
+                <strong>Partial secondary sales are not supported yet.</strong>
+                <span class="tx-msg__sub">A partial sale must restate NAV and unfunded commitment proportionally, and the unfunded split interacts with planned flows — a design of its own, deliberately deferred. Record a full sale, or wait for the successor.</span>
+            {% elif message.identifier == "oversell" %}
                 <strong>{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</strong>
                 <span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>
             {% elif message.identifier == "price_deviation" %}

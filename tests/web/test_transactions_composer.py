@@ -394,12 +394,17 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
 ) -> None:
     """The MD-1 chooser: five tiles, the shipped ones wired, the rest inert.
 
-    Updated by S4b, which armed the U-NEW tile — the one assertion in this
-    module the wizard could not leave standing, since a live tile is a second
-    button where this test counted one. Everything the test was *for* is kept:
-    the mockup's copy on all five, exactly one control per shipped flow, and
-    no stray form or link anywhere in the chooser. The wizard's own coverage
-    of the tile it armed is in ``test_transactions_wizard.py``.
+    Updated by S4b, which armed the U-NEW tile, and again by S4c/P-4a, which
+    armed R-SEC-SELL — the one assertion in this module a new flow cannot
+    leave standing, since a live tile is another button where this test
+    counted them. The name still reads true and is deliberately not changed
+    with each arming; what moves is the count.
+
+    Everything the test was *for* is kept: the mockup's copy on all five,
+    exactly one control per shipped flow, and no stray form or link anywhere
+    in the chooser. Each armed tile's own coverage lives with its surface —
+    ``test_transactions_wizard.py`` for U-NEW,
+    ``test_transactions_secondary_sale.py`` for R-SEC-SELL.
     """
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
@@ -420,9 +425,10 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
 
     assert section.count('hx-get="/api/transactions/order-form"') == 1
     assert section.count('hx-get="/api/transactions/wizard"') == 1
-    assert section.count("<button") == 2, "the two shipped flows are the only controls"
+    assert section.count('hx-get="/api/transactions/secondary-sale-form"') == 1
+    assert section.count("<button") == 3, "the three shipped flows are the only controls"
     assert "Arrives with S4b" not in section, "S4b shipped; the U-NEW tile is live"
-    assert section.count("Arrives with S4c") == 3
+    assert section.count("Arrives with S4c") == 2, "P-4a armed R-SEC-SELL; two flows remain"
     for token in ("<form", "<input", "<a "):
         assert token not in section, f"the chooser carries an unexpected control: {token!r}"
 

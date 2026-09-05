@@ -373,6 +373,13 @@ button.tx-flow:hover {
     font-size: 0.8rem;
 }
 
+/* MD-20's context row: quieter than a derived amount, because it qualifies
+ * one rather than stating one. M-3's own rule, verbatim. */
+.tx-derived__row--info span:first-child {
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+}
+
 .tx-derived__row--total {
     border-top: 1px solid var(--ui-border-default);
     margin-top: 6px;
@@ -440,6 +447,17 @@ button.tx-flow:hover {
 .tx-leg__type--sell {
     border-color: var(--ui-accent-primary);
     color: var(--ui-accent-primary);
+}
+
+/* M-3's third leg colour, for the rows that are not ledger legs at all: the
+ * cashflow, the NAV write and the deactivation a secondary sale emits (MD-17).
+ * Blue reads as "this happens" rather than as a direction, which is right —
+ * none of the three has one. `flow`, `nav` and `status` share it. */
+.tx-leg__type--flow,
+.tx-leg__type--nav,
+.tx-leg__type--status {
+    border-color: var(--ui-semantic-info);
+    color: var(--ui-semantic-info);
 }
 
 .tx-leg__what {
@@ -990,4 +1008,50 @@ a.tx-btn {
 
 .tx-msg__link:hover {
     color: var(--ui-text-on-sidebar);
+}
+
+
+/* --- Scope of the sale (MD-18, M-3) --------------------------------- */
+
+/* Two options, and the second one refuses. The refused state borrows the
+ * error colour the red message block uses, so the control and the block that
+ * explains it read as one answer. */
+.tx-fraction {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tx-fraction__opt {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 10px;
+    align-items: start;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background: var(--ui-background-primary);
+    padding: 8px 11px;
+    cursor: pointer;
+    font-size: 0.87rem;
+}
+
+.tx-fraction__opt input {
+    accent-color: var(--ui-accent-primary);
+    margin-top: 2px;
+}
+
+.tx-fraction__opt.is-selected {
+    border-color: var(--ui-accent-primary);
+    background: var(--pf-accent-soft);
+}
+
+.tx-fraction__opt.is-refused {
+    border-color: var(--ui-semantic-error);
+}
+
+.tx-fraction__sub {
+    display: block;
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin-top: 2px;
 }

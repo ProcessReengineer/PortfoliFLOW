@@ -1,0 +1,150 @@
+{# The MD-3 settlement panel — one renderer for every composer in this Area.
+
+   Extracted from `_order_derived.html` when the R-SEC-SELL composer (S4c)
+   acquired a settlement block of its own. It is the same question on every
+   flow that moves cash — "which cash position did the money move on, and are
+   you sure" — answered from the same four context keys, so a second copy of
+   this four-state chain is how two surfaces would come to offer creation in
+   one state and refuse it in another.
+
+   The four states are MD-3's three plus operator decision D-F: no currency
+   yet, nothing in the currency (offer to create), rows exist but every one
+   is retired (do not offer), and candidates to pick from. Which one applies
+   is decided in the route and handed here as exclusive booleans — no rule is
+   restated in Jinja.
+
+   Copy is MD-9's, lifted verbatim from M-1; M-3 states that its settlement
+   blocks "behave exactly as in M-1", and the way to keep that true is for
+   them to be the same template.
+
+   Context: currency, candidates, offer_cash_creation, inactive_cash_only,
+   settle_confirmed, entered, currency_from_form. #}
+    <div class="tx-block">
+        <p class="tx-block__title">Settlement position</p>
+        {% if not currency %}
+            {# Keyed on the currency rather than on the picked row (S4b). On
+               the composers the two say the same thing — MD-8 derives the
+               currency from the investment, so "no currency" is exactly "no
+               investment picked" — while the wizard has a currency and never
+               a row (MD-12), and testing for the row would hide the whole
+               settlement block from it.
+
+               Which remedy to name is `currency_from_form`, decided in the
+               route: the wizard's currency is a field, everyone else's is a
+               consequence of the picked row. #}
+            <div class="tx-settle">
+                <p class="tx-settle__lead">
+                    {% if currency_from_form %}
+                        Set the currency first — the settlement position follows it.
+                    {% else %}
+                        Pick an investment first — the settlement position follows its currency.
+                    {% endif %}
+                </p>
+            </div>
+        {% elif offer_cash_creation %}
+            {# MD-3, third state: nothing in this currency exists at all, so
+               the surface offers to open one.
+
+               The mini-form's fields are part of the composer's own form —
+               HTML has no nested forms — and the create button posts the lot
+               with hx-include. M-1 reveals the fields behind a first button
+               press; here they stand open, because the reveal needs script
+               and the offer state has already said what it is for (D-H).
+
+               The opening date is not a field: it is the composer's trade
+               date (operator decision W-1), so the position is open and
+               priced on the day this ticket books.
+
+               Both inputs carry a stable id, which is what lets typing in
+               them survive a recalculation: this region is the recalc's swap
+               target, and htmx restores focus and caret to the element with
+               the same id after a swap — with the value the route echoes
+               back through `entered`. #}
+            <div class="tx-settle is-unconfirmed">
+                <div class="tx-settle__empty">
+                    <p><strong>No {{ currency }} cash position exists.</strong></p>
+                    <p>
+                        This ticket moves cash in {{ currency }} and PortfoliFLOW never
+                        converts on your behalf. Create a {{ currency }} cash position to
+                        settle against, or discard the ticket.
+                    </p>
+                </div>
+                <div class="tx-inline-create">
+                    <div class="tx-grid">
+                        <div class="tx-field tx-field--wide">
+                            <label class="tx-field__label" for="tx-cash-name">Name</label>
+                            <input type="text" id="tx-cash-name" name="cash_name"
+                                   value="{{ entered.cash_name or currency ~ ' Cash — main account' }}">
+                        </div>
+                        <div class="tx-field">
+                            <span class="tx-field__label">Currency</span>
+                            <input type="text" value="{{ currency }}" readonly>
+                        </div>
+                        <div class="tx-field tx-field--numeric">
+                            <label class="tx-field__label" for="tx-cash-opening">Opening balance</label>
+                            <input type="number" id="tx-cash-opening" name="cash_opening_balance"
+                                   step="any" min="0"
+                                   value="{{ entered.cash_opening_balance or '0' }}">
+                            <span class="tx-field__hint">Books as an opening row on the new position.</span>
+                        </div>
+                    </div>
+                    <button class="tx-btn tx-btn--primary" type="button"
+                            hx-post="/api/transactions/cash-position"
+                            hx-include="closest form"
+                            hx-target="#tx-composer-host"
+                            hx-swap="innerHTML">Create position</button>
+                </div>
+            </div>
+        {% elif inactive_cash_only %}
+            {# Operator decision D-F: rows exist in this currency but every one
+               has been retired. No creation offer — a retired position is not
+               a missing one, and the remedy is to reactivate it rather than to
+               open a second row beside it. #}
+            <div class="tx-settle is-unconfirmed">
+                <div class="tx-settle__empty">
+                    <p><strong>Every {{ currency }} cash position has been deactivated.</strong></p>
+                    <p>
+                        Reactivate the position this trade settles on, or discard the
+                        ticket. A retired position is not a missing one, so nothing new
+                        is offered here.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            <div class="tx-settle{% if not settle_confirmed %} is-unconfirmed{% endif %}">
+                <p class="tx-settle__lead">
+                    {% if candidates | length == 1 %}
+                        One {{ currency }} cash position on the book. Confirm it or pick another.
+                    {% else %}
+                        {{ candidates | length }} {{ currency }} cash positions on the book.
+                        Pick the one the money actually moved on — there is no default.
+                    {% endif %}
+                </p>
+                <div class="tx-settle__options">
+                    {% for candidate in candidates %}
+                        <label class="tx-settle__option{% if candidate.selected %} is-selected{% endif %}">
+                            <input type="radio" name="cash_investment_id"
+                                   value="{{ candidate.id }}"
+                                   {% if candidate.selected %}checked{% endif %}>
+                            <span class="tx-settle__name">{{ candidate.name }}</span>
+                            <span class="tx-settle__balance">
+                                <span{% if candidate.balance_negative %} class="tx-num--neg"{% endif %}>{{ candidate.balance }}</span>
+                                {{ candidate.currency }}
+                                {% if candidate.selected and candidate.after %}
+                                    <span class="tx-settle__arrow">→</span>
+                                    <span{% if candidate.after_negative %} class="tx-num--neg"{% endif %}>{{ candidate.after }}</span>
+                                {% endif %}
+                            </span>
+                        </label>
+                    {% endfor %}
+                </div>
+                {# MD-3: one deliberate click on every order, in the
+                   several-match state as much as the single-match one. #}
+                <label class="tx-settle__confirm">
+                    <input type="checkbox" name="settle_confirm" value="1"
+                           {% if settle_confirmed %}checked{% endif %}>
+                    <span>Settle against this position.</span>
+                </label>
+            </div>
+        {% endif %}
+    </div>

@@ -1,0 +1,41 @@
+{# The reported stake's context strip (M-3, R-SEC-SELL).
+
+   M-1's strip reads the four facts a *unit-dealt* position has — holding,
+   currency, last price, valuation mode. A statement-valued stake has none of
+   the first three: it holds no units by definition (ADR-0097 §1), so there is
+   no quantity and no price series to quote. What it has instead is what the
+   manager last stated and what is still owed to the fund, and those are M-3's
+   four items.
+
+   Refreshed out of band on every recalculation, like M-1's, because M-3 puts
+   it inside the "What happened" block above the static Proceeds inputs.
+
+   Every value is `None`-safe. M-3 draws all four filled in, so the dash is
+   this file's own decision (D-4a): a fund whose first statement has not
+   arrived, or one the book states no commitment for, shows "—" rather than a
+   zero — a zero would be a figure, and there is none.
+
+   Context: last_nav, last_nav_currency, last_nav_date, unfunded, currency,
+   vintage_year, valuation_mode, oob. #}
+<div class="tx-context" id="tx-secsell-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Last reported NAV</span>
+        <span class="tx-context__value">
+            {% if last_nav %}{{ last_nav }} {{ last_nav_currency }} · {{ last_nav_date }}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Unfunded commitment</span>
+        <span class="tx-context__value">
+            {% if unfunded %}{{ unfunded }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Vintage</span>
+        <span class="tx-context__value">{{ vintage_year or "—" }}</span>
+    </div>
+    <div class="tx-context__item">
+        <span class="tx-context__label">Valuation mode</span>
+        <span class="tx-context__value">{{ valuation_mode or "—" }}</span>
+    </div>
+</div>

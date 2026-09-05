@@ -1,0 +1,92 @@
+{# Messages and primary actions — the R-SEC-SELL composer's fourth derived
+   region, refreshed out of band because M-3 puts the static Provenance block
+   between it and the settlement panel.
+
+   The message strip is `_messages.html`, shared with the composer and the
+   wizard: all three surfaces show the same blocks and warnings from the same
+   derivation, so there is one renderer for them and not three.
+
+   What stays here is the part that is *this flow's*. The consequence is
+   MD-17's — blue, stated, and carrying **no control**, which is the whole
+   point: a secondary sale is a full disposal by definition, so unlike
+   U-SELL's `set_inactive` there is nothing to decide. The U-SELL consequence
+   is not moved here and this one is not moved there; they read alike and mean
+   opposite things.
+
+   A sibling of `_order_outcome.html` rather than a branch inside it, for one
+   reason: the action hints differ. M-3's ready sentence names four effects
+   where M-1's names two ledger legs, and M-3 adds a sentence M-1 has no state
+   for. Folding both into M-1's chain would make that file's copy conditional
+   on a flow it does not serve.
+
+   Context: messages, error, partial_sale, draft_enabled, propose_enabled,
+   book_enabled, hint_key, ticket_id, oob. #}
+<div class="tx-outcome" id="tx-secsell-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div class="tx-messages">
+        {% include "_partials/transactions/_messages.html" %}
+
+        {% if not partial_sale %}
+            <div class="tx-msg tx-msg--consequence">
+                <span class="tx-msg__glyph">→</span>
+                <div>
+                    <strong>This closes the stake completely.</strong>
+                    <span class="tx-msg__sub">
+                        NAV goes to zero, the unfunded commitment ends, and the
+                        investment is set inactive — shown above as emission rows.
+                    </span>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    {# The three gestures are the composer's own, posting the whole enclosing
+       form to the same endpoints M-1 uses — this surface adds no write path.
+       Each carries its `disabled` state from this render and each is
+       re-checked at the endpoint; a disabled button is a courtesy, never a
+       permission.
+
+       Save as draft is gated **with** the other two here, and only here
+       (MD-18): a partial-sale ticket cannot exist in v1 even as a draft,
+       because the schema cannot represent one. Every other block and every
+       warning still leaves it alone, exactly as W-3 says. #}
+    <div class="tx-actions">
+        <button class="tx-btn tx-btn--primary" type="button"
+                hx-post="/api/transactions/book"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not book_enabled %}disabled{% endif %}>Book now</button>
+        <button class="tx-btn" type="button"
+                hx-post="/api/transactions/propose"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+        <button class="tx-btn" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
+        <span class="tx-actions__spacer"></span>
+        <button class="tx-btn tx-btn--ghost" type="button"
+                hx-get="/api/transactions/chooser"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">{% if ticket_id %}Close{% else %}Discard{% endif %}</button>
+        <p class="tx-actions__hint">
+            {%- if hint_key == "partial_sale" -%}
+                A partial-sale ticket cannot be created in v1 — not even as a draft.
+            {%- elif hint_key == "incomplete" -%}
+                Fill in the investment and the sale proceeds before booking.
+            {%- elif hint_key == "no_position" -%}
+                Pick or create a settlement position before booking.
+            {%- elif hint_key == "unconfirmed" -%}
+                Confirm the settlement position before booking.
+            {%- elif hint_key == "blocked" -%}
+                Fix the errors above before booking.
+            {%- else -%}
+                Booking emits all four effects in one step.
+            {%- endif -%}
+        </p>
+    </div>
+</div>

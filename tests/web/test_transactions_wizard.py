@@ -429,16 +429,23 @@ async def test_chooser_arms_the_new_instrument_tile(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The U-NEW tile is live; the three reported flows keep their pills."""
+    """The U-NEW tile is live; the flows S4c has not armed keep their pills.
+
+    The counts move with each arming — S4c/P-4a made R-SEC-SELL the third
+    live tile — and this is the second of the two places they are stated;
+    the other is ``test_transactions_composer.py``'s chooser test, which owns
+    the copy on all five. What this test is *for* is unchanged: the tile S4b
+    armed is a control and points at the wizard.
+    """
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
 
     section = _new_section((await web_client.get("/transactions")).text)
 
     assert 'hx-get="/api/transactions/wizard"' in section
-    assert section.count("<button") == 2, "the two live tiles are the only controls"
+    assert section.count("<button") == 3, "the three live tiles are the only controls"
     assert "Arrives with S4b" not in section
-    assert section.count("Arrives with S4c") == 3
+    assert section.count("Arrives with S4c") == 2
     assert "Create the investment, then buy it." in section
 
 

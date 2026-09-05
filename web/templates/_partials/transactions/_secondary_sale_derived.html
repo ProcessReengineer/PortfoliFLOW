@@ -1,0 +1,84 @@
+{# Proceeds, emission preview and settlement — the R-SEC-SELL composer's
+   derived region and the recalculation endpoint's swap target (#tx-derived).
+
+   The three blocks are contiguous in M-3's order (the derived rows close the
+   Proceeds block, then "On booking", then "Settlement position"), so one swap
+   covers all three.
+
+   Every number was derived in the route, by the service layer: the net is
+   `TicketService.preview`'s cash_effect over a transient `secondary` ticket,
+   the `vs. last reported NAV` ratio is `signed_deviation_ratio`, and the cash
+   row is `cash_leg` — the pure function the booking itself runs. Nothing here
+   subtracts, divides or compares.
+
+   The four On-booking rows are MD-17's, and three of them are *statements of
+   the flow* rather than derivations: a secondary sale is a full disposal, so
+   NAV → 0 and the deactivation are what the flow **is** (D-S). They are shown
+   as rows precisely so they are not mistaken for options.
+
+   Context (all pre-formatted): gross, fees, taxes, net, vs_nav, currency,
+   effect_rows, plus everything `_settlement.html` reads. #}
+<div class="tx-derived-host" id="tx-derived">
+
+    <div class="tx-derived">
+        <div class="tx-derived__row">
+            <span>Sale proceeds</span>
+            <span>{% if gross %}{{ gross }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
+        </div>
+        <div class="tx-derived__row">
+            <span>Fees</span>
+            {# A sale's costs come off its proceeds — the sign `derive_cash_effect`
+               applies one layer down, stated here rather than recomputed. #}
+            <span>
+                {%- if fees -%}
+                    −{{ fees }}{% if currency %} {{ currency }}{% endif %}
+                {%- else -%}—{%- endif -%}
+            </span>
+        </div>
+        <div class="tx-derived__row">
+            <span>Taxes</span>
+            <span>
+                {%- if taxes -%}
+                    −{{ taxes }}{% if currency %} {{ currency }}{% endif %}
+                {%- else -%}—{%- endif -%}
+            </span>
+        </div>
+        <div class="tx-derived__row tx-derived__row--total">
+            <span>Net proceeds</span>
+            <span>{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
+        </div>
+        {# MD-20: context, never judgement. A secondary that changed hands
+           below the last statement is ordinary economics, so the row states
+           the distance and the sign and says nothing about either. #}
+        <div class="tx-derived__row tx-derived__row--info">
+            <span>vs. last reported NAV</span>
+            <span>{{ vs_nav or "—" }}</span>
+        </div>
+    </div>
+
+    <div class="tx-block">
+        <p class="tx-block__title">On booking</p>
+        <div class="tx-legs">
+            <p class="tx-legs__lead">Emitted together, or not at all:</p>
+            {% if effect_rows %}
+                {% for row in effect_rows %}
+                    <div class="tx-leg">
+                        <span class="tx-leg__type tx-leg__type--{{ row.type }}">{{ row.type }}</span>
+                        <span class="tx-leg__what">{{ row.what }} <em>{{ row.detail }}</em></span>
+                        <span class="tx-leg__amount">{{ row.amount or "" }}</span>
+                    </div>
+                {% endfor %}
+            {% else %}
+                {# Operator decision D-3's rule, applied to four rows instead of
+                   two: showing some of an emission would be a promise the
+                   booking does not make. #}
+                <p class="tx-legs__pending">
+                    All four rows appear here once the investment, the proceeds
+                    and the settlement position are set.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% include "_partials/transactions/_settlement.html" %}
+</div>

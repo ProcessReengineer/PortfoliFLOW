@@ -95,6 +95,7 @@ if TYPE_CHECKING:  # pragma: no cover - static resolution for mypy / IDEs
         capital_account_ids,
         describe_shift,
         load_called_amounts,
+        unfunded_commitment,
     )
     from services.investments.plan_world import assemble_plan_frames
     from services.investments.unity_price import (
@@ -155,6 +156,7 @@ _ATTR_TO_MODULE: dict[str, str] = {
     "capital_account_ids": "services.investments.pacing_rows",
     "describe_shift": "services.investments.pacing_rows",
     "load_called_amounts": "services.investments.pacing_rows",
+    "unfunded_commitment": "services.investments.pacing_rows",
     "UNITY_PRICE": "services.investments.unity_price",
     "is_unity_price": "services.investments.unity_price",
     "unity_price_violation": "services.investments.unity_price",
@@ -212,6 +214,7 @@ __all__ = [
     "project_cash_flow_planning",
     "project_cash_plan",
     "shows_positions_panel",
+    "unfunded_commitment",
     "unity_price_violation",
 ]
 

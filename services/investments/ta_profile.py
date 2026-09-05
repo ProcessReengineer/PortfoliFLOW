@@ -84,8 +84,9 @@ Signals for the un-modellable case (ADR-0105 §Consequences)
 A fund whose ``commitment`` is ``None`` — the book states none — has no
 uncalled balance to draw and cannot be TA-modelled. The generator returns an
 **empty list**, never a profile fabricated from an invented commitment,
-mirroring :func:`services.investments.pacing_rows._unfunded`'s ``None`` posture
-for the same missing datum: S34.7 reads the empty result as "stay disabled".
+mirroring :func:`services.investments.pacing_rows.unfunded_commitment`'s
+``None`` posture for the same missing datum: S34.7 reads the empty result
+as "stay disabled".
 An unknown or non-capital-account ``investment_type`` is the loud case instead
 — it raises
 :class:`~services.investments.ta_profile_constants.TAProfileUnsupportedTypeError`
@@ -385,7 +386,8 @@ def _append_flow(
 # helpers below reproduce its `_month_end`, `_containing_period_end`, and
 # `_shift` exactly, so a generated flow lands on the same grid the timeline
 # samples balances on. "One line; the seam to reach it is not" — the same
-# reason `pacing_rows._unfunded` mirrors a formula rather than importing it.
+# reason `pacing_rows.unfunded_commitment` mirrors a formula rather than
+# importing it.
 
 
 def _month_end(year: int, month: int) -> _date:

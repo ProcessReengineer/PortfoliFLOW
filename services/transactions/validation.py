@@ -385,6 +385,28 @@ def price_deviation_ratio(*, price: Decimal, reference: Decimal) -> Decimal | No
     return abs(price - reference) / reference
 
 
+def signed_deviation_ratio(*, value: Decimal, reference: Decimal) -> Decimal | None:
+    """Return ``(value − reference) / reference``, or ``None`` if undefined.
+
+    The signed twin of :func:`price_deviation_ratio`: a negative result
+    says ``value`` sits below the reference. Used for MD-20's context rows
+    — proceeds vs. last reported NAV, price vs. acquired NAV — which are
+    neutral information, never a warning (secondary discounts are ordinary
+    economics). ``None`` when ``reference`` is zero, for the same reason
+    as its unsigned twin.
+
+    Args:
+        value: The figure being placed against the reference.
+        reference: What it is measured against.
+
+    Returns:
+        The signed deviation as a ratio of the reference, or ``None``.
+    """
+    if reference == 0:
+        return None
+    return (value - reference) / reference
+
+
 __all__ = [
     "PricePoint",
     "TicketBlock",
@@ -396,4 +418,5 @@ __all__ = [
     "is_investment_creating",
     "nearest_price",
     "price_deviation_ratio",
+    "signed_deviation_ratio",
 ]

@@ -15,7 +15,8 @@ Coverage
 * TS-01: ``create_draft`` per kind; vocabulary refusals; the commitment shape.
 * TS-02: the ``propose`` happy path — status, attribution, no warnings.
 * TS-03: every block, each verified to have written **nothing**; plus the
-  MD-21 converse (an existing investment with no AnlV code proposes fine).
+  MD-21 converse (an existing investment with no AnlV code proposes fine)
+  and the D-N block's kind gate (an order proposes with no NAV repository).
 * TS-04: every warning, with its documented data shape, blocking nothing.
 * TS-05: ``propose`` on a non-draft, and on an unknown id.
 * TS-06: ``cancel`` from draft / proposed / a hand-forged ``booked``.
@@ -578,6 +579,43 @@ async def test_ts03_existing_investment_without_anlv_proposes_fine(
         )
 
     assert proposed.status == "proposed"
+
+
+async def test_ts03_propose_ignores_navs_for_an_order(app_engine: AsyncEngine, seed_tenant) -> None:
+    """The D-N block is gated on ``kind``, so an order needs no NAV repository.
+
+    ``_service`` here is wired **without** ``navs`` on purpose — the whole
+    file is — and a U-SELL still proposes. If the fifth block (P-4n) ever
+    stopped checking the kind before reaching ``_require_navs``, every order
+    in an order-only wiring would start refusing with a ``RuntimeError``.
+    """
+    tenant = await seed_tenant("TS-03j")
+    fixture = await _seed(
+        app_engine,
+        tenant,
+        email="pm@ts03j.example",
+        instrument_units=Decimal("500"),
+        cash_balance=Decimal("100000"),
+        prices={_TRADE_DATE: Decimal("10.00")},
+    )
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        assert service._navs is None  # the guard this test is about
+        draft = await service.create_draft(
+            **_order_draft_kwargs(
+                fixture,
+                direction="sell",
+                units=Decimal("200"),
+                price_per_unit=Decimal("10.00"),
+            )
+        )
+        proposed, warnings = await service.propose(
+            draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY
+        )
+
+    assert proposed.status == "proposed"
+    assert not warnings
 
 
 async def test_ts03_secondary_buy_requires_acquired_nav(

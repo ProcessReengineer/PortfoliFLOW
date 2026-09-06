@@ -122,7 +122,9 @@ BLOCK_PARTIAL_SECONDARY_SALE: Final[str] = "partial_secondary_sale"
 #: ``investment_update`` effects (T-1 D-2), so a NAV the booking overwrote
 #: could not be restored by a reversal. Refusing is the only way the emission
 #: stays undoable; the user re-dates the ticket or corrects the NAV through
-#: the ordinary CRUD surface.
+#: the ordinary CRUD surface. Fires at propose and again at book
+#: (``_run_blocks``), with the emission's ``write_nav`` as the backstop —
+#: P-4n.
 BLOCK_NAV_EXISTS_AT_TRADE_DATE: Final[str] = "nav_exists_at_trade_date"
 
 #: A creating flow's master data names an investment that already exists

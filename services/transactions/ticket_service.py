@@ -163,6 +163,7 @@ from services.transactions.emission import (
     emit_secondary_sell,
     parse_master_data,
     reconcile_commitment,
+    refuse_nav_collision,
     undo_effects,
 )
 from services.transactions.validation import (
@@ -643,10 +644,15 @@ class TicketService:
            conversion — that lives at the ADR-0099 §4 reporting seam. The
            currency case has no UI state (MD-8); this guard is the whole
            enforcement.
-        3. **Oversell** of the instrument leg (ADR-0097 §4), guarded
+        3. **No ``actual`` NAV already stands on the trade date** (D-N), for
+           the secondary flows that write one against an existing stake.
+           Booking would UPSERT over it and the overwrite could not be
+           reversed, so the refusal belongs here, where re-dating the ticket
+           is still free; the emission re-checks it as the backstop (P-4n).
+        4. **Oversell** of the instrument leg (ADR-0097 §4), guarded
            unconditionally (ADR-0128 Q-2 relaxes the guard for *cash*
            positions at emission, never for the instrument).
-        4. **The AnlV gate**, on investment-creating flows only (MD-21).
+        5. **The AnlV gate**, on investment-creating flows only (MD-21).
 
         Args:
             ticket_id: The draft to propose.
@@ -662,7 +668,8 @@ class TicketService:
             TicketNotFound: If no such ticket exists in the active tenant.
             TicketStateInvalid: If the ticket is not a ``draft``.
             TicketIncomplete: If a required field or payload entry is
-                missing for the ticket's flow.
+                missing for the ticket's flow, or an ``actual`` NAV already
+                stands on the trade date (D-N).
             CurrencyMismatchError: If the ticket, its investment and its
                 settlement position do not agree on a currency.
             NonNegativeHoldingsError: If the sell would drive holdings below
@@ -1039,6 +1046,10 @@ class TicketService:
     async def _run_blocks(self, ticket: TradeTicketDTO, *, now: datetime) -> None:
         """Run every propose-time block, raising on the first failure.
 
+        Five of them, in the order below: completeness, the traded
+        investment as a usable target (D-P / D-Q / F-3), the NAV collision
+        on the trade date (D-N), oversell, and the AnlV gate.
+
         ``trade_date`` and ``currency`` are ``NOT NULL`` in the schema and
         so are asserted by the DTO's own types rather than re-validated
         here: a check that cannot fail is noise that reads like a guarantee.
@@ -1057,6 +1068,7 @@ class TicketService:
             # (D-P / D-Q) on the way to the currency comparison — see
             # :meth:`_load_investment`. A creating flow has no target yet.
             await self._block_currency_mismatch(ticket)
+        await self._block_nav_collision(ticket, creating=creating)
         await self._block_oversell(ticket, now=now)
         self._block_missing_anlv(ticket, creating=creating)
 
@@ -1313,6 +1325,40 @@ class TicketService:
                 field="investment_id",
             )
         return investment
+
+    async def _block_nav_collision(self, ticket: TradeTicketDTO, *, creating: bool) -> None:
+        """Run D-N at propose time for the reported kinds that write a NAV.
+
+        Only ``secondary`` tickets write a NAV
+        (:func:`~services.transactions.emission.emit_secondary_sell`,
+        :func:`~services.transactions.emission.emit_secondary_buy`); a
+        ``commitment`` writes none (MD-19) and an ``order`` has no NAV path
+        at all. A creating flow has no investment row yet, so the check is
+        empty by construction and is skipped rather than run against
+        ``None`` — which leaves exactly R-SEC-SELL, the one secondary flow
+        that books against a stake the tenant already holds.
+
+        Placed after the target checks on purpose: a deactivated fund is
+        refused for being deactivated (D-P), not for a NAV date.
+
+        The same rule fires again inside
+        :func:`~services.transactions.emission.write_nav` as the backstop —
+        one sentence, two moments. What this station adds is *when*: the
+        refusal now arrives while the ticket is still intent, rather than
+        mid-emission with the distribution row already written (P-4n).
+
+        Raises:
+            TicketIncomplete: With ``identifier='nav_exists_at_trade_date'``
+                if an ``actual`` NAV already stands on the trade date.
+        """
+        if ticket.kind != KIND_SECONDARY or creating:
+            return
+        assert ticket.investment_id is not None  # guaranteed by _block_completeness
+        await refuse_nav_collision(
+            ticket,
+            investment_id=ticket.investment_id,
+            navs=self._require_navs(),
+        )
 
     async def _oversell_offence(self, ticket: TradeTicketDTO, *, now: datetime) -> _date | None:
         """The first date this sale would drive holdings below zero, if any.

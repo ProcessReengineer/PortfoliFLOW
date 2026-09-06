@@ -1090,6 +1090,50 @@ async def deactivate(
     )
 
 
+async def refuse_nav_collision(
+    ticket: TradeTicketDTO,
+    *,
+    investment_id: UUID,
+    navs: InvestmentNavRepository,
+) -> None:
+    """Refuse if an ``actual`` NAV already stands on the ticket's trade date (D-N).
+
+    **The collision check is what makes the NAV row reversible.** ``add_nav``
+    UPSERTs on ``(investment_id, as_of_date, nav_kind)``, and ``prior_state``
+    is reserved for ``investment_update`` effects (T-1 D-2), so a NAV a
+    booking silently overwrote could never be put back. Rather than widen the
+    effect vocabulary for a case the user can resolve in one gesture, the
+    ticket is refused and told which date is occupied: re-date it, or correct
+    the NAV through the ordinary CRUD surface.
+
+    The rule stands here rather than inline in :func:`write_nav` because it
+    fires at two moments and must read identically at both: as the fifth
+    propose-time block (``TicketService._block_nav_collision``), where the
+    composer can still do something about it, and again inside the emission,
+    which keeps the write safe whatever route reached it. One sentence, one
+    identifier, two callers (P-4n).
+
+    Args:
+        ticket: The ticket under test; supplies ``trade_date``.
+        investment_id: The investment the NAV would belong to.
+        navs: Read-only — the existing ``actual`` series.
+
+    Raises:
+        TicketIncomplete: With ``identifier='nav_exists_at_trade_date'`` and
+            ``field='trade_date'`` if an ``actual`` NAV already stands there.
+    """
+    existing = await navs.list_by_investment_and_kind(investment_id, NAV_KIND_ACTUAL)
+    if any(row.as_of_date == ticket.trade_date for row in existing):
+        raise TicketIncomplete(
+            f"An actual NAV already stands on {ticket.trade_date} for investment "
+            f"{investment_id}. Booking would overwrite it, and an overwritten "
+            "NAV cannot be restored by a reversal (D-N); pick another trade "
+            "date, or correct the existing NAV first.",
+            identifier=BLOCK_NAV_EXISTS_AT_TRADE_DATE,
+            field="trade_date",
+        )
+
+
 async def write_nav(
     ticket: TradeTicketDTO,
     *,
@@ -1101,13 +1145,8 @@ async def write_nav(
 ) -> EffectInput:
     """Write the ``actual`` NAV a reported-kind booking states, refusing a collision.
 
-    **The collision check is what makes the row reversible** (D-N).
-    ``add_nav`` UPSERTs on ``(investment_id, as_of_date, nav_kind)``, and
-    ``prior_state`` is reserved for ``investment_update`` effects (T-1 D-2),
-    so a NAV this booking silently overwrote could never be put back. Rather
-    than widen the effect vocabulary for a case the user can resolve in one
-    gesture, the booking refuses and says which date is occupied: re-date the
-    ticket, or correct the NAV through the ordinary CRUD surface.
+    The refusal is :func:`refuse_nav_collision`, called first; the rule and
+    what it protects are stated there.
 
     On a freshly created investment the check is trivially empty. It runs
     anyway — one rule, applied everywhere, is cheaper to reason about than a
@@ -1130,16 +1169,7 @@ async def write_nav(
         TicketIncomplete: With ``identifier='nav_exists_at_trade_date'`` if an
             ``actual`` NAV already stands on the trade date.
     """
-    existing = await navs.list_by_investment_and_kind(investment_id, NAV_KIND_ACTUAL)
-    if any(row.as_of_date == ticket.trade_date for row in existing):
-        raise TicketIncomplete(
-            f"An actual NAV already stands on {ticket.trade_date} for investment "
-            f"{investment_id}. Booking would overwrite it, and an overwritten "
-            "NAV cannot be restored by a reversal (D-N); pick another trade "
-            "date, or correct the existing NAV first.",
-            identifier=BLOCK_NAV_EXISTS_AT_TRADE_DATE,
-            field="trade_date",
-        )
+    await refuse_nav_collision(ticket, investment_id=investment_id, navs=navs)
     created = await investment_service.add_nav(
         investment_id=investment_id,
         as_of_date=ticket.trade_date,
@@ -2171,6 +2201,7 @@ __all__ = [
     "parse_master_data",
     "provenance",
     "reconcile_commitment",
+    "refuse_nav_collision",
     "restore_from_before_image",
     "undo_effects",
     "write_nav",

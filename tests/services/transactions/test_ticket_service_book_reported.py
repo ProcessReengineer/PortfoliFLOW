@@ -30,8 +30,12 @@ Coverage
 --------
 * TR-01: the R-SEC-SELL happy path — four effects and four kinds of row.
 * TR-02: ``set_inactive=False`` still deactivates (D-S).
-* TR-03: the NAV collision at ``trade_date`` refuses, and rolls the
-  already-written cashflow back with it (D-N).
+* TR-03: the NAV collision at ``trade_date`` refuses a booking, leaving no
+  cashflow, no NAV overwrite and a still-draft ticket (D-N).
+* TR-12 / TR-13 / TR-14 / TR-15: the same collision as a **propose**-time
+  block (P-4n) — refused on R-SEC-SELL, skipped on a creating R-SEC-BUY,
+  re-asked at Book on a ticket proposed before the NAV appeared, and ordered
+  behind the target checks (D-P first).
 * TR-04: R-COMMIT books one investment and moves nothing (MD-19).
 * TR-05: ticket and payload disagreeing about the commitment (D-U).
 * TR-06: R-SEC-BUY — the created row, its acquired-NAV opening, cash out,
@@ -417,9 +421,12 @@ async def test_tr03_existing_actual_nav_at_trade_date_refuses_and_rolls_back(
 ) -> None:
     """An overwritten NAV could not be restored, so the booking refuses.
 
-    The cashflow is written *before* the NAV, so this also pins the
-    atomicity: the refusal fires mid-emission and the row that had already
-    landed goes with it.
+    Since P-4n the refusal arrives from the fifth propose-time block, which
+    ``book`` re-runs before dispatching, so nothing is emitted at all — where
+    it used to fire mid-emission, after ``emit_secondary_sell`` had already
+    written the distribution. Either way the gesture leaves no trace, and
+    that is what the assertions below pin: no cashflow, the existing NAV
+    untouched, the stake still live, the ticket still a draft.
     """
     tenant = await seed_tenant("TR-03")
     fixture = await _seed(app_engine, tenant, email="pm@tr03.example")
@@ -454,7 +461,7 @@ async def test_tr03_existing_actual_nav_at_trade_date_refuses_and_rolls_back(
         stake = await InvestmentRepository(session).get_by_id(fixture.stake.id)
         ticket = await TradeTicketRepository(session).get(draft.id)
 
-    assert flows == []  # the distribution written before the check is gone
+    assert flows == []  # no distribution: the block refused ahead of the emission
     assert next(row for row in navs if row.as_of_date == _TRADE_DATE).nav_value == Decimal(
         "2400000.0000"
     )
@@ -913,3 +920,143 @@ async def test_tr10_new_order_creates_a_unitised_instrument_then_books_as_a_buy(
     # Both legs are unitised, so both materialise — once each, bounded.
     assert [investment_id for investment_id, _ in seen] == [created.id, fixture.cash.id]
     assert {since for _, since in seen} == {_TRADE_DATE}
+
+
+# ---------------------------------------------------------------------------
+# TR-12 … TR-15: the collision as a propose-time block (P-4n)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_colliding_nav(app_engine: AsyncEngine, tenant: UUID, fixture: _Fixture) -> None:
+    """Put an ``actual`` NAV on the stake at the ticket's trade date."""
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        await InvestmentNavRepository(session).upsert(
+            investment_id=fixture.stake.id,
+            as_of_date=_TRADE_DATE,
+            nav_kind="actual",
+            nav_value=Decimal("2400000"),
+            currency="EUR",
+            source="excel-import",
+            created_by=fixture.actor.id,
+            ingest_origin="excel",
+        )
+
+
+async def test_tr12_propose_refuses_a_nav_collision_on_a_secondary_sell(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """D-N is asked where the answer is still cheap (P-4n).
+
+    The rule has not changed — TR-03 is the same refusal at Book — but a
+    ticket that cannot book must not be allowed to reach ``proposed``, which
+    ADR-0128 §3 defines as complete and validated.
+    """
+    tenant = await seed_tenant("TR-12")
+    fixture = await _seed(app_engine, tenant, email="pm@tr12.example")
+    await _seed_colliding_nav(app_engine, tenant, fixture)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        draft = await _service(session).create_draft(**_sell_draft_kwargs(fixture))
+
+    with pytest.raises(TicketIncomplete) as excinfo:
+        async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+            await _service(session).propose(
+                draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY
+            )
+
+    assert excinfo.value.identifier == BLOCK_NAV_EXISTS_AT_TRADE_DATE
+    assert excinfo.value.field == "trade_date"
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        flows = await InvestmentCashflowRepository(session).list_by_investment(fixture.stake.id)
+        ticket = await TradeTicketRepository(session).get(draft.id)
+
+    assert flows == []
+    assert ticket is not None and ticket.status == "draft"
+    assert ticket.proposed_by is None
+
+
+async def test_tr13_propose_skips_the_nav_check_for_a_creating_secondary_buy(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A creating flow has no row to collide with, whatever else the book holds.
+
+    The NAV seeded here sits on the *stake*, on the very trade date the buy
+    names; the created investment is a different row entirely, so the check
+    is empty by construction rather than by exemption.
+    """
+    tenant = await seed_tenant("TR-13")
+    fixture = await _seed(app_engine, tenant, email="pm@tr13.example")
+    await _seed_colliding_nav(app_engine, tenant, fixture)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_secondary_buy_kwargs(fixture))
+        proposed, _ = await service.propose(
+            draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY
+        )
+
+    assert proposed.status == "proposed"
+
+
+async def test_tr14_a_nav_seeded_between_propose_and_book_still_refuses(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Propose is not a promise: Book re-asks against the book as it stands.
+
+    The ticket was validated when the date was free, so the propose-time
+    block cannot have caught this one. ``book`` re-runs the same block set
+    (MD-11 / MD-21) and refuses with the same sentence, and behind it
+    ``write_nav`` would refuse again — the reason the rule keeps a second
+    home in the emission.
+    """
+    tenant = await seed_tenant("TR-14")
+    fixture = await _seed(app_engine, tenant, email="pm@tr14.example")
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture))
+        proposed, _ = await service.propose(
+            draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY
+        )
+    assert proposed.status == "proposed"
+
+    await _seed_colliding_nav(app_engine, tenant, fixture)
+
+    with pytest.raises(TicketIncomplete) as excinfo:
+        async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+            await _service(session).book(
+                draft.id, booked_by=fixture.actor.id, now=_NOON, today=_TODAY
+            )
+
+    assert excinfo.value.identifier == BLOCK_NAV_EXISTS_AT_TRADE_DATE
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        flows = await InvestmentCashflowRepository(session).list_by_investment(fixture.stake.id)
+        ticket = await TradeTicketRepository(session).get(draft.id)
+
+    assert flows == []
+    assert ticket is not None and ticket.status == "proposed"
+
+
+async def test_tr15_a_deactivated_target_is_refused_before_the_nav_date(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Block order is a message: the first thing wrong with this ticket is D-P.
+
+    Both rules would refuse the same draft. The target checks run first, so
+    the user is told the fund is retired — the fact they can act on — rather
+    than being sent to re-date a ticket that would still refuse afterwards.
+    """
+    tenant = await seed_tenant("TR-15")
+    fixture = await _seed(app_engine, tenant, email="pm@tr15.example", stake_active=False)
+    await _seed_colliding_nav(app_engine, tenant, fixture)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture))
+        with pytest.raises(TicketIncomplete) as excinfo:
+            await service.propose(draft.id, proposed_by=fixture.actor.id, now=_NOW, today=_TODAY)
+
+    assert excinfo.value.identifier == BLOCK_INVESTMENT_INACTIVE
+    assert excinfo.value.field == "investment_id"

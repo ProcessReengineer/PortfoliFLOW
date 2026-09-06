@@ -61,8 +61,11 @@ button.tx-flow:hover {
     border-color: var(--ui-accent-primary);
 }
 
-/* The four flows S4b / S4c arm. Rendered as plain tiles — no link, no form
- * control — so nothing here reaches a route that does not exist yet. */
+/* The shape an unarmed tile takes: a plain tile — no link, no form control —
+ * so nothing reaches a route that does not exist yet. P-4b armed the last two
+ * flows, so this rule and `.tx-flow__pill` beneath it have **no user in the
+ * chooser today**; they are kept as the pattern a sixth flow's tile follows
+ * between its ADR and its strand. */
 .tx-flow--pending {
     opacity: 0.55;
     cursor: default;
@@ -450,14 +453,31 @@ button.tx-flow:hover {
 }
 
 /* M-3's third leg colour, for the rows that are not ledger legs at all: the
- * cashflow, the NAV write and the deactivation a secondary sale emits (MD-17).
- * Blue reads as "this happens" rather than as a direction, which is right —
- * none of the three has one. `flow`, `nav` and `status` share it. */
+ * cashflow, the NAV write and the deactivation a secondary sale emits (MD-17),
+ * and the commitment the two creating reported flows record (P-4b). Blue
+ * reads as "this happens" rather than as a direction, which is right — none of
+ * them has one. M-3 spells all four `tx-leg__type--info`; the route names each
+ * row by what it is, so the four identifiers share the one rule here.
+ *
+ * `create` is deliberately absent and stays the base grey: M-3 draws it with a
+ * bare `tx-leg__type`, because creating the row is the precondition of the
+ * others rather than one more thing that happens to the book. */
 .tx-leg__type--flow,
 .tx-leg__type--nav,
-.tx-leg__type--status {
+.tx-leg__type--status,
+.tx-leg__type--commit {
     border-color: var(--ui-semantic-info);
     color: var(--ui-semantic-info);
+}
+
+/* The confirmation panel's second line on a created row — what the booking
+ * put on it beyond its identity (P-4b, operator fork 5). No mockup anchor:
+ * the mockups draw no confirmation panel at all. */
+.tx-leg__sub {
+    display: block;
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin-top: 2px;
 }
 
 .tx-leg__what {
@@ -1054,4 +1074,37 @@ a.tx-btn {
     color: var(--ui-text-disabled);
     font-size: 0.78rem;
     margin-top: 2px;
+}
+
+/* --- MD-19: the flow that moves no cash ------------------------------ */
+
+/* R-COMMIT's standing panel, where every other composer has a settlement
+ * block. It is *informational* rather than a warning — nothing is wrong with
+ * a commitment that moves no money, it is what a commitment is — so it takes
+ * the info tone rather than the amber one, and its border is the only place
+ * in this stylesheet that draws a full block in that colour.
+ *
+ * M-3's own rule, with its literal rgba() swapped for the theme variables the
+ * rest of this file uses (ADR-0021). */
+.tx-nocash {
+    border: 1px solid var(--ui-semantic-info);
+    border-radius: 5px;
+    background: var(--ui-background-section);
+    padding: 12px 15px;
+    font-size: 0.85rem;
+    color: var(--ui-text-secondary);
+}
+
+.tx-nocash strong {
+    color: var(--ui-semantic-info);
+}
+
+.tx-nocash p {
+    margin: 0;
+}
+
+.tx-nocash p + p {
+    margin-top: 5px;
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
 }

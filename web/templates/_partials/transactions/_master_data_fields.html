@@ -1,0 +1,79 @@
+{# The six master-data controls every investment-creating flow draws (P-4b).
+
+   MD-12 makes the investment an emission effect, so these values are
+   *payload* on all three creating flows and not a row anywhere: the wizard's
+   Classify step, the R-COMMIT form's "New investment" block and the
+   R-SEC-BUY form's "New investment (acquired stake)" block ask the same six
+   questions, in the same order, over the same three catalogues. Written
+   three times, the three would drift in the catalogue loop that matters most
+   — the AnlV select, which is the MD-21 finish gate's only input.
+
+   The **copy is not here**. MD-9 makes each mockup's wording binding and the
+   mockups disagree about these hints: M-2 says "Required before the wizard
+   can finish", M-3 says "Required before this ticket can be proposed or
+   booked", and the valuation mode M-2 fixes is `unitised` where M-3 fixes
+   `reported`. So the including template passes its own sentences in, and
+   this file holds only the structure they hang on. That is the same split
+   the route/template boundary makes one layer up — values there, words here
+   — applied once more between two templates.
+
+   `anlv_gate` is the route's one expression, never re-derived in Jinja; it
+   only paints the field, and the block that states the rule belongs to each
+   flow's own outcome panel.
+
+   Context: entered, investment_types, asset_classes, anlv_categories,
+   anlv_gate, plus the five copy parameters `name_hint`, `asset_class_hint`,
+   `currency_hint`, `valuation_mode`, `valuation_mode_hint`, `anlv_hint`. #}
+<div class="tx-field tx-field--wide">
+    <label class="tx-field__label" for="tx-md-name">Name</label>
+    <input type="text" id="tx-md-name" name="md_name" value="{{ entered.md_name }}">
+    {% if name_hint %}<span class="tx-field__hint">{{ name_hint }}</span>{% endif %}
+</div>
+<div class="tx-field">
+    <label class="tx-field__label" for="tx-md-type">Investment type</label>
+    <select id="tx-md-type" name="md_investment_type">
+        {% for option in investment_types %}
+            <option value="{{ option }}"
+                    {% if entered.md_investment_type == option %}selected{% endif %}>
+                {{ option }}
+            </option>
+        {% endfor %}
+    </select>
+</div>
+<div class="tx-field">
+    <label class="tx-field__label" for="tx-md-asset-class">Asset class</label>
+    <select id="tx-md-asset-class" name="md_asset_class_id">
+        <option value="">Pick an asset class…</option>
+        {% for option in asset_classes %}
+            <option value="{{ option.id }}"
+                    {% if entered.md_asset_class_id == option.id | string %}selected{% endif %}>
+                {{ option.display_name }}
+            </option>
+        {% endfor %}
+    </select>
+    {% if asset_class_hint %}<span class="tx-field__hint">{{ asset_class_hint }}</span>{% endif %}
+</div>
+<div class="tx-field">
+    <label class="tx-field__label" for="tx-md-currency">Currency</label>
+    <input type="text" id="tx-md-currency" name="currency" class="tx-mono"
+           maxlength="3" value="{{ entered.currency }}">
+    {% if currency_hint %}<span class="tx-field__hint">{{ currency_hint }}</span>{% endif %}
+</div>
+<div class="tx-field">
+    <span class="tx-field__label">Valuation mode</span>
+    <input type="text" value="{{ valuation_mode }}" readonly>
+    <span class="tx-field__hint">{{ valuation_mode_hint }}</span>
+</div>
+<div class="tx-field tx-field--wide{% if anlv_gate %} is-missing{% endif %}">
+    <label class="tx-field__label" for="tx-md-anlv">AnlV category</label>
+    <select id="tx-md-anlv" name="md_anlv_code">
+        <option value="">— not set —</option>
+        {% for option in anlv_categories %}
+            <option value="{{ option.code }}"
+                    {% if entered.md_anlv_code == option.code %}selected{% endif %}>
+                {{ option.paragraph_label }} — {{ option.display_name }}
+            </option>
+        {% endfor %}
+    </select>
+    <span class="tx-field__hint">{{ anlv_hint }}</span>
+</div>

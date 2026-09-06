@@ -78,6 +78,20 @@
                                         updated
                                     {%- endif -%}
                                 </em>
+                                {# What the creating reported flows put on the
+                                   row (P-4b, operator fork 5). R-COMMIT emits
+                                   this row and nothing else, so without this
+                                   line the panel would say a fund was created
+                                   and never say what was committed to it. Read
+                                   back off the row like every other value here,
+                                   and absent for the flows that record no
+                                   commitment — a listed instrument has none. #}
+                                {% if row.commitment %}
+                                    <span class="tx-leg__sub">
+                                        Commitment {{ row.commitment }} {{ row.commitment_currency }}
+                                        {%- if row.vintage_year %} · vintage {{ row.vintage_year }}{% endif -%}
+                                    </span>
+                                {% endif %}
                             </span>
                             <span class="tx-leg__amount">—</span>
                         {% endif %}

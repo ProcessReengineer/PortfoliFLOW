@@ -453,7 +453,7 @@ async def test_the_fifth_chooser_tile_opens_this_composer(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """R-SEC-SELL is live; R-COMMIT and R-SEC-BUY still say when they arrive."""
+    """R-SEC-SELL is live, and since P-4b so are R-COMMIT and R-SEC-BUY."""
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
 
@@ -462,10 +462,11 @@ async def test_the_fifth_chooser_tile_opens_this_composer(
     assert section.count('hx-get="/api/transactions/secondary-sale-form"') == 1
     assert "Sell a stake (secondary)" in section
     assert "Exit a fund interest in full." in section
-    # The two flows P-4b arms keep their pills, and only those two.
-    assert section.count("Arrives with S4c") == 2
-    for still_pending in ("New commitment", "Buy a stake (secondary)"):
-        assert still_pending in section
+    # P-4b armed the two flows this test used to find pending; their copy
+    # stays, their pills are gone.
+    assert "Arrives with S4c" not in section
+    for armed in ("New commitment", "Buy a stake (secondary)"):
+        assert armed in section
 
 
 # ---------------------------------------------------------------------------

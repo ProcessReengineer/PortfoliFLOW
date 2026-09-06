@@ -1,0 +1,148 @@
+{# M-3 R-COMMIT composer — recording a private-markets commitment (ADR-0128,
+   S4c / P-4b). Swapped into #tx-composer-host by the chooser's third tile;
+   Discard swaps the chooser back.
+
+   A surface over what already exists. It writes through the S4a gesture
+   endpoints unchanged — Save as draft, Propose and Book now are M-1's own
+   three — and adds no write path of its own; the only new endpoint is the
+   GET that opens this form.
+
+   MD-12: there is no investment picker, and there is nothing to pick. A
+   commitment always records a new position, so the master data below is
+   *payload* on the ticket and the `investments` row is created by the
+   booking (`emit_commitment`) and nowhere else.
+
+   MD-19 is what makes this form unlike every other one in the Area: **no
+   cash moves**, so there is no settlement block, no cash leg and no
+   projected balance. The `tx-nocash` panel says so in words rather than
+   leaving a block conspicuously empty, and `_gesture_context` drops a
+   `cash_investment_id` a hand-made body might post — the schema's
+   `ck_trade_tickets_commitment_shape` says the same thing one layer down.
+
+   MD-21: the AnlV category is the finish gate. Save as draft is untouched by
+   it (MD-11) — a dangling draft is what makes an unfinished commitment safe
+   to leave — while Propose and Book now wait for it.
+
+   MD-2 as everywhere here: the header reads "New ticket · Unsaved" until the
+   first gesture, then "Ticket #n" with its status pill, and `ticket_id` rides
+   in a hidden field so the next gesture updates that row.
+
+   Context: csrf_token, flow, investment_types, asset_classes,
+   anlv_categories, cases, trade_date, entered, case_id, ticket_id,
+   ticket_number, ticket_status, error, plus everything `_derived_context`
+   returns. #}
+<form class="tx-ticket" id="tx-commit-form"
+      hx-post="/api/transactions/recalc"
+      hx-trigger="input delay:300ms, change delay:300ms, submit"
+      hx-target="#tx-derived"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="flow" value="{{ flow }}">
+    {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
+
+    <div class="tx-ticket__head">
+        <div class="tx-ticket__ident">
+            <span class="tx-ticket__id">
+                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
+            </span>
+            {% include "_partials/transactions/_order_title.html" %}
+        </div>
+        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
+            {{ ticket_status | default("unsaved", true) | capitalize }}
+        </span>
+    </div>
+
+    <div class="tx-ticket__body">
+
+        {# --------------------------- New investment -------------------- #}
+        <div class="tx-block">
+            <p class="tx-block__title">New investment</p>
+            <div class="tx-grid">
+                {% with
+                    name_hint = "",
+                    asset_class_hint = "",
+                    currency_hint = "",
+                    valuation_mode = "reported",
+                    valuation_mode_hint = "Fixed for this flow.",
+                    anlv_hint = "Required before this ticket can be proposed or booked."
+                %}
+                    {% include "_partials/transactions/_master_data_fields.html" %}
+                {% endwith %}
+            </div>
+        </div>
+
+        {# ----------------------------- Commitment ---------------------- #}
+        <div class="tx-block">
+            <p class="tx-block__title">Commitment</p>
+            <div class="tx-grid">
+                <div class="tx-field tx-field--numeric">
+                    <label class="tx-field__label" for="tx-commit-amount">Commitment amount{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input type="number" id="tx-commit-amount" name="commitment_amount" step="any"
+                           value="{{ entered.commitment_amount }}">
+                </div>
+                <div class="tx-field tx-field--numeric">
+                    <label class="tx-field__label" for="tx-commit-vintage">Vintage year</label>
+                    <input type="number" id="tx-commit-vintage" name="md_vintage_year"
+                           value="{{ entered.md_vintage_year }}">
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-commit-date">Commitment date</label>
+                    <input type="date" id="tx-commit-date" name="trade_date" value="{{ trade_date }}">
+                    <span class="tx-field__hint">Books as the ticket's trade date.</span>
+                </div>
+            </div>
+        </div>
+
+        {# ------------------------ MD-19: no cash moves ------------------ #}
+        {# Static prose, not a derived region: it is true of the flow rather
+           than of this ticket, so a keystroke has nothing to change about
+           it. Copy is M-3's, verbatim (MD-9). #}
+        <div class="tx-nocash">
+            <p><strong>No cash moves with this ticket.</strong> Money leaves the portfolio with the
+            capital calls, which stay ordinary cashflows on the investment — entered as they arrive,
+            outside this ticket.</p>
+            <p>The ticket books once, when the commitment is recorded, and remains the provenance
+            anchor a Case can point at. Pacing and drawdown views stay with the Planning Desk.</p>
+        </div>
+
+        {# ---------------------------- On booking ----------------------- #}
+        {% include "_partials/transactions/_commitment_derived.html" %}
+
+        {# ----------------------------- Provenance ---------------------- #}
+        {# M-3 draws no Provenance block; M-1's is kept for the reason P-4a
+           kept it on the sale, only more so: a commitment is the flow most
+           likely to *come from* a Case (ADR-0128 §6), and dropping the block
+           would make the one ticket a Case most wants to point at the only
+           one that cannot record which. Registered as a copy gap. #}
+        <div class="tx-block">
+            <p class="tx-block__title">Provenance</p>
+            <div class="tx-grid">
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-commit-case">Linked case <span class="tx-field__optional">(optional)</span></label>
+                    <select id="tx-commit-case" name="case_id">
+                        <option value="">No case</option>
+                        {% for case in cases %}
+                            <option value="{{ case.id }}"
+                                    {% if case_id and case.id == case_id %}selected{% endif %}>
+                                Case #{{ case.case_number }} — {{ case.title }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="tx-field">
+                    <label class="tx-field__label" for="tx-commit-source">Source <span class="tx-field__optional">(optional)</span></label>
+                    <input type="text" id="tx-commit-source" name="source" value="{{ entered.source }}"
+                           placeholder="Subscription agreement, side letter…">
+                </div>
+                <div class="tx-field tx-field--wide">
+                    <label class="tx-field__label" for="tx-commit-note">Note <span class="tx-field__optional">(optional)</span></label>
+                    <input type="text" id="tx-commit-note" name="note" value="{{ entered.note }}"
+                           placeholder="Why this commitment was made.">
+                </div>
+            </div>
+        </div>
+
+        {# --------------------- Messages and actions --------------------- #}
+        {% include "_partials/transactions/_commitment_outcome.html" %}
+    </div>
+</form>

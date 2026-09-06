@@ -1,0 +1,22 @@
+{# The recalculation response for the R-SEC-BUY composer.
+
+   The counterpart to `_secondary_sale_recalc.html`, and the same three-part
+   shape for the same reason: M-3 interleaves its derived regions with static
+   inputs, so only the terms-emission-settlement region can be a contiguous
+   swap and the rest travel out of band.
+
+   Swap target: `#tx-derived` (`_secondary_buy_derived.html`).
+   Out of band: the ticket title and the messages-and-actions region. There is
+   no context strip — a stake that does not exist yet has no statement history
+   to state — and the head's number and state pill are not out-of-band either:
+   a keystroke must not move them.
+
+   The user's own inputs are deliberately absent. Re-rendering a field while
+   it is being typed into would move the caret; the server owns what is
+   *derived*, the browser keeps what is *entered*.
+
+   Context: `oob` is true throughout, plus everything `_derived_context`
+   returns. #}
+{% include "_partials/transactions/_secondary_buy_derived.html" %}
+{% include "_partials/transactions/_order_title.html" %}
+{% include "_partials/transactions/_secondary_buy_outcome.html" %}

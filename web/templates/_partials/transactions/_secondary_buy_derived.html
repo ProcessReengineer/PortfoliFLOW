@@ -1,0 +1,78 @@
+{# Transfer terms, emission preview and settlement — the R-SEC-BUY composer's
+   derived region and the recalculation endpoint's swap target (#tx-derived).
+
+   The three blocks are contiguous in M-3's order (the derived rows close the
+   Transfer-terms block, then "On booking", then "Settlement position"), so
+   one swap covers all three — the same shape `_secondary_sale_derived.html`
+   takes, for the same reason.
+
+   Every number was derived in the route, by the service layer: the cash out
+   is `TicketService.preview`'s cash_effect over a transient `secondary`/`buy`
+   ticket, the discount-or-premium ratio is `signed_deviation_ratio`, and the
+   cash row is `cash_leg` — the pure function the booking itself runs. Nothing
+   here subtracts, divides or compares.
+
+   Of the four On-booking rows, three are *statements of the flow* (the D-AF
+   reasoning): a secondary purchase creates a `reported` row (D-R), opens it
+   at the acquired NAV, and takes on the unfunded commitment as the row's own
+   (D-U). They are shown as rows precisely so they are not mistaken for
+   options. The fourth is the cash leg, and it is the only one with a sign.
+
+   MD-20's row is an **info** row and never a warning: a stake acquired below
+   its last statement is ordinary economics, and the sign carries the whole
+   meaning.
+
+   Context (all pre-formatted): net, acquired_nav, vs_acquired_nav, currency,
+   effect_rows, plus everything `_settlement.html` reads. #}
+<div class="tx-derived-host" id="tx-derived">
+
+    <div class="tx-derived">
+        <div class="tx-derived__row">
+            <span>Purchase price (cash out)</span>
+            {# A purchase takes cash out — MD-15 fixes the direction, and
+               `derive_cash_effect` applies that sign one layer down at the
+               cash leg. The minus is stated here rather than recomputed,
+               exactly as `_secondary_sale_derived.html` states the one on its
+               fees row (P-4a). #}
+            <span>
+                {%- if cash_out -%}
+                    −{{ cash_out }}{% if currency %} {{ currency }}{% endif %}
+                {%- else -%}—{%- endif -%}
+            </span>
+        </div>
+        <div class="tx-derived__row">
+            <span>Acquired NAV</span>
+            <span>{% if acquired_nav %}{{ acquired_nav }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
+        </div>
+        <div class="tx-derived__row tx-derived__row--info">
+            <span>Price vs. acquired NAV</span>
+            <span>{{ vs_acquired_nav or "—" }}</span>
+        </div>
+    </div>
+
+    <div class="tx-block">
+        <p class="tx-block__title">On booking</p>
+        <div class="tx-legs">
+            <p class="tx-legs__lead">Emitted together, or not at all:</p>
+            {% if effect_rows %}
+                {% for row in effect_rows %}
+                    <div class="tx-leg">
+                        <span class="tx-leg__type tx-leg__type--{{ row.type }}">{{ row.type }}</span>
+                        <span class="tx-leg__what">{{ row.what }} <em>{{ row.detail }}</em></span>
+                        <span class="tx-leg__amount">{{ row.amount or "" }}</span>
+                    </div>
+                {% endfor %}
+            {% else %}
+                {# Operator decision D-3's rule, applied to four rows instead
+                   of two: showing some of an emission would be a promise the
+                   booking does not make. #}
+                <p class="tx-legs__pending">
+                    All four rows appear here once the stake is named, the transfer
+                    terms are stated and the settlement position is set.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% include "_partials/transactions/_settlement.html" %}
+</div>

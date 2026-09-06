@@ -3,17 +3,22 @@
    Copy is lifted verbatim from the M-1 mockup (MD-9), tile names, hints and
    flow codes alike.
 
-   Three tiles are live: "Buy or sell units" swaps the U-BUY / U-SELL
-   composer into #tx-composer-host (S4a), "Buy a new instrument" swaps the M-2
-   wizard into the same host (S4b), and "Sell a stake (secondary)" swaps the
-   M-3 R-SEC-SELL composer into it (S4c). The two remaining reported flows
-   carry the strand that arms them and are deliberately inert — no link, no
-   form control — because a tile that opened a half-built surface would be
-   worse than one that says when it arrives. P-4b replaces those two pills.
+   All five tiles are live as of P-4b, and there is no pending state left in
+   this file: "Buy or sell units" swaps in the U-BUY / U-SELL composer (S4a),
+   "Buy a new instrument" the M-2 wizard (S4b), and the three reported flows
+   the M-3 composers R-COMMIT, R-SEC-BUY and R-SEC-SELL (S4c). The
+   `tx-flow--pending` class and the `tx-flow__pill` it carried have no
+   remaining user in this Area; they stay in the stylesheet as the shape a
+   future flow's tile takes before it is armed.
+
+   The tile count is asserted in three test modules — the composer's chooser
+   test owns the copy on all five, and the wizard's and secondary-sale's each
+   pin the tile they armed. Arming a flow moves those counts, deliberately:
+   a live tile is another button where the tests counted them.
 
    Context: none. The chooser is static markup, which is what keeps
    web/routes/areas.py a no-DB shell render — everything needing the
-   database sits behind the HTMX endpoints. #}
+   database sits behind the HTMX endpoints below. #}
 <div class="tx-flows">
     <button class="tx-flow" type="button"
             hx-get="/api/transactions/order-form"
@@ -31,18 +36,22 @@
         <span class="tx-flow__hint">Create the investment, then buy it.</span>
         <span class="tx-flow__code">U-NEW</span>
     </button>
-    <div class="tx-flow tx-flow--pending">
+    <button class="tx-flow" type="button"
+            hx-get="/api/transactions/commitment-form"
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">
         <span class="tx-flow__name">New commitment</span>
         <span class="tx-flow__hint">Private markets. No cash moves yet.</span>
         <span class="tx-flow__code">R-COMMIT</span>
-        <span class="tx-flow__pill">Arrives with S4c</span>
-    </div>
-    <div class="tx-flow tx-flow--pending">
+    </button>
+    <button class="tx-flow" type="button"
+            hx-get="/api/transactions/secondary-buy-form"
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">
         <span class="tx-flow__name">Buy a stake (secondary)</span>
         <span class="tx-flow__hint">Acquire an existing fund interest.</span>
         <span class="tx-flow__code">R-SEC-BUY</span>
-        <span class="tx-flow__pill">Arrives with S4c</span>
-    </div>
+    </button>
     <button class="tx-flow" type="button"
             hx-get="/api/transactions/secondary-sale-form"
             hx-target="#tx-composer-host"

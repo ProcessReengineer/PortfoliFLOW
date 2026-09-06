@@ -10,6 +10,13 @@
    definition (the ticket carries units and a price), so the emission fixes
    `unitised` (D-R) and a control here would be a control over nothing.
 
+   The six controls themselves moved to `_master_data_fields.html` when P-4b
+   gave R-COMMIT and R-SEC-BUY the same block. This step's *rendered output is
+   unchanged* — the S4b suite is the proof — because the fragment holds only
+   the structure and each caller passes its own MD-9 copy in: M-2's hints and
+   its `unitised` mode below, M-3's shorter hints and `reported` next door.
+   Manager and Region stay here, since only the wizard asks for them.
+
    The AnlV category is the one field that is optional to *save* and required
    to *finish* (MD-11 / MD-21). M-2's amber notice says so on this step and
    the gate itself lives on step 4, which is where Propose and Book now are.
@@ -26,66 +33,16 @@
     <div class="tx-block">
         <p class="tx-block__title">Master data</p>
         <div class="tx-grid">
-            <div class="tx-field tx-field--wide">
-                <label class="tx-field__label" for="tx-md-name">Name</label>
-                <input type="text" id="tx-md-name" name="md_name" value="{{ entered.md_name }}">
-                <span class="tx-field__hint">
-                    Pre-filled from the resolved identifier. Must be unique in this tenant.
-                </span>
-            </div>
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-md-type">Investment type</label>
-                <select id="tx-md-type" name="md_investment_type">
-                    {% for option in investment_types %}
-                        <option value="{{ option }}"
-                                {% if entered.md_investment_type == option %}selected{% endif %}>
-                            {{ option }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-md-asset-class">Asset class</label>
-                <select id="tx-md-asset-class" name="md_asset_class_id">
-                    <option value="">Pick an asset class…</option>
-                    {% for option in asset_classes %}
-                        <option value="{{ option.id }}"
-                                {% if entered.md_asset_class_id == option.id | string %}selected{% endif %}>
-                            {{ option.display_name }}
-                        </option>
-                    {% endfor %}
-                </select>
-                <span class="tx-field__hint">Tenant catalogue.</span>
-            </div>
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-md-currency">Currency</label>
-                <input type="text" id="tx-md-currency" name="currency" class="tx-mono"
-                       maxlength="3" value="{{ entered.currency }}">
-                <span class="tx-field__hint">Becomes the ticket currency.</span>
-            </div>
-            <div class="tx-field">
-                <span class="tx-field__label">Valuation mode</span>
-                <input type="text" value="unitised" readonly>
-                <span class="tx-field__hint">
-                    Fixed for this flow. Reported stakes go through Commitment or Secondary.
-                </span>
-            </div>
-            <div class="tx-field tx-field--wide{% if anlv_gate %} is-missing{% endif %}">
-                <label class="tx-field__label" for="tx-md-anlv">AnlV category</label>
-                <select id="tx-md-anlv" name="md_anlv_code">
-                    <option value="">— not set —</option>
-                    {% for option in anlv_categories %}
-                        <option value="{{ option.code }}"
-                                {% if entered.md_anlv_code == option.code %}selected{% endif %}>
-                            {{ option.paragraph_label }} — {{ option.display_name }}
-                        </option>
-                    {% endfor %}
-                </select>
-                <span class="tx-field__hint">
-                    Required before the wizard can finish. You can continue and set it later;
-                    the ticket stays a draft until it is set.
-                </span>
-            </div>
+            {% with
+                name_hint = "Pre-filled from the resolved identifier. Must be unique in this tenant.",
+                asset_class_hint = "Tenant catalogue.",
+                currency_hint = "Becomes the ticket currency.",
+                valuation_mode = "unitised",
+                valuation_mode_hint = "Fixed for this flow. Reported stakes go through Commitment or Secondary.",
+                anlv_hint = "Required before the wizard can finish. You can continue and set it later; the ticket stays a draft until it is set."
+            %}
+                {% include "_partials/transactions/_master_data_fields.html" %}
+            {% endwith %}
             <div class="tx-field">
                 <label class="tx-field__label" for="tx-md-manager">Manager <span class="tx-field__optional">(optional)</span></label>
                 <input type="text" id="tx-md-manager" name="md_manager" value="{{ entered.md_manager }}">

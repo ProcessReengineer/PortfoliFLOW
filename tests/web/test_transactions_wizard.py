@@ -13,7 +13,8 @@ to lean on a row this flow must not need.
 What is pinned here:
 
 * **The chooser's second live tile.** S4b arms "Buy a new instrument"; the
-  three reported-flow tiles keep their pills.
+  reported-flow tiles were armed by S4c and P-4b, so the count here is now
+  MD-1's full five.
 * **Both Identify paths.** A resolved identifier pre-fills FIGI, name and
   currency as *editable* values (operator decision W-4′); a resolver that
   states no currency leaves the field empty and is not an error (P-3a flag
@@ -429,12 +430,12 @@ async def test_chooser_arms_the_new_instrument_tile(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The U-NEW tile is live; the flows S4c has not armed keep their pills.
+    """The U-NEW tile is live, alongside the four other flows.
 
-    The counts move with each arming — S4c/P-4a made R-SEC-SELL the third
-    live tile — and this is the second of the two places they are stated;
-    the other is ``test_transactions_composer.py``'s chooser test, which owns
-    the copy on all five. What this test is *for* is unchanged: the tile S4b
+    The counts moved with each arming — S4c/P-4a made R-SEC-SELL the third
+    live tile, P-4b armed the last two — and this is one of the places they
+    are stated; ``test_transactions_composer.py``'s chooser test owns the
+    copy on all five. What this test is *for* is unchanged: the tile S4b
     armed is a control and points at the wizard.
     """
     _id, email, password = seeded_user
@@ -443,9 +444,9 @@ async def test_chooser_arms_the_new_instrument_tile(
     section = _new_section((await web_client.get("/transactions")).text)
 
     assert 'hx-get="/api/transactions/wizard"' in section
-    assert section.count("<button") == 3, "the three live tiles are the only controls"
+    assert section.count("<button") == 5, "MD-1's five tiles are the only controls"
     assert "Arrives with S4b" not in section
-    assert section.count("Arrives with S4c") == 2
+    assert "Arrives with S4c" not in section
     assert "Create the investment, then buy it." in section
 
 

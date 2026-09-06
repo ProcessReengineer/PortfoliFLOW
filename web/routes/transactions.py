@@ -50,17 +50,37 @@ outright: a partial sale is not representable in the schema, so no service
 can refuse it and the block lives here — the single block-aware term in
 ``draft_enabled``.
 
+Five surfaces, still one substrate (P-4b)
+-----------------------------------------
+R-COMMIT and R-SEC-BUY arm the last two chooser tiles, and they too add **no
+endpoint that writes**: one ``GET`` each, and the composer's own three
+gestures. What they cost the substrate is one table and two flags. Every
+``if secondary … elif creating …`` chain that had been growing a branch per
+flow — in :func:`_ensure_draft`, :func:`_composer_context`,
+:func:`post_recalc` and :func:`_composer_template` — now reads :data:`_FLOWS`,
+and :class:`_ComposerForm`'s ``creating`` became the *union* of the three
+flows that make an investment row rather than a synonym for the wizard.
+
+What genuinely differs is a **commitment**. It is the one flow that moves no
+cash (MD-19): no settlement position, no cash leg, no projected balance, and
+the surface says so in a panel of prose rather than by leaving a block empty.
+Neither purchase form offers a picker — MD-12 makes their investment an
+emission effect, and a ``secondary``/``buy`` that named one is
+``_unroutable`` — so the two of them, with the wizard, are the surface's
+whole creating half.
+
 Reads and writes, kept apart
 ----------------------------
-Ten endpoints. ``order-form``, ``secondary-sale-form``, ``wizard``,
-``chooser``, ``recalc`` and ``resolve-identifier`` are reads: they derive,
-they render, and they touch no row (MD-2 — opening a composer allocates
-nothing and burns no ticket number). ``draft``, ``propose``, ``book`` and
-``cash-position`` are the writes, owner-gated and CSRF-checked, and every one
-of them re-checks server-side what the surface had already gated: a form is a
-suggestion, never a permission. ``web/routes/areas.py`` stays a no-DB shell
-render: the chooser is static markup in the area body, and everything that
-needs the database sits behind the HTMX endpoints below.
+Twelve endpoints. ``order-form``, ``secondary-sale-form``,
+``commitment-form``, ``secondary-buy-form``, ``wizard``, ``chooser``,
+``recalc`` and ``resolve-identifier`` are reads: they derive, they render, and
+they touch no row (MD-2 — opening a composer allocates nothing and burns no
+ticket number). ``draft``, ``propose``, ``book`` and ``cash-position`` are the
+writes, owner-gated and CSRF-checked, and every one of them re-checks
+server-side what the surface had already gated: a form is a suggestion, never
+a permission. ``web/routes/areas.py`` stays a no-DB shell render: the chooser
+is static markup in the area body, and everything that needs the database sits
+behind the HTMX endpoints below.
 
 The first explicit gesture allocates the ticket (MD-2), and that rule lives
 in exactly one function — :func:`_ensure_draft`. All three gestures go
@@ -144,11 +164,15 @@ The wizard adds ``flow`` and ``step`` — the flow signal and the
 body to render, neither of which is state — and the nine ``md_*`` fields,
 which carry no column each but *are* one together:
 :meth:`_ComposerForm.master_data` projects them onto ``master_data``'s JSONB
-payload. Six of the fifteen ``MD_*`` keys stay unmapped, because no flow this
-strand ships uses them: ``vintage_year``, ``commitment_amount``,
-``purchase_price``, ``acquired_nav`` and ``assumed_unfunded`` belong to
-R-COMMIT and R-SEC-BUY (S4c), and ``currency`` is written from the ticket
-column rather than from an ``md_*`` field of its own.
+payload.
+
+P-4b closes that inventory. ``commitment_amount`` is R-COMMIT's amount and
+carries a column of its own; ``md_vintage_year``, ``md_acquired_nav``,
+``md_assumed_unfunded`` and ``md_purchase_price`` complete the fifteen
+``MD_*`` keys. Two of the fifteen are never read from a field of their own:
+``currency`` is written from the ticket column (W-4), and ``purchase_price``
+from ``gross_amount`` — both are D-U mirrors, written from the one place the
+value was entered so the two spellings cannot disagree.
 
 Copy
 ----
@@ -221,10 +245,14 @@ from services.transactions.constants import (
     BOOKABLE_STATUSES,
     DIRECTION_BUY,
     DIRECTION_SELL,
+    KIND_COMMITMENT,
     KIND_ORDER,
     KIND_SECONDARY,
+    MD_ACQUIRED_NAV,
     MD_ANLV_CODE,
     MD_ASSET_CLASS_ID,
+    MD_ASSUMED_UNFUNDED,
+    MD_COMMITMENT_AMOUNT,
     MD_CURRENCY,
     MD_FIGI,
     MD_IDENTIFIER_SCHEME,
@@ -232,7 +260,9 @@ from services.transactions.constants import (
     MD_INVESTMENT_TYPE,
     MD_MANAGER,
     MD_NAME,
+    MD_PURCHASE_PRICE,
     MD_REGION,
+    MD_VINTAGE_YEAR,
     STATUS_DRAFT,
     WARNING_FUTURE_TRADE_DATE,
     WARNING_NEGATIVE_CASH,
@@ -271,6 +301,7 @@ from services.transactions.validation import (
     TicketWarning,
     TicketWarnings,
     derive_cash_effect,
+    is_cash_moving,
     nearest_price,
     signed_deviation_ratio,
 )
@@ -305,6 +336,111 @@ FLOW_NEW_INSTRUMENT: str = "new_instrument"
 #: from "the picked row happens to be reported" would let a stale picker
 #: silently change what a gesture writes.
 FLOW_SECONDARY_SALE: str = "secondary_sale"
+
+#: The ``flow`` value for the commitment composer (R-COMMIT, S4c / P-4b).
+#:
+#: Signalled like its two siblings. A commitment names no investment and
+#: states no units, so nothing on the body would distinguish it from a
+#: half-typed wizard draft; the field is what says which of the two it is.
+FLOW_COMMITMENT: str = "commitment"
+
+#: The ``flow`` value for the secondary-purchase composer (R-SEC-BUY, P-4b).
+#:
+#: Distinguished from :data:`FLOW_SECONDARY_SALE` by the flow rather than by
+#: the direction, for the same reason the sale is distinguished from a
+#: U-SELL: the direction is a *consequence* of the flow (MD-15), so reading it
+#: the other way round would let a tampered body change which emission runs.
+FLOW_SECONDARY_BUY: str = "secondary_buy"
+
+
+@dataclass(frozen=True)
+class _Flow:
+    """What one composer flow builds, and which partials draw it.
+
+    The five entry points of MD-1, stated once. Before P-4b the same five
+    facts were spread over four ``if secondary … elif creating …`` chains —
+    in :func:`_ensure_draft`, :func:`_composer_context`, :func:`post_recalc`
+    and :func:`_composer_template` — and every new flow had to be added to
+    all four in agreement. They are one table now, keyed by the ``flow``
+    signal the form posts, so a flow is described in one place and read
+    everywhere.
+
+    ``direction`` is ``None`` for exactly one flow: U-BUY / U-SELL, the only
+    surface that *offers* the choice. Every other flow's direction is a
+    constant of the flow (MD-14, MD-15, MD-17), so a posted opposite is
+    ignored rather than refused — the surface never offered it.
+
+    Attributes:
+        kind: The ticket kind this flow writes.
+        direction: The flow's fixed direction, or ``None`` to take the
+            form's.
+        creating: Whether booking *creates* the investment (MD-12). The
+            union of U-NEW, R-COMMIT and R-SEC-BUY — the same three
+            :func:`~services.transactions.validation.is_investment_creating`
+            names one layer down.
+        costs: Whether the form offers fees and taxes. M-3's two purchase
+            forms state a single net figure and offer neither.
+        composer: The composer partial, or ``None`` for the wizard, which
+            has an assembly and a template of its own.
+        recalc: The recalculation response's partial.
+    """
+
+    kind: str
+    direction: str | None
+    creating: bool
+    costs: bool
+    composer: str | None
+    recalc: str
+
+
+#: Every flow this Area composes, keyed by the ``flow`` field's value.
+#:
+#: The empty key is U-BUY / U-SELL: M-1's composer predates the flow signal
+#: and posts none, which is why the signal is read permissively — an
+#: unrecognised value is the order composer, the same way an unrecognised
+#: ``fraction`` is a full sale.
+_FLOWS: dict[str, _Flow] = {
+    "": _Flow(
+        kind=KIND_ORDER,
+        direction=None,
+        creating=False,
+        costs=True,
+        composer="_order_composer.html",
+        recalc="_order_recalc.html",
+    ),
+    FLOW_NEW_INSTRUMENT: _Flow(
+        kind=KIND_ORDER,
+        direction=DIRECTION_BUY,
+        creating=True,
+        costs=True,
+        composer=None,
+        recalc="_wizard_recalc.html",
+    ),
+    FLOW_SECONDARY_SALE: _Flow(
+        kind=KIND_SECONDARY,
+        direction=DIRECTION_SELL,
+        creating=False,
+        costs=True,
+        composer="_secondary_sale_composer.html",
+        recalc="_secondary_sale_recalc.html",
+    ),
+    FLOW_COMMITMENT: _Flow(
+        kind=KIND_COMMITMENT,
+        direction=DIRECTION_BUY,
+        creating=True,
+        costs=False,
+        composer="_commitment_composer.html",
+        recalc="_commitment_recalc.html",
+    ),
+    FLOW_SECONDARY_BUY: _Flow(
+        kind=KIND_SECONDARY,
+        direction=DIRECTION_BUY,
+        creating=True,
+        costs=False,
+        composer="_secondary_buy_composer.html",
+        recalc="_secondary_buy_recalc.html",
+    ),
+}
 
 #: The wizard's four steps, in M-2's order. Index + 1 is the step number.
 _WIZARD_STEPS: tuple[str, ...] = ("Identify", "Classify", "Order", "Confirm")
@@ -490,6 +626,37 @@ def _decimal_or_none(raw: str | None) -> Decimal | None:
         return None
 
 
+def _int_or_none(raw: str | None) -> int | None:
+    """Parse a whole-number form value into an :class:`int`, or ``None``.
+
+    :func:`_decimal_or_none`'s contract for the one field that is a count
+    rather than an amount — M-3's vintage year. Absent, blank and unparseable
+    all read as ``None``, because a half-typed year is the ordinary state of a
+    field being typed into and not an error the recalculation should report.
+    """
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _text_or_none(value: Decimal | int | None) -> str | None:
+    """Render a parsed number for the JSONB payload, or ``None``.
+
+    The inverse of :func:`_decimal_or_none` / :func:`_int_or_none`, and
+    deliberately the *plainest* spelling: ``str`` of what was parsed, which is
+    what :func:`~services.transactions.emission.parse_master_data` reads back
+    through ``Decimal(str(value))`` and ``int(str(value))``. Formatting it any
+    other way here would put a second convention between the two.
+    """
+    return None if value is None else str(value)
+
+
 def _date_or_none(raw: str | None) -> _date | None:
     """Parse an ISO date form value, or ``None`` when absent or malformed."""
     if raw is None:
@@ -576,6 +743,23 @@ class _ComposerForm:
     there: an order derives its own gross and never posts a ``fraction``,
     which then reads as the default ``full``.
 
+    P-4b completes it. ``commitment_amount`` is R-COMMIT's one amount and
+    the only new field that carries a *column*; the four remaining ``md_*``
+    names finish the fifteen-key ``MD_*`` contract. Only three of the four
+    have a control: ``md_vintage_year`` on both new forms,
+    ``md_acquired_nav`` and ``md_assumed_unfunded`` on R-SEC-BUY.
+    ``md_purchase_price`` has none anywhere, because D-U makes the purchase
+    price a *mirror* of ``gross_amount`` rather than a second input — it is
+    listed so the inventory is the whole contract and so a body that posts
+    it is parsed rather than silently absorbed by FastAPI.
+
+    ``flow`` grew from a boolean's worth of meaning to five values, and the
+    three predicates it feeds are no longer synonyms: ``creating`` is the
+    **union** of the flows that make an investment row (U-NEW, R-COMMIT,
+    R-SEC-BUY, per :data:`_FLOWS`), while ``new_instrument`` is the wizard
+    alone — which is what template selection and the wizard's step
+    navigation actually mean when they used to say ``creating``.
+
     Attributes:
         entered: The raw strings, echoed back into the composer's own inputs
             so a re-render after a gesture shows what the user typed rather
@@ -624,6 +808,12 @@ class _ComposerForm:
         md_region: Annotated[str, Form()] = "",
         # -- the R-SEC-SELL composer's own inventory (S4c) ---------------
         fraction: Annotated[str, Form()] = "full",
+        # -- R-COMMIT and R-SEC-BUY complete the inventory (P-4b) --------
+        commitment_amount: Annotated[str, Form()] = "",
+        md_vintage_year: Annotated[str, Form()] = "",
+        md_purchase_price: Annotated[str, Form()] = "",
+        md_acquired_nav: Annotated[str, Form()] = "",
+        md_assumed_unfunded: Annotated[str, Form()] = "",
     ) -> None:
         self.direction = direction if direction == DIRECTION_BUY else DIRECTION_SELL
         self.investment_id = _uuid_or_none(investment_id)
@@ -643,8 +833,22 @@ class _ComposerForm:
         self.ticket_id = _uuid_or_none(ticket_id)
         self.cash_name = _clean(cash_name)
         self.cash_opening_balance = _decimal_or_none(cash_opening_balance)
-        self.creating = flow == FLOW_NEW_INSTRUMENT
-        self.secondary_sale = flow == FLOW_SECONDARY_SALE
+        # The signal is narrowed to a flow this module composes, on the same
+        # permissive contract as every other field: an unrecognised value is
+        # the order composer, which is what a body with no signal at all is.
+        self.flow = flow if flow in _FLOWS else ""
+        self.new_instrument = self.flow == FLOW_NEW_INSTRUMENT
+        self.secondary_sale = self.flow == FLOW_SECONDARY_SALE
+        self.commitment = self.flow == FLOW_COMMITMENT
+        self.secondary_buy = self.flow == FLOW_SECONDARY_BUY
+        # `creating` is the **union** of the three flows whose booking makes
+        # the investment row (MD-12), not a synonym for the wizard: every
+        # rule that turns on "there is no investment to derive from" — the
+        # currency's source (W-4), the skipped `_resolve_traded`, the
+        # `_Creating` fallback, the forced `set_inactive` — holds for all
+        # three. The one thing that is the wizard's alone is which template
+        # renders, and that reads `new_instrument`.
+        self.creating = _FLOWS[self.flow].creating
         # Only ``partial`` means partial. The control offers two values and
         # nothing else, so anything unrecognised — an absent field, a
         # tampered body — reads as the flow's own default rather than as an
@@ -662,6 +866,11 @@ class _ComposerForm:
         self.md_anlv_code = _clean(md_anlv_code)
         self.md_manager = _clean(md_manager)
         self.md_region = _clean(md_region)
+        self.commitment_amount = _decimal_or_none(commitment_amount)
+        self.md_vintage_year = _int_or_none(md_vintage_year)
+        self.md_purchase_price = _decimal_or_none(md_purchase_price)
+        self.md_acquired_nav = _decimal_or_none(md_acquired_nav)
+        self.md_assumed_unfunded = _decimal_or_none(md_assumed_unfunded)
         self.entered: dict[str, str] = {
             "units": units,
             "price_per_unit": price_per_unit,
@@ -683,6 +892,11 @@ class _ComposerForm:
             "md_anlv_code": md_anlv_code,
             "md_manager": md_manager,
             "md_region": md_region,
+            "commitment_amount": commitment_amount,
+            "md_vintage_year": md_vintage_year,
+            "md_purchase_price": md_purchase_price,
+            "md_acquired_nav": md_acquired_nav,
+            "md_assumed_unfunded": md_assumed_unfunded,
         }
 
     def master_data(self, *, currency: str) -> dict[str, Any]:
@@ -706,6 +920,24 @@ class _ComposerForm:
         pair :meth:`~services.transactions.ticket_service.TicketService
         ._require_master_data` compares (F-3).
 
+        **The two D-U mirrors are written from the same posted field as the
+        column they mirror** (P-4b). ``reconcile_commitment`` refuses a
+        ticket whose column and payload state different commitments, and it
+        is right to: a commitment is the denominator of every pacing figure.
+        The way to make that refusal unreachable from this surface is not to
+        offer two inputs — R-COMMIT posts one ``commitment_amount`` and this
+        method writes both the column's value and
+        ``MD_COMMITMENT_AMOUNT``; R-SEC-BUY posts one
+        ``md_assumed_unfunded`` and :func:`_ensure_draft` mirrors it into the
+        column. ``MD_PURCHASE_PRICE`` is the same shape over
+        ``gross_amount``: carried for the record, never a second input.
+
+        Numbers are formatted the way
+        :func:`~services.transactions.emission.parse_master_data` reads them
+        back — ``str`` of a :class:`~decimal.Decimal` or an :class:`int`,
+        which ``_optional_amount``'s ``Decimal(str(value))`` and
+        ``_optional_year``'s ``int(str(value))`` both round-trip exactly.
+
         Args:
             currency: The ticket currency, already shape-validated.
 
@@ -723,7 +955,14 @@ class _ComposerForm:
             MD_FIGI: self.md_figi,
             MD_MANAGER: self.md_manager,
             MD_REGION: self.md_region,
+            MD_VINTAGE_YEAR: _text_or_none(self.md_vintage_year),
+            MD_ACQUIRED_NAV: _text_or_none(self.md_acquired_nav),
+            MD_ASSUMED_UNFUNDED: _text_or_none(self.md_assumed_unfunded),
         }
+        if self.commitment:
+            pairs[MD_COMMITMENT_AMOUNT] = _text_or_none(self.commitment_amount)
+        if self.secondary_buy:
+            pairs[MD_PURCHASE_PRICE] = _text_or_none(self.gross_amount)
         return {key: value for key, value in pairs.items() if value}
 
 
@@ -758,6 +997,8 @@ def _transient_ticket(
     note: str | None,
     kind: str = KIND_ORDER,
     gross_amount: Decimal | None = None,
+    commitment_amount: Decimal | None = None,
+    master_data: dict[str, Any] | None = None,
 ) -> TradeTicketDTO:
     """Build the never-persisted ticket the derivations run against.
 
@@ -799,6 +1040,18 @@ def _transient_ticket(
         gross_amount: A *stated* consideration, for the flows that have one.
             ``None`` on the order path, where the gross is derived from
             units and price rather than entered.
+        commitment_amount: R-COMMIT's stated commitment (P-4b). Carried so
+            the transient ticket is the same shape as the row the gesture
+            would write, not because any derivation beneath here reads it —
+            a commitment moves no cash (MD-19), so
+            :meth:`~services.transactions.ticket_service.TicketService
+            .preview`'s ``cash_effect`` is correctly ``None`` for one.
+        master_data: The projected payload, on the creating flows. Also
+            carried for shape rather than for use: ``preview`` never calls
+            :func:`~services.transactions.validation.is_investment_creating`
+            — the only reader of this field — so an empty payload and a
+            half-typed one preview identically today. Passing the real one
+            keeps that true if a creating-aware block is ever previewable.
 
     Returns:
         A complete-looking :class:`TradeTicketDTO` that no repository has
@@ -823,8 +1076,8 @@ def _transient_ticket(
         taxes=taxes,
         net_amount=None,
         currency=currency,
-        commitment_amount=None,
-        master_data=None,
+        commitment_amount=commitment_amount,
+        master_data=master_data,
         set_inactive=set_inactive,
         note=note,
         source=source,
@@ -915,6 +1168,37 @@ def _is_reported_pickable(investment: InvestmentDTO) -> bool:
         and investment.valuation_mode == VALUATION_MODE_REPORTED
         and investment.investment_type != CASH_TYPE
     )
+
+
+def _created_row(name: str) -> dict[str, Any]:
+    """The ``create`` row every investment-creating flow's booking emits.
+
+    M-3 draws the same row on both of its creating forms and the wording is
+    identical on each; stating it once is what keeps the *valuation mode* it
+    names honest, since both flows create a ``reported`` row (D-R) and a
+    second copy is where one of them would come to say ``unitised``.
+
+    It carries no amount. The row itself is the creation; what the position
+    is worth is the ``nav`` row beside it, or — for a commitment — nothing
+    yet, which is exactly MD-19's point.
+    """
+    return {
+        "type": "create",
+        "what": f"Investment · {name}",
+        "detail": VALUATION_MODE_REPORTED,
+        "amount": None,
+    }
+
+
+def _vintage_detail(vintage_year: int | None) -> str:
+    """The ``vintage 2026`` note on a commitment row, or the em dash.
+
+    M-3 always states a vintage; the service does not require one
+    (``_optional_year``), so the state the mockup never draws is written here
+    in its voice. A dash rather than an omitted note, because the row's three
+    slots are fixed and a blank one would read as a rendering fault.
+    """
+    return f"vintage {vintage_year}" if vintage_year is not None else "—"
 
 
 def _project_leg(units: Decimal, price: Decimal, txn_type: str, name: str) -> dict[str, Any]:
@@ -1052,6 +1336,11 @@ async def _derived_context(
     kind: str = KIND_ORDER,
     gross_amount: Decimal | None = None,
     partial_sale: bool = False,
+    commitment_amount: Decimal | None = None,
+    acquired_nav: Decimal | None = None,
+    assumed_unfunded: Decimal | None = None,
+    vintage_year: int | None = None,
+    master_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Derive every element the composer shows, from one transient ticket.
 
@@ -1117,6 +1406,15 @@ async def _derived_context(
         partial_sale: MD-18's scope refusal (S4c). The one surface-side
             block on this page: the schema has no fraction column, so the
             service has nothing to refuse and the rule is entirely here.
+        commitment_amount: R-COMMIT's stated commitment (P-4b).
+        acquired_nav: R-SEC-BUY's stake value at transfer — the opening NAV
+            its booking writes.
+        assumed_unfunded: The unfunded commitment R-SEC-BUY takes on.
+        vintage_year: The vintage the creating flows *state*. A picked
+            investment's own vintage wins where there is one, so the context
+            key this returns has a single meaning either way.
+        master_data: The projected payload, passed through to the transient
+            ticket; see :func:`_transient_ticket`.
 
     Returns:
         The template context for the four derived regions.
@@ -1125,7 +1423,21 @@ async def _derived_context(
     ledger_rows = PositionTransactionRepository(db)
     prices = InstrumentPriceRepository(db)
     service = _build_ticket_service(db)
-    secondary = kind == KIND_SECONDARY
+
+    # -- what shape of answer this kind admits ------------------------------
+    #
+    # Four predicates in place of P-4a's single `secondary` boolean, and two
+    # of them are the *service's own* (`is_cash_moving`, and `creating`,
+    # which is `is_investment_creating`'s three flows resolved one layer up).
+    # Deriving the surface's shape from the same functions the emission
+    # dispatches on is what stops this file from growing a private theory of
+    # which flow does what — the alternative, a fourth boolean parameter per
+    # flow, is how five flows become thirty-two states.
+    creating_flow = creating is not None
+    moves_cash = is_cash_moving(kind=kind)
+    unit_priced = kind == KIND_ORDER
+    states_gross = kind == KIND_SECONDARY
+    buying = direction == DIRECTION_BUY
 
     # -- the traded instrument, and what is held on the trade date ----------
     #
@@ -1141,9 +1453,9 @@ async def _derived_context(
         await _resolve_investment(
             investments,
             investment_id,
-            pickable=_is_reported_pickable if secondary else _is_pickable,
+            pickable=_is_reported_pickable if states_gross else _is_pickable,
         )
-        if creating is None
+        if not creating_flow
         else None
     )
     currency = (
@@ -1153,13 +1465,18 @@ async def _derived_context(
     )
 
     holding: Decimal | None = None
-    if investment is not None and not secondary:
+    if investment is not None and not states_gross:
         holding = holdings_as_of(await ledger_rows.list_for_investment(investment.id), trade_date)
-    elif creating is not None:
+    elif creating_flow and unit_priced:
         holding = Decimal(0)
 
     # -- settlement candidates (MD-3, and the D-F split) --------------------
-    in_currency = await _cash_in_currency(investments, currency)
+    #
+    # Not asked at all on a flow that settles against nothing (MD-19). A
+    # commitment has a currency like every other ticket, so the candidate
+    # query would happily return this tenant's cash rows and the panel would
+    # offer a choice the schema forbids the ticket to make.
+    in_currency = await _cash_in_currency(investments, currency) if moves_cash else []
     active_cash = [row for row in in_currency if row.is_active]
     selected_cash = next((row for row in active_cash if row.id == cash_investment_id), None)
 
@@ -1181,6 +1498,8 @@ async def _derived_context(
         note=note,
         kind=kind,
         gross_amount=gross_amount,
+        commitment_amount=commitment_amount,
+        master_data=master_data,
     )
 
     preview: TicketPreview = await service.preview(ticket, now=_now(), today=_today())
@@ -1197,7 +1516,7 @@ async def _derived_context(
     # `derive_cash_effect` call would have nothing to compute (S4c).
     gross = (
         gross_amount
-        if secondary
+        if states_gross
         else derive_cash_effect(
             direction=direction,
             units=units,
@@ -1220,7 +1539,7 @@ async def _derived_context(
     if deviation is not None:
         reference_price = cast(Decimal, deviation.data["reference_price"])
         reference_date = cast(_date, deviation.data["reference_date"])
-    elif investment is not None and not secondary:
+    elif investment is not None and not states_gross:
         point = nearest_price(await prices.list_by_investment(investment.id), trade_date)
         if point is not None:
             reference_price = point.price
@@ -1233,16 +1552,23 @@ async def _derived_context(
     # candidate would change only which row the units land on.
     #
     # What each flow needs before its consequences can be stated: two entered
-    # inputs on the unit paths, one stated amount on the secondary one, where
-    # there are no units to enter (S4c). One local, used by both the balance
-    # projection and the emission preview, so the two cannot come to disagree
-    # about when a flow is answerable.
+    # inputs on the unit paths, one stated amount on the secondary ones, where
+    # there are no units to enter (S4c), and the commitment on R-COMMIT, which
+    # moves no cash and therefore projects no balance (P-4b). One local, used
+    # by both the balance projection and the emission preview, so the two
+    # cannot come to disagree about when a flow is answerable.
     amounts_stated = (
-        gross is not None if secondary else (units is not None and price_per_unit is not None)
+        commitment_amount is not None
+        if kind == KIND_COMMITMENT
+        else (
+            gross is not None
+            if states_gross
+            else (units is not None and price_per_unit is not None)
+        )
     )
     projected: Decimal | None = None
     if (
-        (investment is not None or creating is not None)
+        (investment is not None or creating_flow)
         and amounts_stated
         and net is not None
         and active_cash
@@ -1280,7 +1606,7 @@ async def _derived_context(
     # derive and nothing that can drift from `order_legs`' sign convention.
     legs: list[dict[str, Any]] = []
     priced = selected_cash is not None and amounts_stated and net is not None
-    if investment is not None and priced and not secondary:
+    if investment is not None and priced and not states_gross:
         instrument_leg, settlement_leg = order_legs(ticket, cash_effect=cast(Decimal, net))
         legs.append(
             _project_leg(
@@ -1299,7 +1625,7 @@ async def _derived_context(
                     selected_cash.name if selected_cash is not None else "",
                 )
             )
-    elif creating is not None and priced and creating.name:
+    elif creating is not None and unit_priced and priced and creating.name:
         legs.append(
             _project_leg(
                 cast(Decimal, units),
@@ -1328,11 +1654,11 @@ async def _derived_context(
     # batched loader beside it.
     last_nav = (
         await InvestmentNavRepository(db).get_latest_actual(investment.id)
-        if secondary and investment is not None
+        if states_gross and investment is not None
         else None
     )
     unfunded: Decimal | None = None
-    if secondary and investment is not None:
+    if states_gross and investment is not None:
         called = await load_called_amounts(
             cashflows=InvestmentCashflowRepository(db),
             investment_ids=[investment.id],
@@ -1352,6 +1678,24 @@ async def _derived_context(
         if ratio is not None:
             vs_nav = f"{ratio * 100:+,.1f} %".replace("-", _MINUS)
 
+    # MD-20's other half: R-SEC-BUY's price against the NAV it acquired.
+    #
+    # A sibling key rather than a second meaning for `vs_nav`, because the two
+    # rows measure *different things against different references* — proceeds
+    # against the last statement, price against the value at transfer — and
+    # M-3 words them apart accordingly. One key would have to carry which, and
+    # a template would then decide what the number means.
+    #
+    # The word is a reading of the sign, not a second derivation: at or above
+    # the acquired NAV a stake changed hands at a premium, below it at a
+    # discount, and there is nothing here to compute a second time.
+    vs_acquired_nav: str | None = None
+    if acquired_nav is not None and gross is not None:
+        ratio = signed_deviation_ratio(value=gross, reference=acquired_nav)
+        if ratio is not None:
+            side = "premium" if ratio >= 0 else "discount"
+            vs_acquired_nav = f"{ratio * 100:+,.1f} % ({side})".replace("-", _MINUS)
+
     # -- what booking will emit (M-3: "Emitted together, or not at all") ----
     #
     # Three stated facts of the flow and one derived leg. The first three are
@@ -1364,8 +1708,65 @@ async def _derived_context(
     # A separate context key rather than more entries in `legs`: that list's
     # dict shape is `_project_leg`'s — units and a price — and three of these
     # four rows have neither.
+    #
+    # P-4b adds the two creating shapes to the same chain. R-COMMIT's two rows
+    # need no settlement position and no cash effect at all — it is the one
+    # flow whose consequences are complete without either (MD-19) — so its
+    # branch is keyed on what it *does* state: a name for the row and an
+    # amount for the commitment. R-SEC-BUY's four are keyed like R-SEC-SELL's,
+    # on `priced`, because its fourth row is a real cash leg.
     effect_rows: list[dict[str, Any]] = []
-    if secondary and investment is not None and priced and net is not None:
+    if kind == KIND_COMMITMENT:
+        if creating is not None and creating.name and commitment_amount is not None:
+            effect_rows = [
+                _created_row(creating.name),
+                {
+                    "type": "commit",
+                    "what": "Commitment recorded",
+                    "detail": _vintage_detail(vintage_year),
+                    "amount": f"{_money(commitment_amount)} {currency}",
+                },
+            ]
+    elif states_gross and buying:
+        if (
+            creating is not None
+            and creating.name
+            and priced
+            and net is not None
+            and acquired_nav is not None
+        ):
+            effect_rows = [
+                _created_row(creating.name),
+                {
+                    "type": "nav",
+                    "what": "Opening NAV at trade date",
+                    "detail": "manual origin",
+                    "amount": f"{_money(acquired_nav)} {currency}",
+                },
+            ]
+            # The commitment row only stands where a commitment is assumed:
+            # a secondary stake that is fully called carries none, and a row
+            # stating 0.00 would claim the emission writes one.
+            if assumed_unfunded is not None:
+                effect_rows.append(
+                    {
+                        "type": "commit",
+                        "what": "Unfunded commitment assumed",
+                        "detail": _vintage_detail(vintage_year),
+                        "amount": f"{_money(assumed_unfunded)} {currency}",
+                    }
+                )
+            settlement_leg = cash_leg(ticket, cash_effect=net)
+            if settlement_leg is not None:
+                effect_rows.append(
+                    {
+                        "type": settlement_leg.txn_type,
+                        "what": selected_cash.name if selected_cash is not None else "",
+                        "detail": f"@ {_units(settlement_leg.price_per_unit)}",
+                        "amount": f"{_signed_units(settlement_leg.units)} units",
+                    }
+                )
+    elif states_gross and investment is not None and priced and net is not None:
         effect_rows = [
             {
                 "type": "flow",
@@ -1411,19 +1812,39 @@ async def _derived_context(
     #
     # "Complete" is per flow, because the flows ask for different things: a
     # unit order needs a positive quantity and a positive price, a secondary
-    # sale needs a positive stated consideration and has no units at all.
-    complete = (
-        (investment is not None and gross is not None and gross > 0)
-        if secondary
-        else (
-            (investment is not None or creating is not None)
+    # sale needs a positive stated consideration and has no units at all, a
+    # secondary purchase needs a price *and* the NAV it acquired, and a
+    # commitment needs a name to create the row under and an amount to record.
+    #
+    # None of them asks for the whole master data (P-4b, W-3's
+    # structural-minimum rule). Type, asset class and — on the two purchase
+    # forms — the name are left to the service's own `missing_master_data`
+    # sentence at Propose (D-5): it names the offending key, and duplicating
+    # that judgement here would give the surface a second opinion about what
+    # an `investments` row needs.
+    if kind == KIND_COMMITMENT:
+        complete = (
+            creating is not None
+            and bool(creating.name)
+            and commitment_amount is not None
+            and commitment_amount > 0
+        )
+    elif states_gross and buying:
+        complete = gross is not None and gross > 0 and acquired_nav is not None
+    elif states_gross:
+        complete = investment is not None and gross is not None and gross > 0
+    else:
+        complete = (
+            (investment is not None or creating_flow)
             and units is not None
             and units > 0
             and price_per_unit is not None
             and price_per_unit > 0
         )
-    )
-    settled = selected_cash is not None and settle_confirmed
+    # A flow that settles against nothing is settled (MD-19): there is no
+    # position to pick and no confirmation to withhold, so reading the MD-3
+    # answer here would gate R-COMMIT on a question it never asks.
+    settled = not moves_cash or (selected_cash is not None and settle_confirmed)
     # MD-18's refusal joins the service's own blocks rather than standing
     # beside them: the schema has no fraction column (decision record §2.7),
     # so `preview` has nothing to refuse and
@@ -1444,19 +1865,32 @@ async def _derived_context(
     # retire with the status while Book now survives to the stations
     # BOOKABLE_STATUSES names.
     editable = ticket_status is None or ticket_status == STATUS_DRAFT
+    instrument_name = (
+        investment.name
+        if investment is not None
+        else (creating.name if creating is not None else None)
+    )
+    if kind == KIND_COMMITMENT:
+        flow_title = "Record a commitment"
+    elif states_gross:
+        flow_title = "Buy a stake (secondary)" if buying else "Sell a stake"
+    elif creating_flow:
+        flow_title = "Buy a new instrument"
+    else:
+        flow_title = "Sell units" if direction == DIRECTION_SELL else "Buy units"
     return {
         "direction": direction,
-        # M-2 heads the wizard with the flow's own name rather than with the
-        # instrument's: until the last step there is no instrument to name.
+        # The flow's name, then the instrument once there is one to name.
+        #
+        # M-2 is the exception and keeps the bare flow name throughout: its
+        # instrument is not named until step 2, and the head sitting two lines
+        # above that input would echo it back as the operator typed. The
+        # single-page forms have no such step, so their heads say what the
+        # ticket is about from the moment it has a name.
         "title": (
-            "Buy a new instrument"
-            if creating is not None
-            else (
-                "Sell a stake"
-                if secondary
-                else ("Sell units" if direction == DIRECTION_SELL else "Buy units")
-            )
-            + (f" · {investment.name}" if investment is not None else "")
+            flow_title
+            if (creating_flow and unit_priced) or not instrument_name
+            else f"{flow_title} · {instrument_name}"
         ),
         "investment": investment,
         "currency": currency,
@@ -1467,6 +1901,16 @@ async def _derived_context(
         "fees": _money(fees) if fees is not None else None,
         "taxes": _money(taxes) if taxes is not None else None,
         "net": _signed_money(net) if net is not None else None,
+        # The same number unsigned, for M-3's "Purchase price (cash out)" row.
+        #
+        # `cash_effect` is a *magnitude*: the direction lives on the ticket and
+        # `derive_cash_effect` applies it one layer down, at the cash leg. M-3
+        # draws the row with a minus, and the template states that minus the
+        # way `_secondary_sale_derived.html` already states the one on its fees
+        # row (P-4a) — a constant of a flow whose direction MD-15 fixes, not a
+        # second arithmetic. Handing the template `_signed_money`'s ``+`` and
+        # asking it to flip the sign is what that would have been.
+        "cash_out": _money(net) if net is not None else None,
         "net_label": "Net proceeds" if direction == DIRECTION_SELL else "Net cost",
         "formula": (
             f"{_units(units)} units × {_units(price_per_unit)}"
@@ -1482,9 +1926,15 @@ async def _derived_context(
         "last_nav_currency": last_nav.currency if last_nav is not None else None,
         "last_nav_date": last_nav.as_of_date if last_nav is not None else None,
         "unfunded": _money(unfunded) if unfunded is not None else None,
-        "vintage_year": investment.vintage_year if investment is not None else None,
+        # The picked row's vintage where there is a row, the stated one where
+        # the row does not exist yet (MD-12) — one key, one meaning.
+        "vintage_year": investment.vintage_year if investment is not None else vintage_year,
         "valuation_mode": investment.valuation_mode if investment is not None else None,
         "vs_nav": vs_nav,
+        "vs_acquired_nav": vs_acquired_nav,
+        "acquired_nav": _money(acquired_nav) if acquired_nav is not None else None,
+        "assumed_unfunded": (_money(assumed_unfunded) if assumed_unfunded is not None else None),
+        "commitment": _money(commitment_amount) if commitment_amount is not None else None,
         "partial_sale": partial_sale,
         "candidates": candidates,
         # The D-F split, decided above and handed to the template as two
@@ -1532,6 +1982,12 @@ async def _derived_context(
             confirmed=settle_confirmed,
             blocked=blocked,
             partial_sale=partial_sale,
+            # The wizard answers the gate in its own outcome partial, ahead
+            # of the hint chain and with a deep link back to step 2, so
+            # folding it into the key there would displace the settlement
+            # guidance step 3 still needs. The single-page flows have no step
+            # to send anyone back to, and M-3's script tests the gate first.
+            anlv_gate=anlv_gate and not unit_priced,
         ),
     }
 
@@ -1665,6 +2121,7 @@ def _hint_key(
     confirmed: bool,
     blocked: bool,
     partial_sale: bool = False,
+    anlv_gate: bool = False,
 ) -> str:
     """Choose which action hint the composer shows.
 
@@ -1679,14 +2136,25 @@ def _hint_key(
     all and telling the operator to fill in a field first would be advice
     about a form that is not going to be accepted whatever they enter.
 
+    ``anlv_gate`` ranks straight after ``incomplete``, which is M-3's order
+    again — its R-SEC-BUY script tests ``!anlvSet`` before ``bNeedsConfirm``
+    — and the reasoning is the same as the partial sale's, one degree softer:
+    a form that cannot be proposed for want of a classification will not be
+    proposed by confirming a settlement position either. It is passed in
+    rather than derived, because one surface (M-2's wizard) states the gate
+    ahead of this chain and needs the chain to keep answering about
+    settlement; see the call site.
+
     Returns:
-        One of ``partial_sale`` / ``incomplete`` / ``no_position`` /
-        ``unconfirmed`` / ``blocked`` / ``ready``.
+        One of ``partial_sale`` / ``incomplete`` / ``anlv`` / ``no_position``
+        / ``unconfirmed`` / ``blocked`` / ``ready``.
     """
     if partial_sale:
         return "partial_sale"
     if not complete:
         return "incomplete"
+    if anlv_gate:
+        return "anlv"
     if not has_selection:
         return "no_position"
     if not confirmed:
@@ -1709,27 +2177,37 @@ async def _composer_context(
     ticket: TradeTicketDTO | None = None,
     error: str | None = None,
     override_warnings: TicketWarnings | None = None,
-    secondary: bool = False,
+    flow: str = "",
 ) -> dict[str, Any]:
-    """Build a picking composer's context — the opening render and every gesture's.
+    """Build a single-page composer's context — the opening render and every gesture's.
 
-    One function for every render of both picking surfaces. A gesture that
-    succeeds, a gesture that is refused and the first ``GET`` differ in three
-    values (the ticket, the red block, whose warnings to show) and in nothing
-    else, so writing the assembly once is what keeps a refused Propose from
-    quietly showing a different picker or a stale settlement panel than the
-    form it refused.
+    One function for every render of all four single-page surfaces. A gesture
+    that succeeds, a gesture that is refused and the first ``GET`` differ in
+    three values (the ticket, the red block, whose warnings to show) and in
+    nothing else, so writing the assembly once is what keeps a refused Propose
+    from quietly showing a different picker or a stale settlement panel than
+    the form it refused.
 
-    S4c makes it kind-aware rather than copying it. M-1's composer and M-3's
-    R-SEC-SELL ask the same three questions in the same order — which row,
-    which settlement position, and what does that mean — and differ in the
-    *eligibility* of the picker and in which derivations the kind admits.
-    Two values carry both differences, so the near-copy that would have
-    drifted in the settlement panel does not exist.
+    S4c made it kind-aware rather than copying it; P-4b makes it
+    **flow**-keyed, which is the same move once more. M-1's composer, M-3's
+    R-SEC-SELL, R-COMMIT and R-SEC-BUY ask the same three questions in the
+    same order — what is this about, where does it settle, and what does that
+    mean — and differ in exactly two things this function has to know: which
+    lists the form needs, and which shape the derivations take. Both come off
+    :data:`_FLOWS`, so the four near-copies that would have drifted in the
+    settlement panel do not exist.
+
+    The two lists are read **per flow, not always**. A picking flow needs the
+    investments its picker offers and no catalogues; a creating flow needs the
+    catalogues and no picker, because there is nothing to pick — a
+    ``secondary``/``buy`` naming an investment is
+    :meth:`~services.transactions.ticket_service.TicketService._emit`'s
+    ``_unroutable``, so a picker here would offer a ticket no emission can
+    take (the top-up is a successor's, not v1's).
 
     The wizard keeps its own assembly (:func:`_wizard_context`) because it
-    genuinely differs: it has no picker at all, it carries two catalogues,
-    and its context strip states facts no row supplies yet.
+    genuinely differs: it renders one step of four, it carries a resolver's
+    answer, and its field carry is an exclusion list rather than a form.
 
     Args:
         db: The tenant-scoped session.
@@ -1741,49 +2219,84 @@ async def _composer_context(
             (operator decision D-5). Never composed here.
         override_warnings: Warnings a gesture returned; see
             :func:`_derived_context`.
-        secondary: Whether this is the R-SEC-SELL composer (S4c). It selects
-            the picker's eligibility (:func:`_is_reported_pickable`) and the
-            ticket kind the derivations run against.
+        flow: Which of :data:`_FLOWS` this render is. The empty string is
+            M-1's order composer, which posts no signal.
 
     Returns:
-        The template context for ``_order_composer.html`` or
-        ``_secondary_sale_composer.html``.
+        The template context for the flow's composer partial.
     """
-    pickable = _is_reported_pickable if secondary else _is_pickable
-    investments = [row for row in await InvestmentRepository(db).list_active() if pickable(row)]
+    spec = _FLOWS[flow]
+    unit_priced = spec.kind == KIND_ORDER
+    states_gross = spec.kind == KIND_SECONDARY
+    currency = _validate_currency(form.currency) or "" if spec.creating else ""
+    if spec.creating:
+        investments: list[InvestmentDTO] = []
+        asset_classes = await AssetClassRepository(db).list_all()
+        anlv_categories = await AnlVCategoryRepository(db).list_all()
+    else:
+        pickable = _is_reported_pickable if states_gross else _is_pickable
+        investments = [row for row in await InvestmentRepository(db).list_active() if pickable(row)]
+        asset_classes = []
+        anlv_categories = []
     cases = await CaseRepository(db).list_open()
     derived = await _derived_context(
         db,
         session=session,
-        # MD-17: a secondary sale has no direction control and never had one.
-        # The constant is the flow's, exactly as MD-14's `buy` is the
-        # wizard's, so a posted `buy` is ignored rather than refused.
-        direction=DIRECTION_SELL if secondary else form.direction,
-        investment_id=form.investment_id,
+        # MD-14 / MD-15 / MD-17: every flow but M-1's fixes its own
+        # direction, so a posted opposite is ignored rather than refused —
+        # the surface never offered the choice.
+        direction=spec.direction or form.direction,
+        investment_id=None if spec.creating else form.investment_id,
         trade_date=form.trade_date,
         settlement_date=form.settlement_date,
-        units=None if secondary else form.units,
-        price_per_unit=None if secondary else form.price_per_unit,
-        fees=form.fees,
-        taxes=form.taxes,
+        units=form.units if unit_priced else None,
+        price_per_unit=form.price_per_unit if unit_priced else None,
+        # M-3's two purchase forms state one net figure and offer no costs
+        # control; reading the fields anyway would let a tampered body add
+        # fees to a price the operator was shown as the whole cash effect.
+        fees=form.fees if spec.costs else None,
+        taxes=form.taxes if spec.costs else None,
         cash_investment_id=form.cash_investment_id,
         settle_confirmed=form.settle_confirmed,
-        # MD-17 again: the MD-7 checkbox is U-SELL's, and a secondary sale
-        # deactivates unconditionally. Reading it here would suggest a choice.
-        set_inactive=False if secondary else form.set_inactive,
+        # MD-17 again: the MD-7 checkbox is U-SELL's alone. Every other flow
+        # either deactivates unconditionally or creates a row it would be
+        # absurd to deactivate, so reading it would suggest a choice.
+        set_inactive=form.set_inactive if (unit_priced and not spec.creating) else False,
         case_id=form.case_id,
         source=form.source,
         note=form.note,
         ticket_status=ticket.status if ticket is not None else None,
         override_warnings=override_warnings,
-        kind=KIND_SECONDARY if secondary else KIND_ORDER,
-        gross_amount=form.gross_amount if secondary else None,
-        partial_sale=form.partial_sale if secondary else False,
+        creating=(
+            _Creating(
+                currency=currency,
+                name=form.md_name,
+                anlv_set=form.md_anlv_code is not None,
+            )
+            if spec.creating
+            else None
+        ),
+        kind=spec.kind,
+        gross_amount=form.gross_amount if states_gross else None,
+        partial_sale=form.partial_sale if (states_gross and not spec.creating) else False,
+        commitment_amount=form.commitment_amount if spec.kind == KIND_COMMITMENT else None,
+        # R-SEC-BUY's three, read only where a control offers them: the two
+        # transfer amounts on the purchase form, the vintage on either
+        # creating reported form. Elsewhere a posted value is a tampered
+        # body, and taking it would put a figure on a surface that never
+        # asked for one.
+        acquired_nav=form.md_acquired_nav if (states_gross and spec.creating) else None,
+        assumed_unfunded=form.md_assumed_unfunded if (states_gross and spec.creating) else None,
+        vintage_year=form.md_vintage_year if (spec.creating and not unit_priced) else None,
+        master_data=form.master_data(currency=currency) if spec.creating else None,
     )
     return {
         "csrf_token": session.csrf_token,
-        "flow": FLOW_SECONDARY_SALE if secondary else "",
+        "flow": flow,
         "investments": investments,
+        "investment_types": _CLASSIFIABLE_TYPES,
+        "asset_classes": asset_classes,
+        "anlv_categories": anlv_categories,
         "cases": cases,
         "trade_date": form.trade_date,
         "entered": form.entered,
@@ -1797,14 +2310,23 @@ async def _composer_context(
     }
 
 
-def _composer_template(secondary: bool) -> str:
-    """Return the composer partial for a flow — one switch, every render.
+def _composer_template(flow: str) -> str:
+    """Return the composer partial for a flow — one lookup, every render.
 
-    The four gestures and the two opening ``GET``s all choose between the
-    same two templates, and a fifth hand-written ternary is how one of them
-    would come to render M-1's markup for an M-3 context.
+    The four gestures and the four opening ``GET``s all choose among the same
+    four templates, and a hand-written ternary per call site is how one of
+    them would come to render M-1's markup for an M-3 context.
+
+    Raises:
+        KeyError: For the wizard, which has no single-page composer. Reaching
+            here with :data:`FLOW_NEW_INSTRUMENT` is a routing bug, and a
+            silent fallback to M-1's markup would hide it behind a form that
+            almost works.
     """
-    return "_secondary_sale_composer.html" if secondary else "_order_composer.html"
+    composer = _FLOWS[flow].composer
+    if composer is None:  # pragma: no cover — the callers branch first
+        raise KeyError(f"Flow {flow!r} has no single-page composer; it renders as the wizard.")
+    return composer
 
 
 # ---------------------------------------------------------------------------
@@ -2067,10 +2589,15 @@ _DRAFT_MINIMUM: str = (
 
 #: The same refusal for the creating path, which asks for a currency instead.
 #:
-#: The wizard has no investment to derive a currency from (MD-12), so W-4
-#: makes the currency a step-1 fact and this is what stands in the way when it
-#: is missing or malformed. Written in M-2's voice and registered as a copy
+#: A creating flow has no investment to derive a currency from (MD-12), so W-4
+#: makes the currency an entered fact and this is what stands in the way when
+#: it is missing or malformed. Written in M-2's voice and registered as a copy
 #: gap: the mockup's step 1 is always filled in, so it never renders one.
+#:
+#: Shared by all three creating flows since P-4b — the sentence names the
+#: instrument rather than the wizard, so it reads true for a commitment and a
+#: secondary purchase as it does for U-NEW, and each of the three would
+#: otherwise have written the same rule in its own words.
 _WIZARD_CURRENCY_REQUIRED: str = (
     "A new instrument needs a currency before the draft can be saved — three "
     "letters, ISO 4217 (EUR, USD, CHF)."
@@ -2097,27 +2624,46 @@ async def _ensure_draft(
     of its own.
 
     The field map is the repository's draft whitelist and nothing else, and
-    it is **kind-aware** (S4b, extended by S4c) rather than duplicated per
-    surface. Three columns of one table, one per flow this strand ships:
+    it is **flow-aware** (S4b, extended by S4c and P-4b) rather than
+    duplicated per surface. Five columns of one table, one per MD-1 flow, and
+    every constant in it comes from :data:`_FLOWS` rather than from a chain of
+    ``if``\\ s here:
 
-    ==================== ==================== ==================== ====================
-    Column               U-BUY / U-SELL       U-NEW                R-SEC-SELL
-                                              (``creating``)       (``secondary_sale``)
-    ==================== ==================== ==================== ====================
-    ``kind``             ``order``            ``order`` (D-M)      ``secondary``
-    ``direction``        the form's, of two   fixed ``buy`` MD-14  fixed ``sell`` MD-17
-    ``investment_id``    the picked row       ``None`` (MD-12)     the reported row
-    ``currency``         the row's (MD-8)     the step-1 field     the row's (MD-8)
-    ``units`` / price    the form's           the form's           always ``None``
-    ``gross_amount``     ``None`` (derived)   ``None`` (derived)   the stated proceeds
-    ``set_inactive``     the MD-7 choice      ``False``            ``False`` (MD-17)
-    ``master_data``      absent               the full payload     absent
-    ==================== ==================== ==================== ====================
+    ================= ================ ================ ================ ================ ================
+    Column            U-BUY / U-SELL   U-NEW            R-SEC-SELL       R-COMMIT         R-SEC-BUY
+    ================= ================ ================ ================ ================ ================
+    ``kind``          ``order``        ``order`` (D-M)  ``secondary``    ``commitment``   ``secondary``
+    ``direction``     the form's       ``buy`` MD-14    ``sell`` MD-17   ``buy`` R-3      ``buy`` MD-15
+    ``investment_id`` the picked row   ``None`` MD-12   the reported row ``None`` MD-12   ``None`` MD-12
+    ``currency``      the row's MD-8   the step-1 field the row's MD-8   the form's W-4   the form's W-4
+    ``units``/price   the form's       the form's       ``None``         ``None``         ``None``
+    ``gross_amount``  derived          derived          the proceeds     ``None``         the price
+    ``fees``/taxes    the form's       the form's       the form's       ``None``         ``None``
+    ``commitment``    ``None``         ``None``         ``None``         the amount       the unfunded
+    ``cash_…_id``     the position     the position     the position     ``None`` MD-19   the position
+    ``set_inactive``  the MD-7 choice  ``False``        ``False`` MD-17  ``False``        ``False``
+    ``master_data``   absent           the payload      absent           the payload      the payload
+    ================= ================ ================ ================ ================ ================
 
     ``kind`` is written on :meth:`~services.transactions.ticket_service
     .TicketService.create_draft` and **never in the update map**: a saved
     ticket's kind is a fact about which flow made it, and a body that could
     change it would let a stale form turn one flow's draft into another's.
+
+    The ``commitment_amount`` row is D-U's, and it is why
+    :func:`~services.transactions.emission.reconcile_commitment` cannot
+    refuse a ticket this function wrote. R-COMMIT posts one amount and it
+    becomes both the column and ``MD_COMMITMENT_AMOUNT``; R-SEC-BUY posts one
+    ``md_assumed_unfunded`` and it becomes both ``MD_ASSUMED_UNFUNDED`` and
+    the column. Two spellings of one number, written from one field, so the
+    reconciliation compares a value with itself.
+
+    ``cash_investment_id`` is still *in* the map for a commitment, carrying
+    ``None``. Dropping the key would leave the column untouched on an update,
+    which is a weaker statement than the one MD-19 makes: this flow settles
+    against nothing. The value it writes is the one
+    :func:`_gesture_context` already resolved, which drops a posted position
+    on a flow that moves no cash.
 
     Two columns are constants on the creating path rather than form values.
     ``master_data`` is :meth:`_ComposerForm.master_data`'s full replacement —
@@ -2159,36 +2705,38 @@ async def _ensure_draft(
         TicketNotFound: If ``ticket_id`` names no ticket in this tenant.
         TicketStateInvalid: If it names a ticket that has left ``draft``.
     """
-    secondary = form.secondary_sale
-    kind = KIND_SECONDARY if secondary else KIND_ORDER
-    if secondary:
-        direction = DIRECTION_SELL
-    elif form.creating:
-        direction = DIRECTION_BUY
+    spec = _FLOWS[form.flow]
+    unit_priced = spec.kind == KIND_ORDER
+    states_gross = spec.kind == KIND_SECONDARY
+    if spec.kind == KIND_COMMITMENT:
+        commitment = form.commitment_amount
+    elif states_gross and spec.creating:
+        commitment = form.md_assumed_unfunded
     else:
-        direction = form.direction
+        commitment = None
     fields: dict[str, Any] = {
-        "direction": direction,
-        "investment_id": None if form.creating else cast(InvestmentDTO, investment).id,
+        "direction": spec.direction or form.direction,
+        "investment_id": None if spec.creating else cast(InvestmentDTO, investment).id,
         "cash_investment_id": cash_investment_id,
         "currency": currency,
         "trade_date": form.trade_date,
         "settlement_date": form.settlement_date,
-        "units": None if secondary else form.units,
-        "price_per_unit": None if secondary else form.price_per_unit,
-        "gross_amount": form.gross_amount if secondary else None,
-        "fees": form.fees,
-        "taxes": form.taxes,
-        "set_inactive": False if (form.creating or secondary) else form.set_inactive,
+        "units": form.units if unit_priced else None,
+        "price_per_unit": form.price_per_unit if unit_priced else None,
+        "gross_amount": form.gross_amount if states_gross else None,
+        "fees": form.fees if spec.costs else None,
+        "taxes": form.taxes if spec.costs else None,
+        "commitment_amount": commitment,
+        "set_inactive": form.set_inactive if (unit_priced and not spec.creating) else False,
         "note": form.note,
         "source": form.source,
         "case_id": form.case_id,
     }
-    if form.creating:
+    if spec.creating:
         fields["master_data"] = form.master_data(currency=currency)
     if form.ticket_id is None:
         return await service.create_draft(
-            kind=kind,
+            kind=spec.kind,
             created_by=session.user_id,
             now=_now(),
             **fields,
@@ -2277,6 +2825,12 @@ async def _gesture_context(
     is what lets :func:`_ensure_draft` take a single ``currency`` argument
     instead of branching on the flow a second time.
 
+    A flow that **moves no cash** resolves to no position at all (P-4b). A
+    commitment ticket that named one would be refused by the service in its
+    own words and by ``ck_trade_tickets_commitment_shape`` beneath it, but
+    the composer never offers the choice, so dropping the value is the honest
+    shape rather than forwarding something only a hand-made body can carry.
+
     Returns:
         ``(service, investment, cash_investment_id, currency)``. ``currency``
         is ``None`` exactly when the gesture has no ticket to make — no
@@ -2291,7 +2845,11 @@ async def _gesture_context(
         else (investment.currency if investment is not None else None)
     )
     cash_id: UUID | None = None
-    if currency is not None and form.cash_investment_id is not None:
+    if (
+        is_cash_moving(kind=_FLOWS[form.flow].kind)
+        and currency is not None
+        and form.cash_investment_id is not None
+    ):
         active = [row for row in await _cash_in_currency(investments, currency) if row.is_active]
         if any(row.id == form.cash_investment_id for row in active):
             cash_id = form.cash_investment_id
@@ -2364,7 +2922,7 @@ async def post_draft(
             except _REFUSALS as exc:
                 error = str(exc)
         ticket = await _reload_ticket(db, form=form, ticket=ticket)
-        if form.creating:
+        if form.new_instrument:
             # Continue is Save-as-draft with a step number on it: the gesture
             # endpoint is reused whole (MC §3) and only the render differs.
             #
@@ -2389,9 +2947,9 @@ async def post_draft(
             form=form,
             ticket=ticket,
             error=error,
-            secondary=form.secondary_sale,
+            flow=form.flow,
         )
-    return _render(request, _composer_template(form.secondary_sale), context)
+    return _render(request, _composer_template(form.flow), context)
 
 
 @router.post(
@@ -2515,14 +3073,18 @@ async def _advance(
                     currency=currency,
                 )
                 # The transition runs inside a SAVEPOINT, and the draft above
-                # deliberately does not. A refusal that fires *mid-emission*
-                # — R-SEC-SELL writes its distribution before the D-N NAV
-                # check can refuse (`emit_secondary_sell`) — would otherwise
-                # be caught here and then committed by `tenant_context` on
-                # the way out, leaving a phantom cashflow behind. Rolling
-                # back to the savepoint undoes exactly the emission, while
-                # the draft the same gesture may have just created survives,
-                # which is the behaviour this module has always documented:
+                # deliberately does not. **Defence in depth**, and no longer
+                # anything more: P-4n moved the one refusal that used to fire
+                # mid-emission — the D-N NAV collision, which R-SEC-SELL
+                # could reach with its distribution row already written — up
+                # to propose time, where it is a block like any other. What
+                # remains is the class of failures the block list does not
+                # model, a driver `IntegrityError` among them: caught here,
+                # they would otherwise be committed by `tenant_context` on
+                # the way out and leave a half-written emission behind.
+                # Rolling back to the savepoint undoes exactly the emission,
+                # while the draft the same gesture may have just created
+                # survives — the behaviour this module has always documented:
                 # the user's work stays in the draft.
                 async with db.begin_nested():
                     if book:
@@ -2540,7 +3102,7 @@ async def _advance(
 
         if book and error is None and ticket is not None and warnings is not None:
             confirmation = await _confirmation_context(db, ticket=ticket, warnings=warnings)
-        elif form.creating:
+        elif form.new_instrument:
             # A refused Propose or Book on the wizard comes back as the
             # wizard's own Confirm step, carrying the service's sentence
             # (D-5). Nothing was written, or a draft was and stays one.
@@ -2561,13 +3123,13 @@ async def _advance(
                 ticket=await _reload_ticket(db, form=form, ticket=ticket),
                 error=error,
                 override_warnings=warnings,
-                secondary=form.secondary_sale,
+                flow=form.flow,
             )
     if confirmation is not None:
         return _render(request, "_order_confirmation.html", confirmation)
-    if form.creating:
+    if form.new_instrument:
         return _render(request, "_wizard.html", context)
-    return _render(request, _composer_template(form.secondary_sale), context)
+    return _render(request, _composer_template(form.flow), context)
 
 
 # ---------------------------------------------------------------------------
@@ -2729,6 +3291,21 @@ async def _effect_rows(
                     # else is a restatement of a row that already existed.
                     "created": effect.prior_state is None,
                     "is_active": updated.is_active,
+                    # What the creating reported flows put *on* the row, read
+                    # back off the row rather than off the ticket (P-4b,
+                    # operator fork 5). R-COMMIT emits this one effect and
+                    # nothing else, so without these two the panel would say
+                    # a fund was created and never say what was committed to
+                    # it — the whole content of the booking. The mockups draw
+                    # no confirmation panel, so the line is written in M-1's
+                    # voice and registered as a copy gap.
+                    "commitment": (
+                        _money(updated.commitment_amount)
+                        if updated.commitment_amount is not None
+                        else None
+                    ),
+                    "commitment_currency": updated.currency,
+                    "vintage_year": updated.vintage_year,
                 }
         row["missing"] = "name" not in row
         rows.append(row)
@@ -2861,7 +3438,7 @@ async def post_cash_position(
         # The new row becomes the selected candidate; the tick does not
         # follow it (MD-3). `settle_confirmed` is left exactly as it arrived.
         form.cash_investment_id = created.id
-        if form.creating:
+        if form.new_instrument:
             ticket = (
                 await TradeTicketRepository(db).get(form.ticket_id)
                 if form.ticket_id is not None
@@ -2872,10 +3449,8 @@ async def post_cash_position(
             # the step this answer belongs on.
             wizard = await _wizard_context(db, session=session, form=form, ticket=ticket, step=3)
             return _render(request, "_wizard.html", wizard)
-        context = await _composer_context(
-            db, session=session, form=form, secondary=form.secondary_sale
-        )
-    return _render(request, _composer_template(form.secondary_sale), context)
+        context = await _composer_context(db, session=session, form=form, flow=form.flow)
+    return _render(request, _composer_template(form.flow), context)
 
 
 # ---------------------------------------------------------------------------
@@ -2903,7 +3478,7 @@ async def get_order_form(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _composer_context(db, session=session, form=_empty_form())
-    return _render(request, "_order_composer.html", context)
+    return _render(request, _composer_template(""), context)
 
 
 @router.get("/api/transactions/secondary-sale-form", response_class=HTMLResponse)
@@ -2931,8 +3506,66 @@ async def get_secondary_sale_form(
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        context = await _composer_context(db, session=session, form=_empty_form(), secondary=True)
-    return _render(request, "_secondary_sale_composer.html", context)
+        context = await _composer_context(
+            db, session=session, form=_empty_form(), flow=FLOW_SECONDARY_SALE
+        )
+    return _render(request, _composer_template(FLOW_SECONDARY_SALE), context)
+
+
+@router.get("/api/transactions/commitment-form", response_class=HTMLResponse)
+async def get_commitment_form(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Return the R-COMMIT composer (M-3), empty and ready to type into.
+
+    The chooser's third tile swaps this in, on the same read posture as every
+    other opening ``GET`` here: nothing is created, no ticket number is burnt,
+    and the header says "Unsaved" until a gesture fires (MD-2).
+
+    What differs from every other composer on this surface is what is
+    *missing*. There is no picker, because MD-12 makes the investment an
+    emission effect and R-COMMIT always records a new position — there is
+    nothing else it could mean. And there is no settlement panel at all: a
+    commitment moves no cash (MD-19, R-3), the schema forbids it a settlement
+    position, and the form says so in words rather than by leaving a block
+    empty.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        context = await _composer_context(
+            db, session=session, form=_empty_form(), flow=FLOW_COMMITMENT
+        )
+    return _render(request, _composer_template(FLOW_COMMITMENT), context)
+
+
+@router.get("/api/transactions/secondary-buy-form", response_class=HTMLResponse)
+async def get_secondary_buy_form(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Return the R-SEC-BUY composer (M-3), empty and ready to type into.
+
+    The chooser's fourth tile, and the last of the five to be armed. Same read
+    posture as its siblings (MD-2): nothing written, no number allocated.
+
+    It has **no picker either**, and for a sharper reason than R-COMMIT's. A
+    ``secondary``/``buy`` ticket that named an investment is not a top-up in
+    v1 — it is :meth:`~services.transactions.ticket_service.TicketService
+    ._emit`'s ``_unroutable``, none of the six flows ADR-0128 §1 defines — so
+    offering a picker would offer a ticket no emission can take. Adding to an
+    existing stake is a successor's flow and wants an ADR of its own.
+
+    It settles like every other purchase, through the shared
+    ``_settlement.html`` panel, and the currency it follows is the form's own
+    (W-4) rather than a picked row's.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        context = await _composer_context(
+            db, session=session, form=_empty_form(), flow=FLOW_SECONDARY_BUY
+        )
+    return _render(request, _composer_template(FLOW_SECONDARY_BUY), context)
 
 
 #: What the Identify step says when OpenFIGI knows the identifier is nothing.
@@ -3158,56 +3791,56 @@ async def post_recalc(
             if form.ticket_id is not None
             else None
         )
-        secondary = form.secondary_sale
+        spec = _FLOWS[form.flow]
+        unit_priced = spec.kind == KIND_ORDER
+        states_gross = spec.kind == KIND_SECONDARY
+        currency = _validate_currency(form.currency) or "" if spec.creating else ""
         derived = await _derived_context(
             db,
             session=session,
-            direction=(
-                DIRECTION_BUY
-                if form.creating
-                else (DIRECTION_SELL if secondary else form.direction)
-            ),
-            investment_id=None if form.creating else form.investment_id,
+            direction=spec.direction or form.direction,
+            investment_id=None if spec.creating else form.investment_id,
             trade_date=form.trade_date,
             settlement_date=form.settlement_date,
-            units=None if secondary else form.units,
-            price_per_unit=None if secondary else form.price_per_unit,
-            fees=form.fees,
-            taxes=form.taxes,
+            units=form.units if unit_priced else None,
+            price_per_unit=form.price_per_unit if unit_priced else None,
+            fees=form.fees if spec.costs else None,
+            taxes=form.taxes if spec.costs else None,
             cash_investment_id=form.cash_investment_id,
             settle_confirmed=form.settle_confirmed,
-            set_inactive=False if (form.creating or secondary) else form.set_inactive,
+            set_inactive=form.set_inactive if (unit_priced and not spec.creating) else False,
             case_id=form.case_id,
             source=form.source,
             note=form.note,
             ticket_status=ticket.status if ticket is not None else None,
             creating=(
                 _Creating(
-                    currency=_validate_currency(form.currency) or "",
+                    currency=currency,
                     name=form.md_name,
                     anlv_set=form.md_anlv_code is not None,
                 )
-                if form.creating
+                if spec.creating
                 else None
             ),
-            kind=KIND_SECONDARY if secondary else KIND_ORDER,
-            gross_amount=form.gross_amount if secondary else None,
-            partial_sale=form.partial_sale if secondary else False,
+            kind=spec.kind,
+            gross_amount=form.gross_amount if states_gross else None,
+            partial_sale=form.partial_sale if (states_gross and not spec.creating) else False,
+            commitment_amount=form.commitment_amount if spec.kind == KIND_COMMITMENT else None,
+            acquired_nav=form.md_acquired_nav if (states_gross and spec.creating) else None,
+            assumed_unfunded=(
+                form.md_assumed_unfunded if (states_gross and spec.creating) else None
+            ),
+            vintage_year=form.md_vintage_year if (spec.creating and not unit_priced) else None,
+            master_data=form.master_data(currency=currency) if spec.creating else None,
         )
 
     return _render(
         request,
-        (
-            "_wizard_recalc.html"
-            if form.creating
-            else ("_secondary_sale_recalc.html" if secondary else "_order_recalc.html")
-        ),
+        spec.recalc,
         {
             "csrf_token": session.csrf_token,
             "oob": True,
-            "flow": (
-                FLOW_NEW_INSTRUMENT if form.creating else (FLOW_SECONDARY_SALE if secondary else "")
-            ),
+            "flow": form.flow,
             "step": form.step,
             # The head's ticket number and state pill are not out-of-band
             # regions, so a keystroke never disturbs them; the id travels

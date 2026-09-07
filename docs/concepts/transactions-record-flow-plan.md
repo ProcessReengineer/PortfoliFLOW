@@ -415,3 +415,5 @@ the `engagement` object; user-own provider lists (explicitly step 2 within
 ADR-T2's own staging); and the monetisation structure, which additionally
 requires legal counsel before implementation (the ADR-0107 red line:
 PortfoliFLOW remains a software provider — never a broker or advisor).
+The Stage-A contract (formats, verification, pre-fill seam) is documented in
+`docs/concepts/provider-directory-format.md`.

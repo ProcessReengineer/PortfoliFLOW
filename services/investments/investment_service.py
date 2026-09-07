@@ -147,6 +147,7 @@ from services.investments.holdings import (
     derive_holdings,
     first_negative_holding_date,
     holdings_as_of,
+    negative_since,
 )
 from services.investments.market_linked import MARKET_LINKED_TYPES
 from services.investments.nav_materialisation import (
@@ -473,6 +474,42 @@ class PositionSummaryDTO:
     latest_computed_nav: InvestmentNavDTO | None
     can_flip: bool
     flip_blocked_reason: str | None
+
+
+@dataclass(frozen=True)
+class NegativeCashDTO:
+    """One cash position standing below zero on a given day (A-11).
+
+    The read product of the negative-cash indicator. It is **derived**, not
+    stored: there is no flag column, no acknowledgement row and no schema
+    behind it (ADR-0130, A-11). Every read re-derives from the ledger, so
+    the state clears itself — the moment the ledger says zero or above, the
+    position is simply not in the list any more.
+
+    Attributes:
+        investment_id: The cash position. The surfaces link to its detail
+            page with it.
+        name: The position's name, as the operator named it.
+        currency: The position currency. Balances are **never** summed
+            across currencies — the indicator states one line per position
+            and no total (A-11).
+        balance: Holdings on the evaluation day, in units, which for a cash
+            position *is* the balance (ADR-0103 §1). Negative by
+            construction: a non-negative position is not in the list.
+        since: The first day of the negative run still standing on the
+            evaluation day — :func:`services.investments.holdings.negative_since`,
+            not the first-ever negative date.
+        is_active: Whether the investment row is active. An overdraft on a
+            **deactivated** cash position is still a liability the book
+            records, so it is listed; the surfaces label it (T-5 D-Y).
+    """
+
+    investment_id: UUID
+    name: str
+    currency: str
+    balance: Decimal
+    since: _date
+    is_active: bool
 
 
 @dataclass(frozen=True)
@@ -1250,6 +1287,112 @@ class InvestmentService:
             latest_computed_nav=computed[-1] if computed else None,
             can_flip=blocked is None,
             flip_blocked_reason=blocked,
+        )
+
+    async def list_negative_cash(self, *, on: _date) -> list[NegativeCashDTO]:
+        """List every cash position standing below zero on ``on`` (A-11).
+
+        The **one** derivation seam behind the negative-cash indicator
+        (T-5 D-Z). Two surfaces need it — the Transactions area banner and
+        the cash position's detail page — and they live in two route modules
+        that may not import each other, so the derivation lives here and
+        nothing else derives a negative-cash state.
+
+        An overdraft is not an error condition to be caught: it is an
+        economic fact the book records and the surface states (ADR-0130).
+        Nothing here refuses, blocks or writes.
+
+        The derivation is **live** (A-11): no stored flag, no acknowledgement
+        gesture, no schema. That is what makes the indicator self-clearing —
+        a position whose ledger has come back to zero or above is not
+        excluded by a rule, it is simply absent from the result.
+
+        Inactive cash positions are included (T-5 D-Y). ``list_by_type``
+        returns active and inactive rows, and that is the wanted behaviour:
+        deactivating a position does not settle its overdraft. The surfaces
+        label such a line rather than dropping it.
+
+        Args:
+            on: The day to evaluate every balance at. Deliberately a
+                parameter rather than a clock read — the caller's "today"
+                and the surface's must be the same instant, and a test needs
+                to fix it. Note this differs from
+                :meth:`get_position_summary`, whose ``holdings_units`` is the
+                **last ledger point** and so may be future-dated; the
+                indicator asks what the balance is *today*.
+
+        Returns:
+            One :class:`NegativeCashDTO` per cash position whose holdings on
+            ``on`` are strictly negative, ordered by ``(currency, name)``.
+            Empty list when the book is clean. Balances are never summed
+            across currencies.
+        """
+        ledger = self._require_position_transactions()
+        found: list[NegativeCashDTO] = []
+        for investment in await self._investments.list_by_type(CASH_TYPE):
+            transactions = await ledger.list_for_investment(investment.id)
+            balance = holdings_as_of(transactions, on)
+            if balance >= 0:
+                continue
+            since = negative_since(transactions, on)
+            if since is None:  # pragma: no cover — a negative balance has a run
+                continue
+            found.append(
+                NegativeCashDTO(
+                    investment_id=investment.id,
+                    name=investment.name,
+                    currency=investment.currency,
+                    balance=balance,
+                    since=since,
+                    is_active=investment.is_active,
+                )
+            )
+        return sorted(found, key=lambda row: (row.currency, row.name))
+
+    async def negative_cash_for(
+        self,
+        investment_id: UUID,
+        *,
+        on: _date,
+    ) -> NegativeCashDTO | None:
+        """Return the negative-cash state of one position, or ``None``.
+
+        The single-position form of :meth:`list_negative_cash`, for the cash
+        position's own detail page — which knows which investment it is
+        rendering and must not scan the book to find out.
+
+        Args:
+            investment_id: The investment to ask about. Need not be cash and
+                need not exist.
+            on: The day to evaluate the balance at, as in
+                :meth:`list_negative_cash`.
+
+        Returns:
+            The :class:`NegativeCashDTO` when this investment is a cash
+            position whose holdings on ``on`` are strictly negative;
+            ``None`` otherwise — unknown investment, non-cash investment
+            (whose ledger the ADR-0097 §4 write guard keeps non-negative
+            anyway), or a balance at zero or above.
+        """
+        investment = await self._investments.get_by_id(investment_id)
+        if investment is None or investment.investment_type != CASH_TYPE:
+            return None
+
+        ledger = self._require_position_transactions()
+        transactions = await ledger.list_for_investment(investment_id)
+        balance = holdings_as_of(transactions, on)
+        if balance >= 0:
+            return None
+        since = negative_since(transactions, on)
+        if since is None:  # pragma: no cover — a negative balance has a run
+            return None
+        return NegativeCashDTO(
+            investment_id=investment.id,
+            name=investment.name,
+            currency=investment.currency,
+            balance=balance,
+            since=since,
+            is_active=investment.is_active,
         )
 
     async def list_investments(self) -> list[InvestmentDTO]:

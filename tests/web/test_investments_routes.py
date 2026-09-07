@@ -20,6 +20,8 @@ Coverage targets:
 * ``GET /investments/{id}`` renders detail with NAV chart + cashflow
   table.
 * ``GET /investments/{id}/edit`` renders the edit form.
+* ``GET /investments/{id}`` carries the negative-cash indicator for an
+  overdrawn cash position, and nothing for anything else (A-11, P-5c).
 * Cross-tenant isolation: foreign-tenant ids surface as 404.
 """
 
@@ -44,6 +46,7 @@ from core.repositories import (
     InvestmentCashflowRepository,
     InvestmentNavRepository,
     InvestmentRepository,
+    PositionTransactionRepository,
     tenant_context,
 )
 from core.tenant_constants import SENTINEL_TENANT_ID
@@ -428,6 +431,129 @@ async def test_get_investment_detail_renders_with_navs_and_cashflows(
     # The two cashflow types appear too.
     assert "capital_call" in body
     assert "distribution" in body
+
+
+# ---------------------------------------------------------------------------
+# The negative-cash indicator on the detail page (A-11, ADR-0130, S5 P-5c)
+# ---------------------------------------------------------------------------
+
+_MD9 = "The position stays flagged until the balance is back at zero or above."
+_A18 = (
+    "A booking's cash effect is in the book at once; the cash position's "
+    "balance shows it from the next price date on."
+)
+
+
+def _flat(markup: str) -> str:
+    """Collapse whitespace, so a copy assertion is not a line-wrap assertion."""
+    return " ".join(markup.split())
+
+
+async def _seed_ledger(
+    user_id: UUID,
+    investment_id: UUID,
+    rows: list[tuple[str, date, str]],
+) -> None:
+    """Write ledger rows verbatim, so a cash position can stand below zero."""
+    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            transactions = PositionTransactionRepository(session)
+            for txn_type, trade_date, units in rows:
+                await transactions.add(
+                    investment_id=investment_id,
+                    txn_type=txn_type,
+                    trade_date=trade_date,
+                    units=Decimal(units),
+                    currency="EUR",
+                    ingest_origin="manual",
+                    created_by=user_id,
+                )
+    finally:
+        await engine.dispose()
+
+
+async def test_detail_renders_the_negative_cash_block_for_an_overdrawn_position(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Three sentences, no gesture, and the balance as of today."""
+    user_id, email, password = seeded_user
+    inv_id, _ac_id = await _seed_investment(
+        user_id, name="Cash EUR Custody", investment_type="cash"
+    )
+    await _seed_ledger(
+        user_id,
+        inv_id,
+        [("opening", date(2026, 1, 2), "100"), ("transfer", date(2026, 3, 1), "-42410")],
+    )
+    await _login(web_client, email, password)
+
+    response = await web_client.get(f"/investments/{inv_id}", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+    flat = _flat(body)
+
+    assert 'id="inv-negative-cash"' in body
+    assert "tx-indicator--compact" in body
+    # The balance carries its own markup, so the sentence is asserted either
+    # side of it — the composer suite's own shape for this pin.
+    assert "This position stands at" in flat
+    assert "−42,310.00 EUR" in flat
+    assert "since 2026-03-01." in flat
+    assert _MD9 in flat
+    assert _A18 in flat
+    # Informational only: the block offers nothing to press (ADR-0130).
+    block_start = body.index('id="inv-negative-cash"')
+    # Up to the header's action bar, which is the next thing in the header and
+    # is full of buttons that are not the indicator's.
+    block = body[block_start : body.index('class="inv-header__actions"', block_start)]
+    assert "<button" not in block
+    assert "<form" not in block
+    assert "hx-post" not in block
+
+
+async def test_detail_renders_no_block_once_the_balance_is_restored(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Self-clearing: the same position, after a repairing transfer."""
+    user_id, email, password = seeded_user
+    inv_id, _ac_id = await _seed_investment(
+        user_id, name="Cash EUR Recovered", investment_type="cash"
+    )
+    await _seed_ledger(
+        user_id,
+        inv_id,
+        [
+            ("opening", date(2026, 1, 2), "100"),
+            ("transfer", date(2026, 3, 1), "-42410"),
+            ("transfer", date(2026, 4, 1), "42410"),
+        ],
+    )
+    await _login(web_client, email, password)
+
+    response = await web_client.get(f"/investments/{inv_id}", follow_redirects=False)
+    assert response.status_code == 200
+    assert 'id="inv-negative-cash"' not in response.text
+    assert _MD9 not in _flat(response.text)
+
+
+async def test_detail_renders_no_block_for_a_non_cash_investment(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """A ledger on a non-cash investment is not a negative-cash question."""
+    user_id, email, password = seeded_user
+    inv_id, _ac_id = await _seed_investment(
+        user_id, name="Listed Equity With Ledger", investment_type="listed_equity"
+    )
+    await _seed_ledger(user_id, inv_id, [("opening", date(2026, 1, 2), "500")])
+    await _login(web_client, email, password)
+
+    response = await web_client.get(f"/investments/{inv_id}", follow_redirects=False)
+    assert response.status_code == 200
+    assert 'id="inv-negative-cash"' not in response.text
 
 
 async def test_get_investment_edit_unknown_returns_404(

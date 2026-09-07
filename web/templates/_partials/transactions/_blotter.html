@@ -8,14 +8,15 @@
    lazy shell, so ``#tx-blotter`` is on the wrapper rather than on the table:
    a cancellation replaces the list *and* the empty state it may have become.
 
-   The A-18 hint line belongs above this table — "A booking's cash effect is
-   in the book at once; the cash position's balance shows it from the next
-   price date on." It arrives with the negative-cash indicator in P-5c, which
-   owns both places the sentence appears; rendering it here first would put
-   half the decision in the wrong strand.
+   P-5c placed the A-18 hint line above the table, the second of the two
+   places the sentence appears (the other is the negative-cash indicator).
 
    Context: rows — see _blotter_row.html for the per-row keys. #}
 <div class="tx-blotter" id="tx-blotter">
+    <p class="tx-blotter__hint">
+        A booking's cash effect is in the book at once; the cash position's
+        balance shows it from the next price date on.
+    </p>
     {% if rows %}
         <table class="tx-table">
             <thead>

@@ -4990,3 +4990,58 @@ async def post_reverse(
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _history_context(db, report=report)
     return _render(request, "_history.html", context)
+
+
+# ---------------------------------------------------------------------------
+# The negative-cash indicator (A-11, ADR-0130) — P-5c
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/transactions/negative-cash", response_class=HTMLResponse)
+async def get_negative_cash(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Render the negative-cash indicator for the whole book (A-11).
+
+    The Area banner. It states one line per cash position standing below
+    zero today, each linking to its detail page, and **never** a figure
+    summed across currencies — a EUR overdraft and a USD one are two facts,
+    not one.
+
+    It is informational on every surface and blocks nothing (ADR-0130): the
+    body it renders carries no button, no form and no ``hx-post``. There is
+    nothing to acknowledge, because there is no flag to clear — the whole
+    state is re-derived here on every call
+    (:meth:`~services.investments.investment_service.InvestmentService.list_negative_cash`,
+    T-5 D-Z), so it clears itself the moment the ledger comes back to zero.
+
+    The response is **always** the wrapper element, empty when the book is
+    clean. The wrapper is what re-fetches itself (its own ``hx-get``), so
+    "absent" has to mean an empty element the CSS collapses rather than a
+    missing one — a missing element could never ask again.
+
+    Returns:
+        ``_negative_cash.html``: the self-refreshing wrapper, carrying the
+        indicator block when there is something to state.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        found = await _build_investment_service(db).list_negative_cash(on=_today())
+
+    positions = [
+        {
+            "id": str(row.investment_id),
+            "name": row.name,
+            "currency": row.currency,
+            "balance": _signed_money(row.balance),
+            "since": row.since.isoformat(),
+            "is_active": row.is_active,
+        }
+        for row in found
+    ]
+    return _render(
+        request,
+        "_negative_cash.html",
+        {"positions": positions, "count": len(positions)},
+    )

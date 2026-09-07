@@ -39,6 +39,29 @@
                 </div>
             {% endif %}
         </dl>
+        {# The negative-cash indicator, compact form (A-11, S5 P-5c). Under
+           the header, above Positions. Derived live from the ledger on every
+           render, so it is absent — not struck through — the moment the
+           balance is back at zero or above. Informational: no gesture lives
+           on it and it blocks nothing (ADR-0130). The `tx-*` classes come
+           from components/transactions.css, which base.html links globally. #}
+        {% if negative_cash %}
+            <div class="tx-indicator tx-indicator--compact" id="inv-negative-cash">
+                <span class="tx-indicator__glyph" aria-hidden="true">!</span>
+                <div class="tx-indicator__lines">
+                    <span>
+                        This position stands at
+                        <span class="tx-num tx-num--neg">{{ negative_cash.balance }} {{ negative_cash.currency }}</span>
+                        since {{ negative_cash.since }}.
+                    </span>
+                    <span>The position stays flagged until the balance is back at zero or above.</span>
+                    <span class="tx-indicator__hint">
+                        A booking's cash effect is in the book at once; the cash
+                        position's balance shows it from the next price date on.
+                    </span>
+                </div>
+            </div>
+        {% endif %}
         <div class="inv-header__actions">
             <a href="/investments" class="btn btn--ghost">&larr; Back to investments</a>
             <a href="/investments/{{ investment.id }}/charts" class="btn">Charts</a>

@@ -16,6 +16,9 @@ protocol, so a lightweight stand-in dataclass drives every case:
 * ``first_negative_holding_date`` — ``None`` when holdings stay
   non-negative; the offending ``trade_date`` otherwise, including intra-day
   overdraw.
+* ``negative_since`` — the start of the *current* negative run, read per
+  day off the step function. Its cases are chosen against the sibling
+  above: the two answer different questions and must be seen to.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from services.investments.holdings import (
     derive_holdings,
     first_negative_holding_date,
     holdings_as_of,
+    negative_since,
 )
 
 
@@ -213,3 +217,96 @@ def test_first_negative_catches_intraday_overdraw() -> None:
 
 def test_first_negative_empty_ledger_is_none() -> None:
     assert first_negative_holding_date([]) is None
+
+
+# ---------------------------------------------------------------------------
+# negative_since — the read-side question (A-11)
+# ---------------------------------------------------------------------------
+
+
+def test_negative_since_empty_ledger_is_none() -> None:
+    assert negative_since([], date(2026, 9, 7)) is None
+
+
+def test_negative_since_positive_holdings_is_none() -> None:
+    txns = [
+        _txn("opening", date(2026, 1, 2), "412500"),
+        _txn("transfer", date(2026, 3, 1), "-1000"),
+    ]
+    assert negative_since(txns, date(2026, 9, 7)) is None
+
+
+def test_negative_since_zero_holdings_is_none() -> None:
+    """Zero is not negative; the indicator's threshold is strictly below."""
+    txns = [
+        _txn("opening", date(2026, 1, 2), "500"),
+        _txn("transfer", date(2026, 3, 1), "-500"),
+    ]
+    assert negative_since(txns, date(2026, 9, 7)) is None
+
+
+def test_negative_since_single_run_returns_its_start() -> None:
+    txns = [
+        _txn("opening", date(2026, 1, 2), "1000"),
+        _txn("transfer", date(2026, 9, 5), "-1500"),
+        _txn("transfer", date(2026, 9, 6), "-100"),
+    ]
+    # Still negative on the 6th, and the run began on the 5th.
+    assert negative_since(txns, date(2026, 9, 7)) == date(2026, 9, 5)
+
+
+def test_negative_since_returns_the_second_run_not_the_first() -> None:
+    """The whole reason this function exists beside the write-time check.
+
+    A position that went negative in March, recovered in June and went
+    negative again in September is "since September" — while
+    ``first_negative_holding_date`` answers March, correctly, to a different
+    question.
+    """
+    txns = [
+        _txn("opening", date(2026, 1, 2), "100"),
+        _txn("transfer", date(2026, 3, 1), "-300"),  # −200
+        _txn("transfer", date(2026, 6, 1), "500"),  # +300
+        _txn("transfer", date(2026, 9, 1), "-800"),  # −500
+    ]
+    assert negative_since(txns, date(2026, 9, 7)) == date(2026, 9, 1)
+    assert first_negative_holding_date(txns) == date(2026, 3, 1)
+
+
+def test_negative_since_intraday_dip_repaired_same_day_is_not_a_run() -> None:
+    """Day granularity, by design: the run is read off the step function.
+
+    An intra-day dip a same-day transfer repairs never becomes an end-of-day
+    negative, so there is no run to be "since". ``first_negative_holding_date``
+    does flag it — that is the write-time question, and the two differ here
+    on purpose.
+    """
+    ts_open = datetime(2026, 1, 1, 8, tzinfo=timezone.utc)
+    ts_out = datetime(2026, 1, 1, 9, tzinfo=timezone.utc)
+    ts_in = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+    txns = [
+        _txn("opening", date(2026, 1, 2), "100", created_at=ts_open),
+        _txn("transfer", date(2026, 3, 1), "-150", created_at=ts_out),
+        _txn("transfer", date(2026, 3, 1), "200", created_at=ts_in),
+    ]
+    assert negative_since(txns, date(2026, 9, 7)) is None
+    assert first_negative_holding_date(txns) == date(2026, 3, 1)
+
+
+def test_negative_since_before_the_first_point_is_none() -> None:
+    txns = [_txn("opening", date(2026, 1, 2), "-100")]
+    assert negative_since(txns, date(2026, 1, 1)) is None
+
+
+def test_negative_since_is_as_of_the_day_asked_about() -> None:
+    """Asked about a day inside a run that has since recovered, it answers.
+
+    The function reads the ledger as of ``on``; it does not privilege today.
+    """
+    txns = [
+        _txn("opening", date(2026, 1, 2), "100"),
+        _txn("transfer", date(2026, 3, 1), "-300"),
+        _txn("transfer", date(2026, 6, 1), "500"),
+    ]
+    assert negative_since(txns, date(2026, 4, 1)) == date(2026, 3, 1)
+    assert negative_since(txns, date(2026, 9, 7)) is None

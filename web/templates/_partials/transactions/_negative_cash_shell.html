@@ -1,0 +1,10 @@
+{# The empty negative-cash wrapper, for the no-DB Area render.
+
+   web/routes/areas.py renders the Transactions Area without touching the
+   database, so the banner cannot arrive with the page — it arrives as this
+   element's own `load` fetch. Rendering _negative_cash.html with an empty
+   count gives exactly the element the route's own empty response gives, with
+   the `hx-*` attributes written in one file rather than two. #}
+{% with positions=[], count=0 %}
+    {% include "_partials/transactions/_negative_cash.html" %}
+{% endwith %}

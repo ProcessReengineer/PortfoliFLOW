@@ -1,0 +1,75 @@
+{# The negative-cash indicator (A-11, ADR-0130, S5 P-5c).
+
+   One line per cash position standing below zero today, each linking to its
+   detail page. Never a sum across currencies: a EUR overdraft and a USD one
+   are two facts, not one.
+
+   No button, no dismiss, no gesture. The indicator is informational on every
+   surface and blocks nothing (ADR-0130), and there is nothing to acknowledge
+   because there is no flag to clear — the state is re-derived on every
+   render (InvestmentService.list_negative_cash, T-5 D-Z), so it clears
+   itself the moment the ledger comes back to zero or above.
+
+   **This file owns the wrapper's attributes, and is the only file that
+   writes them.** The element re-fetches itself, so the shell rendered by the
+   no-DB Area render and the populated response are the same element at two
+   moments of its life; a shell whose trigger string had drifted would simply
+   stop refreshing. _negative_cash_shell.html therefore includes *this*
+   template with an empty count rather than restating the markup.
+
+   Which is also why "no negative cash" is an **empty wrapper** rather than
+   no wrapper: the element is the thing that asks. `.tx-negative-cash:empty`
+   collapses it to nothing visible.
+
+   The refresh contract (T-5 D-X): `load` covers the first render;
+   `htmx:afterRequest` from the composer host and from the History section
+   cover the only two gestures that can change a cash balance — a booking
+   completes inside #tx-composer-host, a reversal inside #history. No
+   polling, and neither the composer nor the history route knows this element
+   exists: the indicator listens, it is not told.
+
+   Why #history and not #tx-history (T-5 D-AA): htmx resolves a `from:`
+   selector when it registers the trigger, not on each event, and History is
+   lazy — #tx-history does not exist yet when this element is processed.
+   #history is the Area section: present in the shell, and never swapped.
+
+   Context: positions (id, name, currency, balance, since, is_active), count. #}
+<div class="tx-negative-cash"
+     id="tx-negative-cash"
+     hx-get="/api/transactions/negative-cash"
+     hx-trigger="load, htmx:afterRequest from:#tx-composer-host, htmx:afterRequest from:#history"
+     hx-target="this"
+     hx-swap="outerHTML">
+    {% if count %}
+        <div class="tx-indicator">
+            <span class="tx-indicator__glyph" aria-hidden="true">!</span>
+            <div class="tx-indicator__lines">
+                <strong>
+                    {%- if count == 1 -%}
+                        A cash position is below zero.
+                    {%- elif count == 2 -%}
+                        Two cash positions are below zero.
+                    {%- else -%}
+                        {{ count }} cash positions are below zero.
+                    {%- endif -%}
+                </strong>
+                {% for position in positions %}
+                    <span class="tx-indicator__line">
+                        <a href="/investments/{{ position.id }}">{{ position.name }}</a>
+                        {%- if not position.is_active %} · inactive{% endif %} stands at
+                        <span class="tx-num tx-num--neg">{{ position.balance }} {{ position.currency }}</span>
+                        {#- the "since" abuts the balance; `.tx-indicator__since`
+                            carries its own left margin, so a space here would
+                            double it -#}
+                        <span class="tx-indicator__since">since {{ position.since }}</span>
+                    </span>
+                {% endfor %}
+                <span>The position stays flagged until the balance is back at zero or above.</span>
+                <span class="tx-indicator__hint">
+                    A booking's cash effect is in the book at once; the cash
+                    position's balance shows it from the next price date on.
+                </span>
+            </div>
+        </div>
+    {% endif %}
+</div>

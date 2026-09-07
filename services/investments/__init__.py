@@ -79,6 +79,7 @@ if TYPE_CHECKING:  # pragma: no cover - static resolution for mypy / IDEs
         InvestmentDetailDTO,
         InvestmentService,
         LiveIngestReport,
+        NegativeCashDTO,
         PositionSummaryDTO,
     )
     from services.investments.nav_materialisation import (
@@ -144,6 +145,7 @@ _ATTR_TO_MODULE: dict[str, str] = {
     "InvestmentDetailDTO": "services.investments.investment_service",
     "InvestmentService": "services.investments.investment_service",
     "LiveIngestReport": "services.investments.investment_service",
+    "NegativeCashDTO": "services.investments.investment_service",
     "PositionSummaryDTO": "services.investments.investment_service",
     "NavMaterialisationReport": "services.investments.nav_materialisation",
     "NavMaterialisationService": "services.investments.nav_materialisation",
@@ -192,6 +194,7 @@ __all__ = [
     "LiveIngestReport",
     "NavMaterialisationReport",
     "NavMaterialisationService",
+    "NegativeCashDTO",
     "PacingRow",
     "Periodisation",
     "PlanFlowEvent",

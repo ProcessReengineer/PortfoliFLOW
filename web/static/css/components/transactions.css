@@ -1394,3 +1394,80 @@ a.tx-btn {
 .tx-messages--report {
     margin-bottom: 14px;
 }
+
+/* --- The negative-cash indicator (A-11, ADR-0130) — P-5c ------------- */
+
+/* The wrapper is always present, because it is the element that re-fetches
+ * itself: a clean book renders it empty rather than not at all, and `:empty`
+ * is what makes "empty" mean "not there" visually. */
+.tx-negative-cash:empty {
+    display: none;
+}
+
+.tx-negative-cash {
+    display: block;
+    margin-bottom: 18px;
+}
+
+/* Bordered like `tx-msg--block` and carrying the error token on its left
+ * edge — but with no glyph column reserved for a gesture, because there is
+ * none: the indicator states a fact and offers nothing to press. */
+.tx-indicator {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 12px;
+    align-items: start;
+    border: 1px solid var(--ui-border-default);
+    border-left: 3px solid var(--ui-semantic-error);
+    background: var(--ui-background-section);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+}
+
+.tx-indicator__glyph {
+    font-weight: 700;
+    color: var(--ui-semantic-error);
+    text-align: center;
+}
+
+.tx-indicator strong {
+    color: var(--ui-text-on-sidebar);
+}
+
+.tx-indicator__lines {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tx-indicator__line a {
+    color: var(--ui-text-on-sidebar);
+}
+
+/* "since <date>" trails its line rather than starting one: it qualifies the
+ * balance beside it, and a reader scanning names should pass over it. */
+.tx-indicator__since {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin-left: 8px;
+}
+
+.tx-indicator__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+}
+
+/* The detail page's form: one position, so no lead line counting them. */
+.tx-indicator--compact {
+    padding: 8px 12px;
+    margin-top: 12px;
+}
+
+/* The A-18 hint above the blotter table — the same voice and weight as the
+ * hint inside the indicator, since it is the same sentence. */
+.tx-blotter__hint {
+    color: var(--ui-text-disabled);
+    font-size: 0.78rem;
+    margin: 0 0 10px;
+}

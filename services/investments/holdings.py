@@ -179,10 +179,55 @@ def first_negative_holding_date(
     return None
 
 
+def negative_since(
+    transactions: Iterable[LedgerTransaction],
+    on: date,
+) -> date | None:
+    """Return the start of the negative run of holdings standing on ``on``.
+
+    The read-side question the negative-cash indicator asks (A-11): *since
+    when* has this position been below zero — not *when did it first ever*
+    go below zero. Those differ whenever a position recovered and went
+    negative again, and the difference is the whole point of this function
+    existing beside :func:`first_negative_holding_date`.
+
+    What this is **not**: :func:`first_negative_holding_date` is the
+    write-time check. It scans **per transaction** in canonical order and
+    returns the first date the running cumulative *ever* went negative, so
+    it catches an intra-day overdraw a same-day buy would repair — the right
+    answer to "may this write land". Asked the indicator's question about a
+    position that went negative in March, recovered in June and went
+    negative again in September, it would answer March. This function reads
+    the **per-day step function** instead (:func:`derive_holdings`), so an
+    intra-day dip that the same day repairs is not a run at all, and the
+    answer above is September.
+
+    Args:
+        transactions: The investment's ledger rows, in any order.
+        on: The statement day to evaluate the holdings at. The result is
+            as-of that day: asked about a day inside a run that has since
+            recovered, it returns that run's start.
+
+    Returns:
+        The ``as_of_date`` of the earliest :class:`HoldingPoint` of the
+        unbroken run of negative end-of-day holdings that is still standing
+        on ``on``, or ``None`` when holdings on ``on`` are zero or above
+        (including before the first transaction, and for an empty ledger).
+    """
+    points = [p for p in derive_holdings(transactions) if p.as_of_date <= on]
+    if not points or points[-1].units >= 0:
+        return None
+    index = len(points) - 1
+    while index > 0 and points[index - 1].units < 0:
+        index -= 1
+    return points[index].as_of_date
+
+
 __all__ = [
     "HoldingPoint",
     "LedgerTransaction",
     "derive_holdings",
     "first_negative_holding_date",
     "holdings_as_of",
+    "negative_since",
 ]

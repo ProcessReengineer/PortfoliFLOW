@@ -364,6 +364,31 @@ def _position_payload(txn) -> dict:
     }
 
 
+def _negative_cash_payload(row) -> dict | None:
+    """Shape a :class:`NegativeCashDTO` for the detail-page indicator (A-11).
+
+    ``None`` passes through as ``None``: the template's ``{% if
+    negative_cash %}`` is the whole of the surface's logic, and a page with
+    nothing to state renders nothing.
+
+    The balance is formatted here rather than handed over as a float, for the
+    same reason the Transactions banner formats its own: it is a sentence, not
+    a datum a chart will read. The rule is M-1's — grouped, two decimals, an
+    explicit sign, and the typographic minus — restated over this module's own
+    formatting-free payloads rather than reached for across route modules.
+    """
+    if row is None:
+        return None
+    return {
+        "id": str(row.investment_id),
+        "name": row.name,
+        "currency": row.currency,
+        "balance": f"{'+' if row.balance >= 0 else '−'}{abs(row.balance):,.2f}",
+        "since": row.since.isoformat(),
+        "is_active": row.is_active,
+    }
+
+
 def _position_summary_payload(summary) -> dict:
     """Shape a :class:`PositionSummaryDTO` for the positions panel.
 
@@ -719,6 +744,12 @@ async def investments_detail_view(
             )
         identifiers = await service.list_identifiers(investment_id)
         positions = await service.get_position_summary(investment_id)
+        # The negative-cash indicator's second surface (A-11). The same
+        # derivation seam the Transactions banner reads (T-5 D-Z) — asked
+        # here about one position rather than the whole book. ``None`` for
+        # every non-cash investment and for a cash position at zero or above,
+        # so the private-markets majority renders exactly as before.
+        negative_cash = await service.negative_cash_for(investment_id, on=_date.today())
         ac = await AssetClassRepository(db_session).get_by_id(detail.investment.asset_class_id)
         user = await UserRepository(db_session).get_by_id(session.user_id)
         # Load region and sector weights for the read-only allocation
@@ -823,6 +854,7 @@ async def investments_detail_view(
                 "identifier_schemes": sorted(IDENTIFIER_SCHEMES),
                 "txn_types": sorted(_VALID_TXN_TYPES),
                 "positions": _position_summary_payload(positions),
+                "negative_cash": _negative_cash_payload(negative_cash),
                 "region_allocation": region_allocation_rows,
                 "sector_allocation": sector_allocation_rows,
             },

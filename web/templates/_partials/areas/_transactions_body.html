@@ -27,6 +27,11 @@
         </div>
     </header>
 
+    {# The negative-cash indicator (A-11), between the area header and the
+       first section. Empty here and self-fetching: this render is the no-DB
+       Area shell, so the banner arrives on its own `load`. #}
+    {% include "_partials/transactions/_negative_cash_shell.html" %}
+
     {% with section_slug="new",
             section_title="New transaction",
             section_pill="Draft",

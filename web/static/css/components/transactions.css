@@ -1108,3 +1108,170 @@ a.tx-btn {
     color: var(--ui-text-disabled);
     font-size: 0.8rem;
 }
+
+/* --- The Blotter list (M-5, S5) -------------------------------------- */
+
+/* M-5's own rules, with its literal colours swapped for the theme variables
+ * the rest of this file uses (ADR-0021). The table is the first list surface
+ * in this Area; History (P-5b) renders into the same classes, which is why
+ * they are named for the shape rather than for the section. */
+.tx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.tx-table th {
+    text-align: left;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ui-semantic-muted);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    font-weight: 600;
+}
+
+.tx-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--ui-border-default);
+    vertical-align: middle;
+}
+
+.tx-table th.tx-num,
+.tx-table td.tx-num {
+    text-align: right;
+}
+
+.tx-table tr.tx-row:hover td {
+    background: var(--ui-background-section);
+}
+
+.tx-row__id {
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    color: var(--ui-text-secondary);
+}
+
+/* The instrument a creating flow will make on booking (MD-12). Dimmed
+ * because the name is an intention rather than a row that exists; the name
+ * itself is not, which is what the `em` recovers. */
+.tx-row__creating {
+    color: var(--ui-text-disabled);
+}
+
+.tx-row__creating em {
+    color: var(--ui-text-secondary);
+    font-style: normal;
+}
+
+.tx-row__sub {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--ui-text-disabled);
+}
+
+.tx-row__actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+
+.tx-detail-row td {
+    background: var(--ui-background-secondary);
+    padding: 14px 18px 18px 18px;
+}
+
+/* The cancel panel's slot. Always in the markup, so nothing has to remember
+ * whether a panel is open: the row simply has no box while the cell is
+ * empty, and the borders of the list close over it. */
+.tx-detail-row > td:empty {
+    padding: 0;
+    border-bottom: 0;
+}
+
+/* --- The inline reason step (A-13) ----------------------------------- */
+
+.tx-reason {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid var(--ui-border-default);
+    border-left: 3px solid var(--ui-semantic-warning);
+    border-radius: 4px;
+    padding: 12px 14px;
+    background: var(--ui-background-section);
+}
+
+.tx-reason__lead {
+    margin: 0;
+    color: var(--ui-text-on-sidebar);
+    font-weight: 600;
+    font-size: 0.88rem;
+}
+
+.tx-reason__sub {
+    margin: 0;
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+}
+
+.tx-reason__form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tx-reason textarea {
+    width: 100%;
+    min-height: 56px;
+    background: var(--ui-background-secondary);
+    color: var(--ui-text-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font: inherit;
+    resize: vertical;
+}
+
+.tx-reason__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* --- Button sizes and the destructive tone --------------------------- */
+
+/* A list row's gestures sit inside a table cell, so they take a smaller
+ * box than the composer's action row. */
+.tx-btn--sm {
+    padding: 4px 10px;
+    font-size: 0.78rem;
+}
+
+/* Cancelling and discarding are terminal (ADR-0128 §3), and this is the one
+ * tone in the Area that says so. It is deliberately not the composer's
+ * primary: nothing on this surface should read as the obvious next step. */
+.tx-btn--danger {
+    color: var(--ui-semantic-error);
+    border-color: var(--ui-semantic-error);
+}
+
+.tx-btn--danger:hover:not(:disabled) {
+    background: var(--ui-semantic-error);
+    color: var(--ui-button-fg);
+    border-color: var(--ui-semantic-error);
+}
+
+/* --- The two states the composer never showed ------------------------ */
+
+/* `approved` is a station the composer cannot reach — it renders on list
+ * surfaces only — and `cancelled` is History's (P-5b). Both are defined here
+ * because the chip is one component with one vocabulary. */
+.tx-state--approved::before {
+    background: var(--ui-semantic-warning);
+}
+
+.tx-state--cancelled::before {
+    background: var(--ui-text-disabled);
+}

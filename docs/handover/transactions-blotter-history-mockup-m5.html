@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-5 · Blotter, History, Cancel/Reverse, Negative-cash indicator — Transactions mockup (light)</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * M-5 — Blotter / History / Cancel & Reverse / Negative-cash indicator.
+ * Transactions area (#061, ADR-0128 §6 / §7, ADR-0130, T-5 kickoff).
+ * Deliberately LIGHT: layout and placement, not pixel work.
+ * Self-contained; tokens copied from theme.css (dark default), tx-* /
+ * pf-* vocabulary continued from M-1..M-3. Cut against the 2026-09-07
+ * snapshot. Today for this mockup is 2026-09-07.
+ * ------------------------------------------------------------------ */
+:root {
+    --ui-background-primary: #0A0A0A;
+    --ui-background-secondary: #141414;
+    --ui-background-section: #1A1A1A;
+    --ui-accent-primary: #E8304A;
+    --ui-accent-primary-hover: #FF4D66;
+    --ui-accent-primary-pressed: #C42840;
+    --ui-button-fg: #000000;
+    --ui-text-primary: #E8304A;
+    --ui-text-secondary: #B0B0B0;
+    --ui-text-disabled: #555555;
+    --ui-text-on-sidebar: #FFFFFF;
+    --ui-border-default: #2A2A2A;
+    --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+    --ui-font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    --ui-semantic-success: #4CAF50;
+    --ui-semantic-warning: #FFC107;
+    --ui-semantic-info: #4A9BD9;
+    --ui-semantic-error: #FF6B6B;
+    --ui-semantic-muted: #707070;
+    --pf-bg-deepest: #050505;
+    --pf-bg-surface: #141414;
+    --pf-bg-elevated: #1A1A1A;
+    --pf-accent-soft: rgba(232, 48, 74, 0.15);
+    --pf-sidebar-width-expanded: 200px;
+    --pf-statusbar-height: 28px;
+    --pf-sticky-header-bg: rgba(20, 20, 20, 0.78);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: var(--ui-background-primary); color: var(--ui-text-secondary); font-family: var(--ui-font-family); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { color: var(--ui-text-primary); margin: 0 0 0.5em 0; font-weight: 600; }
+a { color: var(--ui-accent-primary); text-decoration: none; }
+button { cursor: pointer; font: inherit; color: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+input, select, textarea { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+/* --- Mockup chrome (NOT part of the product) ----------------------- */
+.mk-chrome { position: sticky; top: 0; z-index: 40; background: #17110C; border-bottom: 1px solid #4A3A22; padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 0.78rem; color: #C9A227; }
+.mk-chrome__tag { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-size: 0.68rem; border: 1px solid #4A3A22; border-radius: 3px; padding: 2px 7px; }
+.mk-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mk-group__label { color: #8C7A4A; }
+.mk-btn { background: #1F1710; border: 1px solid #4A3A22; color: #C9A227; border-radius: 3px; padding: 3px 9px; font-size: 0.76rem; }
+.mk-btn:hover { border-color: #C9A227; }
+.mk-btn.is-on { background: #C9A227; color: #17110C; border-color: #C9A227; }
+.mk-note { margin: 0; padding: 10px 16px; background: #17110C; border-bottom: 1px solid #4A3A22; color: #8C7A4A; font-size: 0.78rem; }
+.mk-note b { color: #C9A227; }
+.mk-tag { display: inline-block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: #C9A227; border: 1px dashed #4A3A22; border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: middle; }
+.mk-frame { border: 1px dashed #4A3A22; border-radius: 6px; padding: 12px; margin: 24px 32px; }
+.mk-frame__label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #C9A227; margin: 0 0 10px 0; }
+.mk-notes { border: 1px dashed #4A3A22; border-radius: 6px; background: #12100C; color: #B49A5A; padding: 16px 20px; margin: 24px 32px; font-size: 0.82rem; }
+.mk-notes h3 { color: #C9A227; font-size: 0.9rem; margin: 0 0 8px 0; }
+.mk-notes h4 { color: #C9A227; font-size: 0.8rem; margin: 14px 0 4px 0; }
+.mk-notes ul { margin: 0 0 6px 18px; padding: 0; }
+.mk-notes li { margin: 3px 0; }
+.mk-notes code { font-family: var(--ui-font-mono); color: #E0C070; font-size: 0.78rem; }
+.mk-notes .lean { color: #E0C070; }
+
+/* --- Shell --------------------------------------------------------- */
+.pf-shell { display: grid; grid-template-columns: var(--pf-sidebar-width-expanded) 1fr; grid-template-rows: 1fr var(--pf-statusbar-height); grid-template-areas: "sidebar main" "statusbar statusbar"; background: var(--pf-bg-deepest); }
+.pf-sidebar { grid-area: sidebar; display: flex; flex-direction: column; background: var(--pf-bg-surface); border-right: 1px solid var(--ui-border-default); }
+.pf-sidebar__brand { padding: 16px; border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-primary); font-weight: 700; letter-spacing: 0.04em; font-size: 0.95rem; }
+.pf-sidebar__nav { display: flex; flex-direction: column; padding: 12px 0; gap: 2px; }
+.pf-sidebar__item { padding: 9px 16px; color: var(--ui-text-secondary); border-left: 3px solid transparent; font-size: 0.92rem; }
+.pf-sidebar__item.is-active { color: var(--ui-accent-primary); background: var(--pf-accent-soft); border-left-color: var(--ui-accent-primary); font-weight: 600; }
+.pf-main { grid-area: main; overflow: auto; padding: 24px 32px; background: var(--pf-bg-deepest); }
+.pf-statusbar { grid-area: statusbar; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: var(--pf-bg-surface); border-top: 1px solid var(--ui-border-default); font-size: 0.74rem; color: var(--ui-text-disabled); }
+.pf-area { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.pf-area__header { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-border-default); }
+.pf-area__title { color: var(--ui-text-primary); font-size: 1.5rem; margin: 0; letter-spacing: 0.02em; }
+.pf-area__subtitle { color: var(--ui-text-secondary); font-size: 0.9rem; margin: 0; }
+.pf-section { background: var(--pf-bg-surface); border: 1px solid var(--ui-border-default); border-radius: 6px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+.pf-section__header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: -20px -24px 0 -24px; padding: 14px 24px; background: var(--pf-sticky-header-bg); border-bottom: 1px solid var(--ui-border-default); border-top-left-radius: 6px; border-top-right-radius: 6px; }
+.pf-section__title { color: var(--ui-text-primary); font-size: 1.05rem; margin: 0; }
+.pf-section__pill { color: var(--ui-text-secondary); background: var(--pf-bg-elevated); border: 1px solid var(--ui-border-default); border-radius: 999px; padding: 2px 10px; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.pf-section__placeholder { color: var(--ui-text-disabled); font-style: italic; margin: 0; }
+.pf-btn { background: var(--ui-background-secondary); color: var(--ui-text-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 7px 14px; font-size: 0.84rem; }
+.pf-btn:hover:not(:disabled) { border-color: var(--ui-accent-primary); }
+.pf-btn--primary { background: var(--ui-accent-primary); color: var(--ui-button-fg); border-color: var(--ui-accent-primary); font-weight: 600; }
+.pf-btn--ghost { background: transparent; }
+.pf-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
+.pf-btn--danger { border-color: var(--ui-semantic-error); color: var(--ui-semantic-error); }
+
+/* --- Ticket vocabulary (M-1..M-3) --------------------------------- */
+.tx-ticket { background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 6px; }
+.tx-ticket__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 20px; border-bottom: 1px solid var(--ui-border-default); background: var(--pf-bg-elevated); border-top-left-radius: 6px; border-top-right-radius: 6px; }
+.tx-ticket__ident { display: flex; align-items: baseline; gap: 12px; }
+.tx-ticket__id { font-family: var(--ui-font-mono); font-size: 0.82rem; color: var(--ui-text-secondary); }
+.tx-ticket__title { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.95rem; }
+.tx-ticket__body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
+.tx-ticket__headactions { display: flex; align-items: center; gap: 8px; }
+.tx-state { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ui-border-default); border-radius: 999px; padding: 2px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ui-text-secondary); white-space: nowrap; }
+.tx-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ui-semantic-muted); }
+.tx-state--draft::before { background: var(--ui-semantic-muted); }
+.tx-state--proposed::before { background: var(--ui-semantic-info); }
+.tx-state--approved::before { background: var(--ui-semantic-warning); }
+.tx-state--booked::before { background: var(--ui-semantic-success); }
+.tx-state--cancelled::before { background: var(--ui-text-disabled); }
+.tx-state--reversed::before { background: var(--ui-semantic-error); }
+.tx-block { display: flex; flex-direction: column; gap: 10px; }
+.tx-block__title { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ui-semantic-muted); margin: 0; font-weight: 600; }
+.tx-num { font-family: var(--ui-font-mono); }
+.tx-num--neg { color: var(--ui-semantic-error); }
+.tx-messages { display: flex; flex-direction: column; gap: 8px; }
+.tx-msg { display: grid; grid-template-columns: 20px 1fr; gap: 10px; border-left: 3px solid var(--ui-semantic-warning); background: var(--ui-background-section); padding: 9px 13px; font-size: 0.85rem; color: var(--ui-text-secondary); }
+.tx-msg__glyph { font-weight: 700; color: var(--ui-semantic-warning); text-align: center; }
+.tx-msg--block { border-left-color: var(--ui-semantic-error); }
+.tx-msg--block .tx-msg__glyph { color: var(--ui-semantic-error); }
+.tx-msg--consequence { border-left-color: var(--ui-semantic-info); }
+.tx-msg--consequence .tx-msg__glyph { color: var(--ui-semantic-info); }
+.tx-msg--done { border-left-color: var(--ui-semantic-success); }
+.tx-msg--done .tx-msg__glyph { color: var(--ui-semantic-success); }
+.tx-msg strong { color: var(--ui-text-on-sidebar); font-weight: 600; }
+.tx-msg__sub { display: block; margin-top: 4px; color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-msg__code { font-family: var(--ui-font-mono); font-size: 0.74rem; color: var(--ui-semantic-muted); }
+.tx-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--ui-border-default); padding-top: 16px; }
+.tx-actions__spacer { flex: 1 1 auto; }
+.tx-actions__hint { font-size: 0.78rem; color: var(--ui-text-disabled); flex-basis: 100%; margin: 0; }
+.tx-legs { display: flex; flex-direction: column; border: 1px solid var(--ui-border-default); border-radius: 4px; }
+.tx-legs__group { padding: 6px 12px 2px 12px; font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ui-semantic-muted); background: var(--pf-bg-elevated); border-top: 1px solid var(--ui-border-default); }
+.tx-legs__group:first-child { border-top: 0; border-top-left-radius: 4px; border-top-right-radius: 4px; }
+.tx-leg { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; padding: 8px 12px; font-size: 0.85rem; }
+.tx-leg + .tx-leg { border-top: 1px solid var(--ui-border-default); }
+.tx-leg__type { font-family: var(--ui-font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ui-text-secondary); }
+.tx-leg__type--buy { color: var(--ui-semantic-success); }
+.tx-leg__type--sell { color: var(--ui-semantic-error); }
+.tx-leg__what em { color: var(--ui-text-disabled); font-style: normal; margin-left: 6px; }
+.tx-leg__amount { font-family: var(--ui-font-mono); color: var(--ui-text-on-sidebar); }
+.tx-leg--gone .tx-leg__what { color: var(--ui-text-disabled); font-style: italic; }
+
+/* --- NEW in M-5: list tables, filters, indicator, menus ------------- */
+.tx-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.tx-table th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ui-semantic-muted); padding: 6px 10px; border-bottom: 1px solid var(--ui-border-default); font-weight: 600; }
+.tx-table td { padding: 9px 10px; border-bottom: 1px solid var(--ui-border-default); vertical-align: middle; }
+.tx-table tr.tx-row:hover td { background: var(--ui-background-section); }
+.tx-table td.tx-num, .tx-table th.tx-num { text-align: right; }
+.tx-row__id { font-family: var(--ui-font-mono); color: var(--ui-text-secondary); }
+.tx-row__id a { color: var(--ui-text-on-sidebar); }
+.tx-row__creating { color: var(--ui-text-disabled); }
+.tx-row__creating em { color: var(--ui-text-secondary); font-style: normal; }
+.tx-row__actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.tx-row__sub { display: block; font-size: 0.74rem; color: var(--ui-text-disabled); }
+.tx-menu { position: relative; display: inline-block; }
+.tx-menu__list { position: absolute; right: 0; top: 100%; z-index: 20; min-width: 190px; background: var(--pf-bg-elevated); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 4px 0; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.tx-menu__item { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 7px 12px; font-size: 0.82rem; color: var(--ui-text-secondary); }
+.tx-menu__item:hover { background: var(--pf-accent-soft); color: var(--ui-text-on-sidebar); }
+.tx-menu__item--danger { color: var(--ui-semantic-error); }
+.tx-menu__item[disabled] { color: var(--ui-text-disabled); }
+.tx-detail-row td { background: var(--ui-background-secondary); padding: 14px 18px 18px 18px; }
+.tx-reason { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--ui-border-default); border-left: 3px solid var(--ui-semantic-warning); border-radius: 4px; padding: 12px 14px; background: var(--ui-background-section); }
+.tx-reason--reverse { border-left-color: var(--ui-semantic-error); }
+.tx-reason__lead { margin: 0; color: var(--ui-text-on-sidebar); font-weight: 600; font-size: 0.88rem; }
+.tx-reason__sub { margin: 0; color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-reason textarea { width: 100%; min-height: 56px; background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 8px 10px; resize: vertical; }
+.tx-reason__actions { display: flex; gap: 8px; align-items: center; }
+.tx-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tx-filters select, .tx-filters input { background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 5px 8px; font-size: 0.82rem; min-width: 120px; }
+.tx-filters__given { font-size: 0.72rem; color: var(--ui-text-disabled); }
+.tx-indicator { display: grid; grid-template-columns: 20px 1fr auto; gap: 12px; align-items: start; border: 1px solid var(--ui-border-default); border-left: 3px solid var(--ui-semantic-error); background: var(--ui-background-section); border-radius: 4px; padding: 10px 14px; font-size: 0.85rem; }
+.tx-indicator__glyph { font-weight: 700; color: var(--ui-semantic-error); text-align: center; }
+.tx-indicator strong { color: var(--ui-text-on-sidebar); }
+.tx-indicator__lines { display: flex; flex-direction: column; gap: 4px; }
+.tx-indicator__line a { color: var(--ui-text-on-sidebar); }
+.tx-indicator__since { color: var(--ui-text-disabled); font-size: 0.78rem; margin-left: 8px; }
+.tx-indicator__hint { color: var(--ui-text-disabled); font-size: 0.78rem; }
+.tx-indicator--compact { grid-template-columns: 20px 1fr; padding: 8px 12px; }
+.tx-kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 0.85rem; }
+.tx-kv dt { color: var(--ui-semantic-muted); }
+.tx-kv dd { margin: 0; color: var(--ui-text-secondary); }
+.tx-kv dd.tx-num { text-align: left; }
+
+/* --- Investment detail excerpt (existing inv-* surface) ----------- */
+.inv-header { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-border-default); }
+.inv-header__title { font-size: 1.4rem; margin: 0; display: flex; align-items: center; gap: 10px; }
+.badge-active, .badge-inactive { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--ui-border-default); color: var(--ui-text-secondary); }
+.badge-active { color: var(--ui-semantic-success); border-color: var(--ui-semantic-success); }
+.inv-meta { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 0; font-size: 0.85rem; }
+.inv-meta div { display: flex; gap: 8px; }
+.inv-meta dt { color: var(--ui-semantic-muted); }
+.inv-meta dd { margin: 0; }
+.inv-section { margin-top: 16px; background: var(--pf-bg-surface); border: 1px solid var(--ui-border-default); border-radius: 6px; padding: 16px 20px; }
+.inv-section__title { font-size: 1rem; margin: 0 0 10px 0; }
+</style>
+</head>
+<body>
+
+<div class="mk-chrome">
+    <span class="mk-chrome__tag">Mockup controls</span>
+    <span class="mk-group">
+        <span class="mk-group__label">Cash balances (OP-10)</span>
+        <button class="mk-btn" data-cash="clear">all ≥ 0 (self-cleared)</button>
+        <button class="mk-btn is-on" data-cash="one">one negative (EUR)</button>
+        <button class="mk-btn" data-cash="two">two negative (EUR + USD)</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Indicator placement</span>
+        <button class="mk-btn" data-place="detail">cash detail only</button>
+        <button class="mk-btn" data-place="banner">area banner only</button>
+        <button class="mk-btn is-on" data-place="both">both</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">OP-22 hint</span>
+        <button class="mk-btn is-on" data-hint="on">shown</button>
+        <button class="mk-btn" data-hint="off">documentation only</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Cancel / Reverse home</span>
+        <button class="mk-btn is-on" data-home="row">row menu (⋯)</button>
+        <button class="mk-btn" data-home="composer">opened composer header</button>
+        <button class="mk-btn" data-home="detail">history detail</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Reverse #19 outcome</span>
+        <button class="mk-btn is-on" data-outcome="none">gesture only</button>
+        <button class="mk-btn" data-outcome="reason">reason step</button>
+        <button class="mk-btn" data-outcome="report">report</button>
+        <button class="mk-btn" data-outcome="retained">report · retained shell</button>
+        <button class="mk-btn" data-outcome="modified">blocked · modified</button>
+        <button class="mk-btn" data-outcome="consumed">blocked · consumed</button>
+        <button class="mk-btn" data-outcome="holdings_consumed">blocked · holdings_consumed</button>
+        <button class="mk-btn" data-outcome="unrestorable">blocked · unrestorable</button>
+        <button class="mk-btn" data-outcome="referenced_by_ticket">blocked · referenced_by_ticket</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">History filters v1 (toggle candidates)</span>
+        <button class="mk-btn is-on" data-filter="kind">kind</button>
+        <button class="mk-btn is-on" data-filter="investment">investment</button>
+        <button class="mk-btn is-on" data-filter="dates">date range</button>
+        <button class="mk-btn" data-filter="text">free text</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Actor on history</span>
+        <button class="mk-btn is-on" data-actor="columns">station columns only</button>
+        <button class="mk-btn" data-actor="audit">+ cancel actor from audit log</button>
+        <button class="mk-btn" data-actor="none">no actors</button>
+    </span>
+</div>
+<p class="mk-note">
+    <b>M-5 · light mockup.</b> Layout and placement only. Two frames: the Transactions area (banner candidate, Blotter, History with one detail opened) and an excerpt of a cash position's detail page (detail candidate).
+    Amber tags mark decision points; the notes at the bottom list the five checkpoint decisions with what the snapshot pins. Today for this mockup is <b>2026-09-07</b>. Sample data is synthetic (Minathena Capital).
+</p>
+
+<!-- ============================================================ -->
+<!-- FRAME 1 · Transactions area                                    -->
+<!-- ============================================================ -->
+<div class="pf-shell">
+    <nav class="pf-sidebar">
+        <div class="pf-sidebar__brand">PortfoliFLOW</div>
+        <div class="pf-sidebar__nav">
+            <span class="pf-sidebar__item">Overview</span>
+            <span class="pf-sidebar__item">Investments</span>
+            <span class="pf-sidebar__item">Portfolio Review</span>
+            <span class="pf-sidebar__item">Planning Desk</span>
+            <span class="pf-sidebar__item">Watch Desk</span>
+            <span class="pf-sidebar__item">Cases</span>
+            <span class="pf-sidebar__item is-active">Transactions</span>
+            <span class="pf-sidebar__item">Admin</span>
+        </div>
+    </nav>
+
+    <main class="pf-main">
+        <div class="pf-area pf-transactions" data-area="transactions">
+            <header class="pf-area__header">
+                <div>
+                    <h1 class="pf-area__title">Transactions</h1>
+                    <p class="pf-area__subtitle">Record a portfolio change, keep cash correct, and keep the trail from question to booking.</p>
+                </div>
+            </header>
+
+            <!-- OP-10 candidate B: area banner. Derived live; absent at >= 0. -->
+            <div id="banner" class="tx-indicator" hidden>
+                <span class="tx-indicator__glyph">!</span>
+                <div class="tx-indicator__lines" id="banner-lines"></div>
+                <span class="mk-tag">OP-10 · banner candidate</span>
+            </div>
+
+            <!-- New transaction: collapsed to the composer HEAD only, to show the composer-header cancel candidate -->
+            <section class="pf-section" id="new">
+                <header class="pf-section__header">
+                    <h2 class="pf-section__title">New transaction</h2>
+                    <span class="pf-section__pill">Draft</span>
+                </header>
+                <div class="tx-ticket">
+                    <div class="tx-ticket__head">
+                        <div class="tx-ticket__ident">
+                            <span class="tx-ticket__id">Ticket #23</span>
+                            <span class="tx-ticket__title">Order · Buy — iShares Core MSCI World</span>
+                        </div>
+                        <div class="tx-ticket__headactions">
+                            <span class="tx-state tx-state--proposed">Proposed</span>
+                            <button class="pf-btn pf-btn--sm pf-btn--ghost" data-home-only="composer" hidden>Cancel ticket…</button>
+                            <span class="mk-tag" data-home-only="composer" hidden>cancel · composer-header candidate</span>
+                        </div>
+                    </div>
+                    <div class="tx-ticket__body">
+                        <p class="pf-section__placeholder">(composer body as in M-1 — resumed from the blotter row's open gesture; composer behaviour unchanged, only the entry is wired)</p>
+                        <div id="composer-reason" hidden>
+                            <div class="tx-reason">
+                                <p class="tx-reason__lead">Cancel ticket #23?</p>
+                                <p class="tx-reason__sub">A proposed ticket is a decision others may have seen. A reason is required.</p>
+                                <textarea placeholder="Reason (required)"></textarea>
+                                <div class="tx-reason__actions">
+                                    <button class="pf-btn pf-btn--sm pf-btn--danger">Cancel ticket</button>
+                                    <button class="pf-btn pf-btn--sm pf-btn--ghost">Keep</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- BLOTTER -->
+            <section class="pf-section" id="blotter">
+                <header class="pf-section__header">
+                    <h2 class="pf-section__title">Blotter</h2>
+                    <span class="pf-section__pill">4 in flight</span>
+                </header>
+                <p class="tx-indicator__hint" id="blotter-hint">
+                    A booking's cash effect is in the book at once; the cash position's <em>balance</em> shows it from the next price date on.
+                    <span class="mk-tag">OP-22 · hint candidate</span>
+                </p>
+                <table class="tx-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Flow</th>
+                            <th>Investment</th>
+                            <th class="tx-num">Amount</th>
+                            <th>Trade date</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#23</a></td>
+                            <td>Order · Buy</td>
+                            <td>iShares Core MSCI World<span class="tx-row__sub">1,200 units @ 98.40</span></td>
+                            <td class="tx-num">118,080.00 EUR</td>
+                            <td>2026-09-05</td>
+                            <td><span class="tx-state tx-state--proposed">Proposed</span><span class="tx-row__sub">by A. Weber · 2026-09-05</span></td>
+                            <td><div class="tx-row__actions">
+                                <button class="pf-btn pf-btn--sm">Open</button>
+                                <span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost" data-menu="m23">⋯</button>
+                                    <div class="tx-menu__list" id="m23" hidden>
+                                        <button class="tx-menu__item">Open</button>
+                                        <button class="tx-menu__item tx-menu__item--danger" data-reason="r23">Cancel ticket…</button>
+                                    </div></span>
+                            </div></td>
+                        </tr>
+                        <tr class="tx-detail-row" id="r23" hidden>
+                            <td colspan="7">
+                                <div class="tx-reason">
+                                    <p class="tx-reason__lead">Cancel ticket #23?</p>
+                                    <p class="tx-reason__sub">A proposed ticket is a decision others may have seen. A reason is required. <span class="mk-tag">CANCEL_REASON_REQUIRED_STATUSES</span></p>
+                                    <textarea placeholder="Reason (required)"></textarea>
+                                    <div class="tx-reason__actions">
+                                        <button class="pf-btn pf-btn--sm pf-btn--danger" disabled>Cancel ticket</button>
+                                        <button class="pf-btn pf-btn--sm pf-btn--ghost" data-close="r23">Keep</button>
+                                        <span class="tx-actions__hint" style="flex-basis:auto">Cancel ticket enables once a reason is typed.</span>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#22</a></td>
+                            <td>New instrument</td>
+                            <td class="tx-row__creating">creating: <em>Vanguard FTSE All-World</em><span class="tx-row__sub">wizard · resumes at step 3</span></td>
+                            <td class="tx-num">—</td>
+                            <td>2026-09-04</td>
+                            <td><span class="tx-state tx-state--draft">Draft</span></td>
+                            <td><div class="tx-row__actions">
+                                <button class="pf-btn pf-btn--sm">Open</button>
+                                <span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost" data-menu="m22">⋯</button>
+                                    <div class="tx-menu__list" id="m22" hidden>
+                                        <button class="tx-menu__item">Open</button>
+                                        <button class="tx-menu__item tx-menu__item--danger" data-reason="r22">Discard draft…</button>
+                                    </div></span>
+                            </div></td>
+                        </tr>
+                        <tr class="tx-detail-row" id="r22" hidden>
+                            <td colspan="7">
+                                <div class="tx-reason">
+                                    <p class="tx-reason__lead">Discard draft #22?</p>
+                                    <p class="tx-reason__sub">A draft is private workspace. A reason is optional. The ticket number stays allocated and the ticket appears in History as cancelled.</p>
+                                    <textarea placeholder="Reason (optional)"></textarea>
+                                    <div class="tx-reason__actions">
+                                        <button class="pf-btn pf-btn--sm pf-btn--danger">Discard draft</button>
+                                        <button class="pf-btn pf-btn--sm pf-btn--ghost" data-close="r22">Keep</button>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#21</a></td>
+                            <td>Commitment</td>
+                            <td class="tx-row__creating">creating: <em>Nordic Infra Fund IV</em><span class="tx-row__sub">vintage 2026 · no cash leg</span></td>
+                            <td class="tx-num">5,000,000.00 EUR</td>
+                            <td>2026-09-01</td>
+                            <td><span class="tx-state tx-state--approved">Approved</span><span class="tx-row__sub">by S. Lund · 2026-09-02</span></td>
+                            <td><div class="tx-row__actions">
+                                <button class="pf-btn pf-btn--sm">Open</button>
+                                <span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost">⋯</button></span>
+                            </div></td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#20</a></td>
+                            <td>Secondary sale</td>
+                            <td>Alpine PE Fund II<span class="tx-row__sub">full stake · inactivates on booking</span></td>
+                            <td class="tx-num">3,150,000.00 EUR</td>
+                            <td>2026-09-03</td>
+                            <td><span class="tx-state tx-state--draft">Draft</span></td>
+                            <td><div class="tx-row__actions">
+                                <button class="pf-btn pf-btn--sm">Open</button>
+                                <span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost">⋯</button></span>
+                            </div></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="tx-actions__hint">
+                    Open is one gesture for every row <span class="mk-tag">OP-25 · resume mechanism — the row does not know which composer answers</span>.
+                    Newest ticket number first. A row exists only after a first explicit gesture; "Unsaved" never appears here (MD-2).
+                </p>
+            </section>
+
+            <!-- HISTORY -->
+            <section class="pf-section" id="history">
+                <header class="pf-section__header">
+                    <h2 class="pf-section__title">History</h2>
+                    <span class="pf-section__pill">booked · cancelled</span>
+                </header>
+                <div class="tx-filters" id="filters">
+                    <select><option>Status: all</option><option>Booked</option><option>Cancelled</option><option>Reversed</option></select>
+                    <span class="tx-filters__given">(given)</span>
+                    <select data-filter-only="kind"><option>Kind: all</option><option>Order</option><option>Commitment</option><option>Secondary</option></select>
+                    <select data-filter-only="investment"><option>Investment: all</option><option>SPDR S&amp;P 500</option><option>Meridian Growth Fund III</option></select>
+                    <input data-filter-only="dates" type="date" value="2026-08-01" title="Trade date from">
+                    <input data-filter-only="dates" type="date" value="2026-09-07" title="Trade date to">
+                    <input data-filter-only="text" type="text" placeholder="Search note / reason…">
+                    <span class="mk-tag">decision 5 · filter set v1</span>
+                </div>
+                <table class="tx-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Flow</th>
+                            <th>Investment</th>
+                            <th class="tx-num">Amount</th>
+                            <th>Trade date</th>
+                            <th>Outcome</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- #19 booked, detail opened -->
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#19</a></td>
+                            <td>Order · Sell</td>
+                            <td>Xtrackers Euro Stoxx 50<span class="tx-row__sub">800 units @ 52.10</span></td>
+                            <td class="tx-num">41,680.00 EUR</td>
+                            <td>2026-08-29</td>
+                            <td><span class="tx-state tx-state--booked">Booked</span><span class="tx-row__sub" data-actor-only="columns audit">by A. Weber · 2026-08-29 14:02</span></td>
+                            <td><div class="tx-row__actions">
+                                <button class="pf-btn pf-btn--sm">Details ▾</button>
+                                <span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost" data-menu="m19">⋯</button>
+                                    <div class="tx-menu__list" id="m19" hidden>
+                                        <button class="tx-menu__item">Details</button>
+                                        <button class="tx-menu__item">Go to investment</button>
+                                        <button class="tx-menu__item tx-menu__item--danger" data-outcome-set="reason">Reverse booking…</button>
+                                    </div></span>
+                            </div></td>
+                        </tr>
+                        <tr class="tx-detail-row">
+                            <td colspan="7">
+                                <div class="tx-block">
+                                    <dl class="tx-kv">
+                                        <dt>Stations</dt><dd data-actor-only="columns audit">created 2026-08-29 13:40 · proposed by A. Weber 13:41 · approved by A. Weber 13:55 · booked by A. Weber 14:02</dd>
+                                        <dd data-actor-only="none">created 2026-08-29 13:40 · proposed 13:41 · approved 13:55 · booked 14:02</dd>
+                                        <dt>Settled against</dt><dd>Cash EUR · Main custody</dd>
+                                        <dt>Note</dt><dd>Rebalance per Case #7</dd>
+                                        <dt>Provenance</dt><dd class="tx-num">ticket #19</dd>
+                                    </dl>
+                                    <p class="tx-block__title" style="margin-top:8px">What this booking wrote <span class="mk-tag">effects grouped by type — no emission sequence is narrated</span></p>
+                                    <div class="tx-legs">
+                                        <div class="tx-legs__group">position transactions</div>
+                                        <div class="tx-leg"><span class="tx-leg__type tx-leg__type--sell">sell</span><span class="tx-leg__what">Xtrackers Euro Stoxx 50 <em>@ 52.10</em></span><span class="tx-leg__amount">−800 units</span></div>
+                                        <div class="tx-leg"><span class="tx-leg__type tx-leg__type--buy">buy</span><span class="tx-leg__what">Cash EUR · Main custody <em>@ 1</em></span><span class="tx-leg__amount">+41,680 units</span></div>
+                                    </div>
+                                    <div class="tx-actions" data-home-only="detail">
+                                        <span class="tx-actions__spacer"></span>
+                                        <button class="pf-btn pf-btn--sm pf-btn--danger" data-outcome-set="reason">Reverse booking…</button>
+                                        <span class="mk-tag">reverse · history-detail candidate</span>
+                                    </div>
+                                    <!-- reversal reason step -->
+                                    <div id="o-reason" hidden>
+                                        <div class="tx-reason tx-reason--reverse">
+                                            <p class="tx-reason__lead">Reverse booking #19?</p>
+                                            <p class="tx-reason__sub">The two rows listed above are deleted in one transaction and the ticket becomes cancelled. A reason is always required. The effect list stays on the ticket so History still says what it once did.</p>
+                                            <textarea placeholder="Reason (required)"></textarea>
+                                            <div class="tx-reason__actions">
+                                                <button class="pf-btn pf-btn--sm pf-btn--danger">Reverse booking</button>
+                                                <button class="pf-btn pf-btn--sm pf-btn--ghost" data-outcome-set="none">Keep</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- ReversalReport -->
+                                    <div id="o-report" hidden>
+                                        <div class="tx-messages">
+                                            <div class="tx-msg tx-msg--done"><span class="tx-msg__glyph">✓</span><div>
+                                                <strong>Ticket #19 reversed.</strong> 2 rows undone; the ticket is now cancelled — "duplicate of #16".
+                                                <span class="tx-msg__sub">position transactions: 2 · cashflows: 0 · NAVs: 0 · investments: 0</span>
+                                            </div></div>
+                                        </div>
+                                    </div>
+                                    <div id="o-retained" hidden>
+                                        <div class="tx-messages">
+                                            <div class="tx-msg tx-msg--done"><span class="tx-msg__glyph">✓</span><div>
+                                                <strong>Ticket #14 reversed.</strong> 3 rows undone; the ticket is now cancelled — "wrong vintage".
+                                                <span class="tx-msg__sub">position transactions: 1 · cashflows: 0 · NAVs: 1 · investments: 1</span>
+                                            </div></div>
+                                            <div class="tx-msg tx-msg--consequence"><span class="tx-msg__glyph">i</span><div>
+                                                <strong>Investment retained, inactive</strong> — because: <em>investment_navs still holds rows this booking did not write; the investment was deactivated rather than deleted</em>
+                                                <span class="tx-msg__sub"><span class="tx-msg__code">shell.retained_because</span> rendered verbatim (A-4 / A-5). The ticket keeps naming the investment.</span>
+                                            </div></div>
+                                        </div>
+                                    </div>
+                                    <!-- TicketReversalBlocked, five causes, A-7 copy = str(exc) verbatim -->
+                                    <div id="o-modified" hidden><div class="tx-messages"><div class="tx-msg tx-msg--block"><span class="tx-msg__glyph">✕</span><div>
+                                        <strong>Reversal refused.</strong> The position_txn row 6f2a9c1e-… this booking emitted has been edited in position_transactions since. Deleting it would delete somebody else's correction; correct the ticket through the CRUD and cancel it with a note instead (ADR-0128 §6).
+                                        <span class="tx-msg__sub"><span class="tx-msg__code">cause=modified · effect_type=position_txn</span> — str(exc) verbatim per A-7</span>
+                                    </div></div></div></div>
+                                    <div id="o-consumed" hidden><div class="tx-messages"><div class="tx-msg tx-msg--block"><span class="tx-msg__glyph">✕</span><div>
+                                        <strong>Reversal refused.</strong> The position_txn row 6f2a9c1e-… this booking emitted is gone from position_transactions; there is nothing left to reverse and reversing the rest would leave a half-undone booking (ADR-0128 §6).
+                                        <span class="tx-msg__sub"><span class="tx-msg__code">cause=consumed</span></span>
+                                    </div></div></div></div>
+                                    <div id="o-holdings_consumed" hidden><div class="tx-messages"><div class="tx-msg tx-msg--block"><span class="tx-msg__glyph">✕</span><div>
+                                        <strong>Reversal refused.</strong> The ledger row 6f2a9c1e-… this booking emitted cannot be removed: investment 9b41d0aa-… would hold negative units afterwards, because the units it created have since been traded on. Reverse the later transaction first (ADR-0097 §4, ADR-0128 §6).
+                                        <span class="tx-msg__sub"><span class="tx-msg__code">cause=holdings_consumed</span></span>
+                                    </div></div></div></div>
+                                    <div id="o-unrestorable" hidden><div class="tx-messages"><div class="tx-msg tx-msg--block"><span class="tx-msg__glyph">✕</span><div>
+                                        <strong>Reversal refused.</strong> The before-image recorded for investment 9b41d0aa-… no longer describes the row: is_active diverges. Restoring it would overwrite an edit this booking never made; correct the investment through the CRUD instead (ADR-0128 §6).
+                                        <span class="tx-msg__sub"><span class="tx-msg__code">cause=unrestorable · effect_type=investment_update</span></span>
+                                    </div></div></div></div>
+                                    <div id="o-referenced_by_ticket" hidden><div class="tx-messages"><div class="tx-msg tx-msg--block"><span class="tx-msg__glyph">✕</span><div>
+                                        <strong>Reversal refused.</strong> The investment 9b41d0aa-… this booking created is still referenced by ticket #22 (draft), so it cannot be removed. Point those tickets at another investment or clear them, cancel any proposal or approval among them, then reverse this ticket again (ADR-0128 §6).
+                                        <span class="tx-msg__sub"><span class="tx-msg__code">cause=referenced_by_ticket · effect_type=investment_update</span></span>
+                                    </div></div></div></div>
+                                    <p class="tx-actions__hint" id="uuid-note" hidden>
+                                        <span class="mk-tag">sub-decision 3d</span> the service sentences carry raw row UUIDs. A-7 says verbatim; the surface may <em>append</em> a resolved name line beneath (additive, not a rewording) — accept or not.
+                                    </p>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#18</a></td>
+                            <td>Secondary purchase</td>
+                            <td>Meridian Growth Fund III<span class="tx-row__sub">created on booking · vintage 2021</span></td>
+                            <td class="tx-num">2,400,000.00 EUR</td>
+                            <td>2026-08-27</td>
+                            <td><span class="tx-state tx-state--booked">Booked</span><span class="tx-row__sub" data-actor-only="columns audit">by S. Lund · 2026-08-27 10:15</span></td>
+                            <td><div class="tx-row__actions"><button class="pf-btn pf-btn--sm">Details ▾</button><span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost">⋯</button></span></div></td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#17</a></td>
+                            <td>Order · Buy</td>
+                            <td>SPDR S&amp;P 500<span class="tx-row__sub">500 units @ 512.30</span></td>
+                            <td class="tx-num">256,150.00 EUR</td>
+                            <td>2026-08-26</td>
+                            <td><span class="tx-state tx-state--reversed">Reversed</span><span class="tx-row__sub">"duplicate of #16" · 2026-08-26 16:20<span data-actor-only="audit"> · by A. Weber</span></span></td>
+                            <td><div class="tx-row__actions"><button class="pf-btn pf-btn--sm">Details ▾</button></div></td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#16</a></td>
+                            <td>Order · Buy</td>
+                            <td>SPDR S&amp;P 500<span class="tx-row__sub">500 units @ 512.30</span></td>
+                            <td class="tx-num">256,150.00 EUR</td>
+                            <td>2026-08-26</td>
+                            <td><span class="tx-state tx-state--booked">Booked</span><span class="tx-row__sub" data-actor-only="columns audit">by A. Weber · 2026-08-26 15:58</span></td>
+                            <td><div class="tx-row__actions"><button class="pf-btn pf-btn--sm">Details ▾</button><span class="tx-menu" data-home-only="row"><button class="pf-btn pf-btn--sm pf-btn--ghost">⋯</button></span></div></td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#15</a></td>
+                            <td>Commitment</td>
+                            <td class="tx-row__creating">creating: <em>Nordic Infra Fund III</em><span class="tx-row__sub">never booked — nothing was written</span></td>
+                            <td class="tx-num">4,000,000.00 EUR</td>
+                            <td>2026-08-20</td>
+                            <td><span class="tx-state tx-state--cancelled">Cancelled</span><span class="tx-row__sub">"IC declined" · from proposed · 2026-08-22<span data-actor-only="audit"> · by S. Lund</span></span></td>
+                            <td><div class="tx-row__actions"><button class="pf-btn pf-btn--sm">Details ▾</button></div></td>
+                        </tr>
+                        <tr class="tx-row">
+                            <td class="tx-row__id"><a href="#">#14</a></td>
+                            <td>New instrument</td>
+                            <td>Helios Solar Yield<span class="tx-row__sub">retained, inactive — because: investment_navs still holds rows this booking did not write; the investment was deactivated rather than deleted</span></td>
+                            <td class="tx-num">180,000.00 EUR</td>
+                            <td>2026-08-18</td>
+                            <td><span class="tx-state tx-state--reversed">Reversed</span><span class="tx-row__sub">"wrong vintage" · 2026-08-25<span data-actor-only="audit"> · by A. Weber</span></span></td>
+                            <td><div class="tx-row__actions"><button class="pf-btn pf-btn--sm">Details ▾</button></div></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="tx-actions__hint">
+                    Both terminal endings share <span class="tx-msg__code">status='cancelled'</span>; the chip says <strong>Reversed</strong> iff <span class="tx-msg__code">booked_at IS NOT NULL</span>, else <strong>Cancelled</strong>. Reversed rows keep their effects list (rows shown as "no longer in the book").
+                    Highest ticket number first.
+                </p>
+            </section>
+        </div>
+    </main>
+    <footer class="pf-statusbar"><span>Minathena Capital · owner</span><span>2026-09-07</span></footer>
+</div>
+
+<!-- ============================================================ -->
+<!-- FRAME 2 · Cash position detail (excerpt of investments/detail) -->
+<!-- ============================================================ -->
+<div class="mk-frame">
+    <p class="mk-frame__label">Frame 2 · /investments/{id} — a cash position's detail page (existing inv-* surface, excerpt). OP-10 candidate A.</p>
+    <section class="inv-page">
+        <header class="inv-header">
+            <h1 class="inv-header__title" id="detail-title">Cash EUR · Main custody <span class="badge-active">Active</span></h1>
+            <dl class="inv-meta">
+                <div><dt>Type</dt><dd>cash</dd></div>
+                <div><dt>Asset Class</dt><dd>Cash</dd></div>
+                <div><dt>Currency</dt><dd>EUR</dd></div>
+            </dl>
+            <div id="detail-indicator" class="tx-indicator tx-indicator--compact" hidden>
+                <span class="tx-indicator__glyph">!</span>
+                <div>
+                    <strong>This position stands at <span class="tx-num tx-num--neg">−42,310.00 EUR</span></strong> since 2026-09-05.
+                    <span class="tx-msg__sub">The position stays flagged until the balance is back at zero or above. Last taken below zero by <a href="#">ticket #16</a>.</span>
+                    <span class="tx-indicator__hint" id="detail-hint">Balance as of today derives from the ledger; the next price date makes it visible in the valuation.</span>
+                </div>
+                <span class="mk-tag" style="grid-column: 1 / -1">OP-10 · detail candidate (under the header, above Positions)</span>
+            </div>
+        </header>
+        <section class="inv-section">
+            <h2 class="inv-section__title">Positions <span class="pf-section__pill">unitised</span></h2>
+            <dl class="inv-meta">
+                <div><dt>Holdings</dt><dd id="detail-holdings">−42,310 units as of 2026-09-07</dd></div>
+                <div><dt>Opening</dt><dd>2026-01-02</dd></div>
+            </dl>
+        </section>
+    </section>
+</div>
+
+<!-- ============================================================ -->
+<!-- DESIGN NOTES                                                    -->
+<!-- ============================================================ -->
+<div class="mk-notes">
+    <h3>M-5 design notes — checkpoint decisions and what the 2026-09-07 snapshot pins</h3>
+
+    <h4>Decision 1 · OP-10 — indicator placement (ADR-0128 Q-2, ADR-0130)</h4>
+    <ul>
+        <li>Candidate A: cash position detail page, under the <code>inv-header</code>, above Positions (frame 2). Candidate B: Transactions-area banner between the area header and the first section (frame 1). C: both. Toggle "Indicator placement".</li>
+        <li>Derivation is live: <code>holdings_as_of(txns, today)</code> for the balance, <code>first_negative_holding_date(txns)</code> for "since" — both pure in <code>services/investments/holdings.py</code>. No stored flag, no acknowledgement, no schema; absent (not struck through) at ≥ 0 — toggle "all ≥ 0".</li>
+        <li>Multi-currency: one line per negative cash position (toggle "two negative"); each line links to its detail page. The banner names positions, never sums across currencies (ADR-0099 seam).</li>
+        <li>Copy: the second sentence is MD-9's flag-notice copy verbatim; the first restates the confirmation panel's line in present tense. "Last taken below zero by ticket #n" is a copy proposal — it needs a read of the most recent ticket-emitted transaction on the position; drop it if the derivation should stay purely ledger-side. <span class="lean">MC lean: C (both) — the banner is where the operator who caused it is; the detail page is where the position is looked at later.</span></li>
+        <li>Never blocks anything: the indicator is informational on every surface (ADR-0130); no gesture lives on it.</li>
+    </ul>
+
+    <h4>Decision 2 · OP-25 — resume mechanism</h4>
+    <ul>
+        <li>The row's Open gesture is agnostic (one button, one <code>hx-get</code>). Two candidates: (a) five per-flow GETs each accepting <code>ticket_id</code>, or (b) one <code>GET /api/transactions/ticket/{id}</code> that consults <code>_FLOWS</code> and renders the right composer.</li>
+        <li>Snapshot facts: the wizard already resumes via <code>GET /api/transactions/wizard?ticket_id=</code> (S4b, <code>_resume_step</code>); the other four opening GETs take no ticket. <code>_composer_context(..., ticket=, flow=)</code> already accepts a ticket; <code>_form_from_ticket</code> is written for the wizard's payload and must be checked for the four single-page shapes (a GET-side helper, not a composer change — if it turns out to need one, STOP per kickoff).</li>
+        <li>A ticket row stores <code>kind</code>/<code>direction</code>/<code>investment_id</code>/<code>master_data</code>, not a <code>flow</code>. The single GET needs a reverse lookup <code>_flow_of(ticket)</code> (kind, direction, <code>is_investment_creating</code>) → <code>_FLOWS</code> key, in one place; the blotter's "Flow" column label comes off the same lookup (a <code>label</code> field added to <code>_Flow</code>). <span class="lean">MC lean: (b), single GET; the wizard GET stays and the single GET delegates to it for U-NEW.</span></li>
+        <li>Open on a <code>proposed</code>/<code>approved</code> ticket renders read-only with Book now / Cancel (the composer already renders non-draft tickets as records — see <code>get_wizard</code> docstring).</li>
+    </ul>
+
+    <h4>Decision 3 · Cancel / Reverse home</h4>
+    <ul>
+        <li>Three candidates, toggle "Cancel / Reverse home": row ⋯ menu (blotter and history), opened composer header, history detail footer. Reason capture is an inline panel under the row (no modal), with the service rule surfaced: required for proposed/approved (<code>CANCEL_REASON_REQUIRED_STATUSES</code>), optional for draft, always for reverse. Draft wording "Discard draft" vs "Cancel ticket" — copy proposal, D-register.</li>
+        <li>3a · Blocked rendering: <code>str(exc)</code> verbatim as the red block (A-7), five causes shown via the outcome toggle. Sub-decision 3d: the sentences carry raw row UUIDs — accept, or allow an <em>additive</em> resolved-name line beneath.</li>
+        <li>3b · <code>ReversalReport</code>: green done-block with count by effect type (from <code>reversed</code>, grouped), then the retained-shell consequence block rendering <code>shell.retained_because</code> verbatim after "Investment retained, inactive — because:".</li>
+        <li>3c · Actor: there is <strong>no <code>cancelled_by</code> column</strong>; <code>set_status</code> receives the actor but writes none for <code>cancelled</code>. <code>AuditLogRepository</code> exposes only <code>has_update_since</code>; showing the cancel/reverse actor means one new read-only method (e.g. <code>actor_of_update(table, record_id, new_status)</code>) reading <code>audit_logs.user_id</code> where <code>new_data->>'status'='cancelled'</code>. Toggle "Actor on history": station columns only (proposed_by/approved_by/booked_by via <code>UserRepository</code>, the Cases <code>_resolve_owner_names</code> precedent) · plus audit-derived cancel actor · none. <span class="lean">MC lean: station columns in P-5b; audit-derived actor is a separable concern — decide now whether it is in P-5b or parked.</span></li>
+        <li>Reverse is offered only where <code>status='booked'</code>; a cancelled/reversed row has no mutation. Both live under <code>require_role("owner")</code> + <code>verify_csrf</code>.</li>
+    </ul>
+
+    <h4>Decision 4 · OP-22 visibility</h4>
+    <ul>
+        <li>Toggle "OP-22 hint". Two candidate positions: a one-line hint above the blotter table, and a third line inside the detail indicator. Either both, one, or documentation only. If shown, the wording is a copy proposal for the D-register (no mockup anchor).</li>
+    </ul>
+
+    <h4>Decision 5 · History filter set v1</h4>
+    <ul>
+        <li>Status is given (all / booked / cancelled / reversed — "reversed" is <code>cancelled AND booked_at IS NOT NULL</code>, so it is a derived option on the same column). Candidates: kind, investment, trade-date range, free text over note/cancel_reason. Toggle "History filters v1".</li>
+        <li>Repository: <code>list_by_status(statuses)</code> exists; the prompt adds read-only keyword parameters to it (or a sibling) for exactly the chosen set — nothing speculative. Free text is the only candidate that needs an ILIKE and is the one MC would drop from v1. <span class="lean">MC lean: kind + investment + date range; no free text.</span></li>
+        <li>Ordering stays <code>ticket_number DESC</code>. No pagination in v1 unless the operator wants it (would be a limit/offset pair, still read-only).</li>
+    </ul>
+
+    <h4>Pinned, not for decision</h4>
+    <ul>
+        <li>Effects grouped by <code>effect_type</code> via the existing <code>_effect_rows</code> shapes (P-4b); rows whose target is gone render "This row is no longer in the book" — after a reversal every row of that ticket does, which is correct and is what history is for.</li>
+        <li>Blotter columns: ticket #, flow label (from <code>_FLOWS</code>), investment or "creating: <em>name</em>", amount, trade date, status chip with station actor/date. Amount for a draft without figures is "—". The <code>section_pill="S5"</code> and both placeholder sentences retire with P-5a/P-5b.</li>
+        <li>No migration, no index. No four-eyes gesture. No composer behaviour change.</li>
+    </ul>
+</div>
+
+<script>
+(function () {
+    var state = { cash: "one", place: "both", hint: "on", home: "row", outcome: "none", actor: "columns",
+                  filters: { kind: true, investment: true, dates: true, text: false } };
+    function $(s) { return document.querySelectorAll(s); }
+    function el(id) { return document.getElementById(id); }
+    function setOn(attr, value) {
+        $("[data-" + attr + "]").forEach(function (b) { b.classList.toggle("is-on", b.dataset[attr] === value); });
+    }
+    var lines = {
+        eur: '<span class="tx-indicator__line"><a href="#">Cash EUR · Main custody</a> stands at <span class="tx-num tx-num--neg">−42,310.00 EUR</span><span class="tx-indicator__since">since 2026-09-05 · last taken below zero by ticket #16</span></span>',
+        usd: '<span class="tx-indicator__line"><a href="#">Cash USD</a> stands at <span class="tx-num tx-num--neg">−1,250.00 USD</span><span class="tx-indicator__since">since 2026-09-02 · last taken below zero by ticket #12</span></span>'
+    };
+    function render() {
+        // indicator
+        var negative = state.cash !== "clear";
+        var showBanner = negative && (state.place === "banner" || state.place === "both");
+        var showDetail = negative && (state.place === "detail" || state.place === "both");
+        el("banner").hidden = !showBanner;
+        var html = '<strong>' + (state.cash === "two" ? "Two cash positions are below zero." : "A cash position is below zero.") + '</strong> ' + lines.eur;
+        if (state.cash === "two") html += lines.usd;
+        html += '<span class="tx-msg__sub">The position stays flagged until the balance is back at zero or above.' +
+                (state.hint === "on" ? ' <span class="tx-indicator__hint">A booking\'s cash effect is in the book at once; the balance shows it from the next price date on.</span>' : '') + '</span>';
+        el("banner-lines").innerHTML = html;
+        el("detail-indicator").hidden = !showDetail;
+        el("detail-holdings").textContent = negative ? "−42,310 units as of 2026-09-07" : "128,540 units as of 2026-09-07";
+        el("detail-hint").hidden = state.hint !== "on";
+        el("blotter-hint").hidden = state.hint !== "on";
+        // home
+        $("[data-home-only]").forEach(function (n) { n.hidden = n.dataset.homeOnly !== state.home; });
+        el("composer-reason").hidden = state.home !== "composer";
+        // outcome
+        ["reason","report","retained","modified","consumed","holdings_consumed","unrestorable","referenced_by_ticket"].forEach(function (o) {
+            el("o-" + o).hidden = state.outcome !== o;
+        });
+        el("uuid-note").hidden = !/^(modified|consumed|holdings_consumed|unrestorable|referenced_by_ticket)$/.test(state.outcome);
+        // filters
+        $("[data-filter-only]").forEach(function (n) { n.hidden = !state.filters[n.dataset.filterOnly]; });
+        $("[data-filter]").forEach(function (b) { b.classList.toggle("is-on", !!state.filters[b.dataset.filter]); });
+        // actor
+        $("[data-actor-only]").forEach(function (n) { n.hidden = n.dataset.actorOnly.split(" ").indexOf(state.actor) < 0; });
+        setOn("cash", state.cash); setOn("place", state.place); setOn("hint", state.hint);
+        setOn("home", state.home); setOn("outcome", state.outcome); setOn("actor", state.actor);
+    }
+    ["cash","place","hint","home","outcome","actor"].forEach(function (k) {
+        $("[data-" + k + "]").forEach(function (b) { b.onclick = function () { state[k] = b.dataset[k]; render(); }; });
+    });
+    $("[data-filter]").forEach(function (b) { b.onclick = function () { state.filters[b.dataset.filter] = !state.filters[b.dataset.filter]; render(); }; });
+    $("[data-outcome-set]").forEach(function (b) { b.onclick = function () { state.outcome = b.dataset.outcomeSet; $(".tx-menu__list").forEach(function (m) { m.hidden = true; }); render(); }; });
+    $("[data-menu]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); var m = el(b.dataset.menu); var open = m.hidden; $(".tx-menu__list").forEach(function (x) { x.hidden = true; }); m.hidden = !open; }; });
+    $("[data-reason]").forEach(function (b) { b.onclick = function () { el(b.dataset.reason).hidden = false; $(".tx-menu__list").forEach(function (x) { x.hidden = true; }); }; });
+    $("[data-close]").forEach(function (b) { b.onclick = function () { el(b.dataset.close).hidden = true; }; });
+    document.addEventListener("click", function () { $(".tx-menu__list").forEach(function (x) { x.hidden = true; }); });
+    // enable the required-reason button once typed (row #23)
+    var ta = document.querySelector("#r23 textarea"), btn = document.querySelector("#r23 .pf-btn--danger");
+    if (ta && btn) ta.addEventListener("input", function () { btn.disabled = ta.value.trim() === ""; });
+    render();
+})();
+</script>
+</body>
+</html>

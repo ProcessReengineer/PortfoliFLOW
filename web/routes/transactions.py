@@ -187,7 +187,7 @@ for the operator's walk.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -230,6 +230,7 @@ from core.repositories.trade_ticket_repository import (
     TradeTicketEffectDTO,
     TradeTicketRepository,
 )
+from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
 from services.investments.aum import CASH_TYPE
 from services.investments.credential_resolver import (
@@ -243,6 +244,8 @@ from services.transactions.constants import (
     BLOCK_OVERSELL,
     BLOCK_PARTIAL_SECONDARY_SALE,
     BOOKABLE_STATUSES,
+    CANCEL_REASON_REQUIRED_STATUSES,
+    CANCELLABLE_STATUSES,
     DIRECTION_BUY,
     DIRECTION_SELL,
     KIND_COMMITMENT,
@@ -263,7 +266,9 @@ from services.transactions.constants import (
     MD_PURCHASE_PRICE,
     MD_REGION,
     MD_VINTAGE_YEAR,
+    STATUS_APPROVED,
     STATUS_DRAFT,
+    STATUS_PROPOSED,
     WARNING_FUTURE_TRADE_DATE,
     WARNING_NEGATIVE_CASH,
     WARNING_NET_NON_POSITIVE,
@@ -302,6 +307,7 @@ from services.transactions.validation import (
     TicketWarnings,
     derive_cash_effect,
     is_cash_moving,
+    is_investment_creating,
     nearest_price,
     signed_deviation_ratio,
 )
@@ -383,6 +389,12 @@ class _Flow:
         composer: The composer partial, or ``None`` for the wizard, which
             has an assembly and a template of its own.
         recalc: The recalculation response's partial.
+        label: The human flow name every list surface shows (A-12). The
+            routing table is also the labelling table, so a flow is named
+            where it is described rather than in a second dict the blotter
+            and history would each have to be kept in step with. The order
+            flow's label is completed with its direction at render, which
+            is :func:`_flow_label`'s whole job.
     """
 
     kind: str
@@ -391,6 +403,7 @@ class _Flow:
     costs: bool
     composer: str | None
     recalc: str
+    label: str
 
 
 #: Every flow this Area composes, keyed by the ``flow`` field's value.
@@ -407,6 +420,7 @@ _FLOWS: dict[str, _Flow] = {
         costs=True,
         composer="_order_composer.html",
         recalc="_order_recalc.html",
+        label="Order",
     ),
     FLOW_NEW_INSTRUMENT: _Flow(
         kind=KIND_ORDER,
@@ -415,6 +429,7 @@ _FLOWS: dict[str, _Flow] = {
         costs=True,
         composer=None,
         recalc="_wizard_recalc.html",
+        label="New instrument",
     ),
     FLOW_SECONDARY_SALE: _Flow(
         kind=KIND_SECONDARY,
@@ -423,6 +438,7 @@ _FLOWS: dict[str, _Flow] = {
         costs=True,
         composer="_secondary_sale_composer.html",
         recalc="_secondary_sale_recalc.html",
+        label="Secondary sale",
     ),
     FLOW_COMMITMENT: _Flow(
         kind=KIND_COMMITMENT,
@@ -431,6 +447,7 @@ _FLOWS: dict[str, _Flow] = {
         costs=False,
         composer="_commitment_composer.html",
         recalc="_commitment_recalc.html",
+        label="Commitment",
     ),
     FLOW_SECONDARY_BUY: _Flow(
         kind=KIND_SECONDARY,
@@ -439,8 +456,87 @@ _FLOWS: dict[str, _Flow] = {
         costs=False,
         composer="_secondary_buy_composer.html",
         recalc="_secondary_buy_recalc.html",
+        label="Secondary purchase",
     ),
 }
+
+#: How a direction completes the order flow's label.
+#:
+#: Only the order flow needs it: every other flow's direction is a constant
+#: of the flow (MD-14, MD-15, MD-17), so naming it in the label would state
+#: twice what the flow already says once.
+_DIRECTION_LABELS: dict[str, str] = {DIRECTION_BUY: "Buy", DIRECTION_SELL: "Sell"}
+
+
+def _flow_of(ticket: TradeTicketDTO) -> str:
+    """Return the ``_FLOWS`` key a stored ticket belongs to (A-12).
+
+    **The one reverse lookup**, and deliberately the only one: the blotter,
+    the resume ``GET`` and — later — History all need to know which of the
+    five flows a row is, and three hand-written ``if kind == …`` chains would
+    be three chances to disagree about a secondary purchase. The forward
+    direction is :data:`_FLOWS`, which says what each flow builds; this is
+    the same table read backwards.
+
+    The classification is
+    :func:`~services.transactions.validation.is_investment_creating`'s, not a
+    second opinion about it — the same predicate the emission dispatches on
+    (MD-12) — so a ticket cannot route to one composer here and to a
+    different emission at booking.
+
+    **Exact for an in-flight ticket.** A creating booking writes
+    ``investment_id`` back onto the ticket (``link_investment``), so a
+    *booked* U-NEW no longer answers ``is_investment_creating`` and reads
+    here as an ordinary order. That is invisible to the blotter, whose set is
+    ``draft`` / ``proposed`` / ``approved`` by definition, and it is a real
+    edge for History: P-5b must not assume this function re-derives the flow
+    a terminal row was composed in.
+
+    Args:
+        ticket: The stored ticket.
+
+    Returns:
+        The key into :data:`_FLOWS`.
+
+    Raises:
+        ValueError: For a ticket that is none of the five flows. A row that
+            fits no flow is a corrupted book rather than a case for a
+            fallback: rendering it as the order composer would offer to edit
+            a ticket through a surface that cannot express it.
+    """
+    creating = is_investment_creating(
+        kind=ticket.kind,
+        direction=ticket.direction,
+        investment_id=ticket.investment_id,
+        master_data=ticket.master_data,
+    )
+    if ticket.kind == KIND_ORDER:
+        return FLOW_NEW_INSTRUMENT if creating else ""
+    if ticket.kind == KIND_COMMITMENT:
+        return FLOW_COMMITMENT
+    if ticket.kind == KIND_SECONDARY:
+        return FLOW_SECONDARY_BUY if ticket.direction == DIRECTION_BUY else FLOW_SECONDARY_SALE
+    raise ValueError(
+        f"Trade ticket {ticket.ticket_number} has kind {ticket.kind!r}, which is no "
+        "composer flow; the book is inconsistent."
+    )
+
+
+def _flow_label(ticket: TradeTicketDTO) -> str:
+    """Return the human flow name a list row shows for this ticket.
+
+    :data:`_FLOWS`' own label, completed with the direction for the one flow
+    that offers the choice — "Order · Buy" / "Order · Sell", the copy fixed
+    at the M-5 checkpoint. The four reported flows carry their direction in
+    the name already ("Secondary sale"), so appending it would read as a
+    stutter.
+    """
+    flow = _flow_of(ticket)
+    label = _FLOWS[flow].label
+    if flow:
+        return label
+    return f"{label} · {_DIRECTION_LABELS[ticket.direction]}"
+
 
 #: The wizard's four steps, in M-2's order. Index + 1 is the step number.
 _WIZARD_STEPS: tuple[str, ...] = ("Identify", "Classify", "Order", "Confirm")
@@ -2403,10 +2499,12 @@ def _plain(value: Decimal | None) -> str:
     return "" if value is None else format(value.normalize(), "f")
 
 
-def _form_from_ticket(ticket: TradeTicketDTO, *, csrf_token: str) -> _ComposerForm:
-    """Rebuild the wizard's form state from a saved draft (MD-10's other half).
+def _form_from_ticket(
+    ticket: TradeTicketDTO, *, csrf_token: str, flow: str | None = None
+) -> _ComposerForm:
+    """Rebuild a composer's form state from a saved ticket (MD-10's other half).
 
-    The resume GET has no request body, and a wizard rendered from an empty
+    The resume GET has no request body, and a surface rendered from an empty
     one would show the operator a blank form over a ticket that is not blank.
     So the row is read back into the same :class:`_ComposerForm` a POST would
     have produced — every field, including ``entered``'s raw strings, since
@@ -2416,6 +2514,31 @@ def _form_from_ticket(ticket: TradeTicketDTO, *, csrf_token: str) -> _ComposerFo
     the payload's keys are read as the strings they are stored as, and
     :func:`~services.transactions.emission.parse_master_data` stays the one
     place they become domain values (D-V).
+
+    **Total over all five flows since P-5a**, where it was the wizard's
+    alone. The single resume ``GET`` (A-12) reopens any in-flight ticket, so
+    the fields only the single-page composers carry are read back too —
+    ``investment_id``, ``gross_amount``, ``commitment_amount``,
+    ``set_inactive`` and R-SEC-BUY's three ``md_*`` amounts — and ``flow``
+    comes from :func:`_flow_of` rather than being assumed. The omission that
+    mattered most was the ``md_*`` trio: :meth:`_ComposerForm.master_data` is
+    a **full replacement**, so a resumed purchase whose vintage and acquired
+    NAV came back blank would have erased them on the next save.
+
+    ``net_amount`` is deliberately absent, and is the one ticket column with
+    no counterpart here: it is *derived* from gross, fees and taxes by
+    :func:`_derived_context` on every render, and no composer posts it. A
+    field for it would be a second source for a number that already has one.
+
+    Args:
+        ticket: The stored ticket to read back.
+        csrf_token: The session's token, for the caller that renders a form.
+        flow: The flow to render as, or ``None`` to derive it with
+            :func:`_flow_of`. The wizard passes its own constant rather than
+            deriving: :func:`get_wizard` admits any ``order`` ticket without
+            an ``investment_id``, which includes the payload-less draft
+            :func:`_flow_of` would classify as a plain order, and that surface
+            has always rendered such a row as the wizard.
     """
     payload: dict[str, Any] = ticket.master_data or {}
 
@@ -2442,8 +2565,16 @@ def _form_from_ticket(ticket: TradeTicketDTO, *, csrf_token: str) -> _ComposerFo
         source=ticket.source or "",
         note=ticket.note or "",
         ticket_id=str(ticket.id),
-        flow=FLOW_NEW_INSTRUMENT,
+        flow=_flow_of(ticket) if flow is None else flow,
         currency=ticket.currency,
+        investment_id=(str(ticket.investment_id) if ticket.investment_id is not None else ""),
+        gross_amount=_plain(ticket.gross_amount),
+        commitment_amount=_plain(ticket.commitment_amount),
+        # The MD-7 checkbox, echoed the way the browser posts it. Only U-SELL
+        # reads it back (`_derived_context` forces `False` everywhere else),
+        # so this is the one flow where a resume that dropped it would quietly
+        # un-answer a question the ticket records.
+        set_inactive="1" if ticket.set_inactive else None,
         md_identifier_scheme=_text(MD_IDENTIFIER_SCHEME),
         md_identifier_value=_text(MD_IDENTIFIER_VALUE),
         md_figi=_text(MD_FIGI),
@@ -2453,6 +2584,12 @@ def _form_from_ticket(ticket: TradeTicketDTO, *, csrf_token: str) -> _ComposerFo
         md_anlv_code=_text(MD_ANLV_CODE),
         md_manager=_text(MD_MANAGER),
         md_region=_text(MD_REGION),
+        # R-COMMIT's and R-SEC-BUY's own payload fields. `master_data` is a
+        # full replacement, so these are read back not to render them alone
+        # but so that saving a resumed purchase does not blank them.
+        md_vintage_year=_text(MD_VINTAGE_YEAR),
+        md_acquired_nav=_text(MD_ACQUIRED_NAV),
+        md_assumed_unfunded=_text(MD_ASSUMED_UNFUNDED),
     )
 
 
@@ -3579,6 +3716,46 @@ _RESOLVE_NO_MATCH: str = (
 )
 
 
+async def _render_wizard(
+    request: Request,
+    *,
+    session: SessionDTO,
+    db: AsyncSession,
+    ticket: TradeTicketDTO | None,
+    step_raw: str = "",
+) -> HTMLResponse:
+    """Render the M-2 wizard over a ticket, or fresh — both ways in.
+
+    Lifted out of :func:`get_wizard` unchanged when P-5a gave the blotter its
+    single resume ``GET`` (A-12): that endpoint must render *exactly* what
+    ``/api/transactions/wizard?ticket_id=`` renders for a U-NEW row, and the
+    only way to be sure of "exactly" is for both to run the same code rather
+    than for one to reproduce the other.
+
+    The caller owns the lookup and the 404. What is here is the part after
+    it: the form the ticket reads back into, the step, and the render.
+
+    Args:
+        request: The live request.
+        session: The authenticated session.
+        db: The tenant-scoped session the caller opened.
+        ticket: The draft to resume, or ``None`` for a fresh wizard.
+        step_raw: An explicit step, or ``""`` to derive it from the draft
+            with :func:`_resume_step` (MD-10).
+
+    Returns:
+        The wizard at one step.
+    """
+    form = (
+        _form_from_ticket(ticket, csrf_token=session.csrf_token, flow=FLOW_NEW_INSTRUMENT)
+        if ticket is not None
+        else _ComposerForm(flow=FLOW_NEW_INSTRUMENT, direction=DIRECTION_BUY)
+    )
+    asked = _step_or_first(step_raw) if step_raw else _resume_step(ticket)
+    context = await _wizard_context(db, session=session, form=form, ticket=ticket, step=asked)
+    return _render(request, "_wizard.html", context)
+
+
 @router.get("/api/transactions/wizard", response_class=HTMLResponse)
 async def get_wizard(
     request: Request,
@@ -3631,14 +3808,7 @@ async def get_wizard(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"No new-instrument ticket {wanted} in this tenant.",
                 )
-        form = (
-            _form_from_ticket(ticket, csrf_token=session.csrf_token)
-            if ticket is not None
-            else _ComposerForm(flow=FLOW_NEW_INSTRUMENT, direction=DIRECTION_BUY)
-        )
-        asked = _step_or_first(step) if step else _resume_step(ticket)
-        context = await _wizard_context(db, session=session, form=form, ticket=ticket, step=asked)
-    return _render(request, "_wizard.html", context)
+        return await _render_wizard(request, session=session, db=db, ticket=ticket, step_raw=step)
 
 
 @router.post("/api/transactions/resolve-identifier", response_class=HTMLResponse)
@@ -3852,3 +4022,359 @@ async def post_recalc(
             **derived,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# The blotter (S5, ADR-0128 §7)
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_user_names(users: UserRepository, ids: Iterable[UUID]) -> dict[UUID, str]:
+    """Resolve user ids to display names, one batch (the Journal idiom).
+
+    The Cases ``_resolve_owner_names`` precedent, reused rather than
+    re-invented (A-16): look each *distinct* id up and prefer
+    ``display_name``, falling back to ``email`` so a station line reads as a
+    person and never as a raw UUID. An id that resolves to nothing is simply
+    absent, and the projection falls back to the stringified id.
+
+    Args:
+        users: The tenant-scoped user repository.
+        ids: The actor ids to resolve, duplicates welcome.
+
+    Returns:
+        The names, keyed by id.
+    """
+    names: dict[UUID, str] = {}
+    for user_id in set(ids):
+        user = await users.get_by_id(user_id)
+        if user is not None:
+            names[user_id] = user.display_name or user.email
+    return names
+
+
+def _station_line(ticket: TradeTicketDTO, names: dict[UUID, str]) -> str | None:
+    """Return the "by <name> · <date>" sub-line under a status chip (A-16).
+
+    The station a ticket is *standing at*, not its whole history: ``approved``
+    reads its own attribution rather than the proposal it passed through, so
+    the line answers "who put it here" for the row as it is now. A ``draft``
+    has no station and no line — nobody has yet said anything about it that
+    another person could have seen.
+
+    The cancel actor is deliberately unresolvable and deliberately not shown:
+    there is no ``cancelled_by`` column (T-1 D-5), and deriving it from the
+    audit log is a named successor rather than an S5 deliverable.
+    """
+    if ticket.status == STATUS_APPROVED and ticket.approved_at is not None:
+        actor, when = ticket.approved_by, ticket.approved_at
+    elif ticket.status == STATUS_PROPOSED and ticket.proposed_at is not None:
+        actor, when = ticket.proposed_by, ticket.proposed_at
+    else:
+        return None
+    who = names.get(actor, str(actor)) if actor is not None else "—"
+    return f"by {who} · {when.date().isoformat()}"
+
+
+def _amount_of(ticket: TradeTicketDTO) -> str | None:
+    """Return the one figure a blotter row states for this ticket, or ``None``.
+
+    ``net_amount`` is the cash the booking will move, and it is what every
+    cash-moving flow is *about*. A commitment moves no cash (MD-19), so the
+    figure that means something there is the commitment itself; showing a
+    blank for it would suggest a ticket with no size.
+
+    ``None`` — rendered "—" — is an honest answer and a common one: a draft
+    is allowed to dangle (MD-11), and half of what the blotter lists has not
+    been priced yet.
+    """
+    if ticket.net_amount is not None:
+        return _money(ticket.net_amount)
+    if ticket.kind == KIND_COMMITMENT and ticket.commitment_amount is not None:
+        return _money(ticket.commitment_amount)
+    return None
+
+
+def _units_line(ticket: TradeTicketDTO) -> str | None:
+    """Return the "n units @ p" sub-line, for the flows that have one.
+
+    Order tickets only, and only once both halves are on the row: units and a
+    price are what an order *is*, and the reported flows state a consideration
+    instead (MD-15) which the amount column already carries.
+    """
+    if ticket.kind != KIND_ORDER or ticket.units is None or ticket.price_per_unit is None:
+        return None
+    return f"{_units(ticket.units)} units @ {_units(ticket.price_per_unit)}"
+
+
+@router.get("/api/transactions/blotter", response_class=HTMLResponse)
+async def get_blotter(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """List the tickets in flight — the Blotter section's body (ADR-0128 §7).
+
+    **In flight is the cancellable set**, and the route says so by loading
+    :data:`~services.transactions.constants.CANCELLABLE_STATUSES` rather than
+    by listing ``draft`` / ``proposed`` / ``approved`` again. The two are the
+    same three statuses for a reason that is not coincidence: a ticket is on
+    this list exactly while it is still a decision that can be withdrawn. A
+    booked ticket is a fact and a cancelled one is a withdrawn decision;
+    both are History's (P-5b).
+
+    Every row is read-only here. The gestures the row offers — Open and the
+    cancellation — are their own endpoints (A-12, A-13), so this handler
+    stays a projection and the list can be re-fetched after any of them
+    without re-deciding anything.
+
+    Returns:
+        The blotter table, newest ticket number first.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        tickets = await TradeTicketRepository(db).list_by_status(list(CANCELLABLE_STATUSES))
+        investments = InvestmentRepository(db)
+        names: dict[UUID, str] = {}
+
+        async def _name(investment_id: UUID) -> str | None:
+            # Memoised per request, the `_effect_rows` idiom: a blotter of
+            # twenty orders against three positions is three reads, not
+            # twenty.
+            if investment_id not in names:
+                found = await investments.get_by_id(investment_id)
+                names[investment_id] = found.name if found is not None else "—"
+            return names[investment_id]
+
+        actors = await _resolve_user_names(
+            UserRepository(db),
+            [
+                actor
+                for ticket in tickets
+                for actor in (ticket.proposed_by, ticket.approved_by)
+                if actor is not None
+            ],
+        )
+        rows: list[dict[str, Any]] = []
+        for ticket in tickets:
+            payload: dict[str, Any] = ticket.master_data or {}
+            rows.append(
+                {
+                    "id": str(ticket.id),
+                    "ticket_number": ticket.ticket_number,
+                    "flow_label": _flow_label(ticket),
+                    "investment_name": (
+                        await _name(ticket.investment_id)
+                        if ticket.investment_id is not None
+                        else None
+                    ),
+                    # The name a creating flow carries on the ticket until
+                    # booking makes the row (MD-12). It is the only name
+                    # there is for these three flows, and it may legitimately
+                    # be absent on a draft that has not reached Classify.
+                    "creating_name": (
+                        payload.get(MD_NAME) if ticket.investment_id is None else None
+                    ),
+                    "amount": _amount_of(ticket),
+                    "currency": ticket.currency,
+                    "units_line": _units_line(ticket),
+                    "trade_date": ticket.trade_date.isoformat(),
+                    "status": ticket.status,
+                    "station_line": _station_line(ticket, actors),
+                    "reason_required": ticket.status in CANCEL_REASON_REQUIRED_STATUSES,
+                }
+            )
+        return _render(request, "_blotter.html", {"rows": rows})
+
+
+async def _in_flight(db: AsyncSession, ticket_id: str) -> TradeTicketDTO:
+    """Load one still-in-flight ticket, or 404 — the gate all three routes share.
+
+    "In flight" is
+    :data:`~services.transactions.constants.CANCELLABLE_STATUSES`, and the
+    resume ``GET``, the cancel panel and the cancel ``POST`` all mean the same
+    thing by it: a ticket that is still a decision rather than a fact. Written
+    once so the three cannot come to disagree — a resume that opened a booked
+    ticket would offer gestures the service then refuses in a red block the
+    operator can do nothing about.
+
+    A malformed id and an absent one are the same answer on purpose. The
+    difference is only ever interesting to whoever typed the URL, and telling
+    them apart would confirm to an unauthenticated prober which ids exist.
+
+    The service re-checks the status on the way through
+    :meth:`~services.transactions.ticket_service.TicketService.cancel`: this
+    is which *surface* may be shown, not whether a write is allowed.
+
+    Args:
+        db: The tenant-scoped session.
+        ticket_id: The id as it arrived in the path.
+
+    Returns:
+        The ticket.
+
+    Raises:
+        HTTPException: 404 for a malformed id, an id this tenant cannot see,
+            or a ticket that has left the in-flight set.
+    """
+    wanted = _uuid_or_none(ticket_id)
+    ticket = await TradeTicketRepository(db).get(wanted) if wanted is not None else None
+    if ticket is None or ticket.status not in CANCELLABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No trade ticket {ticket_id} in this tenant.",
+        )
+    return ticket
+
+
+@router.get("/api/transactions/ticket/{ticket_id}", response_class=HTMLResponse)
+async def get_ticket(
+    request: Request,
+    ticket_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Reopen one in-flight ticket in the composer it was written in (A-12).
+
+    **One address for five flows.** The blotter row's Open gesture does not
+    know which composer answers it, and that is the point: the row would
+    otherwise have to carry routing knowledge that :data:`_FLOWS` already
+    holds, and a sixth flow would mean teaching the list about it. The
+    reverse lookup is :func:`_flow_of`, the single one.
+
+    The wizard is reached through :func:`_render_wizard` rather than
+    reproduced, so this endpoint and
+    ``GET /api/transactions/wizard?ticket_id=`` cannot drift.
+
+    In-flight only. A booked or cancelled ticket is not editable and is not
+    404 by accident: History shows what it did (P-5b), and opening a composer
+    over it would offer gestures the service would then refuse in a red block
+    the operator could do nothing about.
+
+    Args:
+        request: The live request.
+        ticket_id: The ticket to reopen.
+        session: The authenticated session.
+
+    Returns:
+        The composer, or the wizard at its resume step.
+
+    Raises:
+        HTTPException: 404 if the id is malformed, names no ticket this
+            tenant can see, or names one that has left the in-flight set.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _in_flight(db, ticket_id)
+        flow = _flow_of(ticket)
+        if _FLOWS[flow].composer is None:
+            return await _render_wizard(request, session=session, db=db, ticket=ticket)
+        form = _form_from_ticket(ticket, csrf_token=session.csrf_token, flow=flow)
+        context = await _composer_context(db, session=session, form=form, ticket=ticket, flow=flow)
+        return _render(request, _composer_template(flow), context)
+
+
+def _cancel_context(
+    ticket: TradeTicketDTO, *, csrf_token: str, error: str | None
+) -> dict[str, Any]:
+    """Build the inline cancel panel's context (A-13).
+
+    The panel is the reason step, and it needs exactly three things: which
+    ticket, whether a reason is required, and what the last attempt said. The
+    *copy* is the template's — the M-5 register fixes a lead and a sub per
+    status — while ``error`` is always a service sentence rendered verbatim
+    (A-7).
+    """
+    return {
+        "id": str(ticket.id),
+        "ticket_number": ticket.ticket_number,
+        "status": ticket.status,
+        "reason_required": ticket.status in CANCEL_REASON_REQUIRED_STATUSES,
+        "csrf_token": csrf_token,
+        "error": error,
+    }
+
+
+@router.get("/api/transactions/ticket/{ticket_id}/cancel", response_class=HTMLResponse)
+async def get_cancel_panel(
+    request: Request,
+    ticket_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Open the inline reason step beneath a blotter row (A-13).
+
+    A panel in the row's own detail cell, never a modal: the ticket the
+    operator is about to withdraw stays on screen above the question, and the
+    list behind it stays readable.
+
+    Returns:
+        The cancel panel.
+
+    Raises:
+        HTTPException: 404 for an id that is not an in-flight ticket.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _in_flight(db, ticket_id)
+        return _render(
+            request,
+            "_cancel_panel.html",
+            _cancel_context(ticket, csrf_token=session.csrf_token, error=None),
+        )
+
+
+@router.post(
+    "/api/transactions/ticket/{ticket_id}/cancel",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def post_cancel(
+    request: Request,
+    ticket_id: str,
+    reason: Annotated[str, Form()] = "",
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Cancel or discard one in-flight ticket, with a reason where one is owed.
+
+    **Success re-renders the whole blotter.** The row is gone, and the list
+    the server returns is the answer — not a client-side removal that would
+    be this surface's own opinion about what the book now says. It also picks
+    up whatever else moved while the panel was open.
+
+    A refusal comes back as the panel, carrying the service's sentence
+    verbatim (A-7): ``TicketIncomplete`` when a ``proposed`` or ``approved``
+    ticket was sent without a reason, ``TicketStateInvalid`` when the ticket
+    left the cancellable set between the panel opening and the button — the
+    one race this surface has, and the service is the authority on it.
+
+    Args:
+        request: The live request.
+        ticket_id: The ticket to cancel.
+        reason: Why. Required from ``proposed`` and ``approved``; the service
+            decides, not this handler.
+        session: The authenticated session.
+
+    Returns:
+        The re-rendered blotter on success, the panel on a refusal.
+
+    Raises:
+        HTTPException: 404 for an id that is not an in-flight ticket.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _in_flight(db, ticket_id)
+        try:
+            await _build_ticket_service(db).cancel(
+                ticket.id,
+                cancelled_by=session.user_id,
+                now=_now(),
+                reason=_clean(reason),
+            )
+        except TicketNotFound as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except (TicketIncomplete, TicketStateInvalid) as exc:
+            return _render(
+                request,
+                "_cancel_panel.html",
+                _cancel_context(ticket, csrf_token=session.csrf_token, error=str(exc)),
+            )
+    return await get_blotter(request, session=session)

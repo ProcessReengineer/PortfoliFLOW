@@ -274,11 +274,12 @@ Control before proceeding.
 4. Report MD-2, MD-3, MD-4, MD-5, MD-12, MD-18 and §2 to Mission Control as
    the schema-touching set; Mission Control releases kickoff T-1 with them.
 
-## 6. Addenda — decisions of record from implementation (S2–S4a)
+## 6. Addenda — decisions of record from implementation (S2–S5)
 
 Mirrored from the T-2 and T-4 reports so this record stays the single
 place downstream strands read. Sources: T-2 closing report (2026-09-01),
-T-4 S4a interim note (2026-09-04), Mission Control board.
+T-4 S4a interim note (2026-09-04), T-5 M-5 checkpoint (2026-09-07),
+Mission Control board.
 
 - **A-1 · Creation invariant (resolves the D-I question).** An
   `investment_update` effect with `prior_state IS NULL` means "this
@@ -322,3 +323,101 @@ T-4 S4a interim note (2026-09-04), Mission Control board.
 - **A-10 · Preview discipline.** `TicketService.preview` is read-only and
   previews only `oversell` in v1; adding a previewable block is a
   decision, not a follow-up (T-4 D-2/P-0b).
+
+Sources for A-11…A-19: T-5 M-5 checkpoint (2026-09-07), Mission Control
+board. The T-5 D-register letters (D-A…D-I) are given in brackets so the
+closing report and this record cross-reference.
+
+- **A-11 · Negative-cash indicator placement (fixes ADR-0128 Q-2's open
+  point, OP-10) [T-5 D-A].** Both candidate surfaces: a banner in the
+  Transactions area between the area header and the first section, and a
+  block on the cash position's detail page beneath the header and above
+  Positions. One line per negative cash position, each linking to its
+  detail page; no sum across currencies. Derived live from the ledger via
+  the pure helpers `holdings_as_of` (balance as of today) and
+  `first_negative_holding_date` ("since"); no stored flag, no
+  acknowledgement gesture, no schema. Absent — not struck through — at
+  ≥ 0. Informational on every surface; never blocks (ADR-0130). The
+  "last taken below zero by ticket #n" line is **not** in v1 (named
+  successor: it needs an effects lookup the derivation should not carry).
+- **A-12 · Resume mechanism (OP-25) [T-5 D-B].** One
+  `GET /api/transactions/ticket/{ticket_id}` opens any in-flight ticket.
+  It resolves the ticket to its flow through a single reverse lookup
+  `_flow_of(ticket)` (kind, direction, `is_investment_creating`) onto
+  `_FLOWS`, and renders `_FLOWS[flow].composer`; for the wizard
+  (`composer is None`) it renders exactly what
+  `GET /api/transactions/wizard?ticket_id=` renders. The per-flow opening
+  GETs stay as the chooser's entry points and gain no `ticket_id`. The
+  blotter row's open gesture is agnostic of the flow. `_Flow` gains a
+  `label` — the human flow name the blotter and history show — so the
+  routing table is also the labelling table.
+- **A-13 · Cancel and reverse home [T-5 D-C].** Gestures live on the
+  list row: the blotter row offers *Open* and *Cancel ticket…* (a draft:
+  *Discard draft…*); the history row offers *Details* and, on a booked
+  ticket only, *Reverse booking…*. Neither the opened composer header nor
+  the history detail carries the gesture in v1. The reason step is an
+  inline panel beneath the row, never a modal: required for
+  `proposed`/`approved` (the service's `CANCEL_REASON_REQUIRED_STATUSES`),
+  optional for `draft`, always required for a reversal. A row ⋯ menu is
+  a polish matter (OP-23), not a v1 shape.
+- **A-14 · Refusal rendering for reversal (refines A-7) [T-5 D-D].**
+  `TicketReversalBlocked` renders `str(exc)` verbatim as the red block,
+  for all five causes; the raw row UUIDs the service sentences carry are
+  accepted as they are. No additive resolved-name line in v1.
+- **A-15 · Reversal report rendering [T-5 D-E].** A `ReversalReport`
+  renders as a done block — "Ticket #n reversed. k rows undone; the
+  ticket is now cancelled — "<reason>"." with a per-type count from
+  `reversed` — followed, when `shell` is retained, by a consequence
+  block "Investment retained, inactive — because: <retained_because>"
+  with `retained_because` verbatim (A-4/A-5).
+- **A-16 · Actor display on History [T-5 D-F].** The station columns
+  (`proposed_by`, `approved_by`, `booked_by`) resolve to display names
+  through `UserRepository`, the Cases `_resolve_owner_names` precedent.
+  The cancel/reverse actor is **not shown** in v1: there is no
+  `cancelled_by` column (T-1 D-5) and `AuditLogRepository` reads only
+  `has_update_since`; deriving the actor from the audit log is a named
+  successor (one read-only repository method), not an S5 deliverable.
+- **A-17 · Terminal-state labelling [T-5 D-I].** Both terminal endings
+  share `status='cancelled'`; surfaces label a row **Reversed** iff
+  `booked_at IS NOT NULL` and **Cancelled** otherwise. Reversed rows keep
+  their effect list; each effect renders as "This row is no longer in the
+  book" (the existing `_effect_rows` missing shape), which is correct and
+  is what History is for.
+- **A-18 · OP-22 visibility [T-5 D-G].** The hint is shown, one line, in
+  two places: above the blotter table and as the third line of the
+  detail-page indicator. Copy (D-register, no mockup anchor): "A
+  booking's cash effect is in the book at once; the cash position's
+  balance shows it from the next price date on."
+- **A-19 · History filter set v1 [T-5 D-H].** Status (given; "reversed"
+  is a derived option on the same column), kind, investment, and
+  trade-date range. No free text, no pagination. `list_by_status` grows
+  read-only keyword parameters for exactly these; ordering stays
+  `ticket_number DESC`.
+
+**Copy fixed at the M-5 checkpoint (binding for S5 templates):**
+
+- Blotter columns: *Ticket · Flow · Investment · Amount · Trade date ·
+  Status*. History replaces *Status* with *Outcome*.
+- Flow labels (`_Flow.label`): "Order · Buy", "Order · Sell", "New
+  instrument", "Commitment", "Secondary sale", "Secondary purchase".
+- Creating rows: "creating: <name>" in the Investment column.
+- Empty blotter: "Nothing in flight." Empty history: "Nothing booked or
+  cancelled yet."
+- Cancel panel, proposed/approved: lead "Cancel ticket #n?", sub "A
+  proposed ticket is a decision others may have seen. A reason is
+  required." (for `approved`: "An approved ticket …"). Button "Cancel
+  ticket"; "Keep" closes the panel.
+- Cancel panel, draft: lead "Discard draft #n?", sub "A draft is private
+  workspace. A reason is optional. The ticket number stays allocated and
+  the ticket appears in History as cancelled." Button "Discard draft".
+- Reverse panel: lead "Reverse booking #n?", sub "The rows listed above
+  are deleted in one transaction and the ticket becomes cancelled. A
+  reason is always required. The effect list stays on the ticket so
+  History still says what it once did." Button "Reverse booking".
+- Indicator, banner: lead "A cash position is below zero." / "Two cash
+  positions are below zero." (n > 2: "<n> cash positions are below
+  zero."), then per position "<name> stands at <balance> <ccy>, since
+  <date>". Second line MD-9 verbatim: "The position stays flagged until
+  the balance is back at zero or above."
+- Indicator, detail page: "This position stands at <balance> <ccy> since
+  <date>." then the MD-9 sentence, then the A-18 hint.

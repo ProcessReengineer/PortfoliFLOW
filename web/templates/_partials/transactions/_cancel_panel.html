@@ -1,0 +1,61 @@
+{# The inline reason step for a cancellation (A-13).
+
+   A panel in the row's own detail cell, never a modal: the ticket stays on
+   screen above the question and the list behind it stays readable.
+
+   Copy is the M-5 register's, per status. The two endings differ in more
+   than tone — a draft is private workspace, so its reason is optional and
+   the sentence says what survives the discard; a proposed or approved
+   ticket is a decision others may have seen, so the reason is required and
+   the service (not this template) enforces it.
+
+   The red block is a service sentence rendered verbatim, in the shape
+   `_messages.html` gives every refusal on this Area (A-7).
+
+   Context: id, ticket_number, status, reason_required, csrf_token, error. #}
+<div class="tx-reason">
+    {% if status == "draft" %}
+        <p class="tx-reason__lead">Discard draft #{{ ticket_number }}?</p>
+        <p class="tx-reason__sub">
+            A draft is private workspace. A reason is optional. The ticket
+            number stays allocated and the ticket appears in History as
+            cancelled.
+        </p>
+    {% else %}
+        <p class="tx-reason__lead">Cancel ticket #{{ ticket_number }}?</p>
+        <p class="tx-reason__sub">
+            {% if status == "approved" %}An approved{% else %}A proposed{% endif %}
+            ticket is a decision others may have seen. A reason is required.
+        </p>
+    {% endif %}
+
+    {% if error %}
+        <div class="tx-msg tx-msg--block">
+            <span class="tx-msg__glyph">✕</span>
+            <div><strong>{{ error }}</strong></div>
+        </div>
+    {% endif %}
+
+    <form class="tx-reason__form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <textarea name="reason" rows="2"
+                  placeholder="Reason ({% if reason_required %}required{% else %}optional{% endif %})"
+                  {% if reason_required %}required{% endif %}></textarea>
+        <div class="tx-reason__actions">
+            {# The list the server returns is the answer, not a client-side
+               removal: the row is gone because the book says so. #}
+            <button class="tx-btn tx-btn--sm tx-btn--danger" type="button"
+                    hx-post="/api/transactions/ticket/{{ id }}/cancel"
+                    hx-include="closest form"
+                    hx-target="#tx-blotter"
+                    hx-swap="outerHTML">
+                {%- if status == "draft" %}Discard draft{% else %}Cancel ticket{% endif -%}
+            </button>
+            {# Keep destroys nothing and asks the server nothing: it empties
+               the slot this panel was swapped into, and the detail row
+               collapses on `:empty`. #}
+            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+                    hx-on:click="this.closest('td').innerHTML = ''">Keep</button>
+        </div>
+    </form>
+</div>

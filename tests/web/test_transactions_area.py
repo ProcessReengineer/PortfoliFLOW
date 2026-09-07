@@ -11,18 +11,19 @@ still waiting on a strand carry nothing clickable:
 
 * Area/nav — ``/transactions`` renders the page and the HTMX branch the
   partial.
-* Placeholders — the Blotter and History bodies hold no control and no
-  ``hx-`` attribute, so nothing there links to a route S5 has not built yet.
+* Placeholders — the History body holds no control and no ``hx-``
+  attribute, so nothing there links to a route P-5b has not built yet.
 * Registry — the three Modules register into the Area and construct, which
   is the ``VALID_AREAS`` guard in ``core/base_module.py``.
 
-The New-transaction section **left the no-controls pin in S4a**: it is no
-longer a placeholder but the MD-1 flow chooser, whose live tile is a control
-by design. What that section may and may not carry is pinned by
-``tests/web/test_transactions_composer.py`` instead — five tiles, exactly one
-HTMX-wired gesture, four inert ones — which is a sharper statement than "no
-controls" ever was. The pin here narrows to the two sections whose
-placeholders are still S5's; it widens again to nothing when S5 lands.
+Two sections **left the no-controls pin**, each when a strand filled it,
+and each to a sharper statement than "no controls" ever was. The
+New-transaction section left in S4a — it is the MD-1 flow chooser, pinned by
+``tests/web/test_transactions_composer.py`` (five tiles, exactly one
+HTMX-wired gesture, four inert ones). The Blotter left in P-5a — it is the
+lazy shell over ``GET /api/transactions/blotter``, pinned by
+``tests/web/test_transactions_blotter.py``. What remains here is History,
+and the pin widens to nothing when P-5b lands.
 """
 
 from __future__ import annotations
@@ -240,13 +241,17 @@ async def test_transactions_placeholders_carry_no_controls(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The Blotter and History placeholders hold nothing clickable.
+    """The History placeholder holds nothing clickable.
 
-    Pins the shell contract for the two sections S5 still owes: no
-    placeholder body links to a route that does not exist yet. The
-    New-transaction section is deliberately **not** covered — S4a filled it
-    with the MD-1 chooser, and its contract lives in
-    ``test_transactions_composer.py``.
+    Pins the shell contract for the one section S5 still owes: no placeholder
+    body links to a route that does not exist yet.
+
+    **Narrowed twice.** The New-transaction section left in S4a, which filled
+    it with the MD-1 chooser (its contract is ``test_transactions_composer``'s
+    now — five tiles, exactly one HTMX-wired gesture). The Blotter left in
+    P-5a, which replaced its sentence with the lazy shell; what that section
+    may carry is pinned by ``test_transactions_blotter.py`` instead. The pin
+    widens to nothing when P-5b fills History.
     """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
@@ -254,13 +259,12 @@ async def test_transactions_placeholders_carry_no_controls(
     response = await web_client.get("/transactions", follow_redirects=False)
     assert response.status_code == 200
 
-    for slug in ("blotter", "history"):
-        markup = _section_markup(response.text, slug)
-        for token in ("<form", "<button", "<input", "<a "):
-            assert token not in markup, f"{slug} placeholder carries a control: {token!r}"
-        assert re.search(r"\shx-[a-z-]+=", markup) is None, (
-            f"{slug} placeholder carries an hx-* attribute"
-        )
+    markup = _section_markup(response.text, "history")
+    for token in ("<form", "<button", "<input", "<a "):
+        assert token not in markup, f"history placeholder carries a control: {token!r}"
+    assert re.search(r"\shx-[a-z-]+=", markup) is None, (
+        "history placeholder carries an hx-* attribute"
+    )
 
 
 # ---------------------------------------------------------------------------

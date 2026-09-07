@@ -6,11 +6,14 @@
    record-flow composer, S4), Blotter (draft / proposed / approved, S5),
    History (booked / cancelled, S5).
 
-   S4a fills the first: the MD-1 flow chooser, with the U-BUY / U-SELL
-   composer behind its one live tile. Blotter and History still render a
-   placeholder sentence naming the strand that fills them. These are not
-   ADR-0111 placeholders: ADR-0111 retired sections for work that will not
-   happen; each of these has a concrete successor strand in the #061 track. #}
+   S4a filled the first: the MD-1 flow chooser, with the U-BUY / U-SELL
+   composer behind its one live tile. P-5a fills the second, lazily — the
+   Blotter is the Area's first database read, and keeping it behind
+   ``revealed`` is what lets web/routes/areas.py stay a no-DB shell render.
+
+   History still renders a placeholder sentence naming the strand that fills
+   it. It is not an ADR-0111 placeholder: ADR-0111 retired sections for work
+   that will not happen, and this one has a concrete successor (P-5b). #}
 <div class="pf-area pf-transactions" data-area="transactions">
     <header class="pf-area__header">
         <div>
@@ -31,8 +34,7 @@
 
     {% with section_slug="blotter",
             section_title="Blotter",
-            section_pill="S5",
-            section_placeholder="Draft, proposed and approved tickets arrive with S5." %}
+            section_body_template="_partials/transactions/_blotter_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 

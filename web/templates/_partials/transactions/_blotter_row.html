@@ -1,0 +1,61 @@
+{# One blotter row, plus the detail cell its cancel panel lands in.
+
+   A partial of its own rather than a loop body: S6's pre-trade preview
+   panel opens against a ticket the same way the cancel panel does, and the
+   row that carries the slot is the row it will reuse.
+
+   Two gestures, not a menu. The mockup draws a ⋯ overflow; A-13 fixes the
+   v1 shape as two buttons, and the menu is OP-23 polish. Open is one gesture
+   for every flow (A-12) — the row does not know which composer answers it.
+
+   Context: row — id, ticket_number, flow_label, investment_name,
+   creating_name, amount, currency, units_line, trade_date, status,
+   station_line, reason_required. #}
+<tr class="tx-row" id="tx-row-{{ row.id }}">
+    <td class="tx-row__id">#{{ row.ticket_number }}</td>
+    <td>{{ row.flow_label }}</td>
+    {# A creating flow has no investments row yet (MD-12), so the name it
+       carries on the ticket is the only name there is — and on a draft that
+       has not reached Classify there is not even that. #}
+    {% if row.investment_name %}
+        <td>
+            {{ row.investment_name }}
+            {% if row.units_line %}<span class="tx-row__sub">{{ row.units_line }}</span>{% endif %}
+        </td>
+    {% elif row.creating_name %}
+        <td class="tx-row__creating">
+            creating: <em>{{ row.creating_name }}</em>
+            {% if row.units_line %}<span class="tx-row__sub">{{ row.units_line }}</span>{% endif %}
+        </td>
+    {% else %}
+        <td class="tx-row__creating">&mdash;</td>
+    {% endif %}
+    <td class="tx-num">
+        {% if row.amount %}{{ row.amount }} {{ row.currency }}{% else %}&mdash;{% endif %}
+    </td>
+    <td>{{ row.trade_date }}</td>
+    <td>
+        <span class="tx-state tx-state--{{ row.status }}">{{ row.status|capitalize }}</span>
+        {% if row.station_line %}<span class="tx-row__sub">{{ row.station_line }}</span>{% endif %}
+    </td>
+    <td>
+        <div class="tx-row__actions">
+            <button class="tx-btn tx-btn--sm" type="button"
+                    hx-get="/api/transactions/ticket/{{ row.id }}"
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Open</button>
+            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+                    hx-get="/api/transactions/ticket/{{ row.id }}/cancel"
+                    hx-target="#tx-cancel-{{ row.id }}"
+                    hx-swap="innerHTML">
+                {%- if row.status == "draft" %}Discard draft&hellip;{% else %}Cancel ticket&hellip;{% endif -%}
+            </button>
+        </div>
+    </td>
+</tr>
+{# The panel's slot. Always present, empty until asked for; the row it sits
+   in collapses on `:empty` rather than being toggled, so nothing here has to
+   remember whether a panel is open. #}
+<tr class="tx-detail-row">
+    <td colspan="7" id="tx-cancel-{{ row.id }}"></td>
+</tr>

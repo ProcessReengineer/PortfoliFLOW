@@ -11,6 +11,8 @@ logic are fed transformed frames, never forked. See
 """
 
 from services.planning_desk.scenario_inputs import (
+    SCENARIO_NOTICE_ERRORS,
+    assemble_scenario_from_book,
     load_scenario_result_inputs,
 )
 from services.planning_desk.scenario_results import (
@@ -25,6 +27,7 @@ from services.planning_desk.scenario_results import (
 )
 
 __all__ = [
+    "SCENARIO_NOTICE_ERRORS",
     "CompositionPair",
     "FamilyHeadroomDelta",
     "HeadroomClassDelta",
@@ -32,6 +35,7 @@ __all__ = [
     "ScenarioResult",
     "ScenarioResultInputs",
     "ScenarioSeriesPair",
+    "assemble_scenario_from_book",
     "assemble_scenario_result",
     "load_scenario_result_inputs",
 ]

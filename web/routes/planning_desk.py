@@ -98,10 +98,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from core.exceptions import (
     CaseClosedError,
     CaseStateInvalid,
-    CoverageInputMissing,
-    CoverageInputOutOfRange,
     DuplicateCashPositionError,
-    LimitSetNotEffective,
     MissingFxRateError,
     PlanHorizonInvalidError,
     PlanSeamMissingError,
@@ -151,8 +148,7 @@ from services.planning_desk import (
     FamilyHeadroomDelta,
     KpiDelta,
     ScenarioResult,
-    assemble_scenario_result,
-    load_scenario_result_inputs,
+    assemble_scenario_from_book,
 )
 
 # `derive_consideration` is the executor's own derivation, reused rather than
@@ -215,17 +211,6 @@ _ERROR_TEMPLATE: str = "_partials/planning_desk_error.html"
 _COMPOSITION_TEMPLATE: str = "_partials/planning_desk_composition.html"
 _PIN_DIALOG_TEMPLATE: str = "_partials/planning_desk_pin_dialog.html"
 _PIN_CONFIRM_TEMPLATE: str = "_partials/planning_desk_pin_confirm.html"
-
-#: The coverage-engine failures the scenario assembly can surface, caught so a
-#: scenario that cannot be scored degrades to a notice in the result region
-#: rather than taking the Cash Flow Planning lens down with it (ADR-0104 §4).
-_SCENARIO_ERRORS: tuple[type[Exception], ...] = (
-    MissingFxRateError,
-    LimitSetNotEffective,
-    CoverageInputMissing,
-    CoverageInputOutOfRange,
-    OverlayError,
-)
 
 #: Per KPI key, whether a *rise* is the favourable move — drives the delta
 #: badge's tone (ADR-0067 pair idiom). More AUM, more headroom and more cash are
@@ -2224,39 +2209,31 @@ async def _assemble_scenario(
     result: CashFlowPlanningResult,
     overlay: Overlay,
 ) -> tuple[ScenarioResult | None, str | None]:
-    """Load the scenario inputs and assemble the deltas-first result.
+    """Bind this request's session to the scenario-assembly seam.
 
-    The grid is the cash-flow lens's own — the baseline timeline's period ends
-    and its seam — so the two lenses state one period grid (ADR-0104 §5). Any
-    coverage-engine or FX failure (:data:`_SCENARIO_ERRORS`) is caught and
-    returned as a message, so the result region degrades to a notice while the
-    Cash Flow Planning lens stays live. The lens already projected with the same
-    overlay and converter, so this rarely fires — it is the rail, not the path.
+    The route's half of :func:`~services.planning_desk.assemble_scenario_from_book`
+    — the repositories and the period grid. The grid is the cash-flow lens's own
+    (the baseline timeline's period ends and its seam), so the two lenses state
+    one period grid (ADR-0104 §5); the service catches the coverage-engine and
+    FX failures so the result region degrades to a notice while the Cash Flow
+    Planning lens stays live. The lens already projected with the same overlay
+    and converter, so that rarely fires — it is the rail, not the path.
 
     Returns:
         ``(scenario_result, None)`` on success, ``(None, message)`` on a caught
         failure.
     """
-    scenario_inputs = await load_scenario_result_inputs(
+    return await assemble_scenario_from_book(
         cash_flow_inputs=cash_flow_inputs,
         evaluation_dates=[period.end_date for period in result.baseline.periods],
         cut_over=result.baseline.seam_date,
+        overlay=overlay,
         investments=InvestmentRepository(db_session),
         navs=InvestmentNavRepository(db_session),
         cashflows=InvestmentCashflowRepository(db_session),
         asset_classes=AssetClassRepository(db_session),
         limits=LimitsRepository(db_session),
     )
-    try:
-        return assemble_scenario_result(scenario_inputs, overlay), None
-    except _SCENARIO_ERRORS as exc:
-        logger.debug(
-            "planning desk: scenario assembly failed (%s: %s) — "
-            "rendering the result-region notice.",
-            type(exc).__name__,
-            exc,
-        )
-        return None, str(exc)
 
 
 # ---------------------------------------------------------------------------

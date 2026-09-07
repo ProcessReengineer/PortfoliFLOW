@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-6 · Pre-trade impact panel — Transactions mockup (light)</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * M-6 — Pre-trade impact panel (Strand S6, T-6 kickoff).
+ * Transactions area (#061), overlay ADR-0104 §2/§5/§8.4, ADR-0128 Q-3.
+ * Deliberately LIGHT: layout, states and copy — not pixel work.
+ * Self-contained; tokens copied from theme.css (dark default), tx-* /
+ * pf-* vocabulary continued from M-1..M-5. Cut against the 2026-09-07
+ * post-S5 snapshot. Fixture: t0 = 2026-06-30 (book's last actual
+ * statement); today = 2026-09-07; functional currency EUR.
+ * ------------------------------------------------------------------ */
+:root {
+    --ui-background-primary: #0A0A0A;
+    --ui-background-secondary: #141414;
+    --ui-background-section: #1A1A1A;
+    --ui-accent-primary: #E8304A;
+    --ui-accent-primary-hover: #FF4D66;
+    --ui-accent-primary-pressed: #C42840;
+    --ui-button-fg: #000000;
+    --ui-text-primary: #E8304A;
+    --ui-text-secondary: #B0B0B0;
+    --ui-text-disabled: #555555;
+    --ui-text-on-sidebar: #FFFFFF;
+    --ui-border-default: #2A2A2A;
+    --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+    --ui-font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+    --ui-semantic-success: #4CAF50;
+    --ui-semantic-warning: #FFC107;
+    --ui-semantic-info: #4A9BD9;
+    --ui-semantic-error: #FF6B6B;
+    --ui-semantic-muted: #707070;
+    --pf-bg-deepest: #050505;
+    --pf-bg-surface: #141414;
+    --pf-bg-elevated: #1A1A1A;
+    --pf-accent-soft: rgba(232, 48, 74, 0.15);
+    --pf-sidebar-width-expanded: 200px;
+    --pf-statusbar-height: 28px;
+    --pf-sticky-header-bg: rgba(20, 20, 20, 0.78);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: var(--ui-background-primary); color: var(--ui-text-secondary); font-family: var(--ui-font-family); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { color: var(--ui-text-primary); margin: 0 0 0.5em 0; font-weight: 600; }
+a { color: var(--ui-accent-primary); text-decoration: none; }
+button { cursor: pointer; font: inherit; color: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+[hidden] { display: none !important; }
+
+/* --- Mockup chrome (NOT part of the product) ----------------------- */
+.mk-chrome { position: sticky; top: 0; z-index: 40; background: #17110C; border-bottom: 1px solid #4A3A22; padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 0.78rem; color: #C9A227; }
+.mk-chrome__tag { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-size: 0.68rem; border: 1px solid #4A3A22; border-radius: 3px; padding: 2px 7px; }
+.mk-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mk-group__label { color: #8C7A4A; }
+.mk-btn { background: #1F1710; border: 1px solid #4A3A22; color: #C9A227; border-radius: 3px; padding: 3px 9px; font-size: 0.76rem; }
+.mk-btn:hover { border-color: #C9A227; }
+.mk-btn.is-on { background: #C9A227; color: #17110C; border-color: #C9A227; }
+.mk-note { margin: 0; padding: 10px 16px; background: #17110C; border-bottom: 1px solid #4A3A22; color: #8C7A4A; font-size: 0.78rem; }
+.mk-note b { color: #C9A227; }
+.mk-tag { display: inline-block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: #C9A227; border: 1px dashed #4A3A22; border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: middle; }
+.mk-frame { border: 1px dashed #4A3A22; border-radius: 6px; padding: 12px; margin: 24px 32px; }
+.mk-frame__label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #C9A227; margin: 0 0 10px 0; }
+.mk-notes { border: 1px dashed #4A3A22; border-radius: 6px; background: #12100C; color: #B49A5A; padding: 16px 20px; margin: 24px 32px; font-size: 0.82rem; }
+.mk-notes h3 { color: #C9A227; font-size: 0.9rem; margin: 0 0 8px 0; }
+.mk-notes h4 { color: #C9A227; font-size: 0.8rem; margin: 14px 0 4px 0; }
+.mk-notes ul { margin: 0 0 6px 18px; padding: 0; }
+.mk-notes li { margin: 3px 0; }
+.mk-notes code { font-family: var(--ui-font-mono); color: #E0C070; font-size: 0.78rem; }
+.mk-notes .lean { color: #E0C070; }
+
+/* --- Shell --------------------------------------------------------- */
+.pf-shell { display: grid; grid-template-columns: var(--pf-sidebar-width-expanded) 1fr; grid-template-rows: 1fr var(--pf-statusbar-height); grid-template-areas: "sidebar main" "statusbar statusbar"; background: var(--pf-bg-deepest); }
+.pf-sidebar { grid-area: sidebar; display: flex; flex-direction: column; background: var(--pf-bg-surface); border-right: 1px solid var(--ui-border-default); }
+.pf-sidebar__brand { padding: 16px; border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-primary); font-weight: 700; letter-spacing: 0.04em; font-size: 0.95rem; }
+.pf-sidebar__nav { display: flex; flex-direction: column; padding: 12px 0; gap: 2px; }
+.pf-sidebar__item { padding: 9px 16px; color: var(--ui-text-secondary); border-left: 3px solid transparent; font-size: 0.92rem; }
+.pf-sidebar__item.is-active { color: var(--ui-accent-primary); background: var(--pf-accent-soft); border-left-color: var(--ui-accent-primary); font-weight: 600; }
+.pf-main { grid-area: main; overflow: auto; padding: 24px 32px; background: var(--pf-bg-deepest); }
+.pf-statusbar { grid-area: statusbar; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: var(--pf-bg-surface); border-top: 1px solid var(--ui-border-default); font-size: 0.74rem; color: var(--ui-text-disabled); }
+.pf-area { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.pf-area__header { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-border-default); }
+.pf-area__title { color: var(--ui-text-primary); font-size: 1.5rem; margin: 0; letter-spacing: 0.02em; }
+.pf-area__subtitle { color: var(--ui-text-secondary); font-size: 0.9rem; margin: 0; }
+.pf-section { background: var(--pf-bg-surface); border: 1px solid var(--ui-border-default); border-radius: 6px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+.pf-section__header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: -20px -24px 0 -24px; padding: 14px 24px; background: var(--pf-sticky-header-bg); border-bottom: 1px solid var(--ui-border-default); border-top-left-radius: 6px; border-top-right-radius: 6px; }
+.pf-section__title { color: var(--ui-text-primary); font-size: 1.05rem; margin: 0; }
+.pf-section__pill { color: var(--ui-text-secondary); background: var(--pf-bg-elevated); border: 1px solid var(--ui-border-default); border-radius: 999px; padding: 2px 10px; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.pf-btn { background: var(--ui-background-secondary); color: var(--ui-text-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 7px 14px; font-size: 0.84rem; }
+.pf-btn:hover:not(:disabled) { border-color: var(--ui-accent-primary); }
+.pf-btn--ghost { background: transparent; }
+.pf-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
+
+/* --- Ticket vocabulary (M-1..M-5) ---------------------------------- */
+.tx-btn { background: var(--ui-background-secondary); color: var(--ui-text-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 7px 14px; font-size: 0.84rem; }
+.tx-btn:hover:not(:disabled) { border-color: var(--ui-accent-primary); }
+.tx-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
+.tx-btn--ghost { background: transparent; }
+.tx-btn.is-open { border-color: var(--ui-accent-primary); color: var(--ui-text-on-sidebar); }
+.tx-ticket { background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 6px; }
+.tx-ticket__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 20px; border-bottom: 1px solid var(--ui-border-default); background: var(--pf-bg-elevated); border-top-left-radius: 6px; border-top-right-radius: 6px; }
+.tx-ticket__ident { display: flex; align-items: baseline; gap: 12px; }
+.tx-ticket__id { font-family: var(--ui-font-mono); font-size: 0.82rem; color: var(--ui-text-secondary); }
+.tx-ticket__title { color: var(--ui-text-secondary); font-weight: 600; font-size: 0.95rem; }
+.tx-ticket__body { padding: 18px 20px; display: flex; flex-direction: column; gap: 20px; }
+.tx-state { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ui-border-default); border-radius: 999px; padding: 2px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ui-text-secondary); white-space: nowrap; }
+.tx-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ui-semantic-muted); }
+.tx-state--draft::before { background: var(--ui-semantic-muted); }
+.tx-state--proposed::before { background: var(--ui-semantic-info); }
+.tx-state--approved::before { background: var(--ui-semantic-warning); }
+.tx-block { display: flex; flex-direction: column; gap: 10px; }
+.tx-block__title { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ui-semantic-muted); margin: 0; font-weight: 600; }
+.tx-num { font-family: var(--ui-font-mono); }
+.tx-num--neg { color: var(--ui-semantic-error); }
+.tx-msg { display: grid; grid-template-columns: 20px 1fr; gap: 10px; border-left: 3px solid var(--ui-semantic-warning); background: var(--ui-background-section); padding: 9px 13px; font-size: 0.85rem; color: var(--ui-text-secondary); }
+.tx-msg__glyph { font-weight: 700; color: var(--ui-semantic-warning); text-align: center; }
+.tx-msg--block { border-left-color: var(--ui-semantic-error); }
+.tx-msg--block .tx-msg__glyph { color: var(--ui-semantic-error); }
+.tx-msg--consequence { border-left-color: var(--ui-semantic-info); }
+.tx-msg--consequence .tx-msg__glyph { color: var(--ui-semantic-info); }
+.tx-msg--muted { border-left-color: var(--ui-semantic-muted); }
+.tx-msg--muted .tx-msg__glyph { color: var(--ui-semantic-muted); }
+.tx-msg strong { color: var(--ui-text-on-sidebar); font-weight: 600; }
+.tx-msg__sub { display: block; margin-top: 4px; color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-msg__code { font-family: var(--ui-font-mono); font-size: 0.74rem; color: var(--ui-semantic-muted); }
+.tx-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.tx-table th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ui-semantic-muted); padding: 6px 10px; border-bottom: 1px solid var(--ui-border-default); font-weight: 600; }
+.tx-table td { padding: 9px 10px; border-bottom: 1px solid var(--ui-border-default); vertical-align: middle; }
+.tx-table tr.tx-row:hover td { background: var(--ui-background-section); }
+.tx-table td.tx-num, .tx-table th.tx-num { text-align: right; }
+.tx-row__id { font-family: var(--ui-font-mono); color: var(--ui-text-secondary); }
+.tx-row__creating { color: var(--ui-text-disabled); }
+.tx-row__creating em { color: var(--ui-text-secondary); font-style: normal; }
+.tx-row__actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.tx-row__sub { display: block; font-size: 0.74rem; color: var(--ui-text-disabled); }
+.tx-detail-row td { background: var(--ui-background-secondary); padding: 14px 18px 18px 18px; }
+.tx-detail-row td:empty { display: none; }
+.tx-kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; font-size: 0.85rem; }
+.tx-kv dt { color: var(--ui-semantic-muted); }
+.tx-kv dd { margin: 0; color: var(--ui-text-secondary); }
+
+/* --- NEW in M-6: the impact panel ---------------------------------- */
+.tx-impact { display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--ui-border-default); border-left: 3px solid var(--ui-semantic-info); border-radius: 4px; padding: 14px 16px; background: var(--ui-background-section); }
+.tx-impact--none { border-left-color: var(--ui-semantic-muted); }
+.tx-impact__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tx-impact__lead { margin: 0; color: var(--ui-text-on-sidebar); font-weight: 600; font-size: 0.9rem; }
+.tx-impact__sub { margin: 0; color: var(--ui-text-disabled); font-size: 0.8rem; }
+.tx-impact__basis { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 0.8rem; color: var(--ui-text-disabled); }
+.tx-impact__basis dt { display: inline; color: var(--ui-semantic-muted); }
+.tx-impact__basis dd { display: inline; margin: 0 0 0 4px; font-family: var(--ui-font-mono); color: var(--ui-text-secondary); }
+.tx-impact__basis div { display: inline; }
+.tx-lenses { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.tx-lens { display: flex; flex-direction: column; gap: 8px; background: var(--ui-background-secondary); border: 1px solid var(--ui-border-default); border-radius: 4px; padding: 10px 12px; min-width: 0; }
+.tx-lens__title { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ui-semantic-muted); margin: 0; font-weight: 600; }
+.tx-lens__struck { text-decoration: line-through; opacity: 0.45; }
+.tx-delta { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 0.83rem; }
+.tx-delta__label { color: var(--ui-text-secondary); }
+.tx-delta__label small { color: var(--ui-text-disabled); font-size: 0.74rem; }
+.tx-delta__pair { font-family: var(--ui-font-mono); text-align: right; white-space: nowrap; }
+.tx-delta__before { color: var(--ui-text-disabled); text-decoration: line-through; margin-right: 6px; }
+.tx-delta__after { color: var(--ui-text-on-sidebar); font-weight: 600; }
+.tx-delta__badge { display: inline-block; margin-left: 6px; font-size: 0.7rem; padding: 0 5px; border-radius: 3px; border: 1px solid var(--ui-border-default); color: var(--ui-text-secondary); }
+.tx-delta__badge--ok { color: var(--ui-semantic-success); border-color: var(--ui-semantic-success); }
+.tx-delta__badge--warn { color: var(--ui-semantic-warning); border-color: var(--ui-semantic-warning); }
+.tx-delta__badge--breach { color: var(--ui-semantic-error); border-color: var(--ui-semantic-error); background: rgba(255,107,107,0.08); }
+.tx-delta__row--breach .tx-delta__after { color: var(--ui-semantic-error); }
+.tx-delta__row--warn .tx-delta__after { color: var(--ui-semantic-warning); }
+.tx-lens__foot { margin: 0; font-size: 0.74rem; color: var(--ui-text-disabled); border-top: 1px solid var(--ui-border-default); padding-top: 6px; }
+.tx-impact__foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.76rem; color: var(--ui-text-disabled); border-top: 1px solid var(--ui-border-default); padding-top: 10px; }
+.tx-impact__foot .tx-btn { margin-left: auto; }
+.tx-fed { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 0.8rem; color: var(--ui-text-secondary); font-family: var(--ui-font-mono); }
+.tx-fed span { color: var(--ui-text-disabled); font-family: var(--ui-font-family); }
+</style>
+</head>
+<body>
+
+<div class="mk-chrome">
+    <span class="mk-chrome__tag">Mockup controls</span>
+    <span class="mk-group">
+        <span class="mk-group__label">Home (dec. 3)</span>
+        <button class="mk-btn is-on" data-home="slot">blotter row detail slot</button>
+        <button class="mk-btn" data-home="composer">reopened composer block</button>
+        <button class="mk-btn" data-home="section">own section</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Ticket (dec. 2 / OP-07 / scope)</span>
+        <button class="mk-btn is-on" data-ticket="p23">#23 proposed, after t0</button>
+        <button class="mk-btn" data-ticket="a25">#25 approved</button>
+        <button class="mk-btn" data-ticket="d26">#26 draft</button>
+        <button class="mk-btn" data-ticket="p24">#24 proposed, ≤ t0</button>
+        <button class="mk-btn" data-ticket="r22">#22 reported kind</button>
+        <button class="mk-btn" data-ticket="n27">#27 U-NEW proposed</button>
+        <button class="mk-btn" data-ticket="err">book error</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">OP-07 for #24 (dec. 1)</span>
+        <button class="mk-btn is-on" data-op07="a">(a) as if at t0+1</button>
+        <button class="mk-btn" data-op07="b">(b) honest no-preview</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Lenses (dec. 4)</span>
+        <button class="mk-btn is-on" data-lens="saa">SAA</button>
+        <button class="mk-btn is-on" data-lens="anlv">AnlV headroom</button>
+        <button class="mk-btn is-on" data-lens="cash">Liquidity</button>
+        <button class="mk-btn is-on" data-lens="fx">FX</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">FX rendering</span>
+        <button class="mk-btn is-on" data-fx="note">one-line note</button>
+        <button class="mk-btn" data-fx="block">delta block (zeros)</button>
+    </span>
+    <span class="mk-group">
+        <span class="mk-group__label">Costs (verify D-item)</span>
+        <button class="mk-btn is-on" data-costs="net">C = net incl. costs</button>
+        <button class="mk-btn" data-costs="gross">C = units × price</button>
+    </span>
+</div>
+<p class="mk-note"><b>Fixture.</b> t0 = 2026-06-30 (last actual statement, whole book); today 2026-09-07; functional currency EUR; AUM 48.30 m. The panel numbers are illustrative but internally consistent: an <code>insert_transaction</code> re-allocates (value +C, cash −C) and never moves AUM. Every state is one <code>GET /api/transactions/ticket/{id}/impact</code>; nothing here is stored.</p>
+
+<div class="pf-shell">
+    <aside class="pf-sidebar">
+        <div class="pf-sidebar__brand">PortfoliFLOW</div>
+        <nav class="pf-sidebar__nav">
+            <span class="pf-sidebar__item">Front Office</span>
+            <span class="pf-sidebar__item">Back Office</span>
+            <span class="pf-sidebar__item">Assistants</span>
+            <span class="pf-sidebar__item">Planning Desk</span>
+            <span class="pf-sidebar__item">Investor Communication</span>
+            <span class="pf-sidebar__item">Cases</span>
+            <span class="pf-sidebar__item is-active">Transactions</span>
+            <span class="pf-sidebar__item">Admin</span>
+        </nav>
+    </aside>
+
+    <main class="pf-main">
+        <div class="pf-area">
+            <header class="pf-area__header">
+                <h1 class="pf-area__title">Transactions</h1>
+                <p class="pf-area__subtitle">Trade tickets — compose, propose, book. Nothing here changes the book until a ticket is booked.</p>
+            </header>
+
+            <!-- ============ HOME A: blotter row detail slot ============ -->
+            <section class="pf-section" data-home-only="slot">
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">Blotter</h2>
+                    <span class="pf-section__pill">draft · proposed · approved</span>
+                </div>
+                <table class="tx-table">
+                    <thead><tr>
+                        <th>#</th><th>Flow</th><th>Investment</th><th class="tx-num">Amount</th><th>Trade date</th><th>Status</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                        <tr class="tx-row"><td class="tx-row__id">#27</td><td>New instrument</td><td class="tx-row__creating">creating: <em>Amundi MSCI EM UCITS</em><span class="tx-row__sub">15,000 × 4.8200</span></td><td class="tx-num">72,300 EUR</td><td>2026-09-12</td><td><span class="tx-state tx-state--proposed">Proposed</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="n27">Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Cancel ticket…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-n27"></td></tr>
+
+                        <tr class="tx-row"><td class="tx-row__id">#26</td><td>Order</td><td>iShares Core Euro Govt Bond<span class="tx-row__sub">8,000 × 118.05</span></td><td class="tx-num">944,400 EUR</td><td>2026-09-15</td><td><span class="tx-state tx-state--draft">Draft</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="d26" data-draft-gate>Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Discard draft…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-d26"></td></tr>
+
+                        <tr class="tx-row"><td class="tx-row__id">#25</td><td>Order</td><td>Vanguard FTSE All-World UCITS<span class="tx-row__sub">25,000 × 112.40</span></td><td class="tx-num">2,810,000 EUR</td><td>2026-09-09</td><td><span class="tx-state tx-state--approved">Approved</span><span class="tx-row__sub">approved by M. Krüger · 2026-09-05</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="a25">Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Cancel ticket…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-a25"></td></tr>
+
+                        <tr class="tx-row"><td class="tx-row__id">#24</td><td>Order</td><td>Xtrackers MSCI World UCITS<span class="tx-row__sub">3,200 × 96.10</span></td><td class="tx-num">307,520 EUR</td><td>2026-06-15</td><td><span class="tx-state tx-state--proposed">Proposed</span><span class="tx-row__sub">proposed by S. Pinkernelle · 2026-09-01</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="p24">Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Cancel ticket…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-p24"></td></tr>
+
+                        <tr class="tx-row"><td class="tx-row__id">#23</td><td>Order</td><td>Vanguard FTSE All-World UCITS<span class="tx-row__sub">25,000 × 112.40</span></td><td class="tx-num">2,810,000 EUR</td><td>2026-09-09</td><td><span class="tx-state tx-state--proposed">Proposed</span><span class="tx-row__sub">proposed by S. Pinkernelle · 2026-09-04</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm is-open" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="p23">Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Cancel ticket…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-p23"></td></tr>
+
+                        <tr class="tx-row"><td class="tx-row__id">#22</td><td>Secondary sale</td><td>Ardian Buyout Fund VII<span class="tx-row__sub">full disposal</span></td><td class="tx-num">4,150,000 EUR</td><td>2026-09-30</td><td><span class="tx-state tx-state--proposed">Proposed</span></td><td><div class="tx-row__actions"><button class="tx-btn tx-btn--sm" type="button">Open</button><button class="tx-btn tx-btn--sm" type="button" data-open="r22">Impact</button><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button">Cancel ticket…</button></div></td></tr>
+                        <tr class="tx-detail-row"><td colspan="7" id="tx-detail-r22"></td></tr>
+                    </tbody>
+                </table>
+                <p class="tx-row__sub">Slot reuse: the detail cell is the one S5's cancel panel lands in (today <code>#tx-cancel-{id}</code>; the mockup names it <code>#tx-detail-{id}</code> — a P-6a rename, see notes). Impact and Cancel share it; opening one replaces the other, and Close empties it.</p>
+            </section>
+
+            <!-- ============ HOME B: reopened composer ============ -->
+            <section class="pf-section" data-home-only="composer" hidden>
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">New transaction</h2>
+                    <span class="pf-section__pill">order · reopened</span>
+                </div>
+                <div class="tx-ticket">
+                    <div class="tx-ticket__head">
+                        <div class="tx-ticket__ident"><span class="tx-ticket__id" id="cmp-id">#23</span><span class="tx-ticket__title" id="cmp-title">Buy · Vanguard FTSE All-World UCITS</span></div>
+                        <span class="tx-state" id="cmp-state">Proposed</span>
+                    </div>
+                    <div class="tx-ticket__body">
+                        <div class="tx-block">
+                            <p class="tx-block__title">Order</p>
+                            <dl class="tx-kv"><dt>Units</dt><dd class="tx-num">25,000</dd><dt>Price</dt><dd class="tx-num">112.40 EUR</dd><dt>Fees</dt><dd class="tx-num">450.00 EUR</dd><dt>Trade date</dt><dd id="cmp-date">2026-09-09</dd><dt>Settlement</dt><dd>Cash EUR (Custody)</dd></dl>
+                        </div>
+                        <div class="tx-block">
+                            <p class="tx-block__title">Impact preview</p>
+                            <div id="host-composer"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ HOME C: own section ============ -->
+            <section class="pf-section" data-home-only="section" hidden>
+                <div class="pf-section__header">
+                    <h2 class="pf-section__title">Impact preview</h2>
+                    <span class="pf-section__pill">read-only</span>
+                </div>
+                <p class="tx-impact__sub">Pick a proposed or approved ticket. The preview is recomputed on every open; nothing is stored.</p>
+                <p><label>Ticket <select id="sec-pick" style="background:var(--ui-background-secondary);border:1px solid var(--ui-border-default);border-radius:4px;padding:5px 8px;color:inherit"><option>#23 — Buy Vanguard FTSE All-World UCITS (proposed)</option><option>#25 — Buy Vanguard FTSE All-World UCITS (approved)</option><option>#24 — Buy Xtrackers MSCI World UCITS (proposed, 2026-06-15)</option></select></label></p>
+                <div id="host-section"></div>
+            </section>
+
+            <!-- ============ TEMPLATES (the panel states) ============ -->
+            <template id="tpl-panel">
+                <div class="tx-impact">
+                    <div class="tx-impact__head">
+                        <div>
+                            <p class="tx-impact__lead">Impact of <span data-f="ident"></span> on the plan world</p>
+                            <p class="tx-impact__sub">Before → after, evaluated on the plan horizon (8 quarters after t0). Read-only; computed from the book and this ticket, held nowhere.</p>
+                        </div>
+                        <span class="tx-state" data-f="state"></span>
+                    </div>
+
+                    <div class="tx-msg tx-msg--consequence" data-shift hidden>
+                        <span class="tx-msg__glyph">i</span>
+                        <div><strong>Previewed as if traded on 2026-07-01.</strong> The ticket is dated <span data-f="date"></span>, at or before the book's last statement (2026-06-30). The plan world begins the day after; realised history is identical in every scenario and no preview alters it. Book, and the ticket lands on its own date.</div>
+                    </div>
+
+                    <dl class="tx-impact__basis">
+                        <div><dt>Fed to the overlay</dt><dd><span data-f="fed"></span></dd></div>
+                        <div><dt>Value leg</dt><dd>+<span data-f="c"></span> EUR</dd></div>
+                        <div><dt>Cash leg (EUR)</dt><dd>−<span data-f="c"></span> EUR</dd></div>
+                        <div data-cost-note><dt>Costs</dt><dd><span data-f="costnote"></span></dd></div>
+                    </dl>
+
+                    <div class="tx-lenses">
+                        <div class="tx-lens" data-lens-block="saa">
+                            <p class="tx-lens__title"><span>SAA drift</span><span>at horizon</span></p>
+                            <div class="tx-delta">
+                                <div class="tx-delta__label">Listed equity <small>/ 45 %</small></div>
+                                <div class="tx-delta__pair tx-delta__row--warn"><span class="tx-delta__before">38.2 %</span><span class="tx-delta__after">44.0 %</span><span class="tx-delta__badge tx-delta__badge--warn">WARN</span></div>
+                                <div class="tx-delta__label">Fixed income <small>/ 35 %</small></div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">27.9 %</span><span class="tx-delta__after">27.9 %</span><span class="tx-delta__badge tx-delta__badge--ok">OK</span></div>
+                                <div class="tx-delta__label">Private markets <small>/ 25 %</small></div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">21.1 %</span><span class="tx-delta__after">21.1 %</span><span class="tx-delta__badge tx-delta__badge--ok">OK</span></div>
+                                <div class="tx-delta__label">Cash <small>/ band 2–12 %</small></div>
+                                <div class="tx-delta__pair tx-delta__row--warn"><span class="tx-delta__before">7.1 %</span><span class="tx-delta__after">1.3 %</span><span class="tx-delta__badge tx-delta__badge--warn">WARN</span></div>
+                            </div>
+                            <p class="tx-lens__foot">Headroom listed equity: <span class="tx-num">3,284,400</span> → <span class="tx-num">473,950</span> EUR. Rows unchanged by the trade shown for context; only the moved rows carry a status change.</p>
+                        </div>
+
+                        <div class="tx-lens" data-lens-block="anlv">
+                            <p class="tx-lens__title"><span>Limit headroom · AnlV</span><span>at horizon</span></p>
+                            <div class="tx-delta">
+                                <div class="tx-delta__label">Risk-asset quota <small>§3 (3) / 35 %</small></div>
+                                <div class="tx-delta__pair tx-delta__row--breach"><span class="tx-delta__before">31.1 %</span><span class="tx-delta__after">36.9 %</span><span class="tx-delta__badge tx-delta__badge--breach">BREACH</span></div>
+                                <div class="tx-delta__label">Tightest headroom</div>
+                                <div class="tx-delta__pair tx-delta__row--breach"><span class="tx-delta__before">1,883,700</span><span class="tx-delta__after">−926,750</span></div>
+                                <div class="tx-delta__label">Breaches on horizon</div>
+                                <div class="tx-delta__pair tx-delta__row--breach"><span class="tx-delta__before">0</span><span class="tx-delta__after">1</span></div>
+                            </div>
+                            <p class="tx-lens__foot">The booking is never refused for a breach (D-2 / MD-5): this is the consequence, stated before the trade.</p>
+                        </div>
+
+                        <div class="tx-lens" data-lens-block="cash">
+                            <p class="tx-lens__title"><span>Liquidity · EUR cash</span><span>plan path</span></p>
+                            <div class="tx-delta">
+                                <div class="tx-delta__label">On trade date <small><span data-f="effdate"></span></small></div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">3,180,000</span><span class="tx-delta__after" data-f="cash_td"></span></div>
+                                <div class="tx-delta__label">At t0 + 4 Q <small>2027-06-30</small></div>
+                                <div class="tx-delta__pair tx-delta__row--breach"><span class="tx-delta__before">2,150,000</span><span class="tx-delta__after" data-f="cash_4q"></span><span class="tx-delta__badge tx-delta__badge--breach">&lt; 0</span></div>
+                                <div class="tx-delta__label">AUM <small>Σ NAV incl. cash</small></div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">48.30 m</span><span class="tx-delta__after">48.30 m</span><span class="tx-delta__badge">unchanged</span></div>
+                            </div>
+                            <p class="tx-lens__foot">A hypothetical trade re-allocates; it does not fund. The negative balance is the same fact the composer's negative-cash warning states at proposal, now placed in time.</p>
+                        </div>
+
+                        <div class="tx-lens" data-lens-block="fx" data-fx-only="block">
+                            <p class="tx-lens__title"><span>FX exposure</span><span>at horizon</span></p>
+                            <div class="tx-delta">
+                                <div class="tx-delta__label">EUR</div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">71.4 %</span><span class="tx-delta__after">71.4 %</span></div>
+                                <div class="tx-delta__label">USD</div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">22.0 %</span><span class="tx-delta__after">22.0 %</span></div>
+                                <div class="tx-delta__label">GBP</div>
+                                <div class="tx-delta__pair"><span class="tx-delta__before">6.6 %</span><span class="tx-delta__after">6.6 %</span></div>
+                            </div>
+                            <p class="tx-lens__foot">Zero by construction for an order ticket: the trade settles in its own currency (F-3), so both legs sit in one currency and exposure cannot move.</p>
+                        </div>
+                    </div>
+
+                    <div class="tx-msg tx-msg--muted" data-lens-block="fx" data-fx-only="note">
+                        <span class="tx-msg__glyph">=</span>
+                        <div><strong>FX exposure unchanged.</strong> An order settles in the investment's own currency, so value and cash move in one currency and the exposure mix cannot shift. There is nothing to draw.</div>
+                    </div>
+
+                    <div class="tx-impact__foot">
+                        <span>Engine: <span class="tx-msg__code">insert_transaction → plan frames → coverage · ADR-0104 §2/§5</span></span>
+                        <span>·</span>
+                        <span>Same figures the Planning Desk would show for this trade as a hypothetical.</span>
+                        <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button" data-close>Close</button>
+                    </div>
+                </div>
+            </template>
+
+            <template id="tpl-none">
+                <div class="tx-impact tx-impact--none">
+                    <div class="tx-impact__head">
+                        <div>
+                            <p class="tx-impact__lead">No impact preview for <span data-f="ident"></span></p>
+                        </div>
+                        <span class="tx-state" data-f="state"></span>
+                    </div>
+                    <div class="tx-msg tx-msg--muted">
+                        <span class="tx-msg__glyph">–</span>
+                        <div data-f="reason"></div>
+                    </div>
+                    <div class="tx-impact__foot"><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button" data-close>Close</button></div>
+                </div>
+            </template>
+
+            <template id="tpl-error">
+                <div class="tx-impact tx-impact--none">
+                    <div class="tx-impact__head">
+                        <div><p class="tx-impact__lead">Impact preview unavailable — the book has no plan world</p></div>
+                        <span class="tx-state" data-f="state"></span>
+                    </div>
+                    <div class="tx-msg tx-msg--block">
+                        <span class="tx-msg__glyph">✕</span>
+                        <div><strong>EUR has two active cash positions — 'Cash EUR (Custody)' and 'Cash EUR (Treasury)'. The plan world carries one cash path per currency (ADR-0104 §1) and cannot say which of the two a hypothetical transaction settles against; deactivate one, or merge the balances. Multi-custodian sub-balances per currency are out of scope (ADR-0103 §10).</strong>
+                        <span class="tx-msg__sub">Service sentence rendered verbatim (A-7). The other book-level refusal is <code class="tx-msg__code">PlanSeamMissingError</code> — no actual statement anywhere, so no t0. Both are the Planning Desk's <em>book</em> errors and get the same treatment here.</span></div>
+                    </div>
+                    <div class="tx-impact__foot"><button class="tx-btn tx-btn--sm tx-btn--ghost" type="button" data-close>Close</button></div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <footer class="pf-statusbar"><span>ProcessReengineer · tenant AEVN-demo · 2026-09-07</span><span>M-6 mockup</span></footer>
+</div>
+
+<div class="mk-notes">
+    <h3>M-6 — what the states show, and the leans</h3>
+
+    <h4>Decision 1 · OP-07 — tickets dated at or before t0 (ticket #24, 2026-06-15)</h4>
+    <ul>
+        <li><b>(a) shifted preview</b>: the panel computes with <code>trade_date = t0 + 1</code> and says so in an info block above the lenses. The ticket itself is untouched; only the transformation is re-dated.</li>
+        <li><b>(b) honest no-preview</b>: the muted state names the seam date and the two ways out (re-date, or import a later statement).</li>
+        <li><b>(c) both per ticket</b> would be (b) with a "preview as if at t0+1" button that swaps in (a). Not drawn — it is (a) behind one click.</li>
+        <li class="lean">MC lean: <b>(a)</b>. A PM proposing a back-dated ticket wants to know what it does to headroom, not that the plan world starts later. The shift is one day and is labelled. The overlay's refusal is honoured — the executor never sees a date ≤ t0.</li>
+    </ul>
+
+    <h4>Decision 2 · feeding statuses</h4>
+    <ul>
+        <li><b>proposed</b> and <b>approved</b> render identically (#23 / #25) — same read path, and a four-eyes approver is exactly who wants this panel before approving.</li>
+        <li><b>draft</b> (#26): the Impact button is present but the endpoint answers with the muted "propose first" state. Alternative: no button on draft rows at all. <span class="lean">Lean: no button on draft rows — a gesture that always answers "not yet" is a gesture that should not be there. Drawn with the button so the copy exists if the operator prefers it.</span></li>
+    </ul>
+
+    <h4>Decision 3 · panel home</h4>
+    <ul>
+        <li><b>Blotter detail slot</b>: the row is where a proposed ticket lives; the panel lands in the same cell the cancel panel uses. Two panels, one slot — Impact replaces Cancel and vice versa. Requires renaming <code>#tx-cancel-{id}</code> → <code>#tx-detail-{id}</code> in <code>_blotter_row.html</code>, <code>_cancel_panel.html</code> (Keep gesture) and <code>test_transactions_blotter.py</code> (P-6a, one concern).</li>
+        <li><b>Reopened composer block</b>: a third block under the ticket, loaded lazily. Costs a composer-template touch per flow and sits below the fold.</li>
+        <li><b>Own section</b>: a picker plus the panel. Second place to find a ticket.</li>
+        <li class="lean">Lean: <b>blotter detail slot</b>, lazily loaded on the Impact button, never on row render (a blotter of twenty tickets must not run twenty scenario assemblies).</li>
+    </ul>
+
+    <h4>Decision 4 · lens set v1 — what the bundle actually carries</h4>
+    <ul>
+        <li>The frames-aware coverage lives in <code>services/planning_desk/scenario_results.assemble_scenario_result</code> (a <code>ScenarioResult</code>: 4 KPI deltas, SAA + AnlV headroom rows, composition pair, Σ-NAV path). <code>LimitsCoverageService.get_coverage</code> reads the book directly and takes no frames — see the verify report.</li>
+        <li><b>SAA drift</b> = <code>headroom[saa]</code> rows (utilisation, headroom, status per class). <b>AnlV headroom</b> = <code>headroom[anlv]</code> + the two KPI tiles (tightest headroom, breach count). <b>Liquidity</b> = KPI <code>functional_cash_t0_plus_4q</code> + AUM tile; the "on trade date" line is a plain sample of <code>frames.cash_paths[currency]</code> before/after — trivially available, not in <code>ScenarioResult</code>: keep or strike.</li>
+        <li><b>FX</b>: for an order ticket the delta is <b>zero by construction</b> (currency mismatch is blocked at propose; both legs move in one currency). Drawn twice: as a delta block of zeros and as a one-line note. <span class="lean">Lean: the note (or strike entirely and let the record say why). A block of zeros is a lens that never lenses.</span></li>
+        <li>"Rows unchanged" (fixed income, private markets) are shown so the reader sees the whole quota picture. Alternative: moved rows only. Keep or strike.</li>
+    </ul>
+
+    <h4>Decision 5 · OP-26 — previewable <code>nav_exists_at_trade_date</code></h4>
+    <ul>
+        <li>Not drawn: it is a clause in the <em>composer's</em> preview (<code>TicketService.preview</code>), not this panel. If yes: P-6b, its own prompt — <code>navs</code> wiring into the composer's <code>TicketService</code> construction and a block row in the composer's message list. The panel is unaffected either way.</li>
+    </ul>
+
+    <h4>Verify-phase items that became states here (see report)</h4>
+    <ul>
+        <li><b>Costs toggle</b>: the overlay carries one signed <code>C</code> for both legs; the ticket's cash effect includes fees/taxes, its value effect (units × price) does not. Either the cash leg is exact and the value leg overstated by the costs, or the reverse. The "Costs" line names the choice. <span class="lean">Lean: <b>C = net incl. costs</b> — the liquidity lens is the one where a few hundred euros can flip a sign; a quota is insensitive to them. Footnote states the value overstatement.</span></li>
+        <li><b>Reported kind</b> (#22) and <b>U-NEW</b> (#27): muted states with the fast-follow sentence, never an empty cell.</li>
+        <li><b>Book errors</b>: <code>DuplicateCashPositionError</code> / <code>PlanSeamMissingError</code> as red service sentences, verbatim (A-7) — the same errors the Planning Desk renders as its <em>book</em> error strip.</li>
+    </ul>
+</div>
+
+<script>
+(function () {
+    var state = { home: "slot", ticket: "p23", op07: "a", lenses: {saa:true, anlv:true, cash:true, fx:true}, fx: "note", costs: "net" };
+    var tickets = {
+        p23: { ident: "#23 · Buy 25,000 Vanguard FTSE All-World UCITS", state: "Proposed", cls: "proposed", date: "2026-09-09", kind: "order" },
+        a25: { ident: "#25 · Buy 25,000 Vanguard FTSE All-World UCITS", state: "Approved", cls: "approved", date: "2026-09-09", kind: "order" },
+        d26: { ident: "#26 · Buy 8,000 iShares Core Euro Govt Bond", state: "Draft", cls: "draft", date: "2026-09-15", kind: "draft" },
+        p24: { ident: "#24 · Buy 3,200 Xtrackers MSCI World UCITS", state: "Proposed", cls: "proposed", date: "2026-06-15", kind: "historic" },
+        r22: { ident: "#22 · Secondary sale Ardian Buyout Fund VII", state: "Proposed", cls: "proposed", date: "2026-09-30", kind: "reported" },
+        n27: { ident: "#27 · New instrument Amundi MSCI EM UCITS", state: "Proposed", cls: "proposed", date: "2026-09-12", kind: "unew" },
+        err: { ident: "#23 · Buy 25,000 Vanguard FTSE All-World UCITS", state: "Proposed", cls: "proposed", date: "2026-09-09", kind: "error" }
+    };
+    function $(s) { return document.querySelectorAll(s); }
+    function el(id) { return document.getElementById(id); }
+    function setOn(attr, value) { $("[data-" + attr + "]").forEach(function (b) { b.classList.toggle("is-on", b.dataset[attr] === value); }); }
+    function fill(node, key, text) { node.querySelectorAll("[data-f='" + key + "']").forEach(function (n) { n.textContent = text; }); }
+
+    function buildPanel(t) {
+        var node;
+        if (t.kind === "error") {
+            node = el("tpl-error").content.cloneNode(true);
+        } else if (t.kind === "draft") {
+            node = el("tpl-none").content.cloneNode(true);
+            node.querySelector("[data-f='reason']").innerHTML = "<strong>A draft is private workspace.</strong> Propose the ticket to see its impact on the plan world; the composer already states the cash consequence while you type. <span class='tx-msg__sub'>Alternative per decision 2: no Impact button on draft rows at all.</span>";
+        } else if (t.kind === "reported") {
+            node = el("tpl-none").content.cloneNode(true);
+            node.querySelector("[data-f='reason']").innerHTML = "<strong>Impact preview covers order tickets in v1.</strong> A reported flow — secondary sale, commitment, secondary purchase — restates NAV and cash rather than inserting a trade, and its preview is a named fast-follow (ADR-0128 Q-3, record-flow plan §4.4).";
+        } else if (t.kind === "unew") {
+            node = el("tpl-none").content.cloneNode(true);
+            node.querySelector("[data-f='reason']").innerHTML = "<strong>This ticket creates its investment at booking (MD-12).</strong> Until then the plan world does not contain it, so there is nothing to insert the trade into. Impact for creating flows is a named fast-follow.";
+        } else if (t.kind === "historic" && state.op07 === "b") {
+            node = el("tpl-none").content.cloneNode(true);
+            node.querySelector("[data-f='reason']").innerHTML = "<strong>The ticket is dated " + t.date + ", at or before the book's last statement (2026-06-30).</strong> The plan world begins the day after, and realised history is identical in every scenario (ADR-0104 §5) — there is no plan world for this date to act on. Re-date the ticket, or import a later statement and the seam moves.";
+        } else {
+            node = el("tpl-panel").content.cloneNode(true);
+            var shift = t.kind === "historic";
+            node.querySelector("[data-shift]").hidden = !shift;
+            fill(node, "date", t.date);
+            fill(node, "effdate", shift ? "2026-07-01 (t0+1)" : t.date);
+            var gross = t.kind === "historic" ? "307,520" : "2,810,000";
+            var net = t.kind === "historic" ? "307,595" : "2,810,450";
+            var costs = t.kind === "historic" ? "75.00" : "450.00";
+            var c = state.costs === "net" ? net : gross;
+            fill(node, "c", c);
+            fill(node, "fed", (t.kind === "historic" ? "buy 3,200 @ 96.10" : "buy 25,000 @ 112.40") + " · " + (shift ? "2026-07-01" : t.date) + " · EUR · consideration " + c);
+            fill(node, "costnote", state.costs === "net"
+                ? costs + " EUR fees inside C — cash leg exact, value leg overstated by the costs (the overlay carries one C for both legs)"
+                : costs + " EUR fees outside C — value leg exact, cash leg understated by the costs (not in the plan world)");
+            var cashTd = state.costs === "net" ? "369,550" : "370,000";
+            var cash4q = state.costs === "net" ? "−660,450" : "−660,000";
+            if (t.kind === "historic") { cashTd = state.costs === "net" ? "2,872,405" : "2,872,480"; cash4q = state.costs === "net" ? "1,842,405" : "1,842,480"; }
+            fill(node, "cash_td", cashTd);
+            fill(node, "cash_4q", cash4q);
+            if (t.kind === "historic") {
+                node.querySelectorAll(".tx-delta__row--breach, .tx-delta__row--warn").forEach(function (r) { r.classList.remove("tx-delta__row--breach", "tx-delta__row--warn"); });
+                node.querySelectorAll(".tx-delta__badge--breach, .tx-delta__badge--warn").forEach(function (b) { b.className = "tx-delta__badge tx-delta__badge--ok"; b.textContent = "OK"; });
+                node.querySelectorAll(".tx-delta__after").forEach(function (a) { if (a.textContent === "44.0 %") a.textContent = "38.8 %"; if (a.textContent === "1.3 %") a.textContent = "6.5 %"; if (a.textContent === "36.9 %") a.textContent = "31.7 %"; if (a.textContent === "−926,750") a.textContent = "1,576,105"; if (a.textContent === "1") a.textContent = "0"; });
+                var f = node.querySelector("[data-lens-block='saa'] .tx-lens__foot"); if (f) f.innerHTML = "Headroom listed equity: <span class='tx-num'>3,284,400</span> → <span class='tx-num'>2,976,805</span> EUR.";
+            }
+            node.querySelectorAll("[data-lens-block]").forEach(function (b) {
+                var on = state.lenses[b.dataset.lensBlock];
+                if (b.dataset.fxOnly) on = on && b.dataset.fxOnly === state.fx;
+                b.hidden = !on;
+            });
+        }
+        fill(node, "ident", t.ident);
+        node.querySelectorAll("[data-f='state']").forEach(function (n) { n.textContent = t.state; n.className = "tx-state tx-state--" + t.cls; });
+        return node;
+    }
+
+    function render() {
+        setOn("home", state.home); setOn("ticket", state.ticket); setOn("op07", state.op07); setOn("fx", state.fx); setOn("costs", state.costs);
+        $("[data-lens]").forEach(function (b) { b.classList.toggle("is-on", !!state.lenses[b.dataset.lens]); });
+        $("[data-home-only]").forEach(function (n) { n.hidden = n.dataset.homeOnly !== state.home; });
+        var t = tickets[state.ticket];
+        // clear all hosts
+        $("[id^='tx-detail-']").forEach(function (c) { c.innerHTML = ""; });
+        el("host-composer").innerHTML = ""; el("host-section").innerHTML = "";
+        $("[data-open]").forEach(function (b) { b.classList.toggle("is-open", b.dataset.open === state.ticket || (state.ticket === "err" && b.dataset.open === "p23")); });
+        var host;
+        if (state.home === "slot") host = el("tx-detail-" + (state.ticket === "err" ? "p23" : state.ticket));
+        else if (state.home === "composer") {
+            host = el("host-composer");
+            el("cmp-id").textContent = t.ident.split(" · ")[0]; el("cmp-title").textContent = t.ident.split(" · ")[1];
+            el("cmp-state").textContent = t.state; el("cmp-state").className = "tx-state tx-state--" + t.cls; el("cmp-date").textContent = t.date;
+        } else host = el("host-section");
+        host.appendChild(buildPanel(t));
+        host.querySelectorAll("[data-close]").forEach(function (b) { b.onclick = function () { host.innerHTML = ""; $("[data-open]").forEach(function (x) { x.classList.remove("is-open"); }); }; });
+    }
+
+    ["home", "ticket", "op07", "fx", "costs"].forEach(function (k) {
+        $("[data-" + k + "]").forEach(function (b) { b.onclick = function () { state[k] = b.dataset[k]; render(); }; });
+    });
+    $("[data-lens]").forEach(function (b) { b.onclick = function () { state.lenses[b.dataset.lens] = !state.lenses[b.dataset.lens]; render(); }; });
+    $("[data-open]").forEach(function (b) { b.onclick = function () { state.ticket = b.dataset.open; render(); }; });
+    render();
+})();
+</script>
+</body>
+</html>

@@ -33,12 +33,19 @@ Per the layering rules this loader lives in ``services/`` and imports only from
 
 from __future__ import annotations
 
+import logging
 from datetime import date as _date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from core.exceptions import (
+    CoverageInputMissing,
+    CoverageInputOutOfRange,
+    LimitSetNotEffective,
+    MissingFxRateError,
+)
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.investment_cashflow_repository import (
     InvestmentCashflowDTO,
@@ -51,13 +58,31 @@ from services.analytics._dtos import (
     InvestmentWithClassCodeDTO,
     LimitSetWithLimitsDTO,
 )
-from services.planning_desk.scenario_results import ScenarioResultInputs
+from services.overlay import Overlay, OverlayError
+from services.planning_desk.scenario_results import (
+    ScenarioResult,
+    ScenarioResultInputs,
+    assemble_scenario_result,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - types only
     from services.investments.cash_flow_timeline import CashFlowPlanningInputs
 
+logger = logging.getLogger(__name__)
+
 _SAA: str = "saa"
 _ANLV: str = "anlv"
+
+#: The engine failures the deltas-first assembly degrades to a notice
+#: (ADR-0104 §4): coverage and FX conditions the route renders as an
+#: actionable message while the surface around it stays live.
+SCENARIO_NOTICE_ERRORS: tuple[type[Exception], ...] = (
+    MissingFxRateError,
+    LimitSetNotEffective,
+    CoverageInputMissing,
+    CoverageInputOutOfRange,
+    OverlayError,
+)
 
 
 async def load_scenario_result_inputs(
@@ -132,6 +157,73 @@ async def load_scenario_result_inputs(
     )
 
 
+async def assemble_scenario_from_book(
+    *,
+    cash_flow_inputs: CashFlowPlanningInputs,
+    evaluation_dates: list[_date],
+    cut_over: _date,
+    overlay: Overlay,
+    investments: InvestmentRepository,
+    navs: InvestmentNavRepository,
+    cashflows: InvestmentCashflowRepository,
+    asset_classes: AssetClassRepository,
+    limits: LimitsRepository,
+    warn_threshold_pct: Decimal = Decimal("90.0"),
+) -> tuple[ScenarioResult | None, str | None]:
+    """Load the scenario inputs and assemble the deltas-first result.
+
+    The one seam every consumer of a *(book, overlay)* → :class:`ScenarioResult`
+    question goes through — the Planning Desk's result region and the
+    Transactions area's impact panel (S6). Any failure in
+    :data:`SCENARIO_NOTICE_ERRORS` is caught and returned as its message, so
+    the caller renders a notice rather than a 500; every other exception
+    propagates.
+
+    Every repository must be tenant-scoped (the caller obtains them via
+    :func:`core.repositories.tenant_context`); RLS hides foreign-tenant rows.
+
+    Args:
+        cash_flow_inputs: The Cash Flow Planning inputs already loaded for this
+            request — see :func:`load_scenario_result_inputs`.
+        evaluation_dates: The period-end grid, ascending — the caller's own
+            derivation from the cash-flow lens's period ends (ADR-0104 §5), so
+            the two lenses state one grid.
+        cut_over: The plan/actual seam t₀ (ADR-0060) — the cash-flow lens's
+            ``seam_date``.
+        overlay: The scenario overlay to assemble against.
+        investments: Investment repository (the full active universe).
+        navs: NAV repository (realised streams, position currency).
+        cashflows: Cashflow repository (realised streams, position currency).
+        asset_classes: Asset-class repository (the class-code snapshot).
+        limits: Limits repository (the SAA and AnlV set histories).
+        warn_threshold_pct: The coverage WARN floor, forwarded to the engine.
+
+    Returns:
+        ``(result, None)`` on success, ``(None, message)`` on a caught failure.
+    """
+    scenario_inputs = await load_scenario_result_inputs(
+        cash_flow_inputs=cash_flow_inputs,
+        evaluation_dates=evaluation_dates,
+        cut_over=cut_over,
+        investments=investments,
+        navs=navs,
+        cashflows=cashflows,
+        asset_classes=asset_classes,
+        limits=limits,
+        warn_threshold_pct=warn_threshold_pct,
+    )
+    try:
+        return assemble_scenario_result(scenario_inputs, overlay), None
+    except SCENARIO_NOTICE_ERRORS as exc:
+        logger.debug(
+            "planning desk: scenario assembly failed (%s: %s) — "
+            "rendering the result-region notice.",
+            type(exc).__name__,
+            exc,
+        )
+        return None, str(exc)
+
+
 def _cashflow_frame(rows: list[InvestmentCashflowDTO]) -> pd.DataFrame:
     """Project realised cashflow DTOs into the flat ``(flow_timestamp, amount)``.
 
@@ -173,4 +265,8 @@ async def _load_family_sets(limits: LimitsRepository, family: str) -> list[Limit
     return composed
 
 
-__all__ = ["load_scenario_result_inputs"]
+__all__ = [
+    "SCENARIO_NOTICE_ERRORS",
+    "assemble_scenario_from_book",
+    "load_scenario_result_inputs",
+]

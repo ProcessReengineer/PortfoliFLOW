@@ -6,30 +6,29 @@
 ASGI-level tests over a live Postgres, mirroring the fixture pattern in
 ``tests/web/test_cases_area.py`` (login helper, superuser-seeded
 tenant/user, HTMX header simulation). They cover the Area *shell* — that it
-renders, that its three Sections carry stable anchors, and that the sections
-still waiting on a strand carry nothing clickable:
+renders and that its three Sections carry stable anchors:
 
 * Area/nav — ``/transactions`` renders the page and the HTMX branch the
   partial.
-* Placeholders — the History body holds no control and no ``hx-``
-  attribute, so nothing there links to a route P-5b has not built yet.
 * Registry — the three Modules register into the Area and construct, which
   is the ``VALID_AREAS`` guard in ``core/base_module.py``.
 
-Two sections **left the no-controls pin**, each when a strand filled it,
-and each to a sharper statement than "no controls" ever was. The
-New-transaction section left in S4a — it is the MD-1 flow chooser, pinned by
+**The no-controls pin is retired.** It guarded the sections still waiting on
+a strand, and S5 filled the last two of them — so there is no placeholder
+body left in this Area to hold nothing clickable. Each section left the pin
+when a strand filled it, and each to a sharper statement than "no controls"
+ever was: New transaction in S4a, to
 ``tests/web/test_transactions_composer.py`` (five tiles, exactly one
-HTMX-wired gesture, four inert ones). The Blotter left in P-5a — it is the
-lazy shell over ``GET /api/transactions/blotter``, pinned by
-``tests/web/test_transactions_blotter.py``. What remains here is History,
-and the pin widens to nothing when P-5b lands.
+HTMX-wired gesture, four inert ones); the Blotter in P-5a and History in
+P-5b, to ``tests/web/test_transactions_blotter.py`` and
+``tests/web/test_transactions_history.py`` (a lazy shell each, over the list
+endpoint behind it). The section-anchor pin below stays: it is about the
+Area's shape, not about what any one section is waiting for.
 """
 
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -181,20 +180,6 @@ async def _login(client: AsyncClient, email: str, password: str) -> None:
     )
 
 
-def _section_markup(body: str, slug: str) -> str:
-    """Slice one Section's markup out of a full response body.
-
-    The OOB sidebar and the shell chrome around the Area legitimately carry
-    links and forms, and since S4a so does the New-transaction section; only
-    the named Section is in scope for the "no controls" pin. No Section
-    nests another, so the slice runs from the opening tag to the first
-    ``</section>`` after it.
-    """
-    start = body.index(f'<section class="pf-section" id="{slug}"')
-    end = body.index("</section>", start) + len("</section>")
-    return body[start:end]
-
-
 # ---------------------------------------------------------------------------
 # Area / nav
 # ---------------------------------------------------------------------------
@@ -235,36 +220,6 @@ async def test_transactions_htmx_branch_returns_partial(
     assert "<html" not in body.lower()
     assert 'hx-swap-oob="outerHTML"' in body
     assert 'data-area="transactions"' in body
-
-
-async def test_transactions_placeholders_carry_no_controls(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-) -> None:
-    """The History placeholder holds nothing clickable.
-
-    Pins the shell contract for the one section S5 still owes: no placeholder
-    body links to a route that does not exist yet.
-
-    **Narrowed twice.** The New-transaction section left in S4a, which filled
-    it with the MD-1 chooser (its contract is ``test_transactions_composer``'s
-    now — five tiles, exactly one HTMX-wired gesture). The Blotter left in
-    P-5a, which replaced its sentence with the lazy shell; what that section
-    may carry is pinned by ``test_transactions_blotter.py`` instead. The pin
-    widens to nothing when P-5b fills History.
-    """
-    _id, email, password = seeded_user
-    await _login(web_client, email, password)
-
-    response = await web_client.get("/transactions", follow_redirects=False)
-    assert response.status_code == 200
-
-    markup = _section_markup(response.text, "history")
-    for token in ("<form", "<button", "<input", "<a "):
-        assert token not in markup, f"history placeholder carries a control: {token!r}"
-    assert re.search(r"\shx-[a-z-]+=", markup) is None, (
-        "history placeholder carries an hx-* attribute"
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Transactions area web surface — the composers, the wizard and their gestures.
+"""Transactions area web surface — the composers, the wizard, the two lists.
 
 The ninth Area's working surfaces (ADR-0128, S4a + S4b + S4c): the MD-1 flow
 chooser, the M-1 order composer for U-BUY / U-SELL against an instrument
@@ -81,6 +81,21 @@ server-side what the surface had already gated: a form is a suggestion, never
 a permission. ``web/routes/areas.py`` stays a no-DB shell render: the chooser
 is static markup in the area body, and everything that needs the database sits
 behind the HTMX endpoints below.
+
+Two lists, one book (S5)
+------------------------
+The Blotter (P-5a) and History (P-5b) partition every ticket the tenant has:
+the blotter shows the *cancellable* set — a decision that can still be
+withdrawn — and History the terminal one, a fact or a withdrawn decision. No
+ticket is on both lists and none is on neither, and each list has one gate
+saying which surface may see which row (:func:`_in_flight`,
+:func:`_terminal`) rather than a status check per endpoint.
+
+Both are lazy shells over one ``GET`` each, so ``web/routes/areas.py`` stays
+a no-DB shell render. Between them they add one write: the reversal, which
+is this module's only handler that catches its refusal **outside** the
+``tenant_context`` block — see :func:`post_reverse` for why that is the whole
+design of it.
 
 The first explicit gesture allocates the ticket (MD-2), and that rule lives
 in exactly one function — :func:`_ensure_draft`. All three gestures go
@@ -194,7 +209,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
@@ -205,6 +220,7 @@ from core.exceptions import (
     NonNegativeHoldingsError,
     TicketIncomplete,
     TicketNotFound,
+    TicketReversalBlocked,
     TicketStateInvalid,
     ValidationError,
     ValuationModeError,
@@ -212,6 +228,7 @@ from core.exceptions import (
 from core.repositories._session import tenant_context
 from core.repositories.anlv_category_repository import AnlVCategoryRepository
 from core.repositories.asset_class_repository import AssetClassRepository
+from core.repositories.audit_log_repository import AuditLogRepository
 from core.repositories.case_repository import CaseRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
 from core.repositories.investment_cashflow_repository import (
@@ -251,6 +268,7 @@ from services.transactions.constants import (
     KIND_COMMITMENT,
     KIND_ORDER,
     KIND_SECONDARY,
+    KINDS,
     MD_ACQUIRED_NAV,
     MD_ANLV_CODE,
     MD_ASSET_CLASS_ID,
@@ -267,6 +285,8 @@ from services.transactions.constants import (
     MD_REGION,
     MD_VINTAGE_YEAR,
     STATUS_APPROVED,
+    STATUS_BOOKED,
+    STATUS_CANCELLED,
     STATUS_DRAFT,
     STATUS_PROPOSED,
     WARNING_FUTURE_TRADE_DATE,
@@ -295,6 +315,7 @@ from services.transactions.emission import (
     EFFECT_POSITION_TXN,
     VALUATION_MODE_REPORTED,
     VALUATION_MODE_UNITISED,
+    ReversalReport,
     cash_leg,
     order_legs,
     provenance,
@@ -484,13 +505,20 @@ def _flow_of(ticket: TradeTicketDTO) -> str:
     (MD-12) — so a ticket cannot route to one composer here and to a
     different emission at booking.
 
-    **Exact for an in-flight ticket.** A creating booking writes
+    **Total over terminal rows too (P-5b).** A creating booking writes
     ``investment_id`` back onto the ticket (``link_investment``), so a
-    *booked* U-NEW no longer answers ``is_investment_creating`` and reads
-    here as an ordinary order. That is invisible to the blotter, whose set is
-    ``draft`` / ``proposed`` / ``approved`` by definition, and it is a real
-    edge for History: P-5b must not assume this function re-derives the flow
-    a terminal row was composed in.
+    *booked* U-NEW no longer answers ``is_investment_creating`` and would
+    read as an ordinary order. The surviving signal is the payload: an order
+    ticket carries ``master_data`` **iff** it was composed on the creating
+    path, because :func:`_ensure_draft` writes the column only under
+    ``spec.creating`` and no other write path touches it. So the order
+    branch asks for either — the live predicate, or the payload the booking
+    could not take away — and History labels a reversed U-NEW "New
+    instrument" rather than "Order · Buy".
+
+    This stays the one reverse lookup. Re-deriving the flow a second time on
+    the History side would be a second opinion about it, and the two would
+    eventually disagree about exactly this case.
 
     Args:
         ticket: The stored ticket.
@@ -511,7 +539,7 @@ def _flow_of(ticket: TradeTicketDTO) -> str:
         master_data=ticket.master_data,
     )
     if ticket.kind == KIND_ORDER:
-        return FLOW_NEW_INSTRUMENT if creating else ""
+        return FLOW_NEW_INSTRUMENT if (creating or ticket.master_data is not None) else ""
     if ticket.kind == KIND_COMMITMENT:
         return FLOW_COMMITMENT
     if ticket.kind == KIND_SECONDARY:
@@ -642,12 +670,22 @@ def _build_ticket_service(session: AsyncSession) -> TicketService:
     together (ADR-0128 §2) — a property this read-only sub-strand does not
     exercise but must not design away.
 
+    ``audit_log`` is wired since P-5b, and only reversal needs it: the
+    modification check of ADR-0128 §6 asks the audit trail whether an emitted
+    row has been ``UPDATE``d since the booking, and
+    :meth:`~services.transactions.ticket_service.TicketService.reverse` fails
+    loudly through ``_require_audit_log`` without it. It was absent before
+    P-5b because nothing on this surface reversed — the CP-07 posture, where
+    an unwired repository is a loud failure at first use rather than a quiet
+    one at construction.
+
     Args:
         session: A session already scoped by ``tenant_context``.
 
     Returns:
         The service, ready for :meth:`~services.transactions.ticket_service
-        .TicketService.preview` and for P-2's transitions.
+        .TicketService.preview`, for P-2's transitions and for P-5b's
+        reversal.
     """
     investments = InvestmentRepository(session)
     navs = InvestmentNavRepository(session)
@@ -660,6 +698,7 @@ def _build_ticket_service(session: AsyncSession) -> TicketService:
         investment_service=_build_investment_service(session),
         navs=navs,
         cashflows=cashflows,
+        audit_log=AuditLogRepository(session),
     )
 
 
@@ -4378,3 +4417,576 @@ async def post_cancel(
                 _cancel_context(ticket, csrf_token=session.csrf_token, error=str(exc)),
             )
     return await get_blotter(request, session=session)
+
+
+# ---------------------------------------------------------------------------
+# History — the terminal list, its detail and the reversal (S5, P-5b)
+# ---------------------------------------------------------------------------
+
+#: The two statuses a ticket can end at (ADR-0128 §3). History's whole set.
+_TERMINAL_STATUSES: tuple[str, ...] = (STATUS_BOOKED, STATUS_CANCELLED)
+
+#: How the filter bar's ``status`` value narrows the query (A-17, A-19).
+#:
+#: Three options over two statuses, because the two terminal *endings* are
+#: not the two terminal *statuses*: a reversal is a cancellation that had a
+#: booking to undo, so both share ``status='cancelled'`` and ``booked_at``
+#: is what separates them. The derivation lives here and in
+#: :func:`_outcome_of`, which is the same rule read the other way round — the
+#: filter says which rows to fetch, the projection says what to call one.
+#:
+#: Anything not in this map is ``all``: a filter form never 400s, and a
+#: hand-typed ``?status=nonsense`` is a question about everything rather than
+#: an error worth a page.
+_HISTORY_STATUS_FILTERS: dict[str, tuple[tuple[str, ...], bool | None]] = {
+    "booked": ((STATUS_BOOKED,), None),
+    "cancelled": ((STATUS_CANCELLED,), False),
+    "reversed": ((STATUS_CANCELLED,), True),
+}
+
+#: The effect vocabulary in the order History states it, with its two labels.
+#:
+#: ``(effect_type, group heading, count label)``. The order is fixed and is
+#: deliberately **not** the emission order: A-17 asks History to say what a
+#: booking wrote, not to narrate the sequence it wrote it in — a reader who
+#: can infer the sequence from a list will infer causation from it too. The
+#: heading is singular for ``investment_update`` because a ticket creates or
+#: touches at most one row (MD-12), while the report's count line is plural
+#: because it is a tally.
+_EFFECT_GROUPS: tuple[tuple[str, str, str], ...] = (
+    (EFFECT_POSITION_TXN, "position transactions", "position transactions"),
+    (EFFECT_CASHFLOW, "cashflows", "cashflows"),
+    (EFFECT_NAV, "NAVs", "NAVs"),
+    (EFFECT_INVESTMENT_UPDATE, "investment", "investments"),
+)
+
+
+def _stamp(when: datetime) -> str:
+    """Format a station timestamp the way every History line states one.
+
+    Minute precision, no timezone suffix. A booking's stations commonly fall
+    minutes apart — the M-5 sample walks #19 from 13:40 to 14:02 — so a date
+    alone would collapse them into one indistinguishable line, and seconds
+    would be precision the operator has no use for.
+    """
+    return when.strftime("%Y-%m-%d %H:%M")
+
+
+def _outcome_of(ticket: TradeTicketDTO) -> str:
+    """Return the terminal ending a row is labelled with (A-17).
+
+    ``booked`` / ``cancelled`` / ``reversed``, and the third is derived
+    rather than stored: both endings share ``status='cancelled'``, and a
+    ticket that was ever booked is one whose effects were undone. The
+    inverse of :data:`_HISTORY_STATUS_FILTERS`, kept beside it so the filter
+    and the label cannot come to disagree about what "reversed" means.
+    """
+    if ticket.status == STATUS_BOOKED:
+        return "booked"
+    return "reversed" if ticket.booked_at is not None else "cancelled"
+
+
+def _outcome_line(ticket: TradeTicketDTO, names: dict[UUID, str]) -> str | None:
+    """Return the sub-line under a History row's outcome chip (A-16).
+
+    A booked row names its booker and when — the last station it passed, the
+    same question :func:`_station_line` answers for a row still in flight. A
+    cancelled or reversed row states the **reason** instead and names nobody:
+    there is no ``cancelled_by`` column (T-1 D-5), and inferring the actor
+    from the audit log is a named successor rather than an S5 deliverable
+    (A-16). Showing a blank "by —" would be worse than showing nothing.
+
+    Args:
+        ticket: The terminal ticket.
+        names: Resolved booker names, from :func:`_resolve_user_names`.
+
+    Returns:
+        The line, or ``None`` when the ticket carries neither a timestamp
+        nor a reason to state.
+    """
+    if ticket.status == STATUS_BOOKED:
+        if ticket.booked_at is None:
+            return None
+        who = names.get(ticket.booked_by, str(ticket.booked_by)) if ticket.booked_by else "—"
+        return f"by {who} · {_stamp(ticket.booked_at)}"
+    parts: list[str] = []
+    if ticket.cancel_reason:
+        parts.append(f'"{ticket.cancel_reason}"')
+    if ticket.cancelled_at is not None:
+        parts.append(_stamp(ticket.cancelled_at))
+    return " · ".join(parts) or None
+
+
+def _stations_line(ticket: TradeTicketDTO, names: dict[UUID, str]) -> str:
+    """Return the detail's one-line station history.
+
+    Every station the ticket actually passed, in order, each present only
+    when its timestamp is — so a ticket cancelled from ``draft`` reads
+    "created … · cancelled …" and says by its shape that nothing else
+    happened to it. One string rather than a table: the stations are a
+    sentence about a path, and four labelled rows would give each of them a
+    weight the reader has to discount again.
+    """
+    parts = [f"created {_stamp(ticket.created_at)}"]
+
+    def _who(actor: UUID | None) -> str:
+        return names.get(actor, str(actor)) if actor is not None else "—"
+
+    if ticket.proposed_at is not None:
+        parts.append(f"proposed by {_who(ticket.proposed_by)} {_stamp(ticket.proposed_at)}")
+    if ticket.approved_at is not None:
+        parts.append(f"approved by {_who(ticket.approved_by)} {_stamp(ticket.approved_at)}")
+    if ticket.booked_at is not None:
+        parts.append(f"booked by {_who(ticket.booked_by)} {_stamp(ticket.booked_at)}")
+    if ticket.cancelled_at is not None:
+        ending = "reversed" if ticket.booked_at is not None else "cancelled"
+        parts.append(f"{ending} {_stamp(ticket.cancelled_at)}")
+    return " · ".join(parts)
+
+
+async def _history_context(
+    db: AsyncSession,
+    *,
+    status_filter: str = "",
+    kind: str = "",
+    investment_id: str = "",
+    trade_date_from: str = "",
+    trade_date_to: str = "",
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the History body — the filter bar, the options and the rows.
+
+    **Two reads, and the second one is the filtered list.** The first is
+    unfiltered and exists only to populate the investment select: the control
+    offers exactly the investments some terminal ticket names, so every option
+    in it can match something and an operator never picks a filter that
+    silently empties the table. It is the same memoised name lookup
+    :func:`get_blotter` uses, shared across both reads.
+
+    **Nothing here refuses.** An unknown ``status``, a ``kind`` outside the
+    ADR-0128 §1 vocabulary, an unparseable id or date all read as *unset*,
+    and the echoed ``filters`` carry the sanitised value rather than what
+    arrived — so a hand-typed query string comes back as a form the operator
+    can see the state of. The repository validates ``kind`` too, which is
+    what protects its other callers; here the value has already been
+    narrowed to something the vocabulary contains.
+
+    Args:
+        db: The tenant-scoped session.
+        status_filter: ``booked`` / ``cancelled`` / ``reversed``; anything
+            else, including empty, means all.
+        kind: One of the ADR-0128 §1 kinds, or empty for all.
+        investment_id: The traded investment, as a string, or empty.
+        trade_date_from: Inclusive ISO lower bound, or empty.
+        trade_date_to: Inclusive ISO upper bound, or empty.
+        report: A reversal report to head the list with, or ``None``.
+
+    Returns:
+        The template context: ``filters``, ``investment_options``, ``rows``,
+        ``filtered`` and ``report``.
+    """
+    statuses, booked = _HISTORY_STATUS_FILTERS.get(status_filter, (_TERMINAL_STATUSES, None))
+    wanted_kind = kind if kind in KINDS else None
+    wanted_investment = _uuid_or_none(investment_id)
+    date_from = _date_or_none(trade_date_from)
+    date_to = _date_or_none(trade_date_to)
+
+    tickets = TradeTicketRepository(db)
+    investments = InvestmentRepository(db)
+    names: dict[UUID, str] = {}
+
+    async def _name(investment: UUID) -> str:
+        # Memoised per request, the `_effect_rows` idiom, and shared by the
+        # options read and the row projection below.
+        if investment not in names:
+            found = await investments.get_by_id(investment)
+            names[investment] = found.name if found is not None else "—"
+        return names[investment]
+
+    options: list[dict[str, str]] = []
+    seen: set[UUID] = set()
+    for terminal in await tickets.list_by_status(list(_TERMINAL_STATUSES)):
+        if terminal.investment_id is not None and terminal.investment_id not in seen:
+            seen.add(terminal.investment_id)
+            options.append(
+                {"id": str(terminal.investment_id), "name": await _name(terminal.investment_id)}
+            )
+    options.sort(key=lambda option: option["name"])
+
+    listed = await tickets.list_by_status(
+        list(statuses),
+        kind=wanted_kind,
+        investment_id=wanted_investment,
+        trade_date_from=date_from,
+        trade_date_to=date_to,
+        booked=booked,
+    )
+    actors = await _resolve_user_names(
+        UserRepository(db),
+        [ticket.booked_by for ticket in listed if ticket.booked_by is not None],
+    )
+    rows: list[dict[str, Any]] = []
+    for ticket in listed:
+        payload: dict[str, Any] = ticket.master_data or {}
+        rows.append(
+            {
+                "id": str(ticket.id),
+                "ticket_number": ticket.ticket_number,
+                "flow_label": _flow_label(ticket),
+                "investment_name": (
+                    await _name(ticket.investment_id) if ticket.investment_id is not None else None
+                ),
+                # A creating flow whose booking was reversed may have had its
+                # `investments` row deleted again (D-AC), and the ticket still
+                # names the id. The payload is what survives either way, so
+                # the row falls back to it exactly as the blotter does.
+                "creating_name": payload.get(MD_NAME),
+                "amount": _amount_of(ticket),
+                "currency": ticket.currency,
+                "units_line": _units_line(ticket),
+                "trade_date": ticket.trade_date.isoformat(),
+                "outcome": _outcome_of(ticket),
+                "outcome_line": _outcome_line(ticket, actors),
+                "reversible": ticket.status == STATUS_BOOKED,
+            }
+        )
+    filters = {
+        "status": status_filter if status_filter in _HISTORY_STATUS_FILTERS else "all",
+        "kind": wanted_kind or "",
+        "investment_id": str(wanted_investment) if wanted_investment is not None else "",
+        "trade_date_from": date_from.isoformat() if date_from is not None else "",
+        "trade_date_to": date_to.isoformat() if date_to is not None else "",
+    }
+    return {
+        "filters": filters,
+        "investment_options": options,
+        "rows": rows,
+        "filtered": filters["status"] != "all"
+        or any(
+            filters[key] for key in ("kind", "investment_id", "trade_date_from", "trade_date_to")
+        ),
+        "report": report,
+    }
+
+
+@router.get("/api/transactions/history", response_class=HTMLResponse)
+async def get_history(
+    request: Request,
+    status_filter: Annotated[str, Query(alias="status")] = "",
+    kind: str = "",
+    investment_id: str = "",
+    trade_date_from: str = "",
+    trade_date_to: str = "",
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """List the terminal tickets under the v1 filter set (A-19, ADR-0128 §7).
+
+    **Terminal is the un-cancellable set**, and the mirror of the blotter's:
+    a booked ticket is a fact and a cancelled one a withdrawn decision, and
+    neither is a decision that can still be withdrawn. Together the two lists
+    are every ticket the tenant has, with no row in both and none in neither.
+
+    The filter bar posts back to this same address, so one handler serves the
+    first reveal and every narrowing after it, and there is no second shape
+    the list can be in.
+
+    Returns:
+        The History body, newest ticket number first.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        context = await _history_context(
+            db,
+            status_filter=status_filter,
+            kind=kind,
+            investment_id=investment_id,
+            trade_date_from=trade_date_from,
+            trade_date_to=trade_date_to,
+        )
+    return _render(request, "_history.html", context)
+
+
+async def _terminal(db: AsyncSession, ticket_id: str) -> TradeTicketDTO:
+    """Load one terminal ticket, or 404 — the mirror of :func:`_in_flight`.
+
+    The gate the detail and both reversal verbs share, written once for the
+    same reason its sibling was: three hand-written status checks would be
+    three chances to disagree about which surface may see which ticket. A
+    malformed id and an absent one are the same answer here too.
+
+    Args:
+        db: The tenant-scoped session.
+        ticket_id: The id as it arrived in the path.
+
+    Returns:
+        The ticket.
+
+    Raises:
+        HTTPException: 404 for a malformed id, an id this tenant cannot see,
+            or a ticket that is still in flight.
+    """
+    wanted = _uuid_or_none(ticket_id)
+    ticket = await TradeTicketRepository(db).get(wanted) if wanted is not None else None
+    if ticket is None or ticket.status not in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No terminal trade ticket {ticket_id} in this tenant.",
+        )
+    return ticket
+
+
+@router.get("/api/transactions/history/{ticket_id}", response_class=HTMLResponse)
+async def get_history_detail(
+    request: Request,
+    ticket_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Show what one terminal ticket did — the History row's Details gesture.
+
+    The effects come out of ``trade_ticket_effects`` through the same
+    :func:`_effect_rows` the confirmation panel uses, so what a booking is
+    said to have written here and what it was said to have written at the
+    moment it landed are one projection, not two.
+
+    **A reversed ticket keeps its list** (A-17, D-AD): the linkage rows are
+    never deleted, so each effect renders through the existing missing-row
+    branch — "This row is no longer in the book." That is not a defect of the
+    detail; it is what History is for.
+
+    **No gesture, and so no CSRF token.** A-13 puts both of History's
+    gestures on the list row and neither on the detail, so this panel can be
+    opened, read and left without changing anything — and a token in a panel
+    that has no form to submit would be one more thing to keep in step with
+    a form that does not exist.
+
+    Returns:
+        The detail panel.
+
+    Raises:
+        HTTPException: 404 for an id that is not a terminal ticket.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _terminal(db, ticket_id)
+        actors = await _resolve_user_names(
+            UserRepository(db),
+            [
+                actor
+                for actor in (ticket.proposed_by, ticket.approved_by, ticket.booked_by)
+                if actor is not None
+            ],
+        )
+        effects = await TradeTicketRepository(db).list_effects(ticket.id)
+        rows = await _effect_rows(db, ticket=ticket, effects=effects)
+        by_kind: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_kind.setdefault(row["kind"], []).append(row)
+        if ticket.kind == KIND_COMMITMENT:
+            settled = "no cash leg"
+        elif ticket.cash_investment_id is not None:
+            cash = await InvestmentRepository(db).get_by_id(ticket.cash_investment_id)
+            settled = cash.name if cash is not None else "—"
+        else:
+            settled = "—"
+        context = {
+            "id": str(ticket.id),
+            "ticket_number": ticket.ticket_number,
+            "outcome": _outcome_of(ticket),
+            "stations": _stations_line(ticket, actors),
+            "settled_against": settled,
+            "note": ticket.note,
+            "provenance": provenance(ticket),
+            "groups": [
+                {"heading": heading, "rows": by_kind[effect_type]}
+                for effect_type, heading, _count_label in _EFFECT_GROUPS
+                if by_kind.get(effect_type)
+            ],
+        }
+    return _render(request, "_history_detail.html", context)
+
+
+def _reverse_context(
+    ticket: TradeTicketDTO,
+    *,
+    csrf_token: str,
+    error: str | None,
+    cause: str | None = None,
+) -> dict[str, Any]:
+    """Build the inline reversal panel's context (A-13, A-14).
+
+    The same three things the cancel panel needs — which ticket, the CSRF
+    token, and what the last attempt said — plus ``cause``. The cause is the
+    one addition A-14 makes to A-7's uniform rendering: ``str(exc)`` stays
+    verbatim, raw row UUIDs and all, and the machine-readable cause is stated
+    beneath it rather than folded into the sentence.
+    """
+    return {
+        "id": str(ticket.id),
+        "ticket_number": ticket.ticket_number,
+        "csrf_token": csrf_token,
+        "error": error,
+        "cause": cause,
+    }
+
+
+async def _reversible(db: AsyncSession, ticket_id: str) -> TradeTicketDTO:
+    """Load one *booked* terminal ticket, or 404 — the reversal's own gate.
+
+    :func:`_terminal` narrowed to the half that has effects to undo. A
+    cancelled ticket wrote nothing, so there is no surface for reversing one
+    and asking for it is a 404 rather than a panel the service would then
+    refuse.
+    """
+    ticket = await _terminal(db, ticket_id)
+    if ticket.status != STATUS_BOOKED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trade ticket {ticket_id} is not booked; only a booked ticket is reversed.",
+        )
+    return ticket
+
+
+@router.get("/api/transactions/ticket/{ticket_id}/reverse", response_class=HTMLResponse)
+async def get_reverse_panel(
+    request: Request,
+    ticket_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Open the inline reason step for a reversal (A-13).
+
+    The cancel panel's shape and the cancel panel's placement — beneath the
+    row, never a modal — with one difference the copy states outright: a
+    reason is *always* required here. A draft may be abandoned silently
+    because nobody else ever saw it; a booking that is being undone has been
+    in the book.
+
+    Returns:
+        The reversal panel.
+
+    Raises:
+        HTTPException: 404 for an id that is not a booked ticket.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _reversible(db, ticket_id)
+        return _render(
+            request,
+            "_reverse_panel.html",
+            _reverse_context(ticket, csrf_token=session.csrf_token, error=None),
+        )
+
+
+def _reversal_report(report: ReversalReport) -> dict[str, Any]:
+    """Shape a :class:`ReversalReport` for the done block (A-15).
+
+    The per-type tally is taken over :data:`_EFFECT_GROUPS` rather than over
+    the types that happen to be present, so the line always states all four
+    and a zero is a fact the reader can rely on rather than an omission they
+    have to interpret.
+    """
+    counts: dict[str, int] = {}
+    for effect in report.reversed:
+        counts[effect.effect_type] = counts.get(effect.effect_type, 0) + 1
+    return {
+        "ticket_number": report.ticket.ticket_number,
+        "reason": report.ticket.cancel_reason,
+        "count": len(report.reversed),
+        "by_type": [
+            {"label": count_label, "count": counts.get(effect_type, 0)}
+            for effect_type, _heading, count_label in _EFFECT_GROUPS
+        ],
+        "shell": (
+            None
+            if report.shell is None
+            else {
+                "deleted": report.shell.deleted,
+                "retained_because": report.shell.retained_because,
+            }
+        ),
+    }
+
+
+@router.post(
+    "/api/transactions/ticket/{ticket_id}/reverse",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def post_reverse(
+    request: Request,
+    ticket_id: str,
+    reason: Annotated[str, Form()] = "",
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Undo a booked ticket's effects and cancel it, with a stated reason.
+
+    **The refusal is caught outside the transaction, and that is the whole
+    design of this handler.** ``tenant_context`` commits when its block exits
+    cleanly and rolls back when an exception leaves it, and a reversal can
+    fail *after* it has deleted rows — ``holdings_consumed`` is raised by the
+    write seam mid-undo and ``referenced_by_ticket`` during the shell
+    cleanup. Catching :class:`~core.exceptions.TicketReversalBlocked` inside
+    the block would therefore commit a half-undone booking and then render a
+    red block claiming nothing had happened. Letting it escape the ``async
+    with`` is what makes the service's own all-or-nothing contract
+    (ADR-0128 §6) true through this surface; the panel is rendered afterwards,
+    from a second read-only context.
+
+    The empty reason is the service's refusal, not this handler's: ``reverse``
+    raises :class:`~core.exceptions.TicketIncomplete` for a blank one, and
+    re-stating the rule here would be a second authority on it.
+
+    **Success answers with the whole list**, headed by the report. The
+    reversal changed the row it was about, the outcome chip on it, and
+    whatever else moved while the panel stood open, so re-rendering History
+    is the honest answer — and the report riding on the same render is what
+    keeps it visible, which a report swapped into a row of a list that is
+    itself being replaced would not be.
+
+    Args:
+        request: The live request.
+        ticket_id: The booked ticket to reverse.
+        reason: Why the booking is being undone. Always required; the
+            service decides, not this handler.
+        session: The authenticated session.
+
+    Returns:
+        The re-rendered History, carrying the report, on success; the panel
+        carrying the service's sentence on a refusal.
+
+    Raises:
+        HTTPException: 404 for an id that is not a booked ticket.
+    """
+    engine = _engine(request)
+    ticket: TradeTicketDTO | None = None
+    report: dict[str, Any] | None = None
+    error: str | None = None
+    cause: str | None = None
+    try:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            ticket = await _reversible(db, ticket_id)
+            report = _reversal_report(
+                await _build_ticket_service(db).reverse(
+                    ticket.id,
+                    cancelled_by=session.user_id,
+                    now=_now(),
+                    reason=_clean(reason) or "",
+                )
+            )
+    except TicketNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TicketReversalBlocked as exc:
+        error, cause = str(exc), exc.cause
+    except (TicketIncomplete, TicketStateInvalid) as exc:
+        error = str(exc)
+
+    if error is not None:
+        assert ticket is not None  # `_reversible` raises rather than returning None.
+        return _render(
+            request,
+            "_reverse_panel.html",
+            _reverse_context(ticket, csrf_token=session.csrf_token, error=error, cause=cause),
+        )
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        context = await _history_context(db, report=report)
+    return _render(request, "_history.html", context)

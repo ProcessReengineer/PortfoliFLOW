@@ -1,0 +1,100 @@
+{# The History body — every terminal ticket, under the v1 filter set (S5,
+   ADR-0128 §7, A-19).
+
+   The terminal set is booked plus cancelled: a fact and a withdrawn
+   decision. Together with the Blotter's cancellable set it is every ticket
+   the tenant has, with no row in both and none in neither.
+
+   This whole block is the swap target of the filter form *and* of the
+   reversal POST, so ``#tx-history`` is on the wrapper rather than on the
+   table: a reversal replaces the list and the report that heads it, and a
+   filter that matches nothing replaces the table with the empty state.
+
+   The report rides on this render rather than landing in a slot of its own.
+   A reversal changes the list — the row it was about now reads Reversed —
+   so the list has to be re-fetched either way, and a report swapped into a
+   row of a list that is itself being replaced would be swapped into a
+   detached node.
+
+   Context: filters, investment_options, rows, filtered, report — see
+   _history_row.html for the per-row keys. #}
+<div class="tx-history" id="tx-history">
+
+    {% if report %}
+        {% include "_partials/transactions/_reversal_report.html" %}
+    {% endif %}
+
+    {# The filter bar (A-19). Four controls, no free text and no pagination:
+       both are named non-goals of v1, not omissions. Every control fires the
+       same GET on change, so the bar has no submit button and no state of
+       its own — what it shows is what the server echoed back. #}
+    <form class="tx-filters"
+          hx-get="/api/transactions/history"
+          hx-trigger="change"
+          hx-target="#tx-history"
+          hx-swap="outerHTML">
+        <label class="tx-filters__field">
+            <span class="tx-filters__label">Status</span>
+            <select name="status">
+                <option value="all" {% if filters.status == "all" %}selected{% endif %}>all</option>
+                <option value="booked" {% if filters.status == "booked" %}selected{% endif %}>Booked</option>
+                <option value="cancelled" {% if filters.status == "cancelled" %}selected{% endif %}>Cancelled</option>
+                <option value="reversed" {% if filters.status == "reversed" %}selected{% endif %}>Reversed</option>
+            </select>
+        </label>
+        <label class="tx-filters__field">
+            <span class="tx-filters__label">Kind</span>
+            <select name="kind">
+                <option value="" {% if not filters.kind %}selected{% endif %}>all</option>
+                <option value="order" {% if filters.kind == "order" %}selected{% endif %}>Order</option>
+                <option value="commitment" {% if filters.kind == "commitment" %}selected{% endif %}>Commitment</option>
+                <option value="secondary" {% if filters.kind == "secondary" %}selected{% endif %}>Secondary</option>
+            </select>
+        </label>
+        <label class="tx-filters__field">
+            <span class="tx-filters__label">Investment</span>
+            {# Exactly the investments some terminal ticket names, so every
+               option can match something. #}
+            <select name="investment_id">
+                <option value="" {% if not filters.investment_id %}selected{% endif %}>all</option>
+                {% for option in investment_options %}
+                    <option value="{{ option.id }}"
+                            {% if filters.investment_id == option.id %}selected{% endif %}>{{ option.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="tx-filters__field">
+            <span class="tx-filters__label">Trade date from</span>
+            <input type="date" name="trade_date_from" value="{{ filters.trade_date_from }}">
+        </label>
+        <label class="tx-filters__field">
+            <span class="tx-filters__label">to</span>
+            <input type="date" name="trade_date_to" value="{{ filters.trade_date_to }}">
+        </label>
+    </form>
+
+    {% if rows %}
+        <table class="tx-table">
+            <thead>
+                <tr>
+                    <th>Ticket</th>
+                    <th>Flow</th>
+                    <th>Investment</th>
+                    <th class="tx-num">Amount</th>
+                    <th>Trade date</th>
+                    <th>Outcome</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    {% include "_partials/transactions/_history_row.html" %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% elif filtered %}
+        <p class="pf-section__placeholder">Nothing matches these filters.</p>
+    {% else %}
+        <p class="pf-section__placeholder">Nothing booked or cancelled yet.</p>
+    {% endif %}
+</div>

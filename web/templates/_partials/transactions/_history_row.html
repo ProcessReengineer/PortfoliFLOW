@@ -1,0 +1,71 @@
+{# One History row, plus the two slots its panels land in.
+
+   A partial of its own rather than a loop body, and a *different* partial
+   from _blotter_row.html: History's column set genuinely differs — Outcome
+   in place of Status, Details and Reverse booking… in place of Open and
+   Cancel — and sharing one template behind a flag would make every later
+   change to either list a change to both.
+
+   Two gestures, not a menu, as on the blotter (A-13). Reverse booking…
+   appears on a booked row only; a cancelled or reversed ticket wrote nothing
+   that is still standing, and the endpoint 404s for one.
+
+   Context: row — id, ticket_number, flow_label, investment_name,
+   creating_name, amount, currency, units_line, trade_date, outcome,
+   outcome_line, reversible. #}
+<tr class="tx-row" id="tx-history-row-{{ row.id }}">
+    <td class="tx-row__id">#{{ row.ticket_number }}</td>
+    <td>{{ row.flow_label }}</td>
+    {# A creating flow whose booking was reversed may have had its
+       `investments` row deleted again (D-AC), so the row falls back to the
+       name on the ticket exactly as the blotter does — there the row does
+       not exist yet, here it may no longer exist. #}
+    {% if row.investment_name %}
+        <td>
+            {{ row.investment_name }}
+            {% if row.units_line %}<span class="tx-row__sub">{{ row.units_line }}</span>{% endif %}
+        </td>
+    {% elif row.creating_name %}
+        <td class="tx-row__creating">
+            creating: <em>{{ row.creating_name }}</em>
+            {% if row.units_line %}<span class="tx-row__sub">{{ row.units_line }}</span>{% endif %}
+        </td>
+    {% else %}
+        <td class="tx-row__creating">&mdash;</td>
+    {% endif %}
+    <td class="tx-num">
+        {% if row.amount %}{{ row.amount }} {{ row.currency }}{% else %}&mdash;{% endif %}
+    </td>
+    <td>{{ row.trade_date }}</td>
+    <td>
+        <span class="tx-state tx-state--{{ row.outcome }}">{{ row.outcome|capitalize }}</span>
+        {% if row.outcome_line %}<span class="tx-row__sub">{{ row.outcome_line }}</span>{% endif %}
+    </td>
+    <td>
+        <div class="tx-row__actions">
+            <button class="tx-btn tx-btn--sm" type="button"
+                    hx-get="/api/transactions/history/{{ row.id }}"
+                    hx-target="#tx-detail-{{ row.id }}"
+                    hx-swap="innerHTML">Details</button>
+            {% if row.reversible %}
+                <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+                        hx-get="/api/transactions/ticket/{{ row.id }}/reverse"
+                        hx-target="#tx-reverse-{{ row.id }}"
+                        hx-swap="innerHTML">Reverse booking&hellip;</button>
+            {% endif %}
+        </div>
+    </td>
+</tr>
+{# Two slots, two rows — the P-5a shape rather than two divs in one cell.
+   A detail and a reversal panel can stand open together (the panel's copy
+   says "the rows listed above"), and the existing `.tx-detail-row > td:empty`
+   rule collapses each independently; a single cell holding two divs is never
+   `:empty` and would leave a visible band behind. The panel's Keep closes
+   itself with the P-5a `closest('td')` idiom, which needs the cell to be the
+   slot. #}
+<tr class="tx-detail-row">
+    <td colspan="7" id="tx-detail-{{ row.id }}"></td>
+</tr>
+<tr class="tx-detail-row">
+    <td colspan="7" id="tx-reverse-{{ row.id }}"></td>
+</tr>

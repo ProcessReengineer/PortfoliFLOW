@@ -1,0 +1,58 @@
+{# What one terminal ticket did — the History row's Details panel (A-17).
+
+   Two halves. The facts about the ticket itself, as a key/value list; then
+   the rows it emitted, grouped by effect type. Nothing here is a gesture:
+   A-13 puts both of History's gestures on the list row and neither on the
+   detail, so this panel stays a projection — it can be opened, read and left
+   without changing anything, and it carries no CSRF token because it has no
+   form to spend one on.
+
+   **Grouped, not sequenced.** The four groups appear in a fixed order and an
+   empty one is absent. That order is deliberately not the emission order —
+   a reader who can infer the sequence from a list will infer causation from
+   it too, and what a booking wrote is not a story about how it decided to.
+
+   **A reversed ticket keeps its list** (D-AD): the linkage rows are never
+   deleted, so every effect renders through _effect_leg.html's missing-row
+   branch. That is not a defect of this panel; it is what History is for.
+
+   Context: id, ticket_number, outcome, stations, settled_against, note,
+   provenance, groups. #}
+<div class="tx-detail">
+
+    <dl class="tx-kv">
+        <div class="tx-kv__pair">
+            <dt>Stations</dt>
+            <dd>{{ stations }}</dd>
+        </div>
+        <div class="tx-kv__pair">
+            <dt>Settled against</dt>
+            <dd>{{ settled_against }}</dd>
+        </div>
+        <div class="tx-kv__pair">
+            <dt>Note</dt>
+            <dd>{% if note %}{{ note }}{% else %}&mdash;{% endif %}</dd>
+        </div>
+        <div class="tx-kv__pair">
+            <dt>Provenance</dt>
+            <dd>{{ provenance }}</dd>
+        </div>
+    </dl>
+
+    <p class="tx-block__title">What this booking wrote</p>
+    {% if groups %}
+        <div class="tx-legs">
+            {% for group in groups %}
+                <p class="tx-legs__group">{{ group.heading }}</p>
+                {% for row in group.rows %}
+                    {% include "_partials/transactions/_effect_leg.html" %}
+                {% endfor %}
+            {% endfor %}
+        </div>
+    {% else %}
+        {# A cancelled ticket never booked, so it emitted nothing. Said
+           rather than left blank: an empty area under a heading reads as a
+           panel that failed to load. #}
+        <p class="tx-legs__pending">Nothing was written — this ticket was never booked.</p>
+    {% endif %}
+</div>

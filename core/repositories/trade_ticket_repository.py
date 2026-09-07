@@ -22,10 +22,13 @@ rather than of the workflow:
   has left ``draft`` is a record, not a form. The method distinguishes
   "no such ticket" from "not a draft" rather than silently updating
   nothing — a no-op would let a caller believe it had written.
-* **Vocabularies are validated before any SQL runs.** ``status`` and
-  ``effect_type`` are plain TEXT with CHECK constraints behind them; the
-  repository refuses an unknown value with a typed error instead of
-  letting an ``IntegrityError`` surface from the driver.
+* **Vocabularies are validated before any SQL runs.** ``status``, ``kind``
+  and ``effect_type`` are plain TEXT with CHECK constraints behind them;
+  the repository refuses an unknown value with a typed error instead of
+  letting an ``IntegrityError`` surface from the driver. A read filters on
+  them too (:meth:`TradeTicketRepository.list_by_status`), and there an
+  unvalidated value would return an empty list that reads as "nothing
+  matched" rather than as "you asked for something that cannot exist".
 
 ``ticket_number`` allocation follows the ``case_number`` precedent
 (:mod:`core.repositories.case_repository`) exactly: an in-SQL
@@ -75,6 +78,13 @@ _VALID_STATUSES: frozenset[str] = frozenset(
 _VALID_EFFECT_TYPES: frozenset[str] = frozenset(
     {"position_txn", "cashflow", "nav", "investment_update"}
 )
+# The object kinds of ADR-0128 §1, mirrored here for the same reason the
+# statuses are: ``services.transactions.constants.KINDS`` is the canonical
+# set, and ``core`` imports nothing from within the project. The History
+# filter (A-19) validates against this before any SQL runs, so an unknown
+# kind is a typed domain error rather than an empty result set that looks
+# like "nothing matched".
+_VALID_KINDS: frozenset[str] = frozenset({"order", "commitment", "secondary"})
 
 # The unique constraint that guarantees tenant-sequential numbering; a
 # concurrent allocation collides on it and the write is retried once.
@@ -274,6 +284,15 @@ def _validate_status(status: str) -> None:
         )
 
 
+def _validate_kind(kind: str) -> None:
+    """Raise :class:`TicketStateInvalid` if ``kind`` is outside ADR-0128 §1."""
+    if kind not in _VALID_KINDS:
+        raise TicketStateInvalid(
+            f"Invalid ticket kind {kind!r}; expected one of {sorted(_VALID_KINDS)}.",
+            field="kind",
+        )
+
+
 def _validate_effect_type(effect_type: str) -> None:
     """Raise :class:`TicketStateInvalid` if ``effect_type`` is outside ADR-0128 §2."""
     if effect_type not in _VALID_EFFECT_TYPES:
@@ -447,33 +466,81 @@ class TradeTicketRepository(BaseRepository):
         model = result.scalar_one_or_none()
         return _ticket_to_dto(model) if model is not None else None
 
-    async def list_by_status(self, statuses: Sequence[str]) -> list[TradeTicketDTO]:
+    async def list_by_status(
+        self,
+        statuses: Sequence[str],
+        *,
+        kind: str | None = None,
+        investment_id: UUID | None = None,
+        trade_date_from: date | None = None,
+        trade_date_to: date | None = None,
+        booked: bool | None = None,
+    ) -> list[TradeTicketDTO]:
         """Return the tenant's tickets in ``statuses``, newest number first.
 
         Ordered by ``ticket_number`` descending — the blotter's order, and
         the only ordering that is stable regardless of how a ticket's
         timestamps were later filled in.
 
+        **The keyword filters are History's v1 set (A-19)** and nothing more:
+        status is the positional argument this method always had, and the
+        four below are kind, investment, trade-date range and the
+        booked/never-booked split. Every one is optional and every one is
+        omitted from the SQL when it is ``None``, so the blotter's existing
+        call is the unfiltered query it always was. There is no free-text
+        term and no pagination — both are named non-goals of v1, not
+        oversights.
+
+        ``booked`` is the **reversed** derivation. Both terminal endings
+        share ``status='cancelled'`` (A-17), and what tells them apart is
+        whether the ticket was ever booked: ``statuses=['cancelled'],
+        booked=True`` is *reversed*, ``booked=False`` is *cancelled*. The
+        column is asked rather than a second status invented, because a
+        reversal is a cancellation that happened to have effects to undo.
+
         Args:
             statuses: The statuses to include. An empty sequence returns an
                 empty list rather than matching everything.
+            kind: Restrict to one object kind (ADR-0128 §1). Validated
+                before any SQL runs.
+            investment_id: Restrict to tickets whose **traded** side is this
+                investment. The settlement side (``cash_investment_id``) is
+                deliberately not matched: every cash-moving ticket names a
+                cash position, so including it would make the cash rows
+                match nearly everything and stop being a filter.
+            trade_date_from: Inclusive lower bound on ``trade_date``.
+            trade_date_to: Inclusive upper bound on ``trade_date``.
+            booked: ``True`` for tickets that were booked at some point,
+                ``False`` for those that never were, ``None`` for both.
 
         Returns:
             Matching tickets, highest ``ticket_number`` first.
 
         Raises:
-            TicketStateInvalid: If any entry is outside the ADR-0128 §3
-                vocabulary. Validated before any SQL runs.
+            TicketStateInvalid: If any status entry is outside the ADR-0128
+                §3 vocabulary, or ``kind`` outside the §1 one. Validated
+                before any SQL runs.
         """
         for status in statuses:
             _validate_status(status)
+        if kind is not None:
+            _validate_kind(kind)
         if not statuses:
             return []
-        result = await self._session.execute(
-            select(TradeTicket)
-            .where(TradeTicket.status.in_(list(statuses)))
-            .order_by(TradeTicket.ticket_number.desc())
-        )
+        query = select(TradeTicket).where(TradeTicket.status.in_(list(statuses)))
+        if kind is not None:
+            query = query.where(TradeTicket.kind == kind)
+        if investment_id is not None:
+            query = query.where(TradeTicket.investment_id == investment_id)
+        if trade_date_from is not None:
+            query = query.where(TradeTicket.trade_date >= trade_date_from)
+        if trade_date_to is not None:
+            query = query.where(TradeTicket.trade_date <= trade_date_to)
+        if booked is not None:
+            query = query.where(
+                TradeTicket.booked_at.is_not(None) if booked else TradeTicket.booked_at.is_(None)
+            )
+        result = await self._session.execute(query.order_by(TradeTicket.ticket_number.desc()))
         return [_ticket_to_dto(model) for model in result.scalars().all()]
 
     async def list_referencing_investment(

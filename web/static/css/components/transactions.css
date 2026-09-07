@@ -1275,3 +1275,122 @@ a.tx-btn {
 .tx-state--cancelled::before {
     background: var(--ui-text-disabled);
 }
+
+/* --- History (S5, P-5b) ---------------------------------------------- */
+
+/* The fourth terminal tone. `reversed` is the one outcome that is not a
+ * status (A-17) — it is `cancelled` with a booking behind it — and it takes
+ * the error token because it is the only ending that undid something that
+ * had already happened. */
+.tx-state--reversed::before {
+    background: var(--ui-semantic-error);
+}
+
+/* The v1 filter set (A-19). A row of small labelled controls rather than a
+ * form with a submit: every control fires the same GET on change, so there
+ * is nothing to submit and nothing to reset. */
+.tx-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.tx-filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tx-filters__label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ui-semantic-muted);
+    font-weight: 600;
+}
+
+.tx-filters select,
+.tx-filters input[type="date"] {
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    background: var(--ui-background-input);
+    color: var(--ui-text-primary);
+    padding: 5px 8px;
+    font-size: 0.82rem;
+    font-family: inherit;
+}
+
+/* The detail's facts, above the effects it lists. A two-column list rather
+ * than a table: these are four labelled sentences about one ticket, not a
+ * grid of comparable values. */
+.tx-kv {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 14px;
+}
+
+.tx-kv__pair {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 12px;
+    font-size: 0.84rem;
+}
+
+.tx-kv dt {
+    color: var(--ui-semantic-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    padding-top: 2px;
+}
+
+.tx-kv dd {
+    margin: 0;
+    color: var(--ui-text-secondary);
+}
+
+/* One heading per non-empty effect group, inside the legs box. The order is
+ * fixed and no sequence is narrated (A-17), so the heading is the only thing
+ * separating one group from the next. */
+.tx-legs__group {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ui-semantic-muted);
+    font-weight: 600;
+    margin: 10px 0 4px;
+}
+
+.tx-legs__group:first-child {
+    margin-top: 0;
+}
+
+/* The reversal report (A-15). The success counterpart of `tx-msg--block`,
+ * and the only place in the Area that carries the success token: a reversal
+ * is the one destructive gesture whose completion is worth confirming. */
+.tx-msg--done {
+    border-left-color: var(--ui-semantic-success);
+}
+
+.tx-msg--done .tx-msg__glyph {
+    color: var(--ui-semantic-success);
+}
+
+/* The machine-readable cause beneath a reversal refusal (A-14). Stated in
+ * mono and dimmed: it is for the operator who is going to quote it, not for
+ * the one reading the sentence above it. */
+.tx-msg__code {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-size: 0.76rem;
+    color: var(--ui-text-disabled);
+}
+
+.tx-messages--report {
+    margin-bottom: 14px;
+}

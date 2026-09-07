@@ -1,0 +1,66 @@
+{# One emitted row, as a `tx-leg` line. Shared (P-5b).
+
+   Extracted verbatim from _order_confirmation.html so the MD-16 panel and
+   the History detail cannot come to describe the same effect differently:
+   what a booking is said to have written at the moment it landed and what it
+   is said to have written a month later is one projection, not two.
+
+   Every branch below is the confirmation panel's, unchanged. The extraction
+   is render-identical by construction and the confirmation-panel tests pin
+   that it stayed so.
+
+   Context: row — one entry of `_effect_rows`. #}
+<div class="tx-leg">
+    {% if row.missing %}
+        {# The effect's target is gone — deleted through the CRUD, cascaded
+           away, or undone by a reversal. Said plainly rather than dropped: a
+           booking that wrote four rows did not write three. #}
+        <span class="tx-leg__type">{{ row.kind }}</span>
+        <span class="tx-leg__what">
+            This row is no longer in the book.
+        </span>
+        <span class="tx-leg__amount">—</span>
+    {% elif row.kind == "position_txn" %}
+        <span class="tx-leg__type tx-leg__type--{{ row.txn_type }}">{{ row.txn_type }}</span>
+        <span class="tx-leg__what">
+            {{ row.name }}
+            {% if row.price %}<em>@ {{ row.price }}</em>{% endif %}
+        </span>
+        <span class="tx-leg__amount">{{ row.units }} units</span>
+    {% elif row.kind == "nav" %}
+        <span class="tx-leg__type">nav</span>
+        <span class="tx-leg__what">{{ row.name }} <em>{{ row.nav_kind }} · {{ row.as_of_date }}</em></span>
+        <span class="tx-leg__amount">{{ row.value }} {{ row.currency }}</span>
+    {% elif row.kind == "cashflow" %}
+        <span class="tx-leg__type">{{ row.flow_type }}</span>
+        <span class="tx-leg__what">{{ row.name }} <em>{{ row.flow_kind }} · {{ row.as_of_date }}</em></span>
+        <span class="tx-leg__amount">{{ row.amount }} {{ row.currency }}</span>
+    {% elif row.kind == "investment_update" %}
+        <span class="tx-leg__type">investment</span>
+        <span class="tx-leg__what">
+            {{ row.name }}
+            <em>
+                {%- if row.created -%}
+                    created
+                {%- elif not row.is_active -%}
+                    set inactive
+                {%- else -%}
+                    updated
+                {%- endif -%}
+            </em>
+            {# What the creating reported flows put on the row (P-4b,
+               operator fork 5). R-COMMIT emits this row and nothing else, so
+               without this line the panel would say a fund was created and
+               never say what was committed to it. Read back off the row like
+               every other value here, and absent for the flows that record
+               no commitment — a listed instrument has none. #}
+            {% if row.commitment %}
+                <span class="tx-leg__sub">
+                    Commitment {{ row.commitment }} {{ row.commitment_currency }}
+                    {%- if row.vintage_year %} · vintage {{ row.vintage_year }}{% endif -%}
+                </span>
+            {% endif %}
+        </span>
+        <span class="tx-leg__amount">—</span>
+    {% endif %}
+</div>

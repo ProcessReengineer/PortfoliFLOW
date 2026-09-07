@@ -1,0 +1,43 @@
+{# What a reversal undid (A-15).
+
+   Heads the re-rendered History list rather than landing in a slot of its
+   own: the reversal changed the row it was about, so the list is re-fetched
+   either way, and a report swapped into a row of a list that is itself being
+   replaced would be swapped into a detached node.
+
+   The per-type tally always states all four types, zeros included. A zero is
+   a fact the reader can rely on; an omitted line is one they have to
+   interpret.
+
+   `retained_because` is the service's own sentence, verbatim (A-4 / A-5) —
+   it names the child table that kept the row, which is the only thing that
+   tells the operator what to clear if they want it gone.
+
+   Context: report — ticket_number, reason, count, by_type, shell. #}
+<div class="tx-messages tx-messages--report">
+    <div class="tx-msg tx-msg--done">
+        <span class="tx-msg__glyph">✓</span>
+        <div>
+            <strong>Ticket #{{ report.ticket_number }} reversed.</strong>
+            <span class="tx-msg__sub">
+                {{ report.count }} row{% if report.count != 1 %}s{% endif %} undone; the ticket is
+                now cancelled — &ldquo;{{ report.reason }}&rdquo;.
+            </span>
+            <span class="tx-msg__sub">
+                {%- for entry in report.by_type -%}
+                    {%- if not loop.first %} · {% endif -%}
+                    {{ entry.label }}: {{ entry.count }}
+                {%- endfor -%}
+            </span>
+        </div>
+    </div>
+    {% if report.shell and not report.shell.deleted %}
+        <div class="tx-msg tx-msg--consequence">
+            <span class="tx-msg__glyph">i</span>
+            <div>
+                <strong>Investment retained, inactive — because:
+                    {{ report.shell.retained_because }}</strong>
+            </div>
+        </div>
+    {% endif %}
+</div>

@@ -8,7 +8,8 @@ ASGI-level tests over a live Postgres, on the fixture pattern of
 P-5a adds and nothing the composers already pin:
 
 * **The section** — ``/transactions`` ships the lazy shell where the Blotter's
-  placeholder sentence used to be, and History's sentence is untouched.
+  placeholder sentence used to be. History's shell is P-5b's and is pinned by
+  ``test_transactions_history.py``.
 * **The list** — ``GET /api/transactions/blotter`` projects the cancellable
   set, newest number first, with the flow label, the creating name, the
   station line and the amount fallback.
@@ -327,7 +328,7 @@ async def test_blotter_section_ships_the_lazy_shell(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The Blotter section carries the lazy shell; History keeps its sentence."""
+    """The Blotter section carries the lazy shell in place of its sentence."""
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
 
@@ -336,8 +337,8 @@ async def test_blotter_section_ships_the_lazy_shell(
     assert 'hx-get="/api/transactions/blotter"' in body
     assert "Loading blotter" in body
     assert "Draft, proposed and approved tickets arrive with S5." not in body
-    # History is untouched by P-5a, verbatim.
-    assert "Booked and cancelled tickets, filterable, arrive with S5." in body
+    # History's own shell landed with P-5b; that it did is
+    # `test_transactions_history.py`'s pin, not this one's.
 
 
 # ---------------------------------------------------------------------------

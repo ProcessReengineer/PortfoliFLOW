@@ -9,7 +9,8 @@ Purpose:
     the action that advances it.
 
 The web surface lives at ``/transactions#blotter`` and is implemented in
-``web/routes/areas.py`` plus its templates; the list itself arrives with S5.
+``web/routes/areas.py`` plus its templates; the list itself is served
+lazily by ``GET /api/transactions/blotter`` in ``web/routes/transactions.py``.
 This module exists for registry completeness (ADR-0058).
 """
 

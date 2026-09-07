@@ -1,0 +1,52 @@
+{# The inline reason step for a reversal (A-13).
+
+   The cancel panel's shape and placement — beneath the row, never a modal —
+   with one difference the copy states outright: a reason is always required
+   here. A draft may be abandoned silently because nobody else ever saw it;
+   a booking that is being undone has been in the book.
+
+   Copy is the M-5 register's, verbatim.
+
+   The red block is the service's sentence rendered verbatim (A-7), with the
+   machine-readable cause beneath it rather than folded into it (A-14). The
+   raw row UUIDs the service sentences carry are shown as they are; a
+   resolved-name line is explicitly not v1.
+
+   Context: id, ticket_number, csrf_token, error, cause. #}
+<div class="tx-reason tx-reason--reverse">
+    <p class="tx-reason__lead">Reverse booking #{{ ticket_number }}?</p>
+    <p class="tx-reason__sub">
+        The rows listed above are deleted in one transaction and the ticket
+        becomes cancelled. A reason is always required. The effect list stays
+        on the ticket so History still says what it once did.
+    </p>
+
+    {% if error %}
+        <div class="tx-msg tx-msg--block">
+            <span class="tx-msg__glyph">✕</span>
+            <div>
+                <strong>{{ error }}</strong>
+                {% if cause %}<span class="tx-msg__code">cause={{ cause }}</span>{% endif %}
+            </div>
+        </div>
+    {% endif %}
+
+    <form class="tx-reason__form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <textarea name="reason" rows="2" placeholder="Reason (required)" required></textarea>
+        <div class="tx-reason__actions">
+            {# The list the server returns is the answer, not a client-side
+               edit: the row reads Reversed because the book says so. #}
+            <button class="tx-btn tx-btn--sm tx-btn--danger" type="button"
+                    hx-post="/api/transactions/ticket/{{ id }}/reverse"
+                    hx-include="closest form"
+                    hx-target="#tx-history"
+                    hx-swap="outerHTML">Reverse booking</button>
+            {# Keep destroys nothing and asks the server nothing: it empties
+               the slot this panel was swapped into, and the detail row
+               collapses on `:empty`. The P-5a idiom. #}
+            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+                    hx-on:click="this.closest('td').innerHTML = ''">Keep</button>
+        </div>
+    </form>
+</div>

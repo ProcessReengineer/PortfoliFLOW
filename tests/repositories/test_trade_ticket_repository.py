@@ -32,6 +32,8 @@ Coverage
   release valve — and refuses when there is none.
 * TT-10: ``list_referencing_investment`` finds tickets through *both* FK
   columns, honours the exclusion, and stays tenant-scoped.
+* TT-11: ``list_by_status``'s History filter set (A-19) — one test per
+  keyword parameter, one combining them, and the ``kind`` refusal.
 """
 
 from __future__ import annotations
@@ -1053,3 +1055,170 @@ async def test_tt10_cross_tenant_references_are_invisible(
     async with tenant_context(app_engine, tenant_a, user_id=actor_a.id) as session:
         seen = await TradeTicketRepository(session).list_referencing_investment(instrument_a.id)
     assert [row.id for row in seen] == [ticket.id]
+
+
+# ---------------------------------------------------------------------------
+# TT-11: the History filter set (A-19)
+# ---------------------------------------------------------------------------
+
+
+async def _terminal_book(repo: TradeTicketRepository, actor_id, ticket_id) -> None:
+    """Walk one ticket to ``booked`` — the stations the CHECKs require."""
+    for station in ("proposed", "approved", "booked"):
+        await repo.set_status(ticket_id, status=station, actor_user_id=actor_id, now=_T0)
+
+
+async def test_tt11_list_by_status_filters_on_kind(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("TT-11a")
+    actor, _, _ = await _seed_actor_and_investments(app_engine, tenant_id, email="pm@tt11a.example")
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        order = await _draft(repo, actor.id)
+        commitment = await _draft(repo, actor.id, kind="commitment")
+        await _draft(repo, actor.id, kind="secondary", direction="sell")
+
+        orders = await repo.list_by_status(["draft"], kind="order")
+        commitments = await repo.list_by_status(["draft"], kind="commitment")
+        unfiltered = await repo.list_by_status(["draft"])
+
+        # Validated before any SQL runs — an unknown kind is a typed refusal,
+        # not an empty result that reads as "nothing matched".
+        with pytest.raises(TicketStateInvalid) as excinfo:
+            await repo.list_by_status(["draft"], kind="dividend_reinvestment")
+
+    assert [t.id for t in orders] == [order.id]
+    assert [t.id for t in commitments] == [commitment.id]
+    assert len(unfiltered) == 3
+    assert excinfo.value.field == "kind"
+
+
+async def test_tt11_list_by_status_filters_on_investment(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("TT-11b")
+    actor, instrument, cash = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt11b.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        traded = await _draft(
+            repo, actor.id, investment_id=instrument.id, cash_investment_id=cash.id
+        )
+        await _draft(repo, actor.id, cash_investment_id=cash.id)
+
+        on_instrument = await repo.list_by_status(["draft"], investment_id=instrument.id)
+        # The settlement side is deliberately not matched: every cash-moving
+        # ticket names a cash position, so matching it would make the cash
+        # rows match nearly everything and stop being a filter.
+        on_cash = await repo.list_by_status(["draft"], investment_id=cash.id)
+
+    assert [t.id for t in on_instrument] == [traded.id]
+    assert on_cash == []
+
+
+async def test_tt11_list_by_status_filters_on_trade_date_range(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("TT-11c")
+    actor, _, _ = await _seed_actor_and_investments(app_engine, tenant_id, email="pm@tt11c.example")
+    early, middle, late = (
+        _TRADE_DATE - timedelta(days=10),
+        _TRADE_DATE,
+        _TRADE_DATE + timedelta(days=10),
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        first = await _draft(repo, actor.id, trade_date=early)
+        second = await _draft(repo, actor.id, trade_date=middle)
+        third = await _draft(repo, actor.id, trade_date=late)
+
+        from_only = await repo.list_by_status(["draft"], trade_date_from=middle)
+        to_only = await repo.list_by_status(["draft"], trade_date_to=middle)
+        both_bounds = await repo.list_by_status(
+            ["draft"], trade_date_from=middle, trade_date_to=middle
+        )
+
+    # Both bounds are inclusive, which is what makes a single-day range
+    # expressible at all.
+    assert [t.id for t in from_only] == [third.id, second.id]
+    assert [t.id for t in to_only] == [second.id, first.id]
+    assert [t.id for t in both_bounds] == [second.id]
+
+
+async def test_tt11_list_by_status_splits_reversed_from_cancelled(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """``booked`` is the A-17 derivation: both endings share ``cancelled``."""
+    tenant_id = await seed_tenant("TT-11d")
+    actor, _, _ = await _seed_actor_and_investments(app_engine, tenant_id, email="pm@tt11d.example")
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        reversed_ticket = await _draft(repo, actor.id)
+        await _terminal_book(repo, actor.id, reversed_ticket.id)
+        await repo.set_status(
+            reversed_ticket.id,
+            status="cancelled",
+            actor_user_id=actor.id,
+            now=_T0,
+            cancel_reason="duplicate",
+        )
+        plain = await _draft(repo, actor.id)
+        await repo.set_status(plain.id, status="cancelled", actor_user_id=actor.id, now=_T0)
+
+        reversals = await repo.list_by_status(["cancelled"], booked=True)
+        cancellations = await repo.list_by_status(["cancelled"], booked=False)
+        both = await repo.list_by_status(["cancelled"])
+
+    assert [t.id for t in reversals] == [reversed_ticket.id]
+    assert [t.id for t in cancellations] == [plain.id]
+    assert {t.id for t in both} == {reversed_ticket.id, plain.id}
+
+
+async def test_tt11_list_by_status_combines_every_filter(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("TT-11e")
+    actor, instrument, cash = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt11e.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        repo = TradeTicketRepository(session)
+        wanted = await _draft(
+            repo, actor.id, investment_id=instrument.id, cash_investment_id=cash.id
+        )
+        await _terminal_book(repo, actor.id, wanted.id)
+        # Same investment and date, wrong kind.
+        wrong_kind = await _draft(
+            repo,
+            actor.id,
+            kind="secondary",
+            direction="sell",
+            investment_id=instrument.id,
+            cash_investment_id=cash.id,
+        )
+        await _terminal_book(repo, actor.id, wrong_kind.id)
+        # Right kind and investment, outside the date window.
+        outside = await _draft(
+            repo,
+            actor.id,
+            investment_id=instrument.id,
+            cash_investment_id=cash.id,
+            trade_date=_TRADE_DATE + timedelta(days=30),
+        )
+        await _terminal_book(repo, actor.id, outside.id)
+
+        found = await repo.list_by_status(
+            ["booked", "cancelled"],
+            kind="order",
+            investment_id=instrument.id,
+            trade_date_from=_TRADE_DATE,
+            trade_date_to=_TRADE_DATE,
+            booked=True,
+        )
+
+    assert [t.id for t in found] == [wanted.id]

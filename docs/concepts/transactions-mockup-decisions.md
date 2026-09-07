@@ -394,6 +394,58 @@ closing report and this record cross-reference.
   read-only keyword parameters for exactly these; ordering stays
   `ticket_number DESC`.
 
+Sources for A-20…A-26: the S5 closing reports P-5b/P-5c and the T-5
+strand closing report (2026-09-07). The T-5 D-register letters are given
+in brackets so the closing report and this record cross-reference.
+
+- **A-20 · Reversal answer shape (refines A-15) [T-5 D-O].** The reverse
+  `POST` answers with one swap: the refreshed History list
+  (`#tx-history`, `outerHTML`) carrying the reversal report as a done
+  block above the filter bar. Not a report-in-slot plus an out-of-band
+  list refresh — htmx performs out-of-band swaps before the main swap, so
+  an OOB list refresh would detach the report's target. The report's
+  content is A-15's.
+- **A-21 · History detail copy and timestamps [T-5 D-T, D-U].** A
+  cancelled ticket that was never booked shows, in place of the effects
+  list, "Nothing was written — this ticket was never booked." History
+  renders timestamps as `YYYY-MM-DD HH:MM` (stations, outcome line); the
+  blotter stays date-only. Group headings in the effects list: "position
+  transactions", "cashflows", "NAVs", "investment". Settled against: "no
+  cash leg" for a commitment. Empty filtered list: "Nothing matches these
+  filters."
+- **A-22 · Indicator "since" (refines A-11) [T-5 D-W].** "since <date>"
+  is the start of the *current* run of negative end-of-day holdings, as
+  of today, via the pure `negative_since(transactions, on)` in
+  `services/investments/holdings.py`. `first_negative_holding_date` is
+  the write-time check and returns the first date holdings ever went
+  negative; the two answer different questions and both stay.
+- **A-23 · Indicator refresh (refines A-11) [T-5 D-X, D-AA].** The banner
+  re-derives itself on page load and after any request that completes
+  inside the composer host (`#tx-composer-host`) or the History section
+  (`#history`) — the two places a booking or a reversal ends. No polling,
+  no acknowledgement, no change to the composer or History routes; a
+  History filter change also refreshes it, which is one cheap read.
+  `#history` rather than `#tx-history` because the latter is lazily
+  revealed and does not exist when htmx binds the trigger.
+- **A-24 · Inactive cash positions (refines A-11) [T-5 D-Y].** An
+  inactive cash position below zero is listed, its name suffixed
+  "· inactive". An overdraft on a deactivated position is still a
+  liability the book records.
+- **A-25 · Derivation seam (refines A-11) [T-5 D-Z].**
+  `InvestmentService.list_negative_cash(on=)` and
+  `negative_cash_for(investment_id, on=)` are the one place a
+  negative-cash state is derived; the Area banner and the cash position's
+  detail page both read it, and nothing else computes one. It is live,
+  per read, over `holdings_as_of(…, on)` and `negative_since(…, on)`;
+  `get_position_summary`'s holdings figure (last ledger point, possibly
+  future-dated) is not the indicator's number. S6's preview reads this
+  seam with the same `on`.
+- **A-26 · Banner line markup (refines the M-5 copy register) [T-5
+  D-AD].** Per position: "<name> stands at <balance> <ccy>" with "since
+  <date>" in its own span, no comma — the mockup's markup; the register's
+  prose sentence is superseded for the banner. The detail-page sentence
+  is unchanged.
+
 **Copy fixed at the M-5 checkpoint (binding for S5 templates):**
 
 - Blotter columns: *Ticket · Flow · Investment · Amount · Trade date ·
@@ -421,3 +473,10 @@ closing report and this record cross-reference.
   the balance is back at zero or above."
 - Indicator, detail page: "This position stands at <balance> <ccy> since
   <date>." then the MD-9 sentence, then the A-18 hint.
+
+**Fixed during S5 implementation:**
+
+- "Nothing matches these filters."
+- "Nothing was written — this ticket was never booked."
+- "<n> cash positions are below zero." for n > 2.
+- "· inactive" suffix on an inactive cash position's name in the banner.

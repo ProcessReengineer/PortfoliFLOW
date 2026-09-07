@@ -274,12 +274,12 @@ Control before proceeding.
 4. Report MD-2, MD-3, MD-4, MD-5, MD-12, MD-18 and §2 to Mission Control as
    the schema-touching set; Mission Control releases kickoff T-1 with them.
 
-## 6. Addenda — decisions of record from implementation (S2–S5)
+## 6. Addenda — decisions of record from implementation (S2–S6)
 
 Mirrored from the T-2 and T-4 reports so this record stays the single
 place downstream strands read. Sources: T-2 closing report (2026-09-01),
 T-4 S4a interim note (2026-09-04), T-5 M-5 checkpoint (2026-09-07),
-Mission Control board.
+T-6 M-6 checkpoint (2026-09-07), Mission Control board.
 
 - **A-1 · Creation invariant (resolves the D-I question).** An
   `investment_update` effect with `prior_state IS NULL` means "this
@@ -445,6 +445,70 @@ in brackets so the closing report and this record cross-reference.
   <date>" in its own span, no comma — the mockup's markup; the register's
   prose sentence is superseded for the banner. The detail-page sentence
   is unchanged.
+
+Sources for A-27…A-32: the T-6 M-6 checkpoint (2026-09-07) and the S6
+P-6a implementation.
+
+- **A-27 · The artefact is the impact panel [T-6, naming].** The S6
+  surface is the **impact panel**, never "preview" unqualified.
+  `TicketService.preview` (S4a) is the composer's composition-time warning
+  set — a different question, at a different moment, from different
+  inputs — and nothing in the panel calls it. One address,
+  `GET /api/transactions/ticket/{id}/impact`; one partial,
+  `_impact_panel.html`.
+- **A-28 · OP-07 resolved as (a): shift and label [T-6 decision 1].** A
+  ticket dated at or before the seam is previewed as if traded on
+  `t₀ + 1`, with an info block naming the shift, the ticket's own date and
+  the seam. The ticket is untouched — only the transformation is re-dated
+  — and the executor therefore never sees a date it would refuse
+  (`HistoricTradeDateError`, ADR-0104 §5). A PM proposing a back-dated
+  ticket wants to know what it does to headroom, not that the plan world
+  starts later.
+- **A-29 · Feeding statuses and the panel's home [T-6 decisions 2, 3;
+  D-6b, D-6f].** `proposed` and `approved` feed the panel and render
+  identically — a four-eyes approver is exactly who wants it. A `draft`
+  does not: its row carries **no** Impact button, and a hand-typed URL
+  gets the "propose first" state rather than a 404, because the address is
+  legitimate and the answer is a sentence. The panel lands in the blotter
+  row's detail cell, lazily on the button and never on row render (twenty
+  tickets must not run twenty scenario assemblies). The cell is renamed
+  `#tx-cancel-{id}` → `#tx-detail-{id}`: two panels share one slot, so it
+  is named for the slot rather than for one occupant, and opening either
+  replaces the other.
+- **A-30 · Lens set v1 [T-6 decision 4; D-6d, D-6e].** Four lenses: SAA
+  drift, AnlV headroom (all quota rows, plus the tightest-headroom and
+  breach-count KPI tiles), liquidity (cash on the trade date, cash at
+  t₀+4Q, AUM), and FX as a **one-line note** rather than a delta block —
+  the FX delta is zero by construction for an order (both legs settle in
+  one currency), and a block of zeros is a lens that never lenses. **All**
+  quota rows are shown, moved or not, so the reader sees the whole quota
+  picture; only the rows whose *status* changed carry a row tone. The
+  "cash on trade date" line is kept (D-6c): it is a plain sample of
+  `frames.cash_paths[ccy]` before and after, and it is what frames the
+  rest of the lens in time.
+- **A-31 · Consideration mapping and the costs statement [T-6 D-6a
+  (i)].** `consideration = +cash_effect` on a buy and `−cash_effect` on a
+  sell — the **value** view, the exact opposite of the emission's cash
+  view (D-B), negated once in `services/transactions/impact.py` and
+  nowhere else. Fees and taxes sit **inside** `C`, since
+  `derive_cash_effect` folds them in and the overlay carries one `C` for
+  both legs: the cash leg is therefore exact and the value leg is
+  overstated by the costs. The choice is deliberate — the liquidity lens
+  is where a few hundred units of currency flip a sign, and a quota is
+  insensitive to them — and the panel's "Costs" line states the
+  overstatement rather than hiding it ("none" where there are no costs).
+- **A-32 · Nothing is persisted, and no clock is read [T-6, engine
+  discipline].** The panel is derived on every open from *(book, ticket)*:
+  no table, no migration, no cache, no snapshot to go stale. Every date
+  comes from `frames.t0` and the ticket — neither `_today()` nor `_now()`
+  is called — so the panel cannot move on a day the book did not. The
+  overlay is the only computation engine (ADR-0104 §2, F-4): the route
+  maps, applies, and formats; it calculates nothing of its own beyond the
+  two cash samples the `ScenarioResult` does not carry. Scope in v1 is
+  order tickets on an existing investment; reported kinds and creating
+  flows get named fast-follow states, never an empty cell. OP-26
+  (previewable `nav_exists_at_trade_date`) is **no** — it is a clause in
+  the composer's preview, not in this panel.
 
 **Copy fixed at the M-5 checkpoint (binding for S5 templates):**
 

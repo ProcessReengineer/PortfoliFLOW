@@ -309,7 +309,7 @@ def _label(end: _date, periodisation: Periodisation) -> str:
 
 def _has_observation_at_or_before(paths: Mapping[str, pd.Series], end: _date) -> bool:
     """Whether *any* path carries an observation at or before ``end``."""
-    return any(_sample(path, end) is not None for path in paths.values())
+    return any(sample_balance(path, end) is not None for path in paths.values())
 
 
 def _build_grid(
@@ -380,7 +380,7 @@ def _build_grid(
 _EMPTY_PATH: pd.Series = pd.Series(dtype="object", index=pd.DatetimeIndex([]))
 
 
-def _sample(path: pd.Series, at: _date) -> Decimal | None:
+def sample_balance(path: pd.Series, at: _date) -> Decimal | None:
     """Return the balance in force at ``at`` — the latest at or before it.
 
     The sampling half of the balance-path convention
@@ -396,6 +396,9 @@ def _sample(path: pd.Series, at: _date) -> Decimal | None:
     unique — the same assumption
     :func:`services.overlay.steps.add_step` makes, and every producer of a
     path upholds.
+
+    **Public since S6**: the impact panel samples the cash path on the ticket's
+    trade date and must use the same at-or-before rule the timeline does.
 
     Args:
         path: A balance path.
@@ -482,7 +485,7 @@ def build_cash_flow_timeline(
         CurrencyRow(
             currency=currency,
             balances=tuple(
-                _sample(
+                sample_balance(
                     (actual_cash if period.is_actual else frames.cash_paths).get(
                         currency, _EMPTY_PATH
                     ),
@@ -788,4 +791,5 @@ __all__ = [
     "build_cash_flow_timeline",
     "load_cash_flow_planning_inputs",
     "project_cash_flow_planning",
+    "sample_balance",
 ]

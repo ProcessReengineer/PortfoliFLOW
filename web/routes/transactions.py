@@ -202,7 +202,7 @@ for the operator's walk.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -217,8 +217,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from core.exceptions import (
     CurrencyMismatchError,
+    DuplicateCashPositionError,
     NonNegativeHoldingsError,
     TicketIncomplete,
+    PlanSeamMissingError,
     TicketNotFound,
     TicketReversalBlocked,
     TicketStateInvalid,
@@ -230,6 +232,7 @@ from core.repositories.anlv_category_repository import AnlVCategoryRepository
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.audit_log_repository import AuditLogRepository
 from core.repositories.case_repository import CaseRepository
+from core.repositories.fx_rate_repository import FxRateRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
 from core.repositories.investment_cashflow_repository import (
     InvestmentCashflowRepository,
@@ -239,6 +242,7 @@ from core.repositories.investment_identifier_repository import (
 )
 from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentDTO, InvestmentRepository
+from core.repositories.limits_repository import LimitsRepository
 from core.repositories.position_transaction_repository import (
     PositionTransactionRepository,
 )
@@ -247,9 +251,17 @@ from core.repositories.trade_ticket_repository import (
     TradeTicketEffectDTO,
     TradeTicketRepository,
 )
+from core.repositories.tenant_repository import TenantRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
 from services.investments.aum import CASH_TYPE
+from services.investments.cash_flow_timeline import (
+    DEFAULT_HORIZON_QUARTERS,
+    Periodisation,
+    load_cash_flow_planning_inputs,
+    project_cash_flow_planning,
+    sample_balance,
+)
 from services.investments.credential_resolver import (
     CredentialResolver,
     ProviderCredential,
@@ -257,6 +269,14 @@ from services.investments.credential_resolver import (
 from services.investments.holdings import holdings_as_of
 from services.investments.investment_service import InvestmentService
 from services.investments.pacing_rows import load_called_amounts, unfunded_commitment
+
+# The overlay is the impact panel's only computation engine (ADR-0104 §2, F-4)
+# and the Planning Desk's assembly seam is the one place a *(book, overlay)*
+# question is answered (S6 P-6a-0). ``web/`` reaching for them directly is the
+# layering rule working as intended: the panel is a route over two services,
+# and a Transactions module wrapping them would only forward.
+from services.overlay import EMPTY_OVERLAY, OverlayError, apply_overlay
+from services.planning_desk import assemble_scenario_from_book
 from services.transactions.constants import (
     BLOCK_OVERSELL,
     BLOCK_PARTIAL_SECONDARY_SALE,
@@ -320,6 +340,7 @@ from services.transactions.emission import (
     order_legs,
     provenance,
 )
+from services.transactions.impact import build_impact_basis, impact_scope
 from services.transactions.ticket_service import TicketService
 from services.transactions.validation import (
     TicketBlock,
@@ -4092,6 +4113,35 @@ async def _resolve_user_names(users: UserRepository, ids: Iterable[UUID]) -> dic
     return names
 
 
+def _investment_name_memo(
+    investments: InvestmentRepository,
+) -> Callable[[UUID], Awaitable[str]]:
+    """Return a per-request memoised investment-name lookup.
+
+    The ``_effect_rows`` idiom, lifted to module level once it had a third
+    consumer: a blotter of twenty orders against three positions is three
+    reads, not twenty, and the History filter's option list shares the memo
+    with the row projection below it. ``"—"`` is the fallback for an id the
+    tenant cannot resolve — an honest blank rather than a raw UUID.
+
+    Args:
+        investments: The tenant-scoped investment repository. The memo is
+            bound to it, so it lives exactly as long as the request's session.
+
+    Returns:
+        An awaitable lookup from investment id to name.
+    """
+    names: dict[UUID, str] = {}
+
+    async def _name(investment_id: UUID) -> str:
+        if investment_id not in names:
+            found = await investments.get_by_id(investment_id)
+            names[investment_id] = found.name if found is not None else "—"
+        return names[investment_id]
+
+    return _name
+
+
 def _station_line(ticket: TradeTicketDTO, names: dict[UUID, str]) -> str | None:
     """Return the "by <name> · <date>" sub-line under a status chip (A-16).
 
@@ -4172,17 +4222,7 @@ async def get_blotter(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         tickets = await TradeTicketRepository(db).list_by_status(list(CANCELLABLE_STATUSES))
-        investments = InvestmentRepository(db)
-        names: dict[UUID, str] = {}
-
-        async def _name(investment_id: UUID) -> str | None:
-            # Memoised per request, the `_effect_rows` idiom: a blotter of
-            # twenty orders against three positions is three reads, not
-            # twenty.
-            if investment_id not in names:
-                found = await investments.get_by_id(investment_id)
-                names[investment_id] = found.name if found is not None else "—"
-            return names[investment_id]
+        _name = _investment_name_memo(InvestmentRepository(db))
 
         actors = await _resolve_user_names(
             UserRepository(db),
@@ -4592,16 +4632,8 @@ async def _history_context(
     date_to = _date_or_none(trade_date_to)
 
     tickets = TradeTicketRepository(db)
-    investments = InvestmentRepository(db)
-    names: dict[UUID, str] = {}
-
-    async def _name(investment: UUID) -> str:
-        # Memoised per request, the `_effect_rows` idiom, and shared by the
-        # options read and the row projection below.
-        if investment not in names:
-            found = await investments.get_by_id(investment)
-            names[investment] = found.name if found is not None else "—"
-        return names[investment]
+    # Shared by the options read and the row projection below.
+    _name = _investment_name_memo(InvestmentRepository(db))
 
     options: list[dict[str, str]] = []
     seen: set[UUID] = set()
@@ -5045,3 +5077,274 @@ async def get_negative_cash(
         "_negative_cash.html",
         {"positions": positions, "count": len(positions)},
     )
+
+
+# ---------------------------------------------------------------------------
+# The pre-trade impact panel (ADR-0128 Q-3, ADR-0104 §2/§5) — S6 P-6a
+# ---------------------------------------------------------------------------
+
+#: Coverage status → the badge's tone modifier. ``NO_LIMIT`` and
+#: ``UNALLOCATED`` map to nothing on purpose: a class with no ceiling has no
+#: standing to state, and a badge saying so would read as a verdict.
+_COVERAGE_TONE: dict[str, str] = {"OK": "ok", "WARN": "warn", "BREACH": "breach"}
+
+#: The label a quota family carries above its lens.
+_IMPACT_FAMILY_LABEL: dict[str, str] = {"saa": "SAA drift", "anlv": "Limit headroom · AnlV"}
+
+
+def _pct(value: Decimal | None) -> str:
+    """Format a utilisation figure as a percentage, one decimal (the §7 register)."""
+    return "—" if value is None else f"{float(value):,.1f} %"
+
+
+def _money_or_dash(value: Decimal | int | None) -> str:
+    """Format a functional-currency figure, or ``—`` where the world has none."""
+    return "—" if value is None else _money(Decimal(value))
+
+
+def _count_or_dash(value: Decimal | int | None) -> str:
+    """Format a plain count, or ``—``."""
+    return "—" if value is None else f"{int(value):,d}"
+
+
+def _quota_row_view(row: Any) -> dict[str, Any]:  # HeadroomClassDelta
+    """One quota class as a before → after pair with the scenario's badge.
+
+    Every row is shown, moved or not (D-6e): the reader is deciding against
+    the whole quota picture, and a table that hid the untouched classes would
+    make a trade look like it had nowhere else to land. Only the rows whose
+    **status** changed carry the row tone, so the eye goes to the consequence
+    rather than to the arithmetic.
+    """
+    moved = row.scenario_status != row.baseline_status
+    tone = _COVERAGE_TONE.get(row.scenario_status or "")
+    return {
+        "label": row.class_key.replace("_", " ").capitalize(),
+        "before": _pct(row.baseline_coverage_pct),
+        "after": _pct(row.scenario_coverage_pct),
+        "badge": row.scenario_status if tone else None,
+        "badge_tone": tone,
+        "row_tone": tone if moved else None,
+        "headroom_before": _money_or_dash(row.baseline_headroom_eur),
+        "headroom_after": _money_or_dash(row.scenario_headroom_eur),
+        "headroom_moved": row.delta_headroom_eur is not None and row.delta_headroom_eur != 0,
+    }
+
+
+def _headroom_foot(rows: list[dict[str, Any]], currency: str) -> str:
+    """State the headroom of the classes the trade actually moved.
+
+    The rows that did not move have the same headroom in both worlds, and
+    repeating it for each of them would bury the one line that changed.
+    """
+    moved = [row for row in rows if row["headroom_moved"]]
+    if not moved:
+        return "No class headroom moves on this trade."
+    return " ".join(
+        f"Headroom {row['label'].lower()}: {row['headroom_before']} → "
+        f"{row['headroom_after']} {currency}."
+        for row in moved
+    )
+
+
+def _impact_kpis(result: Any, currency: str) -> dict[str, dict[str, Any]]:
+    """Project the four KPI deltas into the two lenses that state them.
+
+    Keyed by :attr:`~services.planning_desk.scenario_results.KpiDelta.key` so
+    the template names the tile it wants rather than indexing a tuple by
+    position — the engine's tile order is the Planning Desk's concern, and a
+    positional read here would break silently if it ever changed.
+    """
+    views: dict[str, dict[str, Any]] = {}
+    for kpi in result.kpis:
+        counted = kpi.unit == "count"
+        fmt = _count_or_dash if counted else _money_or_dash
+        views[kpi.key] = {
+            "label": kpi.label,
+            "before": fmt(kpi.baseline),
+            "after": fmt(kpi.scenario),
+            "unchanged": kpi.delta is not None and kpi.delta == 0,
+            "negative": kpi.scenario is not None and kpi.scenario < 0,
+            "worse": kpi.delta is not None and kpi.delta != 0,
+        }
+    return views
+
+
+@router.get("/api/transactions/ticket/{ticket_id}/impact", response_class=HTMLResponse)
+async def get_impact_panel(
+    request: Request,
+    ticket_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Preview one in-flight ticket against the plan world (ADR-0128 Q-3).
+
+    **The overlay is the engine.** The ticket is mapped onto exactly one
+    ``insert_transaction`` (:func:`services.transactions.impact.build_impact_basis`)
+    and handed to the same seam the Planning Desk's Scenario Analysis lens uses
+    (:func:`services.planning_desk.assemble_scenario_from_book`), so the panel
+    and the Planning Desk answer the same question with one computation. This
+    route computes nothing of its own beyond the two cash samples the lens does
+    not carry, and it formats.
+
+    **Nothing is written and nothing is cached.** The panel is derived on every
+    open from *(book, ticket)*; there is no snapshot to go stale, and a ticket
+    edited between two opens previews differently the second time — which is
+    the honest answer, not a bug.
+
+    **Lazily, on the Impact button.** Never on row render: a blotter of twenty
+    tickets must not run twenty scenario assemblies (decision 3).
+
+    It is emphatically **not**
+    :meth:`~services.transactions.ticket_service.TicketService.preview`, which
+    is the composer's warning set at composition time. Different question,
+    different moment, not called here.
+
+    Returns:
+        ``_impact_panel.html`` in one of four states — ``scoped`` (the ticket
+        has no ``insert_transaction``), ``book_error`` (the book has no plan
+        world), ``notice`` (the assembly declined), or ``impact``.
+
+    Raises:
+        HTTPException: 404 for a ticket that is not in flight (:func:`_in_flight`).
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        ticket = await _in_flight(db, ticket_id)
+        head: dict[str, Any] = {
+            "id": str(ticket.id),
+            "ticket_number": ticket.ticket_number,
+            "status": ticket.status,
+        }
+
+        scope = impact_scope(ticket)
+        if scope is not None:
+            return _render(
+                request,
+                "_impact_panel.html",
+                head | {"state": "scoped", "scope": scope, "ident": _flow_label(ticket)},
+            )
+
+        investments = InvestmentRepository(db)
+        assert ticket.investment_id is not None  # `impact_scope` returned None
+        name = await _investment_name_memo(investments)(ticket.investment_id)
+        ident = f"#{ticket.ticket_number} · {ticket.direction.capitalize()} "
+        ident += f"{_units(ticket.units)} {name}" if ticket.units is not None else name
+        head["ident"] = ident
+
+        navs = InvestmentNavRepository(db)
+        cashflows = InvestmentCashflowRepository(db)
+        try:
+            inputs = await load_cash_flow_planning_inputs(
+                investments=investments,
+                navs=navs,
+                cashflows=cashflows,
+                tenants=TenantRepository(db),
+                fx_rates=FxRateRepository(db),
+                periodisation=Periodisation.QUARTERLY,
+            )
+        except (PlanSeamMissingError, DuplicateCashPositionError) as exc:
+            # The book's own refusals, rendered as their own sentence (A-7).
+            return _render(
+                request,
+                "_impact_panel.html",
+                head | {"state": "book_error", "error": str(exc)},
+            )
+
+        basis = build_impact_basis(ticket, t0=inputs.baseline.t0)
+        overlay = (basis.transformation,)
+        try:
+            scenario_frames = apply_overlay(inputs.baseline, overlay)
+        except OverlayError as exc:
+            # An investment deactivated after propose (`UnknownInvestmentError`),
+            # a currency with no cash position (`MissingCashPathError`), a
+            # position held in another currency (`CurrencyMismatchError`).
+            return _render(
+                request,
+                "_impact_panel.html",
+                head | {"state": "notice", "error": str(exc)},
+            )
+
+        # The grid is the Cash Flow Planning lens's grid, so the panel and the
+        # Planning Desk state one set of period ends (ADR-0104 §5).
+        timeline = project_cash_flow_planning(
+            baseline=inputs.baseline,
+            overlay=EMPTY_OVERLAY,
+            actual_cash=inputs.actual_cash,
+            converter=inputs.converter,
+            periodisation=Periodisation.QUARTERLY,
+            horizon_quarters=DEFAULT_HORIZON_QUARTERS,
+        )
+        result, notice = await assemble_scenario_from_book(
+            cash_flow_inputs=inputs,
+            evaluation_dates=[period.end_date for period in timeline.baseline.periods],
+            cut_over=timeline.baseline.seam_date,
+            overlay=overlay,
+            investments=investments,
+            navs=navs,
+            cashflows=cashflows,
+            asset_classes=AssetClassRepository(db),
+            limits=LimitsRepository(db),
+        )
+        if result is None:
+            return _render(
+                request,
+                "_impact_panel.html",
+                head | {"state": "notice", "error": notice},
+            )
+
+        currency = inputs.converter.functional_currency
+        ccy = basis.transformation.currency
+        before = sample_balance(inputs.baseline.cash_paths[ccy], basis.effective_date)
+        after = sample_balance(scenario_frames.cash_paths[ccy], basis.effective_date)
+
+        families = {
+            family.family: [_quota_row_view(row) for row in family.rows]
+            for family in result.headroom
+        }
+        saa_rows = families.get("saa", [])
+        anlv_rows = families.get("anlv", [])
+        costs_inside = basis.costs > 0
+        price = basis.transformation.price_per_unit
+        fed_price = _units(price) if price is not None else "—"
+        return _render(
+            request,
+            "_impact_panel.html",
+            head
+            | {
+                "state": "impact",
+                "currency": currency,
+                "ccy": ccy,
+                "shifted": basis.shifted,
+                "trade_date": ticket.trade_date.isoformat(),
+                "effective_date": basis.effective_date.isoformat(),
+                "seam_date": inputs.baseline.t0.isoformat(),
+                "horizon_label": (
+                    f"{DEFAULT_HORIZON_QUARTERS} quarters after {inputs.baseline.t0.isoformat()}"
+                ),
+                # Read off the transformation, not off the ticket: the line
+                # states what was *fed*, and the two differ whenever OP-07 (a)
+                # shifted the date.
+                "fed_line": (
+                    f"{ticket.direction} {_units(abs(basis.transformation.units))} @ "
+                    f"{fed_price} · {basis.effective_date.isoformat()} · {ccy} · "
+                    f"consideration {_money(basis.cash_effect)}"
+                ),
+                "consideration": _money(basis.cash_effect),
+                "costs_inside": costs_inside,
+                "costs_line": (
+                    f"{_money(basis.costs)} {ccy} inside C — cash leg exact, "
+                    "value leg overstated by the costs"
+                    if costs_inside
+                    else "none"
+                ),
+                "saa_label": _IMPACT_FAMILY_LABEL["saa"],
+                "anlv_label": _IMPACT_FAMILY_LABEL["anlv"],
+                "saa_rows": saa_rows,
+                "anlv_rows": anlv_rows,
+                "saa_foot": _headroom_foot(saa_rows, currency),
+                "kpis": _impact_kpis(result, currency),
+                "cash_before": _money_or_dash(before),
+                "cash_after": _money_or_dash(after),
+                "cash_after_negative": after is not None and after < 0,
+            },
+        )

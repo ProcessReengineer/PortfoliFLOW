@@ -1,12 +1,15 @@
-{# One blotter row, plus the detail cell its cancel panel lands in.
+{# One blotter row, plus the detail cell its panels land in.
 
-   A partial of its own rather than a loop body: S6's pre-trade preview
-   panel opens against a ticket the same way the cancel panel does, and the
-   row that carries the slot is the row it will reuse.
+   A partial of its own rather than a loop body: the slot the cancel panel
+   and S6's impact panel share. Two panels, one cell — opening either
+   replaces the other, and Close empties it (D-6b: the cell is
+   `#tx-detail-{id}`, named for the slot rather than for one occupant).
 
-   Two gestures, not a menu. The mockup draws a ⋯ overflow; A-13 fixes the
-   v1 shape as two buttons, and the menu is OP-23 polish. Open is one gesture
+   Three gestures, not a menu. The mockup draws a ⋯ overflow; A-13 fixes the
+   v1 shape as buttons, and the menu is OP-23 polish. Open is one gesture
    for every flow (A-12) — the row does not know which composer answers it.
+   Impact is absent on a draft (D-6f): a gesture that could only ever answer
+   "propose it first" is a gesture that should not be there.
 
    Context: row — id, ticket_number, flow_label, investment_name,
    creating_name, amount, currency, units_line, trade_date, status,
@@ -44,18 +47,25 @@
                     hx-get="/api/transactions/ticket/{{ row.id }}"
                     hx-target="#tx-composer-host"
                     hx-swap="innerHTML">Open</button>
+            {% if row.status != "draft" %}
+                <button class="tx-btn tx-btn--sm" type="button"
+                        hx-get="/api/transactions/ticket/{{ row.id }}/impact"
+                        hx-target="#tx-detail-{{ row.id }}"
+                        hx-swap="innerHTML">Impact</button>
+            {% endif %}
             <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
                     hx-get="/api/transactions/ticket/{{ row.id }}/cancel"
-                    hx-target="#tx-cancel-{{ row.id }}"
+                    hx-target="#tx-detail-{{ row.id }}"
                     hx-swap="innerHTML">
                 {%- if row.status == "draft" %}Discard draft&hellip;{% else %}Cancel ticket&hellip;{% endif -%}
             </button>
         </div>
     </td>
 </tr>
-{# The panel's slot. Always present, empty until asked for; the row it sits
+{# The panels' slot. Always present, empty until asked for; the row it sits
    in collapses on `:empty` rather than being toggled, so nothing here has to
-   remember whether a panel is open. #}
+   remember whether a panel is open — and neither panel has to know the
+   other exists. #}
 <tr class="tx-detail-row">
-    <td colspan="7" id="tx-cancel-{{ row.id }}"></td>
+    <td colspan="7" id="tx-detail-{{ row.id }}"></td>
 </tr>

@@ -1471,3 +1471,198 @@ a.tx-btn {
     font-size: 0.78rem;
     margin: 0 0 10px;
 }
+
+/* --- The pre-trade impact panel (S6 P-6a) ---------------------------- *
+ *
+ * The M-6 block, unchanged. It lands in the blotter row's detail cell —
+ * the same slot the cancel panel uses — so it needs no positioning of its
+ * own; `.tx-detail-row td` already gives it a ground and padding.
+ */
+
+.tx-impact {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border: 1px solid var(--ui-border-default);
+    border-left: 3px solid var(--ui-semantic-info);
+    border-radius: 4px;
+    padding: 14px 16px;
+    background: var(--ui-background-section);
+}
+
+/* A state with nothing to lens: scoped out, or refused. The blue rail
+ * would promise a panel that is not there. */
+.tx-impact--none {
+    border-left-color: var(--ui-semantic-muted);
+}
+
+.tx-impact__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.tx-impact__lead {
+    margin: 0;
+    color: var(--ui-text-on-sidebar);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.tx-impact__sub {
+    margin: 0;
+    color: var(--ui-text-disabled);
+    font-size: 0.8rem;
+}
+
+/* What was fed to the overlay: a run-on definition list, so the four facts
+ * read as one sentence rather than as a table nobody asked for. */
+.tx-impact__basis {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--ui-text-disabled);
+}
+
+.tx-impact__basis div {
+    display: inline;
+}
+
+.tx-impact__basis dt {
+    display: inline;
+    color: var(--ui-semantic-muted);
+}
+
+.tx-impact__basis dd {
+    display: inline;
+    margin: 0 0 0 4px;
+    font-family: var(--ui-font-mono);
+    color: var(--ui-text-secondary);
+}
+
+.tx-lenses {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+}
+
+.tx-lens {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
+    border-radius: 4px;
+    padding: 10px 12px;
+    min-width: 0;
+}
+
+.tx-lens__title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.7rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ui-semantic-muted);
+    margin: 0;
+    font-weight: 600;
+}
+
+.tx-lens__foot {
+    margin: 0;
+    font-size: 0.74rem;
+    color: var(--ui-text-disabled);
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 6px;
+}
+
+/* The before → after pair, the ADR-0067 idiom: baseline struck through,
+ * scenario bold. Label left, pair right. */
+.tx-delta {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 10px;
+    font-size: 0.83rem;
+}
+
+.tx-delta__label {
+    color: var(--ui-text-secondary);
+}
+
+.tx-delta__label small {
+    color: var(--ui-text-disabled);
+    font-size: 0.74rem;
+}
+
+.tx-delta__pair {
+    font-family: var(--ui-font-mono);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.tx-delta__before {
+    color: var(--ui-text-disabled);
+    text-decoration: line-through;
+    margin-right: 6px;
+}
+
+.tx-delta__after {
+    color: var(--ui-text-on-sidebar);
+    font-weight: 600;
+}
+
+.tx-delta__badge {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.7rem;
+    padding: 0 5px;
+    border-radius: 3px;
+    border: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+}
+
+.tx-delta__badge--ok {
+    color: var(--ui-semantic-success);
+    border-color: var(--ui-semantic-success);
+}
+
+.tx-delta__badge--warn {
+    color: var(--ui-semantic-warning);
+    border-color: var(--ui-semantic-warning);
+}
+
+.tx-delta__badge--breach {
+    color: var(--ui-semantic-error);
+    border-color: var(--ui-semantic-error);
+    background: rgba(255, 107, 107, 0.08);
+}
+
+/* Only the rows the trade moved carry a tone — the eye goes to the
+ * consequence, not to the arithmetic. */
+.tx-delta__row--warn .tx-delta__after {
+    color: var(--ui-semantic-warning);
+}
+
+.tx-delta__row--breach .tx-delta__after {
+    color: var(--ui-semantic-error);
+}
+
+.tx-impact__foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 0.76rem;
+    color: var(--ui-text-disabled);
+    border-top: 1px solid var(--ui-border-default);
+    padding-top: 10px;
+}
+
+.tx-impact__foot .tx-btn {
+    margin-left: auto;
+}

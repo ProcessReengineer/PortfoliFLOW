@@ -39,7 +39,7 @@ ID never encodes the category, so it survives an item moving between buckets,
 splitting, or shipping. IDs were assigned once in old-category order (A-items, then
 B, then C, then D; by old number), and are never reused.
 
-**Next free ID:** `#067`.
+**Next free ID:** `#069`.
 
 > **`#044` is unissued and stays that way.** ADR-0102 was written against a next-free marker
 > of `#045` and refers to the attribution follow-up by that number in four places (§1,
@@ -910,8 +910,10 @@ beyond it. These are genuine product extensions, not migration close-out.
 | #055 | Scoped Settings & Credential Architecture (application / tenant / user) | in-progress (2026-08-03) | P2 | no | ADR-0112 (concept); ADR-0095 (input) |
 | #057 | Watchpoint Registry & Signal Families (Watch Desk configurability) | in-progress (2026-08-11) | P1 | no | ADR-0116; ADR-0115 (rename prerequisite) |
 | #059 | Voice Configurability (per-tenant voice credentials & settings) | open | P2 | no | ADR-0118; ADR-0112 (base); ADR-0076 (input) |
-| #061 | Transactions (trade tickets, record flow, ninth Area) | in-progress (2026-08-31) | P2 | no | ADR-0128, ADR-0129, ADR-0130 |
+| #061 | Transactions (trade tickets, record flow, ninth Area) | shipped (2026-09-08) | P2 | no | ADR-0128, ADR-0129, ADR-0130 |
 | #063 | Market-data trading-hours awareness | open | P2 | no | — (own concept decision at kickoff); commissioned by ADR-0125 §Consequences |
+| #067 | Provider channel Stage B — directory, relay, portal | in-progress (2026-09-08) | P2 | no | ADR-0129; decisions of record in `docs/concepts/provider-channel-stage-b-decisions.md` |
+| #068 | Tenant-local provider entries | open | P3 | no | ADR-0129 §1 "step 2" |
 
 ### #015 — Multi-User & Permissions
 
@@ -2074,7 +2076,7 @@ prompts**.
 ### #061 — Transactions (modelling and analysis of portfolio changes)
 
 - **Formerly:** — (new; raised 2026-08-16)
-- **Status:** in-progress (2026-08-31) — implementation running in
+- **Status:** shipped (2026-09-08) — implementation ran in
   operator-gated strands S1–S7 (Mission Control track)
 - **Priority:** P2
 - **Demo-path:** no
@@ -2130,6 +2132,11 @@ report (fast-follow register F-1…F-8, Stage B as a separate project,
 Stage C behind the legal-counsel gate) is pending; status moves on that
 report, not here.
 
+**Shipped 2026-09-08.** S1–S7 landed 2026-08-31→2026-09-08 on one
+migration (`b034`); full suite 4,904 passed at track close. Stage A of
+the provider channel (ADR-0129) shipped with S7; Stage B continues as
+#067.
+
 ---
 
 ### #063 — Market-data trading-hours awareness
@@ -2168,6 +2175,65 @@ boundary for the daily kinds.
 
 ---
 
+### #067 — Provider channel Stage B — directory, relay, portal
+
+- **Formerly:** — (new; raised 2026-09-08, out of the #061 track close)
+- **Status:** in-progress (2026-09-08)
+- **Priority:** P2
+- **Demo-path:** no
+- **ADR:** ADR-0129 (provider channel; Stage A shipped with #061 S7).
+  Decisions of record: `docs/concepts/provider-channel-stage-b-decisions.md`
+  (B-D-1…B-D-22)
+- **Dependencies:** #061 (Stage A — the versioned envelope/fill schemas, the
+  directory format v1 reader and the fail-closed publishing-key placeholder
+  this item fills)
+
+**The gap.** Stage A shipped the instance-side *contract* and nothing that
+speaks it: a signed directory format with no published document, a
+publishing-key placeholder that fails closed, and a pre-fill seam with no
+counterparty. A ticket still leaves the system by hand.
+
+**Scope.** The operated half of the provider channel: the **signed directory**
+published on portfoliflow.com, the **zero-knowledge relay**, the **provider
+portal**, the instance-side **arming** of the Stage-A contract, and the
+`engagements` object as the last and deliberately droppable strand (B-D-3).
+Built **directory-first**, with **B-1** as an operator hold point — B-1 carries
+the directory fetch and cache (B-D-13, B-D-15, B-D-17), the key ring (B-D-14),
+the `x25519-sealed-box` encrypted export (B-D-12) and the
+`provider_channel.enabled` setting (B-D-21). Operational posture, the
+publishing-key ceremony and the concept-chat sequence are recorded in the
+decisions document, §2, §3 and §5.
+
+**Explicitly out of scope.** Real providers — first publication carries **test
+providers only** (B-D-2, B-D-20), until the named successor **"Stage B.1 —
+first real providers"**. **No remuneration mechanics**: the Stage C commercial
+structure sits behind the legal-counsel gate (B-D-6). **Tenant-local provider
+entries** are #068 (B-D-11).
+
+---
+
+### #068 — Tenant-local provider entries
+
+- **Formerly:** — (new; raised 2026-09-08 alongside #067)
+- **Status:** open
+- **Priority:** P3
+- **Demo-path:** no
+- **ADR:** ADR-0129 §1 "step 2"
+- **Dependencies:** #067 (Stage B — the channel this would offer a second,
+  directory-less source of providers for)
+
+**The gap.** The Stage B directory is one publisher's document: a tenant that
+already works with a provider not in it has no way to address that provider
+through the channel.
+
+**Scope.** User-own provider lists maintained by the tenant itself, with **no
+directory involved** — which means the tenant must manage the provider's keys,
+and therefore **changes the trust model**: verification no longer rests on a
+signature from a single known publishing key. Named as **explicitly outside
+Stage B** (B-D-11) and kept a separate item for exactly that reason.
+
+---
+
 ## Shipped (record)
 
 A passive archive of completed items. This is not a backlog category; it keeps the two
@@ -2202,6 +2268,7 @@ active lists lean. Implementation detail for these items lives in their ADRs,
 | #052 | AGPL Public Release Track | 2026-08-16 | — |
 | #053 | UI Polish Pass (all eight Areas) | 2026-08-16 | — |
 | #054 | CI & Lint/Typecheck Hardening | 2026-08-16 | ADR-0109, ADR-0110 |
+| #061 | Transactions (trade tickets, record flow, ninth Area) | 2026-09-08 | ADR-0128, ADR-0129, ADR-0130 |
 
 ---
 
@@ -2302,3 +2369,4 @@ not renumbered.
 | 2026-07-17 | **Strand 3+4 closed — the Planning Desk is complete to the ADR-0104/0105 v1 horizon** (documentation-only pass; the strand's code landed `f30c3b7`…`d02d7e2`, 2026-07-14→17). Closure document: `docs/handover/strand-3plus4-adr-0104-0105-closure.md`, in the Strand-1/Strand-2 pattern. **Alembic head b030 unchanged — no migration anywhere in the strand.** Next free ADR **0106**; next free roadmap ID **#050**; E7 (hygiene items recorded ID-less) unchanged. **#034 → v1-scope shipped (2026-07-17), not closed.** The ADR-0104 Scenario Analysis slice is live as the Planning Desk's `scenario_analysis` section: the `market_shock` / `fx_shock` surfaces against the four-kind overlay contract (**no fifth kind**), results assembled **deltas-first over the existing engines** (§5), rendered as a baseline/scenario chart pair on **shared axes** with a ghost baseline, KPI deltas, and limit headroom; the server still holds no scenario state. **Demo-proven** — the live demo on the S34.5 state passed. Two shape decisions are on file: **`fx_shock` stays out of `_EXECUTORS` / `EXECUTABLE_KINDS`** (membership is not executability — it acts at the **conversion seam**, not on `PlanFrames`, so `partition_fx_shocks` routes it and the seam restates a shocked converter; a registered executor would have required putting the FX path *into* the frames), and **`SEAM_COLOUR` stays a shared chart-spec constant** imported from `cash_flow_timeline` and re-exported — the Strand-2 decision 4.13 / loose end 8.5 resolution, taken exactly as that loose end anticipated (`chart_theme.json` carries no semantic-status colours; promoting the amber is a wider theme-contract decision). **ADR-E stays commissioned-open** for the wider vision: timing regimes beyond immediate-t₀ (`market_shock` v1 is **level-shift, immediate-t₀ only**, strictly after the seam), rate/duration, spreads, default/recovery. **#023 → milestone note only; the item stays `open`.** ADR-0105 (the former **ADR-D**, Accepted 2026-07-14 *inside* the strand) discharged its commission for the **TA slice only**: **ephemeral** Takahashi–Alexander generation for **plan-less capital-account funds** at the plan-world seam, activating the pacing rows #049 shipped **disabled rather than hidden**. It **writes nothing** (trap-repository test), and is **never calibrated to reproduce an existing plan** (D18) — by construction, since the generator runs only where the remaining profile is empty. The strand's largest deviation is recorded verbatim in the closure (§4.5): **generated flows settle into `frames.cash_paths`, not only `plan_flows`** — the prompt's "they join `plan_flows`" would have made TA **invisible** (the cash lens renders `cash_paths`) *and* let re-pacing lift a call off a path where it was never set down, so `_settled` applies the **same** ADR-0103 §6 projection through the **same `add_step` primitive** the executors use; **one settlement rule, applied at the seam** rather than by the book-reading materialisation service (ADR-0105 §2's "no new settlement rule"). Its **accepted cost, as a deliberate v1 posture:** because **E4** forbids the offsetting NAV path, **Σ NAV falls for TA funds** — a generated call moves cash down with no NAV position moving up. The **forward limit forecast remains #023's open remainder** and is untouched. **#049 NOT flipped to Shipped — one operator dependency.** The `strand-2-adr-0104-closure.md` **§10 operator gates are still unfilled** (all four: S2.6 report, full-suite result, plan-data gate, demo smoke — each still `______`), as are its §6 rounding table and §3.17 / §4.1 items. A Shipped status not backed by recorded gate evidence would be the closure asserting what no one verified, so **#049 stays `open (#048 shipped)`** and the dependency is flagged here per the closure's §8. **Operator action:** fill the Strand-2 §10 placeholders, then flip #049. **One open documentation-duty item, recorded as an ID-less hygiene loose end (closure §6.1), deliberately not fixed in this pass:** ADR-0105 §15 requires the "moves flows / revalues, but asserts no offsetting NAV consequence" reader-note at every site a reader expects NAV to move. Three of four carry it — `execute_repace_flows`, `_with_ta_profiles`, and `execute_market_shock` as the deliberate **counter**-case (a shock *does* move NAV by design). The **chart assembly** (`services/chart_specs/scenario_impact.py`, and/or the Σ-NAV AUM tile in `services/planning_desk/scenario_results.py`) does **not**: it documents shared axes, ghost, seam, and identical-history but says nothing about Σ NAV *falling* for TA funds and deferred calls — which is the very surface where an operator *sees* the fall. **Docstring-only follow-up**, correctly separated from the closure. **Four deliberate remaining gaps** stand as chosen v1 boundaries (closure §7): richer shock timing (ADR-E), scenario **persistence** (reproducible from *(book, URL)*, not saved), **Shirley/Irene access** (TA is Planning-Desk-only by design — ephemeral, no book row a tool could read), and the **repace-NAV / TA-NAV successor** (one question, not two; reserved for a successor ADR). **S34.0 dropped** — its Telegram-bot test-isolation subject (Strand-2 loose end 8.1) had already landed as `669e370`. |
 | 2026-09-04 | **#061 Transactions moved `open` → `in-progress` (retroactive to the 2026-08-31 kickoff).** Concept fixed by ADR-0128 (trade-ticket object model, record flow, ninth Area) and ADR-0129 (provider channel; Stage A only, Stage C legal-gated); ADR-0130 exempted `investment_type='cash'` from the non-negativity guard on every service write path. Landed to date: `b034` (`trade_tickets`, `trade_ticket_effects`, RLS + audit triggers), `services/transactions/` (ticket service, emission engine, reversal with causes `modified`/`consumed`/`holdings_consumed`/`unrestorable`/`referenced_by_ticket`), the ninth Area (`transactions`, ADR-0128 §7, eight→nine reconciliation), and the S4a order composer (chooser, order form with three-state settlement block, read-only `TicketService.preview`, `InvestmentService.create_cash_position`). Status entry, ADR column and this row were written 2026-09-04, catching up on edits reported with the S3 docs commit but never saved. |
 | 2026-09-07 | **#061 Transactions — S4b…S7 landed; implementation complete, track closing report pending.** S4b new-instrument wizard over the gesture endpoints (`202c8cd`, 2026-09-04), S4c reported-flow surfaces — secondary-sale, commitment and secondary-purchase composers (`1296fa6`…`81fb80b`, 2026-09-05→06), S5 blotter body with a single resume GET and cancel-with-reason, history body with v1 filters, effects detail and reversal-with-reason, live negative-cash indicator on area and cash detail (`cde8fcf`…`79bc210`, 2026-09-07), S6 pre-trade impact panel on the blotter row (`9291fda`…`8390781`, 2026-09-07; `services/transactions/impact.py`, `GET /api/transactions/ticket/{id}/impact`, scenario-assembly seam pushed into `services/planning_desk/`), S7 ADR-0129 Stage A (`307f313`, 2026-09-07; `services/provider_channel/` — envelope/fill schemas v1, signed directory format v1 with Ed25519 per D-sig, fail-closed publishing-key placeholder, `fill_to_prefill` seam, contract tests C-1…C-4; **no service, no migration, no `scoped_settings` row per D-flag**; format documented in `docs/concepts/provider-directory-format.md`). Alembic head unchanged at `b034`. Status stays `in-progress` until Mission Control's track closing report; the `sent`/`acknowledged`/`executed` ticket states remain defined and unreachable. |
+| 2026-09-08 | **#061 Transactions shipped; provider-channel Stage B raised as #067 and tenant-local provider entries as #068; next free ID `#067` → `#069`.** **#061** moved `in-progress (2026-08-31)` → `shipped (2026-09-08)` (summary row, detail-block status and closing paragraph) and was added to the **Shipped** record: S1–S7 landed 2026-08-31→2026-09-08 on one migration (`b034`), full suite 4,904 passed at track close, Stage A of the provider channel (ADR-0129) shipped with S7. **#067 Provider channel Stage B — directory, relay, portal** (Features, P2, `in-progress (2026-09-08)`, ADR-0129): the operated half — signed directory on portfoliflow.com, zero-knowledge relay, provider portal, instance-side arming and the `engagements` object as the last, droppable strand; test providers only until the named successor "Stage B.1 — first real providers"; no remuneration mechanics (Stage C is legal-gated); built directory-first with B-1 as an operator hold point. **#068 Tenant-local provider entries** (Features, P3, open, ADR-0129 §1 "step 2"): user-own provider lists needing tenant key management, changing the trust model with no directory involved; explicitly outside Stage B. The Stage B decisions of record **B-D-1…B-D-22** live in `docs/concepts/provider-channel-stage-b-decisions.md` — B-D-12…B-D-22 were added the same day, closing the B-1 concept share. **Mission Control for Stage B opened 2026-09-08.** |

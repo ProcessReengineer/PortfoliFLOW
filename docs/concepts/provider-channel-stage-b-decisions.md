@@ -186,6 +186,141 @@ separate `stage-b-operations.md` in `pinkernelle-infrastructure`.
   API (ADR-0129 commissions, unchanged).
 - Stage C commercial structure — after counsel (B-D-6).
 
+### B-D-12 · Sealed box and encrypted export ship in B-1 (pause point 1, C-9)
+
+The B-1 milestone includes the `x25519-sealed-box` implementation on the
+instance and an **export gesture** on the blotter row: the user chooses a
+provider from the verified directory and downloads the ticket as a sealed-box
+ciphertext for that provider's `encryption_public_key`, to be sent outside
+the system; the return path stays manual (ADR-0128 booking flows).
+**Dependency decision (operator-gated, taken here): `pynacl` becomes a
+runtime dependency in B-1.** A libsodium-compatible sealed box (X25519 +
+XSalsa20-Poly1305) cannot be built on `cryptography` alone (no XSalsa20), and
+the portal will decrypt with libsodium.js — compatibility by construction is
+the point. The implementation lives in `services/provider_channel/` (pure,
+DB-free); the C-2 import-isolation contract gains `nacl` as the only new
+permitted import. The MB-1 mockup must place the export gesture so that the
+B-2 "Send" gesture fits beside it without re-opening A-13 ("two buttons, not
+a menu").
+
+*Addendum to B-D-1 (2026-09-08):* the milestone sentence "the
+encrypted-export degradation path works" is understood as defined here;
+Stage A had neither encryption nor an export — what worked before Stage B
+was manual booking only.
+
+### B-D-13 · Directory cache is a file under `DATA_DIR`; no table; no learned successor (C-1)
+
+The verified directory is cached as files under `DATA_DIR`
+(`core/config.py` `data_dir`, default `data`): canonical bytes, detached
+signature, and a small metadata file (`directory_version`,
+`publishing_key_id`, `fetched_at`, ETag). The cache is **instance-wide**
+(one publisher, one document; not tenant data). No database table is
+created for it, so **`engagements` keeps migration `b035`** (B-D-3
+unchanged). A `successor_key` announcement is **never persisted** and never
+used for verification (see B-D-14); publishing-key rotation happens
+exclusively through a code release. Consequence accepted: replacing the host
+without carrying `DATA_DIR` loses the downgrade baseline until the next
+successful fetch.
+
+### B-D-14 · Key ring from code only; successor announcements are a notice (C-3)
+
+`services/provider_channel/publishing_key.py` holds the key ring
+`{publishing_key_id → public key}`: the current key and, once minted and
+released, its successor. The instance reads `publishing_key_id` from the
+still-unverified document, looks it up in the ring, and passes **that one
+key** to `verify_directory`; an unknown id refuses the document (cache
+kept). `verify_directory` itself is not changed. When a *verified* document
+announces a `successor_key` whose id is not in the ring, the provenance line
+shows a notice ("successor key announced from <valid_from>; client update
+required before <valid_until>"). Ceremony rule that follows: mint the
+successor → release it in the ring → announce it in the directory → switch
+signing no earlier than one validity window later (B-D-16).
+
+### B-D-15 · Version acceptance is strictly monotonic (C-4)
+
+Relative to the cached `directory_version`: **higher** → verify and replace
+the cache; **equal and byte-identical** → "unchanged", update `fetched_at`
+only; **equal with different bytes** → refuse, keep cache, distinct notice
+("version n was re-published without a version bump"); **lower** → refuse,
+keep cache, notice ("server serves version n, cached is n+k"). Every
+publication, including a typo fix, bumps `directory_version` (format doc
+§9).
+
+### B-D-16 · Directory validity: 90 days, re-signed at least every 60 (C-7)
+
+`valid_until` = `issued_at` + 90 days; re-sign and re-publish at least
+every 60 days (calendar rule in `stage-b-operations.md`). The
+publishing-key rotation overlap is at least one validity window. The window
+is a document value, not a format parameter; it may be tightened for Stage
+B.1 without code changes.
+
+### B-D-17 · Fetch cadence (C-2)
+
+The instance fetches on enable, on a manual "refresh" gesture, and in the
+background at most **once per 24 hours**, conditionally (`If-None-Match`
+against the ETag); never while the channel is disabled. Every fetch degrades
+on timeout or refusal to the cached document. The background timer built in
+B-1 is responsible for the directory only; the B-2 relay poll reuses the
+mechanism.
+
+### B-D-18 · No forward-compatible reader (C-5)
+
+The v1 reader stays strict. A future format bump ships in a release that
+reads the new version, and the operator publishes v1 and v2 documents in
+parallel (`/directory/v1/`, `/directory/v2/`) for at least one validity
+window (operational rule in `stage-b-operations.md`). Client behaviour on an
+unknown version is as in §4: keep the cache, show "client update required".
+
+### B-D-19 · Publishing-key id scheme (C-6)
+
+`portfoliflow-YYYY-MM`: the current key carries its minting month, the
+successor its planned `valid_from` month (format doc §10 convention).
+`valid_from` remains authoritative; the id is a label.
+
+### B-D-20 · Test-provider keys and entries (C-8)
+
+The ceremony mints one X25519 key pair per test provider **offline**
+(`cryptography` suffices for key generation); private halves are held like
+the publishing key and never enter any repository. Repository tests use
+throwaway keys they generate themselves; the proof "export against the
+deployed directory decrypts" is an **operator walk** with the private
+test-provider key, not a test in the repository. B-3 replaces these keys
+with browser-generated ones by an ordinary `directory_version` bump. First
+publication carries **two** entries: `test-broker-01`
+(`[TEST] Example Broker Desk`, `broker`, `ticket_kinds: ["order"]`, no
+engagement category) and `test-secondary-01`
+(`[TEST] Example Secondary Desk`, `secondary_desk`,
+`ticket_kinds: ["secondary", "commitment"]`,
+`engagement_categories: ["second_opinion"]`). The `asset_classes` strings
+the filter matches against are a verify-first item for the filter strand
+(source: the instance's own constants, by grep).
+
+### B-D-21 · `provider_channel.enabled` is a B-1 deliverable (C-10)
+
+Because the instance fetches only when enabled (§4) and B-1 already has a
+background fetch (B-D-17) and an export gesture (B-D-12), the setting ships
+**inside B-1**, before filter and export: annex ADR **0131** (verified at
+writing time) in the ADR-0118/0123 pattern —
+`ProviderField(name="provider_channel", is_secret=False, scopes=_TENANT)`,
+config-only, owner action, off by default. The C-2 import-isolation test
+stays green through B-1 (fetch, filter and export import nothing from the
+ticket world); its conscious renegotiation remains a B-2 item. Note recorded:
+the setting is tenant-scoped while the cache (B-D-13) is instance-wide —
+disabling stops the tenant's timer and surfaces, not the file.
+
+### B-D-22 · `ENGAGEMENT_CATEGORIES` v1 is final for first publication
+
+advisory / legal / fund_selection / second_opinion / other — unchanged
+until Stage B.1 at the earliest; extension is a format bump (§9).
+
+### Pause point 1 closed (2026-09-08)
+
+B-D-12…B-D-22 close the B-1 concept share (record §5, "B-1"). Naming used by
+Mission Control from here on: build strands **SB-n**, implementation
+prompts **PB-na**, docs prompts **PB-Dn**, mockups **MB-n**. The `httpx`
+verify-first item in §5 B-1 is closed: `httpx>=0.27` is already a runtime
+dependency; `pytest-httpx` is available in the dev extras.
+
 ---
 
 ## 2. Operational posture (B-D-4)
@@ -349,16 +484,19 @@ here as B-D entries.
 
 ## 7. Coordinates (verified 2026-09-08, post-S7 Repomix, head `b034`)
 
-Alembic head `b034` (next instance-side migration takes `b035`). Next free
-ADR **0131** (verify at writing time). Version constants all `= 1`
-(envelope, fill, directory format); first publication stays on v1
-(B-D-2). Roadmap #061 `shipped (2026-09-08)` pending operator close-out;
-Stage B raised as its own item, "step 2" as a separate successor item.
+Alembic head `b034` (next instance-side migration takes `b035` — reserved for
+`engagements`, B-D-3/B-D-13). Next free ADR **0131** (verify at writing
+time; expected for the `provider_channel.enabled` annex, B-D-21). Version
+constants all `= 1` (envelope, fill, directory format); first publication
+stays on v1 (B-D-2). Runtime dependencies: `httpx` present; `pynacl` decided
+for B-1 (B-D-12). Roadmap #061 `shipped (2026-09-08)`; Stage B is #067,
+tenant-local provider entries #068 (PB-D1).
 
 ## 8. Operator actions to open Stage B
 
-1. Commit this record to `docs/concepts/provider-channel-stage-b-decisions.md`
-   (via a docs prompt, per §6).
+1. ~~Commit this record to `docs/concepts/provider-channel-stage-b-decisions.md`
+   (via a docs prompt, per §6).~~ — done 2026-09-08 (record placed by the
+   operator; addenda B-D-12…B-D-22 via PB-D1).
 2. Roadmap: close #061; raise the Stage B item and the "tenant-local
    provider entries" successor item (B-D-9/11).
 3. Create the private `portfoliflow-network` repository; add the

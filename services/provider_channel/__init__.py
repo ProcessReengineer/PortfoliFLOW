@@ -83,6 +83,9 @@ from services.provider_channel.publishing_key import (
     PUBLISHING_KEY,
     PUBLISHING_KEY_ID,
     PUBLISHING_KEY_PLACEHOLDER,
+    PUBLISHING_KEY_RING,
+    SUCCESSOR_KEY,
+    SUCCESSOR_KEY_ID,
     is_placeholder,
 )
 from services.provider_channel.schemas import (
@@ -127,7 +130,10 @@ __all__ = [
     "PUBLISHING_KEY",
     "PUBLISHING_KEY_ID",
     "PUBLISHING_KEY_PLACEHOLDER",
+    "PUBLISHING_KEY_RING",
     "SIGNATURE_SCHEME_ED25519",
+    "SUCCESSOR_KEY",
+    "SUCCESSOR_KEY_ID",
     "SUPPORTED_ENCRYPTION_KEY_TYPES",
     "SUPPORTED_SIGNATURE_SCHEMES",
     "Directory",

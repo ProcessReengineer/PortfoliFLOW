@@ -10,18 +10,22 @@ bytes, unreadable format, unsupported scheme, bad signature, stale window,
 bad shape — because a gate that fails for the wrong reason is a gate whose
 logs cannot be trusted either.
 
-The key pair is generated per module run: no key material is committed, and
+The ad-hoc key pair is generated per module run. Since SB-1 the module also
+exercises the *shipped* publishing key against the first published document
+in ``fixtures/`` — public key material and a signature, never a private key:
 the production private key never lives in this repository.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
+from pathlib import Path
 from typing import Final
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from services.provider_channel.directory import (
     DIRECTORY_FORMAT_VERSION,
@@ -40,7 +44,15 @@ from services.provider_channel.directory import (
     sign_directory,
     verify_directory,
 )
-from services.provider_channel.publishing_key import PUBLISHING_KEY, is_placeholder
+from services.provider_channel.publishing_key import (
+    PUBLISHING_KEY,
+    PUBLISHING_KEY_ID,
+    PUBLISHING_KEY_PLACEHOLDER,
+    PUBLISHING_KEY_RING,
+    SUCCESSOR_KEY,
+    SUCCESSOR_KEY_ID,
+    is_placeholder,
+)
 
 _SIGNING_KEY: Final[Ed25519PrivateKey] = Ed25519PrivateKey.generate()
 _PRIVATE_BYTES: Final[bytes] = _SIGNING_KEY.private_bytes_raw()
@@ -51,6 +63,14 @@ _OTHER_PUBLIC_BYTES: Final[bytes] = _OTHER_KEY.public_key().public_bytes_raw()
 
 #: Injected rather than read from a clock (D-clock).
 _NOW: Final[date] = date(2026, 9, 7)
+
+#: The first published directory, as the signing tool wrote it (2026-09-10).
+_FIXTURES: Final[Path] = Path(__file__).parent / "fixtures"
+
+#: One day after the fixture's ``issued_at``, so the real-key tests judge it
+#: from inside its window. ``_NOW`` above predates the publication and would
+#: fail closed against it; ``date.today()`` would make the suite expire.
+_REAL_KEY_NOW: Final[date] = date(2026, 9, 11)
 
 _HEX_A: Final[str] = "a" * 64
 _HEX_B: Final[str] = "b" * 64
@@ -103,6 +123,28 @@ def _verify(
     """Sign ``document`` with the module key and verify it."""
     payload, signature = sign_directory(document, private_key=_PRIVATE_BYTES)
     return verify_directory(payload, signature, publishing_key=publishing_key, now=now)
+
+
+def _load_fixture() -> tuple[bytes, bytes]:
+    """Return the published document bytes and its detached signature.
+
+    The document is read as **bytes**: it is the canonical byte string the
+    signature covers, and re-encoding it through ``json`` would check a
+    spelling nobody published. The ``.sig`` encoding is B-D-23 — 128 lowercase
+    hex characters followed by exactly one newline — and it is decoded
+    strictly rather than with a forgiving ``.strip()``, because a signature
+    that only verifies after the reader tidies it up is not the signature the
+    operator published.
+
+    Returns:
+        ``(document_bytes, signature)``, ready for :func:`verify_directory`.
+    """
+    payload = (_FIXTURES / "directory-1.json").read_bytes()
+    raw = (_FIXTURES / "directory-1.sig").read_bytes()
+    assert raw.endswith(b"\n"), "the published signature ends with exactly one newline"
+    hex_text = raw[:-1].decode("ascii")
+    assert len(hex_text) == 128, f"expected 128 hex characters, got {len(hex_text)}"
+    return payload, bytes.fromhex(hex_text)
 
 
 # ---------------------------------------------------------------------------
@@ -350,32 +392,119 @@ def test_unknown_key_in_a_provider_entry_is_refused() -> None:
 
 
 # ---------------------------------------------------------------------------
-# D-10: the placeholder tripwire
+# D-10 / OP-30: the shipped key ring, and the placeholder as sentinel
 # ---------------------------------------------------------------------------
 
 
-def test_placeholder_publishing_key_fails_closed() -> None:
-    """D-10: nothing verifies against the un-minted key, however well signed.
+def test_shipped_publishing_key_is_real_and_the_placeholder_still_fails_closed() -> None:
+    """SB-1 flipped the Stage A tripwire (OP-30); the placeholder value remains
+    the fail-closed sentinel.
 
-    This test is a tripwire. It turns red the day the real publishing key
-    replaces the placeholder in
-    :mod:`services.provider_channel.publishing_key`, which is intended: flip
-    these assertions then, and add a test that the real key verifies a real
-    document.
+    Two claims in one test because they are one claim: the module ships a real
+    key *and* has not thereby lost the guard that refuses an un-minted one.
     """
+    assert is_placeholder(PUBLISHING_KEY) is False
+    assert is_placeholder(SUCCESSOR_KEY) is False
+    assert len(PUBLISHING_KEY) == 32
+    assert len(SUCCESSOR_KEY) == 32
+    assert PUBLISHING_KEY != SUCCESSOR_KEY
+
+    # B-D-19: portfoliflow-YYYY-MM, the minting month.
+    assert re.fullmatch(r"portfoliflow-\d{4}-\d{2}", PUBLISHING_KEY_ID)
+    assert re.fullmatch(r"portfoliflow-\d{4}-\d{2}", SUCCESSOR_KEY_ID)
+
+    assert PUBLISHING_KEY_RING == {
+        PUBLISHING_KEY_ID: PUBLISHING_KEY,
+        SUCCESSOR_KEY_ID: SUCCESSOR_KEY,
+    }
+    # The ring is the root of trust: a caller must not be able to add a key to
+    # it at runtime, which is what makes "rotation is a code release" (B-D-14)
+    # a property of the build rather than a convention.
+    with pytest.raises(TypeError):
+        PUBLISHING_KEY_RING[SUCCESSOR_KEY_ID] = PUBLISHING_KEY
+
     payload, signature = sign_directory(_document(), private_key=_PRIVATE_BYTES)
     with pytest.raises(PublishingKeyNotConfigured) as excinfo:
-        verify_directory(payload, signature, publishing_key=PUBLISHING_KEY, now=_NOW)
+        verify_directory(payload, signature, publishing_key=PUBLISHING_KEY_PLACEHOLDER, now=_NOW)
     assert "placeholder" in str(excinfo.value)
 
-    assert is_placeholder(PUBLISHING_KEY) is True
+    assert is_placeholder(PUBLISHING_KEY_PLACEHOLDER) is True
     assert is_placeholder(_PUBLIC_BYTES) is False
 
 
 def test_placeholder_is_refused_before_the_document_is_read() -> None:
     """D-10: the key check precedes every other check — even unparseable bytes."""
     with pytest.raises(PublishingKeyNotConfigured):
-        verify_directory(b"not json at all", b"", publishing_key=PUBLISHING_KEY, now=_NOW)
+        verify_directory(
+            b"not json at all", b"", publishing_key=PUBLISHING_KEY_PLACEHOLDER, now=_NOW
+        )
+
+
+# ---------------------------------------------------------------------------
+# SB-1: the shipped key against the first published directory
+# ---------------------------------------------------------------------------
+
+
+def test_real_key_verifies_the_first_published_directory() -> None:
+    """The shipped key verifies the document the operator actually published.
+
+    This is the end of the chain the ceremony builds: an offline key, a
+    signing run, two files on portfoliflow.com, and this constant. Checking
+    them against each other here means a key substituted in this repository —
+    the attack ADR-0129 §2 names — cannot pass CI silently.
+    """
+    payload, signature = _load_fixture()
+
+    directory = verify_directory(
+        payload, signature, publishing_key=PUBLISHING_KEY, now=_REAL_KEY_NOW
+    )
+
+    assert directory.directory_version == 1
+    assert directory.publishing_key_id == PUBLISHING_KEY_ID
+
+    # The successor announcement (B-D-14) names the key already in the ring;
+    # the dataclass stores it as hex, not bytes.
+    assert directory.successor_key is not None
+    assert directory.successor_key.publishing_key_id == SUCCESSOR_KEY_ID
+    assert directory.successor_key.public_key == SUCCESSOR_KEY.hex()
+
+    assert {entry.provider_id for entry in directory.providers} == {
+        "test-broker-01",
+        "test-secondary-01",
+    }
+    # B-D-2: the first publication carries test entries, marked by name alone.
+    for entry in directory.providers:
+        assert entry.display_name.startswith("[TEST] ")
+
+
+def test_real_key_refuses_a_document_signed_by_another_key() -> None:
+    """The right bytes signed by the wrong key are still refused.
+
+    The published document is not a secret, so an attacker's problem is never
+    obtaining it — only signing it. This pins that having the bytes buys
+    nothing.
+    """
+    payload, _ = _load_fixture()
+    forged_payload, forged_signature = sign_directory(
+        json.loads(payload), private_key=_PRIVATE_BYTES
+    )
+    assert forged_payload == payload, "the fixture is canonical: same bytes, other key"
+
+    with pytest.raises(InvalidDirectorySignature):
+        verify_directory(
+            payload, forged_signature, publishing_key=PUBLISHING_KEY, now=_REAL_KEY_NOW
+        )
+
+
+@pytest.mark.parametrize("key_id", sorted(PUBLISHING_KEY_RING))
+def test_ring_keys_are_valid_ed25519_public_keys(key_id: str) -> None:
+    """Every ring entry is a loadable Ed25519 public key.
+
+    Only that. When each key becomes acceptable — the overlap rule around a
+    successor's ``valid_from`` — is SB-3's question, not this one's.
+    """
+    key = PUBLISHING_KEY_RING[key_id]
+    assert Ed25519PublicKey.from_public_bytes(key).public_bytes_raw() == key
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,11 @@
 # Provider Channel — Stage B Decision Record
 
-- **Status:** Decisions of record (operator-decided 2026-09-08); *Proposed*
+- **Status:** Decisions of record (operator-decided 2026-09-08; B-D-23/B-D-24 and addenda 2026-09-10); *Proposed*
   items are marked as such
 - **Date:** 2026-09-08 · **Decider:** PortfoliFLOW project owner
 - **Seeded by:** Stage B handover from the Transactions (#061) track
   (Mission Control, 2026-09-08)
-- **Governs:** the Stage B concept chats B-1/B-2/B-3 and the Stage B build
+- **Governs:** the Stage B concept chats B-1/B-2/B-3 and the Stage B build and Mission Control Stage B (chats 1–3)
 - **Governed by:** ADR-0129 (frame; §2 inheritance is binding, versionable
   only), ADR-0128 (status seam), ADR-0107 (red line), ADR-0108 (AGPL
   split), `docs/concepts/provider-directory-format.md` (format v1)
@@ -131,6 +131,15 @@ operator's own judgement for now (B-D-2 marking plus the UI note).
 The production private key never lives in any repository (ADR-0129 Stage A
 `sign_directory` docstring).
 
+- *Addendum 2026-09-09:* `pinkernelle-infrastructure` is a **local-only git
+  repository with no remote**, by decision; its backup is a `git bundle` to
+  a second medium after every signing run and every site change. Mission
+  Control artefacts (boards, issued prompts) are kept by the operator
+  outside the AGPL repository. The signing tool's Python convention: the
+  environment variable `PORTFOLIFLOW_SRC` points at this AGPL checkout and
+  the tool runs with that checkout's `.venv/bin/python`; there is no second
+  `pyproject.toml`.
+
 ### B-D-8 · This record's location and split
 
 This file lives in the AGPL repository under `docs/concepts/`. It holds
@@ -175,6 +184,15 @@ separate `stage-b-operations.md` in `pinkernelle-infrastructure`.
   not only the snapshot.
 - *Addendum 2026-09-08:* supersedes the earlier "MC opens at the build
   kickoff, after the concept chats" wording of this decision.
+- *Addendum 2026-09-10:* supersedes "B-2 and B-3 are concept pause points
+  inside Mission Control … No separate concept chats are opened" above.
+  For the remainder of B-1 the Mission Control chat writes the build and
+  docs prompts itself (MB-1 stays an in-chat pause point). **From B-2 on,
+  the Mission Control chat only sets scope and keeps board and record; each
+  strand (B-2, B-3) gets its own daughter chat** that does the concept
+  work, produces the Claude Code prompts, and returns a closing report to
+  Mission Control. Rationale: B-1's remaining strands are fully decided
+  and mechanical; B-2 and B-3 each carry several concept rounds.
 
 ### B-D-11 · Out of scope for Stage B (named successors)
 
@@ -235,6 +253,13 @@ shows a notice ("successor key announced from <valid_from>; client update
 required before <valid_until>"). Ceremony rule that follows: mint the
 successor → release it in the ring → announce it in the directory → switch
 signing no earlier than one validity window later (B-D-16).
+
+- *Addendum 2026-09-10:* delivered by SB-1 — `PUBLISHING_KEY_RING` in
+  `services/provider_channel/publishing_key.py` holds `portfoliflow-2026-09`
+  (current) and `portfoliflow-2027-01` (successor, `valid_from`
+  2027-01-01). Because the successor is already in the ring, rotation day
+  needs no client release. §3 item 5 (learned successor) is superseded by
+  this decision.
 
 ### B-D-15 · Version acceptance is strictly monotonic (C-4)
 
@@ -313,6 +338,31 @@ disabling stops the tenant's timer and surfaces, not the file.
 advisory / legal / fund_selection / second_opinion / other — unchanged
 until Stage B.1 at the earliest; extension is a format bump (§9).
 
+### B-D-23 · `.sig` file encoding (adopted 2026-09-09, ratified here)
+
+The detached signature is published as a separate file beside the
+document: the 64-byte Ed25519 signature as **128 lowercase hex characters
+followed by exactly one LF** (129 bytes). Served with
+`Content-Type: text/plain`; the document with `application/json`; both
+under `Cache-Control: no-cache` with an ETag. Readers decode strictly —
+no `.strip()`, no case folding: a signature that only verifies after the
+reader tidies it is not the signature the operator published. Web path:
+`https://portfoliflow.com/directory/v1/{directory.json, directory.sig,
+directory-<n>.json, directory-<n>.sig}`. Reference implementation of the
+reader: `_load_fixture` in `tests/services/provider_channel/test_directory.py`;
+of the writer: `sign` in the infra signing tool.
+
+### B-D-24 · First publication ships with the next PortfoliFLOW release (2026-09-10)
+
+`directory_version 1` was signed on 2026-09-10 (`issued_at 2026-09-10`,
+`valid_until 2026-12-09`, SHA-256 `c1383c4f…ec83`, test providers only per
+B-D-2/B-D-20) and is committed in the infra repository, but it is **not
+published until the next PortfoliFLOW release**. Publication gates
+**SB-3b only** (the fetch client's report verifies against the deployed
+directory); PB-D2, SB-3a and the infra hardening strands do not wait for
+it. Calendar consequences (B-D-16): re-sign `directory_version 2` by
+**2026-11-09**; rotate to the successor on **2027-01-01**.
+
 ### Pause point 1 closed (2026-09-08)
 
 B-D-12…B-D-22 close the B-1 concept share (record §5, "B-1"). Naming used by
@@ -320,6 +370,29 @@ Mission Control from here on: build strands **SB-n**, implementation
 prompts **PB-na**, docs prompts **PB-Dn**, mockups **MB-n**. The `httpx`
 verify-first item in §5 B-1 is closed: `httpx>=0.27` is already a runtime
 dependency; `pytest-httpx` is available in the dev extras.
+
+### Tool-level decisions D-SB2-1…16 (infra repository, by reference)
+
+Decisions about the signing/verify tool and the deploy path are recorded
+in the private infra repository's reports and are binding there:
+`docs/reports/PB-2a-report.md` (D-SB2-1…12) and
+`docs/reports/PB-2b-report.md` (D-SB2-13). Those that touch this
+repository's contract:
+
+- **D-SB2-13** — a header regression on a document whose signature
+  verified is a *deployment* finding, not a *trust* finding: warning line,
+  exit 0; `--strict` turns warnings into exit 1 for cron. Document-level
+  findings stay exit 1.
+- **D-SB2-14** *(proposed → PB-2c)* — the tool's `verify` resolves the key
+  by the document's `publishing_key_id` from `PUBLISHING_KEY_RING`
+  (SB-1) and cross-checks the hex against its own `PUBLISHING_KEYS`
+  mirror; `--public-key` becomes an optional override.
+- **D-SB2-15** *(proposed → PB-2c)* — `check_source` refuses a source whose
+  `issued_at` lies in the future relative to the judging day (PB-2b OQ-1).
+- **D-SB2-16** *(proposed → PB-2c)* — under `--strict`, the re-sign
+  reminder (fewer than 30 days of validity left) also fails the run; the
+  reminder window opens on day 60, which is exactly the B-D-16 re-sign
+  deadline (PB-2b OQ-3).
 
 ---
 
@@ -395,6 +468,14 @@ ceremony is cheap before first publication and expensive after it.
 6. **Sign locally, ship the signature beside the document** (format v1:
    the signature never lives inside the signed JSON; canonical bytes are
    enforced, not documented).
+
+*Status 2026-09-10:* items 1, 3, 4 and 6 executed (ceremony 2026-09-09;
+public halves in `publishing_key.py`, SB-1; successor announced in
+`directory_version 1`). Item 2's "encrypted, two separate media" step is
+**still open** — the private halves exist and are held per
+`stage-b-operations.md`, but not yet in the form item 2 requires; tracked
+there as an operator action. Item 5 is superseded by B-D-14 (no learned
+successor; the ring is code).
 
 ---
 
@@ -480,30 +561,59 @@ are typed by a docs *prompt*, never left to manual editing (track lesson
 OP-08/14/16). Dependency additions are operator-gated decisions recorded
 here as B-D entries.
 
+Stage B additions (2026-09-10): a test that judges a *dated* document
+derives its dates from the document, never from the prompt or a literal —
+two PB-2a tests with hard-coded dates rotted the day the source was
+re-dated (PB-2b §1). A report's `N passed` is dated; re-check it against
+the tree before planning on it. Secrets move file-to-file, never through
+a screen, a chat or a prompt. From first publication on, SB-3b and every
+later report verifies against the deployed directory, not only the
+snapshot.
+
 ---
 
-## 7. Coordinates (verified 2026-09-08, post-S7 Repomix, head `b034`)
+## 7. Coordinates (verified 2026-09-10, post-SB-1 Repomix, head `b034`)
 
-Alembic head `b034` (next instance-side migration takes `b035` — reserved for
-`engagements`, B-D-3/B-D-13). Next free ADR **0131** (verify at writing
-time; expected for the `provider_channel.enabled` annex, B-D-21). Version
-constants all `= 1` (envelope, fill, directory format); first publication
-stays on v1 (B-D-2). Runtime dependencies: `httpx` present; `pynacl` decided
-for B-1 (B-D-12). Roadmap #061 `shipped (2026-09-08)`; Stage B is #067,
-tenant-local provider entries #068 (PB-D1).
+Alembic head `b034` (next instance-side migration takes `b035` — reserved
+for `engagements`, B-D-3/B-D-13; the directory cache is a file, B-D-13).
+Next free ADR **0131** (verify at writing time; expected for the
+`provider_channel.enabled` annex, B-D-21). Next free roadmap number
+**#069**. Version constants all `= 1` (envelope, fill, directory format);
+first publication stays on v1 (B-D-2). Runtime dependencies: `httpx>=0.27`
+and `cryptography>=42` present; `pytest-httpx` in the dev extras; `pynacl`
+decided for B-1 (B-D-12) but **absent until SB-5**. Key ring (SB-1):
+`PUBLISHING_KEY`, `PUBLISHING_KEY_ID`, `SUCCESSOR_KEY`, `SUCCESSOR_KEY_ID`,
+`PUBLISHING_KEY_RING`, `PUBLISHING_KEY_PLACEHOLDER`, `is_placeholder` in
+`services/provider_channel/publishing_key.py`; `verify_directory(document_bytes,
+signature, *, publishing_key: bytes, now: date)` unchanged. Fixtures:
+`tests/services/provider_channel/fixtures/directory-1.json` (1,180 B,
+SHA-256 `c1383c4f…ec83`) and `directory-1.sig` (129 B). Provider-channel
+suite 85 tests; `test_contract.py` 22, unchanged by Stage B. Reports live
+in `docs/reports/`. Roadmap #061 `shipped (2026-09-08)`; Stage B is #067
+`in-progress`, tenant-local provider entries #068 `open`.
 
 ## 8. Operator actions to open Stage B
 
 1. ~~Commit this record to `docs/concepts/provider-channel-stage-b-decisions.md`
    (via a docs prompt, per §6).~~ — done 2026-09-08 (record placed by the
    operator; addenda B-D-12…B-D-22 via PB-D1).
-2. Roadmap: close #061; raise the Stage B item and the "tenant-local
-   provider entries" successor item (B-D-9/11).
+2. ~~Roadmap: close #061; raise the Stage B item and the "tenant-local
+   provider entries" successor item (B-D-9/11).~~ — done 2026-09-08 (#061
+   shipped; #067, #068 via PB-D1).
 3. Create the private `portfoliflow-network` repository; add the
    `directory/` source folder and signing tool to
-   `pinkernelle-infrastructure` (B-D-7).
-4. Open **Mission Control for Stage B** (B-D-10) with: this record, the
+   `pinkernelle-infrastructure` (B-D-7). — `pinkernelle-infrastructure` part
+   done 2026-09-09 (PB-2a). `portfoliflow-network` is
+   **not needed before B-2**; create it when B-2's daughter chat opens
+   (B-D-10 addendum).
+4. ~~Open **Mission Control for Stage B** (B-D-10) with: this record, the
    Stage B handover, ADR-0129, ADR-0128,
    `docs/concepts/provider-directory-format.md`, and a fresh Repomix
    image. Its first pause point is the B-1 concept share; its first
-   action after that is the key ceremony (§3).
+   action after that is the key ceremony (§3).~~ — done 2026-09-08; pause
+   point 1 closed the same day; ceremony 2026-09-09; SB-1 committed
+   2026-09-10.
+5. **Publish `directory_version 1` with the next release** (B-D-24): deploy
+   the signed pair from the infra repository, then verify against
+   `https://portfoliflow.com/directory/v1/` with the tool in `--strict`
+   mode; only then cut SB-3b.

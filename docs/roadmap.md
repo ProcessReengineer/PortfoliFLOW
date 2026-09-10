@@ -2183,7 +2183,7 @@ boundary for the daily kinds.
 - **Demo-path:** no
 - **ADR:** ADR-0129 (provider channel; Stage A shipped with #061 S7).
   Decisions of record: `docs/concepts/provider-channel-stage-b-decisions.md`
-  (B-D-1…B-D-22)
+  (B-D-1…B-D-24)
 - **Dependencies:** #061 (Stage A — the versioned envelope/fill schemas, the
   directory format v1 reader and the fail-closed publishing-key placeholder
   this item fills)
@@ -2209,6 +2209,18 @@ providers only** (B-D-2, B-D-20), until the named successor **"Stage B.1 —
 first real providers"**. **No remuneration mechanics**: the Stage C commercial
 structure sits behind the legal-counsel gate (B-D-6). **Tenant-local provider
 entries** are #068 (B-D-11).
+
+**Progress (2026-09-10).** B-1 build strands: **SB-1 shipped** — the real
+publishing-key ring (`portfoliflow-2026-09`, successor `portfoliflow-2027-01`)
+replaced the fail-closed placeholder, the OP-30 tripwire flipped, and the
+first published directory is a test fixture (`docs/reports/PB-1a-report.md`).
+**SB-2 done** in the infrastructure repository — signing tool with `sign`
+and `verify` (incl. deployment warnings, `--strict`), Caddy headers, deploy
+script; `directory_version 1` signed 2026-09-10, valid to 2026-12-09, test
+providers only. **Publication is deferred to the next release** (B-D-24).
+Next: SB-3a (key-ring selection wrapper), then SB-3b (fetch/cache client,
+gated on publication), MB-1, SB-4 (ADR-0131 annex), SB-5 (`pynacl`,
+sealed box), SB-6 (suggestion filter, export), B-1 milestone review.
 
 ---
 

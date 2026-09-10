@@ -124,6 +124,11 @@ which is where signature-inside-the-payload formats habitually go wrong.
   `verify_directory` as raw bytes; keys *inside* a document
   (`successor_key.public_key`, `encryption_public_key`) are 64 hex
   characters.
+* **Signature file encoding (Stage B, B-D-23).** On the wire the detached
+  signature is a separate file: 128 lowercase hex characters + one LF
+  (129 bytes), `Content-Type: text/plain`; the document is served as
+  `application/json`. Decode strictly — no whitespace tolerance, no case
+  folding. See `docs/concepts/provider-channel-stage-b-decisions.md` B-D-23.
 * **`publishing_key_id`.** Names the key that signed this document, so a
   client holding several keys during a rotation knows which to try.
 * **Successor-key announcement.** Key rotation without an already-trusted
@@ -403,6 +408,10 @@ real key lands.
 ---
 
 ## 11. Parked for Stage B
+
+Progress against this list is recorded in
+`docs/concepts/provider-channel-stage-b-decisions.md` (B-D-12…B-D-24);
+this section is left as the Stage A statement of what was parked.
 
 * Publishing-key lifecycle: minting, custody, rotation cadence, and the
   client rule for acting on a `successor_key` announcement.

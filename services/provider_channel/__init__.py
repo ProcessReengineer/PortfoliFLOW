@@ -11,8 +11,10 @@ must agree on before any of it can be armed: a versioned routing envelope and
 structured confirmation (:mod:`~services.provider_channel.schemas`), the
 signed provider-directory format and its trust gate
 (:mod:`~services.provider_channel.directory`), the publishing key the gate
-verifies against (:mod:`~services.provider_channel.publishing_key`), and the
-seam that turns a confirmation into proposed booking fields
+verifies against (:mod:`~services.provider_channel.publishing_key`), the
+ring-selection step that picks that key by the document's id
+(:mod:`~services.provider_channel.ring`, Stage B), and the seam that turns a
+confirmation into proposed booking fields
 (:mod:`~services.provider_channel.prefill`).
 
 **Purity contract.** The package imports the standard library and
@@ -88,6 +90,12 @@ from services.provider_channel.publishing_key import (
     SUCCESSOR_KEY_ID,
     is_placeholder,
 )
+from services.provider_channel.ring import (
+    RingVerification,
+    SuccessorStatus,
+    UnknownPublishingKeyId,
+    verify_directory_with_ring,
+)
 from services.provider_channel.schemas import (
     ENVELOPE_SCHEMA_VERSION,
     ENVELOPE_STATUS_ACKNOWLEDGED,
@@ -145,9 +153,12 @@ __all__ = [
     "InvalidDirectorySignature",
     "ProviderEntry",
     "PublishingKeyNotConfigured",
+    "RingVerification",
     "SchemaError",
     "SuccessorKey",
+    "SuccessorStatus",
     "UnknownDirectoryFormatVersion",
+    "UnknownPublishingKeyId",
     "UnknownSchemaVersion",
     "UnsupportedSignatureScheme",
     "canonical_bytes",
@@ -159,4 +170,5 @@ __all__ = [
     "parse_fill",
     "sign_directory",
     "verify_directory",
+    "verify_directory_with_ring",
 ]

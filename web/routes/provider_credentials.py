@@ -172,6 +172,11 @@ _USER_PANEL_EXCLUDED: frozenset[tuple[str, str]] = frozenset({("telegram", "chat
 _CONSUMER_STATUS: dict[str, str] = {
     "openfigi": "live — saves apply instantly",
     "openrouter": "live — saves apply instantly",
+    # ADR-0131 §4: dormant until a reader lands (SB-6) — the pill is a
+    # truth, not a promise.
+    "provider_channel": (
+        "dormant — nothing reads this switch yet; the provider channel lands in Stage B"
+    ),
     "telegram": "live — token changes apply after a bot restart",
     "voice": "live — saves apply instantly",
     "voice_stt": "live — saves apply instantly",
@@ -185,6 +190,10 @@ _PROVIDER_DESCRIPTIONS: dict[str, str] = {
     "openrouter": (
         "The LLM provider behind Shirley, the Report Scraper and the Watch Desk monitoring notes."
     ),
+    "provider_channel": (
+        "The provider channel — signed provider directory and encrypted ticket exports. "
+        "Off by default; this is the on/off switch for this tenant."
+    ),
     "telegram": "The tenant's Telegram bot — Shirley in a paired chat.",
     "voice": "Voice input and spoken replies for Shirley — the on/off switch for this tenant.",
     "voice_stt": "Transcribes recorded questions, on the web chat and in Telegram voice messages.",
@@ -195,6 +204,7 @@ _PROVIDER_DESCRIPTIONS: dict[str, str] = {
 _PROVIDER_LABELS: dict[str, str] = {
     "openfigi": "OpenFIGI",
     "openrouter": "OpenRouter",
+    "provider_channel": "Provider channel",
     "telegram": "Telegram",
     "voice": "Voice",
     "voice_stt": "Voice — speech-to-text",
@@ -231,6 +241,12 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
         "Used for every Shirley turn, Report Scraper run and Watch Desk beat in this tenant."
     ),
     ("openfigi", "api_key"): "Optional — without a key, lookups run keyless at a lower rate limit.",
+    ("provider_channel", "enabled"): (
+        "When on, this instance fetches the signed provider directory from portfoliflow.com — "
+        "the list version only, never a query — and offers encrypted exports of individual "
+        "tickets. Nothing about holdings, portfolios, users or analytics leaves the instance. "
+        "When off, nothing is fetched and the Transactions area shows no provider gesture at all."
+    ),
     ("telegram", "bot_token"): "The bot token from @BotFather for this tenant's bot.",
     ("voice", "enabled"): "Turns voice on for this tenant. Applies on the next message.",
     ("voice_stt", "api_key"): "Used for every transcription in this tenant.",

@@ -195,6 +195,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0128 | [Transactions Area — Trade-Ticket Object Model and Record Flow](./0128-transactions-area-trade-ticket-object-model-and-record-flow.md) | Accepted (2026-08-27) — extends the investment domain of ADR-0097/0098 with a layer *above* the ledger (ledger and materialisation unchanged); leaves the ADR-0104 §2 overlay contract untouched; adds Transactions as the ninth Area | 2026-08-26 | transactions, trade-ticket, area, schema, cash-settlement, rls, four-eyes, provenance |
 | 0129 | [Provider Channel — Suggestion List, Zero-Knowledge Relay, Provider Portal, and Engagements](./0129-provider-channel-suggestion-list-relay-portal-and-engagements.md) | Accepted (2026-08-27) — revives the provider-directory half of the Execution-Network concept ADR-0107 cut, under the conditions ADR-0107 named; honours the ADR-0108 open-client / proprietary-service split | 2026-08-26 | provider-channel, suggestion-list, relay, encryption, engagement, monetisation, agpl-boundary, regulatory |
 | 0130 | [Non-Negative Holdings Guard: Cash Investments Are Exempt](./0130-non-negative-holdings-guard-cash-investment-exemption.md) | Accepted (2026-08-31) — supersedes the *mechanism sentence* of ADR-0128 Q-2 (path-scoped capability flag); narrows the ADR-0097 §4 write-time invariant to non-cash investment types; ADR-0128 Q-2's behavioural decision stands | 2026-08-31 | cash, holdings, ledger, invariant, transactions, crud, excel-import, overdraft |
+| 0131 | [Provider Channel Opt-In Switch in the Scoped-Settings Taxonomy — `provider_channel.enabled`, Tenant-Scoped, Config-Only](./0131-provider-channel-enabled-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-11) — annex amendment to ADR-0112 §3 (third, after 0118/0123): config-only provider `provider_channel` with the tenant's opt-in switch `enabled`; `env_fallback=False` (no deployment-wide phone-home switch), `optional=True`; Admin card copy states what leaves the instance (ADR-0129 §6); when off, Transactions shows no gesture (Stage B record B-D-25). | 2026-09-11 | provider-channel, configuration, multi-tenancy, credentials, admin, privacy |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -817,7 +818,27 @@ Per the immutability rule ADR-0128 is not edited; this ADR is the correction,
 and future readers resolve the conflict in its favour. No migration; no schema
 change.
 
-The next free ADR number is **0131**.
+**Update (2026-09-11):** ADR-0131 (the provider-channel opt-in switch in the
+scoped-settings taxonomy) is **Accepted (2026-09-11)** — the third annex
+amendment to ADR-0112 §3, after ADR-0118 and ADR-0123. It declares one new
+config-only provider, `provider_channel`, whose single tenant-scoped field
+`enabled` is the switch every Stage B behaviour keys off (directory fetch,
+background timer, export gesture); per the Stage B record's B-D-21 it ships
+ahead of its consumers, and it reads as on iff the tenant row is `"true"`, the
+`VOICE_ENABLED` convention. Its one deliberate departure from the `voice`
+precedent is `env_fallback=False` with no `_ENV_CONFIG_FIELDS` entry: an
+environment variable would switch on phone-home behaviour for every tenant of a
+deployment at once, which ADR-0129 §6 forbids by making enabling a per-tenant
+owner action — and `optional=True` follows, because an empty secret set has no
+credential to be missing. The Admin card appears by itself from the taxonomy,
+pilled *dormant*, and its field hint is the ADR-0129 §6 statement of what
+leaves the instance — the only place the channel is mentioned while it is off,
+since the Transactions area then renders no provider gesture at all (B-D-25).
+Nothing reads the switch yet: the reader lands with SB-6,
+`services/provider_channel/` never imports the resolver (C-2), and there is no
+migration and no schema change.
+
+The next free ADR number is **0132**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

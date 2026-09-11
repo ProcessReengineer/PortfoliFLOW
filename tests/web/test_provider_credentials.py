@@ -500,6 +500,51 @@ async def test_cards_carry_purpose_copy_and_disambiguate_the_three_model_rows(
     assert "irene" not in _visible_text(body).lower()
 
 
+async def test_provider_channel_card_is_dormant_and_says_what_leaves_the_instance(
+    client_factory: Any,
+    vault_key: str,
+) -> None:
+    """ADR-0131 §4 / ADR-0129 §6: the card exists, is marked dormant, and its hint is the data-minimisation statement."""
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+
+    # The card appears because the declaration exists (ADR-0118 §7), and its
+    # pill says nothing reads the switch yet — a truth, not a promise.
+    dormant = "dormant — nothing reads this switch yet; the provider channel lands in Stage B"
+    assert "Provider channel" in body
+    assert dormant in body
+    assert re.search(
+        rf">Provider channel</h4>\s*<span[^>]*>{re.escape(dormant)}</span>",
+        body,
+    )
+    assert (
+        "The provider channel — signed provider directory and encrypted ticket exports. "
+        "Off by default; this is the on/off switch for this tenant." in body
+    )
+
+    # The hint is the ADR-0129 §6 statement of what leaves the instance, tied
+    # to the row by its id, and it reaches the page once.
+    first_sentence = (
+        "When on, this instance fetches the signed provider directory from portfoliflow.com — "
+        "the list version only, never a query — and offers encrypted exports of individual "
+        "tickets."
+    )
+    assert f'id="tenant-provider_channel-enabled-hint">{first_sentence}' in body
+    assert body.count(first_sentence) == 1
+
+    # The wire value is the taxonomy key, as a hidden ``provider`` input.
+    assert body.count('<input type="hidden" name="provider" value="provider_channel">') >= 1
+
+    # A config field, rendered exactly like the ``voice.enabled`` switch: a
+    # text input, never the write-only password control a secret gets.
+    for row_id in ("tenant-voice-enabled", "tenant-provider_channel-enabled"):
+        assert re.search(rf'<input type="text"\s+id="{row_id}"', body), row_id
+        assert not re.search(rf'<input type="password"\s+id="{row_id}"', body), row_id
+
+
 # ---------------------------------------------------------------------------
 # Taxonomy validation — nothing invalid reaches the repository
 # ---------------------------------------------------------------------------

@@ -43,7 +43,9 @@ smallest kind the table admits — one new ``openrouter`` config field,
 ``scraper_model``, so the Report Scraper's model is chosen where every other
 model is chosen. No new provider, no new secret, no migration: a
 ``scoped_settings`` row is ``(scope, provider, key)``, which is exactly the
-extensibility ADR-0112 §3 built this table for.
+extensibility ADR-0112 §3 built this table for. ADR-0131 is the third: a new
+config-only provider, ``provider_channel``, whose one field is the tenant's
+opt-in switch for the provider channel.
 """
 
 from __future__ import annotations
@@ -257,6 +259,23 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
         managed_by_matrix=False,
         env_fallback=True,
         optional=False,
+    ),
+    # Provider channel (ADR-0131, annex amendment to ADR-0112 §3; ADR-0129
+    # §6 and the Stage B record B-D-21). One config-only declaration, one
+    # field: the tenant's opt-in switch for the provider channel — directory
+    # fetches and encrypted ticket exports. No secret: the directory is a
+    # public signed document and exports are sealed to the provider's key,
+    # so there is nothing to keep. ``env_fallback=False`` on purpose: an
+    # environment variable would switch on phone-home behaviour for every
+    # tenant of a deployment at once, which ADR-0129 §6 forbids — enabling
+    # is a per-tenant owner action in the vault, nowhere else.
+    # ``optional=True`` because there is no credential to be missing.
+    ProviderDeclaration(
+        provider="provider_channel",
+        fields=(ProviderField(name="enabled", is_secret=False, scopes=_TENANT),),
+        managed_by_matrix=False,
+        env_fallback=False,
+        optional=True,
     ),
 )
 

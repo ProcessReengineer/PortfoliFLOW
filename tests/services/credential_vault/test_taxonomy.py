@@ -224,6 +224,19 @@ def test_tx04_voice_declarations_match_adr_0118() -> None:
         assert declaration.optional is False, provider
 
 
+def test_tx04_provider_channel_declaration_matches_adr_0131() -> None:
+    """ADR-0131 §1–2: one config-only field, tenant scope, no env fallback, optional."""
+    declaration = declaration_for("provider_channel")
+    assert [field.name for field in declaration.secret_fields] == []
+    assert [field.name for field in declaration.config_fields] == ["enabled"]
+    assert declaration.fields[0].scopes == frozenset({"tenant"})
+    assert declaration.managed_by_matrix is False
+    # ADR-0131 §2: no deployment-wide switch — enabling is a per-tenant
+    # owner action (ADR-0129 §6); and there is no credential to be missing.
+    assert declaration.env_fallback is False
+    assert declaration.optional is True
+
+
 # ---------------------------------------------------------------------------
 # TX-05: the declarations validate themselves
 # ---------------------------------------------------------------------------
@@ -324,3 +337,8 @@ def test_tx06_voice_config_env_links_are_exact() -> None:
     assert set(_ENV_CONFIG_FIELDS["voice"]) == {"enabled"}
     assert set(_ENV_CONFIG_FIELDS["voice_stt"]) == {"model", "base_url"}
     assert set(_ENV_CONFIG_FIELDS["voice_tts"]) == {"model", "voice"}
+
+
+def test_tx06_provider_channel_has_no_config_env_link() -> None:
+    """ADR-0131 §3: the switch resolves from the tenant row only — no env variable."""
+    assert "provider_channel" not in _ENV_CONFIG_FIELDS

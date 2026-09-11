@@ -1,6 +1,6 @@
 # Provider Channel — Stage B Decision Record
 
-- **Status:** Decisions of record (operator-decided 2026-09-08; B-D-23/B-D-24 and addenda 2026-09-10); *Proposed*
+- **Status:** Decisions of record (operator-decided 2026-09-08; B-D-23/B-D-24 and addenda 2026-09-10; B-D-25/B-D-26 and addenda 2026-09-11); *Proposed*
   items are marked as such
 - **Date:** 2026-09-08 · **Decider:** PortfoliFLOW project owner
 - **Seeded by:** Stage B handover from the Transactions (#061) track
@@ -260,6 +260,17 @@ signing no earlier than one validity window later (B-D-16).
   2027-01-01). Because the successor is already in the ring, rotation day
   needs no client release. §3 item 5 (learned successor) is superseded by
   this decision.
+- *Addendum 2026-09-11:* the selection step landed in SB-3a as
+  `services/provider_channel/ring.py` — `verify_directory_with_ring(document_bytes,
+  signature, *, now, ring=PUBLISHING_KEY_RING, current_key_id=PUBLISHING_KEY_ID)
+  -> RingVerification`. The document names its key by `publishing_key_id`;
+  an id that is not in the ring raises `UnknownPublishingKeyId` **before any
+  signature arithmetic**; bytes whose id cannot be read are handed to
+  `verify_directory` with the current key so the reference implementation
+  refuses them in its own vocabulary. `RingVerification` carries `key_id`,
+  `successor_in_use` (the verifying id is not the shipped current id) and
+  `announced_successor` ∈ {`in_ring`, `not_in_ring`, `contradicts_ring`, none} —
+  reported, never refused. Pure; C-2 unchanged (`docs/reports/PB-1b-report.md`).
 
 ### B-D-15 · Version acceptance is strictly monotonic (C-4)
 
@@ -333,6 +344,18 @@ ticket world); its conscious renegotiation remains a B-2 item. Note recorded:
 the setting is tenant-scoped while the cache (B-D-13) is instance-wide —
 disabling stops the tenant's timer and surfaces, not the file.
 
+- *Addendum 2026-09-11:* delivered by SB-4 as **provider `provider_channel`,
+  field `enabled`** (tenant, config-only) — ADR-0131. Two deliberate
+  departures from the ADR-0118 voice pattern: `env_fallback=False` and no
+  `_ENV_CONFIG_FIELDS` entry, so no environment variable can switch the
+  channel on for every tenant of a deployment at once (ADR-0129 §6);
+  `optional=True`, because there is no credential to be missing. Truth
+  rule: on iff the tenant value, stripped and lower-cased, is `"true"`.
+  The Admin card's field hint is the ADR-0129 §6 statement of what leaves
+  the instance and is the only mention of the channel while it is off
+  (B-D-25 Q6). Nothing reads the switch until SB-6; the card's pill says
+  so (`docs/reports/PB-1d-report.md`).
+
 ### B-D-22 · `ENGAGEMENT_CATEGORIES` v1 is final for first publication
 
 advisory / legal / fund_selection / second_opinion / other — unchanged
@@ -362,6 +385,61 @@ published until the next PortfoliFLOW release**. Publication gates
 directory); PB-D2, SB-3a and the infra hardening strands do not wait for
 it. Calendar consequences (B-D-16): re-sign `directory_version 2` by
 **2026-11-09**; rotate to the successor on **2027-01-01**.
+
+### B-D-25 · The suggestion list in the Transactions UI (MB-1, operator 2026-09-11)
+
+Seven clauses, decided on the MB-1 brief (Mission Control chat 3); they bind
+SB-6 and the B-2 "Send" gesture.
+
+1. **Placement.** A fourth blotter-row gesture **`Providers…`** opens a panel
+   in the row's own detail cell `#tx-detail-{id}` — the third occupant of the
+   D-6b slot beside Impact and Cancel. The panel lists the providers that
+   match the ticket, one row per provider with its own **`Export sealed
+   ticket`** button. In B-2, "Send" becomes a **second button per provider
+   row inside the panel**, beside Export — two buttons, not a menu (A-13);
+   the blotter row itself never gains a fifth gesture.
+2. **Statuses.** The gesture appears on `proposed` and `approved` tickets
+   only. Draft: parameters incomplete (the Impact rule, D-6f). Booked and
+   cancelled: no gesture.
+3. **Provenance.** Panel foot, one line: `Directory v<directory_version> ·
+   signed by <publishing_key_id> · fetched <when> · valid to <valid_until>`.
+   States: *stale* (last refresh failed, cache still valid) keeps rows and
+   export; *expired* and *absent* show the line and **no provider rows — and
+   therefore no export button anywhere in the panel**. Successor notices
+   from SB-3a are log lines, not UI.
+4. **Refresh.** A button beside the provenance line, for **any**
+   Transactions user — the fetch is a public conditional GET carrying a
+   version pin and no query (ADR-0129 §6). The response re-renders the
+   panel, so a refresh also re-filters.
+5. **Test entries.** `[TEST]` entries are **shown**, the prefix rendered as a
+   chip, with one standing sentence in the panel foot: *Entries marked
+   [TEST] are placeholder desks operated by PortfoliFLOW for verifying the
+   channel; an export to them reaches nobody.* No second flag in the format
+   (B-D-2: marked by name alone).
+6. **Disabled.** With `provider_channel.enabled` off — the default — the
+   Transactions area renders **nothing**: no gesture, no greyed button, no
+   tooltip. The channel is mentioned only in the setting's own card
+   (ADR-0131 §4–5). "Absent, not disabled."
+7. **Filter miss.** Matching providers are listed first; non-matching ones
+   sit behind `show the other N` with a count line (`1 of 2 listed providers
+   match this ticket`). Coverage hints are hints, not eligibility
+   (ADR-0129 §2).
+
+*Clarifications (operator, 2026-09-11):* no "Send" placeholder of any kind
+renders in B-1 — the position is reserved, not drawn; and in the expired /
+absent states of clause 3 no export gesture exists in the panel at all.
+
+### B-D-26 · `asset_classes` hints match tenant codes literally (2026-09-11)
+
+The SB-6 filter compares each directory entry's `asset_classes` strings with
+the **`AssetClass.code` of the ticket's investment in the tenant**, string
+for string, with no mapping table. The instance's bootstrap codes
+(`services/data_normalization/fixtures/default_asset_classes.json`) are the
+published vocabulary; the first directory uses exactly those. A tenant that
+has renamed its codes gets non-matches, and non-matches land under
+B-D-25 clause 7's `show the other N`, not in the void. A vocabulary
+correction on the publisher's side is a `directory_version` bump (B-D-15);
+on the tenant's side it is the tenant's own naming.
 
 ### Pause point 1 closed (2026-09-08)
 
@@ -393,6 +471,11 @@ repository's contract:
   reminder (fewer than 30 days of validity left) also fails the run; the
   reminder window opens on day 60, which is exactly the B-D-16 re-sign
   deadline (PB-2b OQ-3).
+  - *Correction 2026-09-10 (PB-2c):* implemented as `remaining < 30`. The
+    window therefore opens on **day 61**, the first day *after* the B-D-16
+    deadline: a strict cron turns red the day a re-sign is overdue, not the
+    day it is due — chosen so the run stays green while the operator is
+    doing the re-sign. "Opens on day 60" above is superseded.
 
 ---
 
@@ -570,27 +653,45 @@ a screen, a chat or a prompt. From first publication on, SB-3b and every
 later report verifies against the deployed directory, not only the
 snapshot.
 
+Stage B additions (2026-09-11): expectations in a prompt's verify-first
+table — counts, line numbers, grep hits — are produced by *running* them
+against the snapshot the prompt is written from, never estimated from
+having read the code; a count taken from a Repomix image is `wc -l` + 2 for
+the `<file>` wrappers. When such a count disagrees but every text anchor
+(heading, identifier, hash) matches, the agent proceeds, reports the
+disagreement, and Mission Control ratifies; any text mismatch remains a
+STOP. A one-line addendum prompt is verified against the tree like any
+other prompt — "committed" is not "applied" (PB-D2's change-log row).
+
 ---
 
-## 7. Coordinates (verified 2026-09-10, post-SB-1 Repomix, head `b034`)
+## 7. Coordinates (verified 2026-09-11, post-SB-4 Repomix, head `b034`)
 
 Alembic head `b034` (next instance-side migration takes `b035` — reserved
 for `engagements`, B-D-3/B-D-13; the directory cache is a file, B-D-13).
-Next free ADR **0131** (verify at writing time; expected for the
-`provider_channel.enabled` annex, B-D-21). Next free roadmap number
-**#069**. Version constants all `= 1` (envelope, fill, directory format);
-first publication stays on v1 (B-D-2). Runtime dependencies: `httpx>=0.27`
-and `cryptography>=42` present; `pytest-httpx` in the dev extras; `pynacl`
-decided for B-1 (B-D-12) but **absent until SB-5**. Key ring (SB-1):
+Last ADR **0131** (`provider_channel.enabled` annex, SB-4); next free
+**0132** (verify at writing time). Next free roadmap number **#069**.
+Version constants all `= 1` (envelope, fill, directory format); first
+publication stays on v1 (B-D-2). Runtime dependencies: `httpx>=0.27` and
+`cryptography>=42` present; `pytest-httpx` in the dev extras; `pynacl`
+decided for B-1 (B-D-12) but **absent until SB-5**. Package
+`services/provider_channel/`: `__init__`, `directory`, `prefill`,
+`publishing_key`, `ring` (SB-3a), `schemas`. Key ring (SB-1):
 `PUBLISHING_KEY`, `PUBLISHING_KEY_ID`, `SUCCESSOR_KEY`, `SUCCESSOR_KEY_ID`,
-`PUBLISHING_KEY_RING`, `PUBLISHING_KEY_PLACEHOLDER`, `is_placeholder` in
-`services/provider_channel/publishing_key.py`; `verify_directory(document_bytes,
-signature, *, publishing_key: bytes, now: date)` unchanged. Fixtures:
+`PUBLISHING_KEY_RING`, `PUBLISHING_KEY_PLACEHOLDER`, `is_placeholder`;
+`verify_directory(document_bytes, signature, *, publishing_key: bytes,
+now: date)` unchanged; `verify_directory_with_ring(...) -> RingVerification`
+and `UnknownPublishingKeyId` (SB-3a). Taxonomy: `PROVIDER_TAXONOMY` has
+`provider_channel` with the one config field `enabled` (SB-4). Fixtures:
 `tests/services/provider_channel/fixtures/directory-1.json` (1,180 B,
 SHA-256 `c1383c4f…ec83`) and `directory-1.sig` (129 B). Provider-channel
-suite 85 tests; `test_contract.py` 22, unchanged by Stage B. Reports live
-in `docs/reports/`. Roadmap #061 `shipped (2026-09-08)`; Stage B is #067
-`in-progress`, tenant-local provider entries #068 `open`.
+suite **101** tests; `test_contract.py` 22, unchanged by Stage B. Reports
+in `docs/reports/` (PB-1a, PB-1b, PB-1d, PB-D2, PB-D3). Roadmap #061
+`shipped (2026-09-08)`; Stage B is #067 `in-progress`, tenant-local
+provider entries #068 `open`. Infra side (by reference): signing tool
+`verify` resolves the key from this repository's ring (D-SB2-14, PB-2c);
+`directory_version 1` signed 2026-09-10, unpublished until the release
+(B-D-24).
 
 ## 8. Operator actions to open Stage B
 

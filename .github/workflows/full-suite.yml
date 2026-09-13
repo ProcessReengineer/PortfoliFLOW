@@ -3,16 +3,15 @@
 # Postgres 16 service container; the app role is applied via psql after
 # checkout (service containers cannot mount repo files), then Alembic
 # migrates to head. The regression-guard and migration-roundtrip family
-# runs as the FINAL named step: it is the public architectural contract,
-# and the roundtrip suites leave the schema downgraded (Strand-1 closure
-# §5) — nothing may depend on the database after it.
+# runs as the FINAL named step: it is the public architectural contract
+# (ADR-0109 §4). The roundtrip guards run on per-test scratch databases
+# (tests/regression/conftest.py) and leave the service database at head.
 #
-# continue-on-error is false. Until the flake-fix run (Chat D, #052
-# gate 6) lands, TWO known flake signatures are rerun-once exceptions
-# (ADR-0109 §4): the migration-roundtrip downgrade and AI-service
-# singleton pollution in combined runs. A failure matching one of them
-# is re-dispatched ONCE via workflow_dispatch before being treated as
-# red. Any other failure is red immediately.
+# continue-on-error is false and every failure is red immediately. The
+# rerun-once exception ADR-0109 §4 granted to two flake signatures is
+# closed (flake-fix closure, roadmap #052 gate 6): the roundtrip
+# downgrade flake ended with the scratch databases, and the AI-service
+# singleton flake ended with services/ai_service.py (ADR-0094).
 name: Full suite
 
 on:

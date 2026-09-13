@@ -169,8 +169,9 @@ _USER_ACTIONS: frozenset[str] = frozenset({"save", "delete"})
 _USER_PANEL_EXCLUDED: frozenset[tuple[str, str]] = frozenset({("telegram", "chat_id")})
 
 #: Whether anything reads a provider's rows *yet*. Rendered as a pill on
-#: every provider card. All three consumers have landed; the Telegram
-#: entry keeps the restart caveat, because the dispatcher set is
+#: every provider card. Every entry is live except ``provider_channel``,
+#: which stays dormant until its reader lands (ADR-0131 §4, SB-6). The
+#: Telegram entry keeps the restart caveat, because the dispatcher set is
 #: discovered once at bot start (ADR-0112 §5, D2) and a token written
 #: here is therefore not live the way an OpenRouter key is.
 _CONSUMER_STATUS: dict[str, str] = {

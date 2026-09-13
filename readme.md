@@ -190,6 +190,12 @@ Two notes: the Report Scraper needs a PDF-capable model (Anthropic models are th
 
 Running the tests: `pip install -e ".[dev]"` then `pytest` (some tests need the Postgres container up).
 
+## Version history
+
+2026.09.0 - added transactions area and recommended provider list
+2026.08.1 - included the one line installer
+2026.08.0 - the initial release
+
 ---
 
 ## License & Trademarks

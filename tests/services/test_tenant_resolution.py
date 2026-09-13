@@ -77,9 +77,6 @@ def test_extract_subdomain_localhost_with_env(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.asyncio
-
-
 async def test_subdomain_resolver_finds_active_tenant(
     superuser_engine: AsyncEngine,
     seed_tenant,

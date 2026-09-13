@@ -116,6 +116,12 @@ def _clean_pairing_store() -> Any:
     telegram_pairing.reset_store()
 
 
+def _url(value: str | None) -> str:
+    """Narrow a configured URL to ``str``; ``_require_db`` already skipped if unset."""
+    assert value is not None
+    return value
+
+
 def _require_db() -> None:
     if not DATABASE_URL or not DATABASE_URL_SUPERUSER:
         pytest.skip(
@@ -133,7 +139,7 @@ def _require_db() -> None:
 @pytest_asyncio.fixture
 async def fresh_superuser_engine() -> AsyncGenerator[AsyncEngine, None]:
     _require_db()
-    engine = create_async_engine(DATABASE_URL_SUPERUSER, future=True, poolclass=NullPool)
+    engine = create_async_engine(_url(DATABASE_URL_SUPERUSER), future=True, poolclass=NullPool)
     try:
         yield engine
     finally:
@@ -144,7 +150,7 @@ async def fresh_superuser_engine() -> AsyncGenerator[AsyncEngine, None]:
 async def app_engine() -> AsyncGenerator[AsyncEngine, None]:
     """An RLS-subject engine for reading rows back the way the app writes them."""
     _require_db()
-    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+    engine = create_async_engine(_url(DATABASE_URL), future=True, poolclass=NullPool)
     try:
         yield engine
     finally:

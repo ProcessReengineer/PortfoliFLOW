@@ -54,7 +54,11 @@ Four rules this module exists to keep:
   bot restart**, because the dispatcher set is discovered once at start.
   The three voice cards are live as of #059 V3/V4 — the configuration is
   resolved per web turn and per Telegram voice message, so a save applies
-  without a restart and carries no caveat at all (ADR-0118 §8). A row an
+  without a restart and carries no caveat at all (ADR-0118 §8). The
+  provider-channel card (ADR-0131) is the first whose pill says
+  **dormant**: its one switch is declared and saved like every other row,
+  and nothing reads it until the channel's consumers land (Stage B, SB-6)
+  — the pill states that rather than implying a live effect. A row an
   operator writes must never *look* consumed when it is not — nor look
   live when it is only stored.
 

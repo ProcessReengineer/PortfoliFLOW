@@ -361,7 +361,6 @@ def test_sub_daily_fall_back_beats_the_repeated_hour_once() -> None:
     assert second > first
 
 
-
 # ---------------------------------------------------------------------------
 # compute_next_due_at — DST chains at 15-minute granularity (ADR-0125 §1)
 # ---------------------------------------------------------------------------

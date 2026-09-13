@@ -6,8 +6,15 @@
    Context (via web.routes.market_data._panel_context): csrf_token,
    cadence_choices, cadence_labels, hours,
    current{cadence,preferred_hour,timezone,enabled,next_due_at,last_run_at,
-   configured}, schedule_saved, schedule_error, refresh_message,
-   poll_since (encoded ISO 8601 — set only by a refresh-now confirmation). #}
+   next_due_display,last_run_display,configured}, schedule_saved,
+   schedule_error, refresh_message,
+   poll_since (encoded ISO 8601 — set only by a refresh-now confirmation).
+
+   The two status stamps arrive pre-formatted as ``*_display`` strings,
+   already in the schedule's own timezone. Formatting them here instead
+   would print whatever zone the stored datetime carries — UTC — so an owner
+   who anchors the schedule in Europe/Berlin would read a due time an hour or
+   two off the hour they had just chosen. #}
 <div class="pf-market-data-panel">
     <p class="pf-market-data-panel__intro">
         Live import augments listed instruments (with a primary ISIN /
@@ -60,7 +67,7 @@
         <div class="pf-market-data-panel__fields">
             <label class="pf-market-data-panel__field">
                 <span class="pf-market-data-panel__label">Refresh interval</span>
-                <select name="cadence">
+                <select name="cadence" class="pf-market-data-panel__select">
                     {% for choice in cadence_choices %}
                         <option value="{{ choice }}"
                             {% if choice == current.cadence %}selected{% endif %}>
@@ -72,7 +79,7 @@
 
             <label class="pf-market-data-panel__field">
                 <span class="pf-market-data-panel__label">Anchor hour</span>
-                <select name="preferred_hour">
+                <select name="preferred_hour" class="pf-market-data-panel__select">
                     {% for hour in hours %}
                         <option value="{{ hour }}"
                             {% if hour == current.preferred_hour %}selected{% endif %}>
@@ -84,7 +91,8 @@
 
             <label class="pf-market-data-panel__field">
                 <span class="pf-market-data-panel__label">Timezone</span>
-                <input type="text" name="timezone" value="{{ current.timezone }}">
+                <input type="text" name="timezone" value="{{ current.timezone }}"
+                       class="pf-market-data-panel__input">
             </label>
 
             <label class="pf-market-data-panel__field pf-market-data-panel__field--check">
@@ -100,37 +108,42 @@
             15-minute interval, :00/:30 for the 30-minute one.
         </p>
 
-        <button type="submit" class="pf-btn pf-btn--primary">
+        <button type="submit" class="btn btn--primary">
             Save schedule
         </button>
     </form>
 
+    {# The meta line, in the Overview .ov-meta idiom: the two stamps and the
+       one control read as a single sentence separated by middots, rather
+       than a status block with a button stranded underneath it. The control
+       is the last item and keeps its own form — two forms cannot share a
+       submit button without a `form=` attribute, and the line does not need
+       one to sit on the same row. #}
     <div class="pf-market-data-panel__status">
-        {% if current.next_due_at %}
+        {% if current.next_due_display %}
             <span class="pf-market-data-panel__next">
-                Next refresh due:
-                {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }}
+                Next refresh due {{ current.next_due_display }}
             </span>
         {% elif current.configured %}
             <span class="pf-market-data-panel__next">Next refresh scheduled.</span>
         {% else %}
             <span class="pf-market-data-panel__next">Not yet configured.</span>
         {% endif %}
-        {% if current.last_run_at %}
+        <span class="pf-market-data-panel__sep">&middot;</span>
+        {% if current.last_run_display %}
             <span class="pf-market-data-panel__last">
-                Last run:
-                {{ current.last_run_at.strftime('%Y-%m-%d %H:%M %Z') }}
+                Last run {{ current.last_run_display }}
             </span>
         {% else %}
             <span class="pf-market-data-panel__last">No run yet.</span>
         {% endif %}
+        {% if current.configured and current.enabled %}
+            <span class="pf-market-data-panel__sep">&middot;</span>
+            <form class="pf-market-data-panel__refresh"
+                  hx-post="/api/market-data/refresh-now">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn">Refresh now</button>
+            </form>
+        {% endif %}
     </div>
-
-    {% if current.configured and current.enabled %}
-        <form class="pf-market-data-panel__refresh"
-              hx-post="/api/market-data/refresh-now">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit" class="pf-btn">Refresh now</button>
-        </form>
-    {% endif %}
 </div>

@@ -25,7 +25,6 @@
     {% if is_tenant_owner %}
         {% with section_slug="market-data",
                 section_title="Market Data",
-                section_pill="live import",
                 section_body_template="_partials/market_data_section.html" %}
             {% include "areas/_section.html" %}
         {% endwith %}
@@ -57,7 +56,6 @@
        owner-gated on their routes. #}
     {% with section_slug="investments",
             section_title="Investments",
-            section_pill="registry",
             section_body='<p class="pf-section__placeholder">Single-investment maintenance — NAVs, cashflows, identifiers and valuation modes.</p><a href="/investments" class="btn btn--ghost">Change investment settings</a>' %}
         {% include "areas/_section.html" %}
     {% endwith %}

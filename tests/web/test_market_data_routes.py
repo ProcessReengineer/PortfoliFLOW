@@ -33,6 +33,7 @@ The last three tests cover both halves.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
@@ -232,6 +233,7 @@ async def _seed_schedule(
     enabled: bool = True,
     next_due_at: datetime | None = None,
     last_run_at: datetime | None = None,
+    timezone_name: str = "Europe/Berlin",
 ) -> None:
     """Write the tenant-level schedule row directly, bypassing the route.
 
@@ -240,6 +242,13 @@ async def _seed_schedule(
     is how the Watch Desk's own poll tests stage the equivalent
     ``last_beat_at``, and it keeps the poll tests independent of the save
     route's cadence arithmetic.
+
+    ``timezone_name`` defaults to the literal this helper always wrote, so
+    every existing caller is unchanged. It is spelled out rather than named
+    ``timezone`` because that name is the ``datetime`` import this module
+    uses for the instants it seeds. Passing an *unknown* zone is a legal
+    call: the save route refuses one, so a row can only carry it from
+    outside this surface, and that is exactly the fallback worth testing.
     """
     async with engine.begin() as conn:
         await conn.execute(
@@ -251,11 +260,12 @@ async def _seed_schedule(
                 "INSERT INTO market_data_schedule "
                 "(tenant_id, user_id, cadence, preferred_hour, timezone, "
                 " enabled, next_due_at, last_run_at) "
-                "VALUES (:t, NULL, 'every_15m', 0, 'Europe/Berlin', "
+                "VALUES (:t, NULL, 'every_15m', 0, :tz, "
                 " :enabled, :next_due, :last_run)"
             ),
             {
                 "t": str(SENTINEL_TENANT_ID),
+                "tz": timezone_name,
                 "enabled": enabled,
                 "next_due": next_due_at or datetime.now(timezone.utc),
                 "last_run": last_run_at,
@@ -779,3 +789,145 @@ async def test_the_admin_page_omits_the_market_data_section_for_a_member(
     # The sections a member does get are untouched by the conditional.
     assert 'id="data-import"' in body
     assert 'id="providers-credentials"' in body
+
+
+# ---------------------------------------------------------------------------
+# The panel surface — themed controls and the status meta line (ADR-0125 §6)
+# ---------------------------------------------------------------------------
+
+
+def _panel_html(body: str) -> str:
+    """Slice the Market Data panel out of a rendered ``/admin`` page.
+
+    The panel fills the whole of its section body, so the section's closing
+    tag ends it. Counting classes over the slice rather than over the page
+    keeps an assertion from being satisfied by another section's markup.
+    """
+    start = body.index('<div class="pf-market-data-panel">')
+    return body[start : body.index("</section>", start)]
+
+
+def _status_html(panel: str) -> str:
+    """Slice the status meta line out of a rendered panel.
+
+    The line holds spans and — for an owner on an enabled schedule — the
+    refresh form, and no nested ``<div>``, so the first closing tag after
+    its opening one is its own.
+    """
+    start = panel.index('<div class="pf-market-data-panel__status">')
+    return panel[start : panel.index("</div>", start)]
+
+
+async def test_the_panel_renders_controls_the_stylesheet_can_reach(
+    web_client: AsyncClient,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Every control carries a class the panel's own stylesheet defines.
+
+    Two halves, both of which left the browser drawing its defaults inside a
+    themed page: the three controls carried no class at all, and both
+    buttons carried ``pf-btn``, a mockup class no production stylesheet
+    defines. The real button classes live in ``base.css``.
+    """
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    panel = _panel_html((await web_client.get("/admin", follow_redirects=False)).text)
+
+    assert panel.count('class="pf-market-data-panel__select"') == 2
+    assert panel.count('class="pf-market-data-panel__input"') == 1
+    assert panel.count('class="btn btn--primary"') == 1
+    assert "pf-btn" not in panel
+
+
+async def test_the_status_stamps_render_in_the_schedules_own_timezone(
+    web_client: AsyncClient,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """An owner reads the stamps in the zone they anchored the schedule in.
+
+    Stored UTC, displayed CET: a panel that answers "last run 12:00" under a
+    form reading "Europe/Berlin" is asking the reader to convert, and the
+    refresh flash beside it had already stopped doing that. January
+    deliberately — winter is CET with no DST ambiguity, so the expected
+    string cannot depend on when the suite runs.
+    """
+    await _seed_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        timezone_name="Europe/Berlin",
+        last_run_at=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    panel = _panel_html((await web_client.get("/admin", follow_redirects=False)).text)
+
+    assert "Last run 2026-01-15 13:00 CET" in panel
+    assert "12:00 UTC" not in panel
+
+
+async def test_an_unknown_schedule_timezone_stamps_utc_and_warns(
+    web_client: AsyncClient,
+    fresh_superuser_engine: AsyncEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The stamps fall back through the same helper as the refresh flash.
+
+    The save route refuses an unknown zone, so a row can only carry one from
+    outside this surface — seeded directly here. The substitute names itself
+    through ``%Z``, which is what makes it safe: a fallback rendering a bare
+    time would read as the local one.
+    """
+    await _seed_schedule(
+        fresh_superuser_engine,
+        enabled=True,
+        timezone_name="Mars/Olympus",
+        last_run_at=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    with caplog.at_level(logging.WARNING, logger="web.routes.market_data"):
+        panel = _panel_html((await web_client.get("/admin", follow_redirects=False)).text)
+
+    assert "Last run 2026-01-15 12:00 UTC" in panel
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    assert "unknown schedule timezone" in logged
+
+
+async def test_refresh_now_is_an_item_of_the_status_line(
+    web_client: AsyncClient,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The control sits *in* the meta line, and its absence leaves it intact.
+
+    The Overview freshness line is the precedent (ADR-0125 §6): stamp,
+    stamp, control, one sentence. The second half is the half worth pinning
+    — a disabled schedule drops the control, and the line that carried it
+    must still state where the schedule stands.
+    """
+    await _seed_schedule(fresh_superuser_engine, enabled=True)
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    enabled_panel = _panel_html((await web_client.get("/admin", follow_redirects=False)).text)
+    status = _status_html(enabled_panel)
+    assert "pf-market-data-panel__refresh" in status, (
+        "the refresh form belongs inside the status line, not in a block under it"
+    )
+    assert "Refresh now" in status
+
+    await _seed_schedule(fresh_superuser_engine, enabled=False)
+    disabled_panel = _panel_html((await web_client.get("/admin", follow_redirects=False)).text)
+    assert "pf-market-data-panel__refresh" not in disabled_panel
+    assert "pf-market-data-panel__status" in disabled_panel
+    assert "No run yet." in _status_html(disabled_panel)
+
+
+async def test_the_shell_links_the_market_data_stylesheet(
+    web_client: AsyncClient,
+) -> None:
+    """Without the link the panel's BEM classes name nothing."""
+    await _login(web_client, "md-owner@example.com", "correct-horse-battery-staple")
+
+    body = (await web_client.get("/admin", follow_redirects=False)).text
+
+    assert 'href="/static/css/components/market_data.css"' in body

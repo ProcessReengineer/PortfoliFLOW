@@ -17,6 +17,7 @@ Sub-stream 6F-1 of Phase 6 Block 1 (ADR-0046). Covers:
   return 404.
 * Status bar renders area name, tenant, build SHA, config flag.
 * Sidebar collapse cookie persists across requests.
+* Admin and Assistants render no decorative section pills.
 
 The fixture pattern matches ``test_login_flow.py`` and
 ``test_chat_routes.py`` — live-DB, ASGITransport, sentinel tenant.
@@ -533,3 +534,39 @@ async def test_web_admin_investments_tile_carries_settings_button(
     body = response.text
     assert "Change investment settings" in body
     assert 'href="/investments"' in body
+
+
+# ---------------------------------------------------------------------------
+# Area body content — no decorative section pills
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("url", ["/admin", "/assistants"], ids=["admin", "assistants"])
+async def test_area_headers_carry_no_section_pills(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    url: str,
+) -> None:
+    """Neither Area decorates a section header with a status pill.
+
+    Admin carried "live import" on Market Data and "registry" on the
+    Investments pointer tile; Assistants carried "moved" on its pointer to
+    Providers & Credentials. None named a state — they restated the section
+    title — and the Planning Desk had already retired its own on that
+    reading, with the same assertion.
+
+    The pill *mechanism* stays: the provider-credential cards use it for a
+    real per-card consumer state. Those arrive lazily over HTMX, so this
+    shell render carries none of them either, and the count is exact.
+
+    ``seeded_user`` holds ``owner``, so Admin renders in full here — the
+    owner-only Market Data section included, which is where one of the two
+    retired pills sat.
+    """
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+
+    response = await web_client.get(url, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.text.count('class="pf-section__pill"') == 0

@@ -204,6 +204,27 @@ async def test_transactions_page_renders_three_sections(
         assert title in body, f"missing section title {title!r}"
 
 
+async def test_the_transactions_area_carries_no_section_pills(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """No section header here is decorated with a status pill.
+
+    "New transaction" carried a "Draft" one, which named neither a state nor
+    a stage: the composer has its own live state chip, and the section it
+    sits in is finished. The Planning Desk retired its last pill on the same
+    reading, and asserts the same count. The pill *mechanism* stays — the
+    provider-credential cards use it for a real per-card state — so the
+    assertion is that this Area reaches for it nowhere.
+    """
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+
+    body = (await web_client.get("/transactions", follow_redirects=False)).text
+
+    assert body.count('class="pf-section__pill"') == 0
+
+
 async def test_transactions_htmx_branch_returns_partial(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],

@@ -131,6 +131,13 @@ _DEFAULT_PREFERRED_HOUR: int = 0
 _SURFACES: tuple[str, ...] = ("admin", "overview")
 _DEFAULT_SURFACE: str = "admin"
 
+# How the panel's two status stamps read. Date-and-time, unlike the
+# Overview freshness line's bare ``%H:%M``: this surface is where a cadence
+# is *set*, so "when is the next run" has to be answerable across a day
+# boundary. ``%Z`` for the reason :func:`_display_zone` gives — a UTC
+# fallback must name itself rather than read as local time.
+_STAMP_FORMAT: str = "%Y-%m-%d %H:%M %Z"
+
 
 def _display_zone(name: str | None) -> ZoneInfo:
     """Resolve a schedule's IANA timezone name, falling back to UTC.
@@ -180,6 +187,14 @@ def _panel_context(
     panel round-trips identically. ``schedule`` is ``None`` only for a
     tenant provisioned before slice 5 that was never backfilled.
 
+    ``current`` carries the two status stamps pre-formatted as
+    ``next_due_display`` / ``last_run_display`` (``None`` when the instant
+    behind one is), rendered in the schedule's **own** timezone rather than
+    the UTC the rows are stored in — the same treatment the refresh flash
+    and the Overview freshness line already give their stamps, so the panel
+    cannot answer "next refresh due" in a zone the owner never chose. The
+    underlying ``next_due_at`` / ``last_run_at`` stay in the dict.
+
     Args:
         schedule: The tenant's schedule DTO, or ``None``.
         csrf_token: The session-bound CSRF token.
@@ -215,6 +230,14 @@ def _panel_context(
             "last_run_at": schedule.last_run_at,
             "configured": True,
         }
+
+    zone = _display_zone(current["timezone"])
+    for key in ("next_due", "last_run"):
+        moment: datetime | None = current[f"{key}_at"]
+        current[f"{key}_display"] = (
+            moment.astimezone(zone).strftime(_STAMP_FORMAT) if moment is not None else None
+        )
+
     return {
         "csrf_token": csrf_token,
         "cadence_choices": _CADENCE_CHOICES,

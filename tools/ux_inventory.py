@@ -16,8 +16,10 @@ artefacts under ``docs/ux/inventory/``:
     several Areas is inventoried once per Area.
 
 ``routes.csv``
-    One row per route, with its Area, handler, rendered template and the
-    authentication dependency that guards it.
+    One row per route, with its Area, handler, rendered template, the
+    authentication dependency that guards it, and how many script call sites
+    reach it (``js_callers``, counted per method — a ``DELETE`` caller is not a
+    caller of the sibling ``PUT`` on the same path).
 
 ``summary.md``
     The per-area baseline, flag counts, the frequent/long-label lists, and the
@@ -40,6 +42,11 @@ edge kinds and propagates Area labels across it to a fixed point:
 * ``route --renders--> template`` — the template names passed to
   ``TemplateResponse`` inside the handler (or a helper it calls in the same
   module).
+* ``template --js--> route`` — a URL a script calls, linked back to the template
+  element whose handler issues it (P-UX-0b). Carries the same weight as an
+  ``hx-*`` edge; a scripted ``location.href`` is filtered like a plain ``href``,
+  since navigating to a page is not composing one. An unlinked call adds no
+  edge. ``--js-off`` skips the pass and reproduces the pre-JS artefacts exactly.
 
 ``{% extends %}`` is recorded but **not** traversed for Area attribution: layout
 inheritance is shell chrome, not Area composition, so ``base.html`` stays in the
@@ -67,6 +74,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -242,6 +250,7 @@ class RouteRow:
     source_line: int
     template: str
     auth_required: str
+    js_callers: int = 0
 
     def as_row(self) -> list[str]:
         """Return the CSV row for this route."""
@@ -255,6 +264,7 @@ class RouteRow:
             str(self.source_line),
             self.template,
             self.auth_required,
+            str(self.js_callers),
         ]
 
 
@@ -1292,11 +1302,1137 @@ def area_from_path(path: str, area_urls: dict[str, str]) -> set[str]:
     return set()
 
 
+# ---------------------------------------------------------------------------
+# JavaScript pass — the scripts the template pass cannot see
+# ---------------------------------------------------------------------------
+
+#: Characters after which a ``/`` opens a regular-expression literal rather than
+#: a division. The empty string covers the start of the file.
+_JS_REGEX_PRECEDERS = frozenset("(,=:[!&|?{};+-*%~^<>") | {""}
+
+#: Identifier prefixes dropped from a concatenated URL — they contribute an
+#: origin, not a path.
+_JS_ORIGIN_PREFIXES = ("window.location.origin", "location.origin", "baseUrl", "BASE_URL")
+
+#: The placeholder a non-literal path segment collapses to.
+_JS_PARAM = "{param}"
+
+_JS_STRING_RE = re.compile(r"\"([^\"\\]*(?:\\.[^\"\\]*)*)\"|'([^'\\]*(?:\\.[^'\\]*)*)'")
+
+#: The six call shapes that reach a route from a script.
+_JS_FETCH_RE = re.compile(r"\bfetch\s*\(")
+_JS_HTMX_AJAX_RE = re.compile(r"\bhtmx\s*\.\s*ajax\s*\(")
+_JS_EVENTSOURCE_RE = re.compile(r"\bnew\s+EventSource\s*\(")
+_JS_XHR_OPEN_RE = re.compile(r"\.open\s*\(")
+_JS_LOCATION_RE = re.compile(r"\blocation\s*\.\s*(href|assign|replace)\s*(=(?!=)|\()")
+_JS_SETATTR_RE = re.compile(
+    r"\.setAttribute\s*\(\s*[\"'](hx-(?:get|post|put|patch|delete))[\"']\s*,"
+)
+_JS_FUNCTION_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)")
+_JS_IDENT_RE = re.compile(r"^[A-Za-z_$][\w$]*$")
+_JS_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=")
+_JS_DATASET_RE = re.compile(r"\bdataset\s*\.\s*([A-Za-z_$][\w$]*)")
+_JS_GETATTR_DATA_RE = re.compile(r"\.getAttribute\s*\(\s*[\"'](data-[\w-]+)[\"']\s*\)")
+_JS_GET_BY_ID_RE = re.compile(r"\bgetElementById\s*\(\s*[\"']([^\"']+)[\"']")
+_JS_QUERY_RE = re.compile(
+    r"\b(?:querySelectorAll|querySelector|closest)\s*\(\s*[\"']([^\"']+)[\"']"
+)
+_JS_LISTENER_RE = re.compile(r"\baddEventListener\s*\(\s*[\"']([A-Za-z]+)[\"']")
+_JS_ONEVENT_RE = re.compile(r"\.on([a-z]+)\s*=")
+_JS_SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.DOTALL | re.IGNORECASE)
+_JS_SRC_RE = re.compile(r"\bsrc\s*=", re.IGNORECASE)
+_JS_CAMEL_RE = re.compile(r"(?<!^)(?=[A-Z])")
+
+#: How far back the linker looks when it cannot bracket the enclosing function.
+JS_LINK_WINDOW = 60
+
+
+def strip_js_comments(source: str) -> str:
+    """Blank JavaScript comments while preserving newlines, strings and regexes.
+
+    A small state machine rather than a regex: ``//`` inside a string literal is
+    not a comment, and ``/`` after a value is division rather than the start of
+    a regular-expression literal. Every newline survives, so a line number taken
+    from the stripped text is the line number in the original file.
+
+    Args:
+        source: Raw JavaScript text.
+
+    Returns:
+        The text with comment bodies replaced by spaces, newlines kept.
+    """
+    out: list[str] = []
+    state = "code"
+    prev = ""
+    index = 0
+    length = len(source)
+    while index < length:
+        char = source[index]
+        nxt = source[index + 1] if index + 1 < length else ""
+        if state == "code":
+            if char == "/" and nxt == "/":
+                state, index = "line", index + 2
+                out.append("  ")
+                continue
+            if char == "/" and nxt == "*":
+                state, index = "block", index + 2
+                out.append("  ")
+                continue
+            if char == "/" and prev in _JS_REGEX_PRECEDERS:
+                state = "regex"
+            elif char == "'":
+                state = "single"
+            elif char == '"':
+                state = "double"
+            elif char == "`":
+                state = "template"
+            out.append(char)
+            if not char.isspace():
+                prev = char
+            index += 1
+            continue
+        if state in ("line", "block"):
+            if state == "line" and char == "\n":
+                state = "code"
+                out.append("\n")
+            elif state == "block" and char == "*" and nxt == "/":
+                state, index = "code", index + 2
+                out.append("  ")
+                continue
+            else:
+                out.append("\n" if char == "\n" else " ")
+            index += 1
+            continue
+        # Inside a string, template literal or regex: copy verbatim.
+        out.append(char)
+        if char == "\\" and index + 1 < length:
+            out.append(source[index + 1])
+            index += 2
+            continue
+        closers = {"single": "'", "double": '"', "template": "`", "regex": "/"}
+        if char == closers[state]:
+            state, prev = "code", char
+        index += 1
+    return "".join(out)
+
+
+def _js_line_of(source: str, index: int) -> int:
+    """Return the 1-based line number of *index* in *source*."""
+    return source.count("\n", 0, index) + 1
+
+
+def _js_scan_args(source: str, open_index: int) -> tuple[list[str], int]:
+    """Split the argument list of the call whose ``(`` sits at *open_index*.
+
+    Returns:
+        ``(arguments, index_after_closing_paren)``. The arguments are raw source
+        slices, stripped; an unterminated call yields what was collected.
+    """
+    args: list[str] = []
+    depth = 0
+    start = open_index + 1
+    index = open_index
+    length = len(source)
+    state = "code"
+    while index < length:
+        char = source[index]
+        if state == "code":
+            if char in "\"'`":
+                state = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    args.append(source[start:index].strip())
+                    return [a for a in args if a], index + 1
+            elif char == "," and depth == 1:
+                args.append(source[start:index].strip())
+                start = index + 1
+        else:
+            if char == "\\":
+                index += 2
+                continue
+            if char == state:
+                state = "code"
+        index += 1
+    args.append(source[start:].strip())
+    return [a for a in args if a], length
+
+
+def _js_split_top_level(expr: str, separators: str) -> list[str]:
+    """Split *expr* on *separators* that sit outside brackets and string literals."""
+    parts: list[str] = []
+    depth = 0
+    state = "code"
+    current: list[str] = []
+    index = 0
+    while index < len(expr):
+        char = expr[index]
+        if state == "code":
+            if char in "\"'`":
+                state = char
+                current.append(char)
+            elif char in "([{":
+                depth += 1
+                current.append(char)
+            elif char in ")]}":
+                depth -= 1
+                current.append(char)
+            elif char in separators and depth == 0:
+                parts.append("".join(current))
+                current = []
+            else:
+                current.append(char)
+        else:
+            current.append(char)
+            if char == "\\" and index + 1 < len(expr):
+                current.append(expr[index + 1])
+                index += 2
+                continue
+            if char == state:
+                state = "code"
+        index += 1
+    parts.append("".join(current))
+    return [part.strip() for part in parts]
+
+
+def _js_string_value(token: str) -> str | None:
+    """Return the text of *token* when it is a single quoted string literal."""
+    token = token.strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        inner = token[1:-1]
+        if token[0] not in inner.replace("\\" + token[0], ""):
+            return inner.replace("\\" + token[0], token[0])
+    return None
+
+
+def _js_template_value(token: str) -> str | None:
+    """Return the text of a template literal with ``${…}`` collapsed to a placeholder."""
+    token = token.strip()
+    if len(token) >= 2 and token.startswith("`") and token.endswith("`"):
+        return re.sub(r"\$\{[^}]*\}", _JS_PARAM, token[1:-1])
+    return None
+
+
+@dataclass
+class JsCall:
+    """One URL a script reaches for, with whatever the scanner could resolve about it."""
+
+    origin: str
+    line: int
+    kind: str
+    verb: str
+    url: str
+    template: str = ""
+    variable: str = ""
+    wrapper: str = ""
+    route: str = ""
+    event: str = ""
+    selector: str = ""
+    dataset: str = ""
+    trigger_template: str = ""
+    trigger_line: int = 0
+    trigger_text: str = ""
+    trigger_count: int = 0
+    flags: list[str] = field(default_factory=list)
+
+
+def js_url_candidates(
+    expr: str,
+    resolve: Callable[[str], list[str]] | None = None,
+    require_absolute: bool = True,
+) -> list[str]:
+    """Resolve a URL expression to the concrete paths it can produce.
+
+    Handles the three shapes the project's scripts use — a string literal, a
+    template literal and a ``+`` concatenation — plus the ternary that picks
+    between two endpoints (``isEdit ? "/x/" + id : "/x"``), which yields one
+    candidate per branch. Any part that is not a literal collapses to
+    ``{param}``, so ``"/investments/" + ID + "/navs"`` becomes
+    ``/investments/{param}/navs``. A ``window.location.origin`` or ``baseUrl``
+    prefix contributes an origin rather than a path and is dropped.
+
+    Args:
+        expr: The raw source of the URL argument.
+        resolve: Optional one-level lookup for a concatenated identifier. Only a
+            value that turns out to be a fragment or a query string is taken
+            from it — ``"/back-office" + fragment`` is a link to ``/back-office``
+            and not to a path segment named after the variable. Anything else
+            stays ``{param}``, as the design specifies.
+        require_absolute: When false, a value that does not start with ``/`` is
+            still returned; used for the fragment lookup above.
+
+    Returns:
+        The candidate paths, query string and fragment removed, in source
+        order. Empty when no literal path survives — the caller records those
+        as ``<dynamic>``.
+    """
+    expr = expr.strip()
+    if not expr:
+        return []
+    branches = _js_split_top_level(expr, "?")
+    if len(branches) == 2:
+        tail = _js_split_top_level(branches[1], ":")
+        if len(tail) == 2:
+            return [
+                url
+                for branch in tail
+                for url in js_url_candidates(branch, resolve, require_absolute)
+            ]
+    literal_seen = False
+    rendered: list[str] = []
+    for part in _js_split_top_level(expr, "+"):
+        if not part:
+            continue
+        if part.startswith("(") and part.endswith(")"):
+            inner = js_url_candidates(part[1:-1], resolve, require_absolute)
+            if inner:
+                rendered.append(inner[0])
+                literal_seen = True
+                continue
+        text = _js_string_value(part)
+        if text is None:
+            text = _js_template_value(part)
+        if text is None:
+            if part.startswith(_JS_ORIGIN_PREFIXES):
+                continue
+            found = resolve(part) if resolve and _JS_IDENT_RE.match(part) else []
+            if found and found[0][:1] in ("#", "?"):
+                rendered.append(found[0])
+                continue
+            rendered.append(_JS_PARAM)
+            continue
+        literal_seen = literal_seen or "/" in text or not require_absolute
+        rendered.append(text)
+    if not literal_seen:
+        return []
+    url = "".join(rendered)
+    if not require_absolute:
+        # The fragment lookup needs the ``#`` kept: it is what tells the caller
+        # this concatenation contributes a fragment rather than a path segment.
+        return [url]
+    url = url.split("?", 1)[0].split("#", 1)[0]
+    return [url] if url.startswith("/") else []
+
+
+def js_option_verbs(option_source: str) -> list[str]:
+    """Return the HTTP verbs named by the ``method`` key of an options object.
+
+    ``{ method: "DELETE" }`` yields ``["DELETE"]``; the conditional
+    ``{ method: isEdit ? "PUT" : "POST" }`` yields both, in branch order, so the
+    caller can pair them with a matching conditional URL.
+    """
+    source = option_source.strip()
+    if source.startswith("{") and source.endswith("}"):
+        source = source[1:-1]
+    for entry in _js_split_top_level(source, ","):
+        key, sep, value = entry.partition(":")
+        if not sep or key.strip().strip("\"'") != "method":
+            continue
+        verbs: list[str] = []
+        for literal in _JS_STRING_RE.finditer(value):
+            text = literal.group(1) if literal.group(1) is not None else literal.group(2)
+            if text and text.isalpha():
+                verbs.append(text.upper())
+        return verbs
+    return []
+
+
+def _js_pair(urls: list[str], verbs: list[str], default: str) -> list[tuple[str, str]]:
+    """Pair resolved URLs with resolved verbs.
+
+    A conditional URL beside a conditional method is two real call sites, so
+    equal-length lists zip; otherwise every URL takes the first verb found.
+    """
+    if not urls:
+        return []
+    if verbs and len(verbs) == len(urls):
+        pairs = list(zip(urls, verbs))
+    else:
+        verb = verbs[0] if verbs else default
+        pairs = [(url, verb) for url in urls]
+    # Both branches of a conditional can normalise to the same endpoint — one
+    # carrying a query string, one not. That is one call site, not two.
+    unique: list[tuple[str, str]] = []
+    for pair in pairs:
+        if pair not in unique:
+            unique.append(pair)
+    return unique
+
+
+#: Constructs that introduce a callback. A handler body is *inside* the binding,
+#: so the linker has to step out of one to reach the element it is bound to.
+_JS_CALLBACK_HEAD_RE = re.compile(
+    r"(?:addEventListener\s*\(|forEach\s*\(|\.then\s*\(|\.map\s*\(|"
+    r"setTimeout\s*\(|setInterval\s*\(|\bon[a-z]+\s*=\s*)[^{]*$"
+)
+
+#: How many callback levels the linker steps out of before giving up.
+JS_CALLBACK_LEVELS = 3
+
+
+def _js_function_brace(text: str, index: int) -> int | None:
+    """Return the position of the ``{`` opening the function body enclosing *index*."""
+    depth = 0
+    cursor = index - 1
+    while cursor >= 0:
+        char = text[cursor]
+        if char == "}":
+            depth += 1
+        elif char == "{":
+            if depth == 0:
+                head = text[max(0, cursor - 200) : cursor]
+                if re.search(r"(?:function\b[^{};]*|=>\s*)$", head):
+                    return cursor
+            else:
+                depth -= 1
+        cursor -= 1
+    return None
+
+
+def _js_enclosing_span(text: str, index: int) -> tuple[int, int]:
+    """Return the span the linker searches backwards for a binding.
+
+    The innermost function body is the wrong window on its own: a call inside
+    ``btn.addEventListener("click", function () { … })`` is bracketed by the
+    handler, while the ``btn`` it is bound to was selected *outside* it. So the
+    walk steps out of each enclosing callback — up to ``JS_CALLBACK_LEVELS`` of
+    them — and stops at the first named function body, which is where the
+    element lookup lives. Falls back to a fixed window of ``JS_LINK_WINDOW``
+    lines when nothing brackets the call at all.
+    """
+    position = index
+    span_start: int | None = None
+    for _ in range(JS_CALLBACK_LEVELS):
+        brace = _js_function_brace(text, position)
+        if brace is None:
+            break
+        span_start = brace
+        if not _JS_CALLBACK_HEAD_RE.search(text[max(0, brace - 200) : brace]):
+            break
+        position = brace
+    line = _js_line_of(text, index)
+    fallback = 0
+    if line > JS_LINK_WINDOW:
+        offset = 0
+        for _ in range(line - JS_LINK_WINDOW):
+            offset = text.find("\n", offset) + 1
+        fallback = offset
+    if span_start is None:
+        return fallback, index
+    return span_start, index
+
+
+def _js_read_expression(text: str, start: int) -> str:
+    """Return the source of the expression beginning at *start*, up to its terminator."""
+    depth = 0
+    state = "code"
+    cursor = start
+    while cursor < len(text):
+        char = text[cursor]
+        if state == "code":
+            if char in "\"'`":
+                state = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif char == ";" and depth == 0:
+                break
+            elif char == "\n" and depth == 0:
+                tail = text[cursor:].lstrip()
+                if not tail.startswith(("?", ":", "+", ".", "&&", "||")):
+                    following = text[start:cursor].strip()
+                    if following and not following.rstrip().endswith(("+", "?", ":", "(", ",")):
+                        break
+        else:
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == state:
+                state = "code"
+        cursor += 1
+    return text[start:cursor].strip()
+
+
+def _js_assignment_rhs(text: str, name: str, before: int, after: int = 0) -> str:
+    """Return the right-hand side of the last ``const|let|var name =`` before *before*."""
+    pattern = re.compile(r"\b(?:const|let|var)\s+" + re.escape(name) + r"\s*=(?!=)")
+    found = None
+    for match in pattern.finditer(text, after, before):
+        found = match
+    if found is None:
+        return ""
+    return _js_read_expression(text, found.end())
+
+
+def _js_dataset_name(expr: str) -> str:
+    """Return the ``data-`` attribute an expression reads, or the empty string."""
+    dataset = _JS_DATASET_RE.search(expr)
+    if dataset:
+        return "data-" + _JS_CAMEL_RE.sub("-", dataset.group(1)).lower()
+    attribute = _JS_GETATTR_DATA_RE.search(expr)
+    return attribute.group(1) if attribute else ""
+
+
+def _js_resolve_url(text: str, expr: str, index: int) -> tuple[list[str], str, str]:
+    """Resolve a URL argument to candidate paths.
+
+    A literal resolves directly. A bare identifier is chased back to its
+    assignment inside the enclosing function; an assignment that reads a
+    ``data-*`` attribute resolves no further here — the attribute name is
+    returned so the linker can look the URL up in the template that writes it.
+
+    Returns:
+        ``(urls, variable_name, dataset_attribute)``.
+    """
+    start, _ = _js_enclosing_span(text, index)
+
+    def resolve_part(name: str) -> list[str]:
+        rhs = _js_assignment_rhs(text, name, index, start)
+        return js_url_candidates(rhs, require_absolute=False) if rhs else []
+
+    urls = js_url_candidates(expr, resolve_part)
+    if urls:
+        return urls, "", ""
+    dataset = _js_dataset_name(expr)
+    if dataset:
+        return [], expr.strip(), dataset
+    if not _JS_IDENT_RE.match(expr.strip()):
+        return [], "", ""
+    name = expr.strip()
+    rhs = _js_assignment_rhs(text, name, index, start)
+    if not rhs:
+        rhs = _js_assignment_rhs(text, name, index)
+    if not rhs:
+        return [], name, ""
+    dataset = _js_dataset_name(rhs)
+    if dataset:
+        return [], name, dataset
+    return js_url_candidates(rhs, resolve_part), name, ""
+
+
+def _js_function_body(text: str, open_brace: int) -> tuple[int, int]:
+    """Return the span of the body whose opening brace is at *open_brace*."""
+    depth = 0
+    cursor = open_brace
+    state = "code"
+    while cursor < len(text):
+        char = text[cursor]
+        if state == "code":
+            if char in "\"'`":
+                state = char
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return open_brace, cursor
+        else:
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == state:
+                state = "code"
+        cursor += 1
+    return open_brace, len(text)
+
+
+def js_wrappers(text: str) -> dict[str, tuple[int, str, str]]:
+    """Find the local helpers that wrap a call pattern around a URL parameter.
+
+    ``fetchJson(url, options)`` and ``appendPinButton(wrap, kind, url)`` are the
+    project's two idioms: the endpoint is literal at the *call site*, and the
+    call pattern lives one level down in the helper. Without this, a 910-line
+    script contributes one unresolvable row instead of the seven endpoints it
+    actually calls.
+
+    Returns:
+        ``{name: (url_parameter_index, kind, fixed_verb)}``.
+    """
+    wrappers: dict[str, tuple[int, str, str]] = {}
+    for match in _JS_FUNCTION_RE.finditer(text):
+        name = match.group(1)
+        params = [p.strip() for p in match.group(2).split(",") if p.strip()]
+        if not params:
+            continue
+        brace = text.find("{", match.end())
+        if brace < 0:
+            continue
+        start, end = _js_function_body(text, brace)
+        body = text[start:end]
+        for kind, pattern, url_arg, verb_arg in (
+            ("fetch", _JS_FETCH_RE, 0, None),
+            ("htmx.ajax", _JS_HTMX_AJAX_RE, 1, 0),
+            ("eventsource", _JS_EVENTSOURCE_RE, 0, None),
+        ):
+            inner = pattern.search(body)
+            if not inner:
+                continue
+            args, _ = _js_scan_args(body, body.index("(", inner.end() - 1))
+            if len(args) <= url_arg:
+                continue
+            candidate = args[url_arg].strip()
+            if candidate not in params:
+                continue
+            verb = "GET"
+            if verb_arg is not None and len(args) > verb_arg:
+                verb = _js_string_value(args[verb_arg]) or "GET"
+            wrappers[name] = (params.index(candidate), kind, verb.upper())
+            break
+        if name in wrappers:
+            continue
+        attr = _JS_SETATTR_RE.search(body)
+        if attr:
+            args, _ = _js_scan_args(body, body.index("(", attr.start()))
+            if len(args) > 1 and args[1].strip() in params:
+                verb = attr.group(1).removeprefix("hx-").upper()
+                wrappers[name] = (params.index(args[1].strip()), "hx-attr", verb)
+    return wrappers
+
+
+def _js_emit(
+    calls: list[JsCall],
+    *,
+    origin: str,
+    template: str,
+    text: str,
+    index: int,
+    kind: str,
+    urls: list[str],
+    verbs: list[str],
+    default_verb: str,
+    variable: str,
+    dataset: str,
+    extra: list[str],
+    wrapper: str = "",
+) -> None:
+    """Append one ``JsCall`` per resolved URL, or a single ``<dynamic>`` row."""
+    line = _js_line_of(text, index)
+    pairs = _js_pair(urls, verbs, default_verb)
+    if not pairs:
+        flags = ["dynamic-url", *extra]
+        calls.append(
+            JsCall(
+                origin=origin,
+                line=line,
+                kind=kind,
+                verb=(verbs[0] if verbs else default_verb),
+                url="<dynamic>",
+                template=template,
+                variable=variable,
+                dataset=dataset,
+                wrapper=wrapper,
+                flags=flags,
+            )
+        )
+        return
+    for url, verb in pairs:
+        calls.append(
+            JsCall(
+                origin=origin,
+                line=line,
+                kind=kind,
+                verb=verb,
+                url=url,
+                template=template,
+                variable=variable,
+                dataset=dataset,
+                wrapper=wrapper,
+                flags=list(extra),
+            )
+        )
+
+
+def scan_js(source: str, origin: str, template: str = "") -> list[JsCall]:
+    """Extract every URL *source* reaches for.
+
+    Covers the six call shapes of the design: ``fetch``, ``htmx.ajax``,
+    ``EventSource``, ``XMLHttpRequest.open``, the three ``location``
+    navigations, and an ``hx-*`` attribute set from script. Calls routed
+    through a local wrapper are resolved at their call sites as well, so the
+    endpoint rather than the parameter name reaches the inventory.
+
+    Args:
+        source: Raw script text.
+        origin: Repository-relative path recorded on every row.
+        template: Template path when the script is inline, else the empty string.
+
+    Returns:
+        The calls, in source order.
+    """
+    text = strip_js_comments(source)
+    wrappers = js_wrappers(text)
+    calls: list[JsCall] = []
+
+    def emit(
+        index: int,
+        kind: str,
+        urls: list[str],
+        verbs: list[str],
+        default: str,
+        variable: str,
+        dataset: str,
+        extra: list[str],
+        wrapper: str = "",
+    ) -> None:
+        _js_emit(
+            calls,
+            origin=origin,
+            template=template,
+            text=text,
+            index=index,
+            kind=kind,
+            urls=urls,
+            verbs=verbs,
+            default_verb=default,
+            variable=variable,
+            dataset=dataset,
+            extra=extra,
+            wrapper=wrapper,
+        )
+
+    for match in _JS_FETCH_RE.finditer(text):
+        open_index = match.end() - 1
+        args, _ = _js_scan_args(text, open_index)
+        if not args:
+            continue
+        urls, variable, dataset = _js_resolve_url(text, args[0], open_index)
+        verbs = js_option_verbs(args[1]) if len(args) > 1 else []
+        emit(open_index, "fetch", urls, verbs, "GET", variable, dataset, [])
+
+    for match in _JS_HTMX_AJAX_RE.finditer(text):
+        open_index = match.end() - 1
+        args, _ = _js_scan_args(text, open_index)
+        if len(args) < 2:
+            continue
+        verb = (_js_string_value(args[0]) or "GET").upper()
+        urls, variable, dataset = _js_resolve_url(text, args[1], open_index)
+        emit(open_index, "htmx.ajax", urls, [verb], verb, variable, dataset, [])
+
+    for match in _JS_EVENTSOURCE_RE.finditer(text):
+        open_index = match.end() - 1
+        args, _ = _js_scan_args(text, open_index)
+        if not args:
+            continue
+        urls, variable, dataset = _js_resolve_url(text, args[0], open_index)
+        emit(open_index, "eventsource", urls, [], "GET", variable, dataset, ["sse"])
+
+    if "XMLHttpRequest" in text:
+        for match in _JS_XHR_OPEN_RE.finditer(text):
+            open_index = match.end() - 1
+            args, _ = _js_scan_args(text, open_index)
+            if len(args) < 2:
+                continue
+            verb = (_js_string_value(args[0]) or "GET").upper()
+            urls, variable, dataset = _js_resolve_url(text, args[1], open_index)
+            emit(open_index, "xhr", urls, [verb], verb, variable, dataset, [])
+
+    for match in _JS_LOCATION_RE.finditer(text):
+        if match.group(2) == "=":
+            expr = _js_read_expression(text, match.end())
+            index = match.end()
+        else:
+            index = match.end() - 1
+            args, _ = _js_scan_args(text, index)
+            expr = args[0] if args else ""
+        urls, variable, dataset = _js_resolve_url(text, expr, index)
+        emit(index, "navigation", urls, [], "GET", variable, dataset, ["navigation"])
+
+    for match in _JS_SETATTR_RE.finditer(text):
+        open_index = text.index("(", match.start())
+        args, _ = _js_scan_args(text, open_index)
+        if len(args) < 2:
+            continue
+        verb = match.group(1).removeprefix("hx-").upper()
+        urls, variable, dataset = _js_resolve_url(text, args[1], open_index)
+        emit(open_index, "hx-attr", urls, [verb], verb, variable, dataset, [])
+
+    for name, (position, kind, fixed_verb) in sorted(wrappers.items()):
+        pattern = re.compile(r"\b" + re.escape(name) + r"\s*\(")
+        for match in pattern.finditer(text):
+            head = text[max(0, match.start() - 40) : match.start()]
+            if re.search(r"\bfunction\s+$", head):
+                continue
+            open_index = match.end() - 1
+            args, _ = _js_scan_args(text, open_index)
+            if len(args) <= position:
+                continue
+            urls, variable, dataset = _js_resolve_url(text, args[position], open_index)
+            verbs = [verb for argument in args for verb in js_option_verbs(argument)]
+            emit(
+                open_index,
+                kind,
+                urls,
+                verbs,
+                fixed_verb,
+                variable,
+                dataset,
+                [],
+                wrapper=name,
+            )
+
+    calls.sort(key=lambda call: (call.line, call.kind, call.url))
+    return calls
+
+
+@dataclass
+class TemplateAnchor:
+    """One template element a script can bind to, indexed by id, class and ``data-*``."""
+
+    template: str
+    source_file: str
+    line: int
+    identifier: str = ""
+    classes: list[str] = field(default_factory=list)
+    data: dict[str, str] = field(default_factory=dict)
+    text: str = ""
+
+
+@dataclass
+class AnchorIndex:
+    """The template side of the trigger link."""
+
+    by_id: dict[str, list[TemplateAnchor]] = field(default_factory=lambda: defaultdict(list))
+    by_class: dict[str, list[TemplateAnchor]] = field(default_factory=lambda: defaultdict(list))
+    by_data: dict[str, list[TemplateAnchor]] = field(default_factory=lambda: defaultdict(list))
+
+
+_ANCHOR_TAG_RE = re.compile(r"<([A-Za-z][\w-]*)((?:\s+[^<>]*)?)>", re.DOTALL)
+_ANCHOR_ATTR_RE = re.compile(r"([A-Za-z_:][-\w:.]*)\s*=\s*\"([^\"]*)\"")
+
+
+def collect_template_anchors(
+    root: Path, repo_root: Path, templates: dict[str, TemplateFacts]
+) -> AnchorIndex:
+    """Index every template element carrying an ``id``, ``class`` or ``data-*`` attribute.
+
+    Deliberately a second, independent pass over the templates rather than a
+    hook inside ``ElementCollector``: the element rows must come out of a JS run
+    byte-identical to a ``--js-off`` run, and the surest way to guarantee that is
+    to leave the collector alone.
+
+    Args:
+        root: Template root.
+        repo_root: Repository root, for the recorded source path.
+        templates: The scanned templates, read for the visible text of a row.
+
+    Returns:
+        The populated index.
+    """
+    index = AnchorIndex()
+    texts: dict[tuple[str, int], str] = {}
+    for rel, facts in templates.items():
+        for element in facts.elements:
+            key = (rel, element.source_line)
+            if element.visible_text and not texts.get(key):
+                texts[key] = element.visible_text
+    for path in sorted(root.rglob("*.html")):
+        rel = path.relative_to(root).as_posix()
+        source_file = path.relative_to(repo_root).as_posix()
+        scrubbed = scrub_jinja(path.read_text(encoding="utf-8"))
+        for match in _ANCHOR_TAG_RE.finditer(scrubbed):
+            attrs = dict(_ANCHOR_ATTR_RE.findall(match.group(2) or ""))
+            identifier = _JINJA_EXPR_RE.sub("", attrs.get("id", "")).strip()
+            classes = [
+                token for token in _JINJA_EXPR_RE.sub(" ", attrs.get("class", "")).split() if token
+            ]
+            data = {name: value for name, value in attrs.items() if name.startswith("data-")}
+            if not identifier and not classes and not data:
+                continue
+            line = _js_line_of(scrubbed, match.start())
+            anchor = TemplateAnchor(
+                template=rel,
+                source_file=source_file,
+                line=line,
+                identifier=identifier,
+                classes=classes,
+                data=data,
+                text=texts.get((rel, line), ""),
+            )
+            if identifier:
+                index.by_id[identifier].append(anchor)
+            for token in classes:
+                index.by_class[token].append(anchor)
+            for name in data:
+                index.by_data[name].append(anchor)
+    return index
+
+
+def _js_last(pattern: re.Pattern[str], window: str) -> re.Match[str] | None:
+    """Return the last match of *pattern* in *window* — the binding nearest the call."""
+    found: re.Match[str] | None = None
+    for match in pattern.finditer(window):
+        found = match
+    return found
+
+
+def _js_offset_of_line(text: str, line: int) -> int:
+    """Return the character offset at which 1-based *line* starts."""
+    offset = 0
+    for _ in range(line - 1):
+        found = text.find("\n", offset)
+        if found < 0:
+            return offset
+        offset = found + 1
+    return offset
+
+
+def _js_resolve_selector(selector: str, index: AnchorIndex) -> tuple[list[TemplateAnchor], bool]:
+    """Resolve a simple CSS selector against the anchor index.
+
+    Returns:
+        ``(anchors, simple)``. A descendant combinator, a comma group or a
+        pseudo-class is not resolved — the design records those as selector text
+        instead of guessing.
+    """
+    selector = selector.strip()
+    if not selector or re.search(r"[\s,>~+]|:not\(|::", selector):
+        return [], False
+    if selector.startswith("#"):
+        return index.by_id.get(selector[1:], []), True
+    if selector.startswith("."):
+        return index.by_class.get(selector[1:], []), True
+    attribute = re.fullmatch(r"\[([\w-]+)(?:[~|^$*]?=[\"']?([^\]\"']*)[\"']?)?\]", selector)
+    if attribute:
+        name, value = attribute.group(1), attribute.group(2)
+        anchors = index.by_data.get(name, [])
+        if value:
+            anchors = [a for a in anchors if a.data.get(name, "").strip() == value]
+        return anchors, True
+    tag_attribute = re.fullmatch(r"[\w-]+\[([\w-]+)\]", selector)
+    if tag_attribute:
+        return index.by_data.get(tag_attribute.group(1), []), True
+    return [], False
+
+
+def link_js_calls(calls: list[JsCall], source: str, index: AnchorIndex) -> None:
+    """Attach each call to the template element whose handler makes it.
+
+    Looks backwards from the call to the nearest binding inside the enclosing
+    function body — an id lookup, a selector, an event listener, a ``data-*``
+    read — and resolves it against the template anchors. A ``data-*`` read wins
+    over an id lookup: when the URL itself came out of an attribute, that
+    attribute is both the trigger and the endpoint.
+    """
+    text = strip_js_comments(source)
+    for call in calls:
+        position = _js_offset_of_line(text, call.line)
+        start, _ = _js_enclosing_span(text, position)
+        window = text[start : max(start, position + 1)]
+
+        listener = _js_last(_JS_LISTENER_RE, window) or _js_last(_JS_ONEVENT_RE, window)
+        if listener is not None:
+            call.event = listener.group(1)
+
+        anchors: list[TemplateAnchor] = []
+        if call.dataset:
+            anchors = index.by_data.get(call.dataset, [])
+            call.selector = f"[{call.dataset}]"
+        if not anchors:
+            identifier = _js_last(_JS_GET_BY_ID_RE, window)
+            if identifier is not None:
+                anchors = index.by_id.get(identifier.group(1), [])
+                call.selector = call.selector or f"#{identifier.group(1)}"
+        if not anchors:
+            query = _js_last(_JS_QUERY_RE, window)
+            if query is not None:
+                call.selector = call.selector or query.group(1)
+                anchors, _simple = _js_resolve_selector(query.group(1), index)
+        if not anchors:
+            dataset = _js_last(_JS_DATASET_RE, window)
+            if dataset is not None:
+                name = "data-" + _JS_CAMEL_RE.sub("-", dataset.group(1)).lower()
+                anchors = index.by_data.get(name, [])
+                call.selector = call.selector or f"[{name}]"
+
+        if not anchors:
+            call.flags.append("unlinked")
+            continue
+        ordered = sorted({(a.template, a.line, a.text) for a in anchors})
+        call.trigger_count = len(ordered)
+        call.trigger_template, call.trigger_line, call.trigger_text = ordered[0]
+        call.flags.append("linked")
+        if len(ordered) > 1:
+            call.flags.append("multi-trigger")
+        if call.event:
+            call.flags.append(f"event:{call.event}")
+
+
+def js_trigger_templates(call: JsCall, index: AnchorIndex) -> list[str]:
+    """Return every distinct template the call's trigger resolves into."""
+    if not call.selector:
+        return [call.trigger_template] if call.trigger_template else []
+    anchors, _ = _js_resolve_selector(call.selector, index)
+    if not anchors and call.selector.startswith("#"):
+        anchors = index.by_id.get(call.selector[1:], [])
+    return sorted({anchor.template for anchor in anchors}) or (
+        [call.trigger_template] if call.trigger_template else []
+    )
+
+
+def inline_script_text(source: str) -> str:
+    """Return *source* with everything outside a ``<script>`` body blanked.
+
+    Line numbers survive, so a call found in the result reports the line it
+    occupies in the template. Jinja is scrubbed first, which is what keeps the
+    word ``fetch()`` inside a ``{# … #}`` comment from being read as a call.
+    """
+    scrubbed = scrub_jinja(source)
+    out = ["\n" if char == "\n" else " " for char in scrubbed]
+    for match in _JS_SCRIPT_RE.finditer(scrubbed):
+        if _JS_SRC_RE.search(match.group(1) or ""):
+            continue
+        start = match.start(2)
+        for offset, char in enumerate(match.group(2)):
+            out[start + offset] = char
+    return "".join(out)
+
+
+def js_sources(root: Path, repo_root: Path) -> list[tuple[str, str, str]]:
+    """Return ``(origin, template, text)`` for every script the inventory reads.
+
+    Both source kinds of the design: the static files under ``web/static/js``
+    and every inline ``<script>`` block without a ``src`` in every template.
+    """
+    sources: list[tuple[str, str, str]] = []
+    static_dir = repo_root / "web" / "static" / "js"
+    for path in sorted(static_dir.glob("*.js")):
+        origin = path.relative_to(repo_root).as_posix()
+        sources.append((origin, "", path.read_text(encoding="utf-8")))
+    for path in sorted(root.rglob("*.html")):
+        raw = path.read_text(encoding="utf-8")
+        if "<script" not in raw:
+            continue
+        text = inline_script_text(raw)
+        if not text.strip():
+            continue
+        sources.append(
+            (path.relative_to(repo_root).as_posix(), path.relative_to(root).as_posix(), text)
+        )
+    return sources
+
+
+def resolve_js_routes(
+    calls: list[JsCall], matchers: list[tuple[re.Pattern[str], str]], index: AnchorIndex
+) -> None:
+    """Match every call to a route, resolving ``data-*`` URLs through the template.
+
+    A URL read out of ``el.dataset.pfSseUrl`` is unresolvable in the script, but
+    the template that writes ``data-pf-sse-url`` holds the literal — so the
+    attribute is followed to its value and the call gets a real endpoint.
+    """
+    for call in calls:
+        if call.url == "<dynamic>" and call.dataset:
+            for anchor in index.by_data.get(call.dataset, []):
+                value = _JINJA_EXPR_RE.sub(_JS_PARAM, anchor.data.get(call.dataset, ""))
+                value = value.split("?", 1)[0].split("#", 1)[0].strip()
+                if value.startswith("/"):
+                    call.url = value
+                    call.flags = [flag for flag in call.flags if flag != "dynamic-url"]
+                    call.flags.append("url-from-attribute")
+                    break
+        call.route = match_route(call.url, matchers) if call.url != "<dynamic>" else ""
+
+
+def js_call_areas(
+    call: JsCall,
+    index: AnchorIndex,
+    template_areas: dict[str, set[str]],
+    route_areas: dict[str, set[str]],
+) -> list[str]:
+    """Return the Areas a JS call row belongs to.
+
+    A linked call belongs where its trigger lives. An unlinked call in an inline
+    script belongs to the template that carries the script. An unlinked call in
+    a static file has no template evidence at all, so it falls back to the Area
+    of the route it calls — and to ``unassigned`` when even that is unknown.
+    """
+    areas: set[str] = set()
+    if "linked" in call.flags:
+        for rel in js_trigger_templates(call, index):
+            areas |= template_areas.get(rel, set())
+    elif call.template:
+        areas |= template_areas.get(call.template, set())
+    if not areas and call.route:
+        areas |= route_areas.get(call.route, set())
+    return sorted(areas) or [UNASSIGNED]
+
+
+def js_elements(
+    calls: list[JsCall],
+    index: AnchorIndex,
+    template_areas: dict[str, set[str]],
+    route_areas: dict[str, set[str]],
+) -> list[Element]:
+    """Turn the scanned calls into ``elements.csv`` rows."""
+    rows: list[Element] = []
+    for call in calls:
+        flags = [f"verb:{call.verb}", *call.flags]
+        if call.wrapper:
+            flags.append(f"via:{call.wrapper}")
+        template = call.trigger_template if "linked" in call.flags else call.template
+        for area in js_call_areas(call, index, template_areas, route_areas):
+            rows.append(
+                Element(
+                    area=area,
+                    template=template,
+                    block="",
+                    source_kind="js",
+                    element_kind="js_call",
+                    visible_text=call.trigger_text if "linked" in call.flags else "",
+                    target=call.url,
+                    hx_target="",
+                    source_file=call.origin,
+                    source_line=call.line,
+                    flags=list(flags),
+                )
+            )
+    rows.sort(
+        key=lambda row: (row.area, row.source_file, row.source_line, row.target, row.template)
+    )
+    return rows
+
+
+def js_edges_for(
+    calls: list[JsCall], index: AnchorIndex
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Return the ``template --js--> route`` edges a linked call contributes.
+
+    Split into the two kinds the propagation treats differently. A scripted
+    request is composition and carries an Area like an ``hx-*`` attribute; a
+    scripted ``location.href`` is navigation, and propagating it would make the
+    Admin data-import section an owner of ``/investments`` merely because it
+    redirects there when the import succeeds.
+
+    An unlinked call contributes nothing either way: without a trigger there is
+    no template to carry an Area, and guessing one would be weaker evidence than
+    the handler-module fallback it is meant to replace.
+
+    Returns:
+        ``(request_edges, navigation_edges)``.
+    """
+    edges: dict[str, set[str]] = defaultdict(set)
+    nav_edges: dict[str, set[str]] = defaultdict(set)
+    for call in calls:
+        if "linked" not in call.flags or not call.route:
+            continue
+        bucket = nav_edges if "navigation" in call.flags else edges
+        for rel in js_trigger_templates(call, index):
+            bucket[rel].add(call.route)
+    return edges, nav_edges
+
+
 def propagate(
     templates: dict[str, TemplateFacts],
     routes: list[RouteRow],
     renders: dict[str, list[str]],
     area_urls: dict[str, str],
+    js_edges: dict[str, set[str]] | None = None,
+    js_nav_edges: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]], list[str]]:
     """Propagate Area labels over the include / HTMX / renders graph to a fixed point.
 
@@ -1346,6 +2482,14 @@ def propagate(
         for url in facts.nav_urls:
             path = match_route(url, matchers)
             if path and not path_areas.get(path) and path not in renders_page:
+                template_to_routes[rel].add(path)
+    for rel, paths in (js_edges or {}).items():
+        template_to_routes[rel] |= paths
+    # A scripted ``location.href`` is navigation, not composition — the same
+    # rule a plain ``href`` already obeys, so it gets the same filter.
+    for rel, paths in (js_nav_edges or {}).items():
+        for path in paths:
+            if not path_areas.get(path) and path not in renders_page:
                 template_to_routes[rel].add(path)
 
     def run_fixed_point() -> None:
@@ -1510,6 +2654,7 @@ ROUTE_HEADER = [
     "source_line",
     "template",
     "auth_required",
+    "js_callers",
 ]
 
 NOUN_HEURISTIC = """\
@@ -1523,6 +2668,85 @@ dropped because sentence case capitalises it regardless of whether it is a
 product noun. The measure is a proxy, not a count of concepts: it over-counts
 proper nouns in prose and under-counts lower-case product terms.
 """
+
+
+def js_caller_section(module_attributed: list[str], js_calls: list[JsCall]) -> list[str]:
+    """Render the summary section that replaces the handler-module fallback list.
+
+    The population is the pre-JS fallback set — the routes no template triggers
+    visibly. For each, the scripts that call it and, where the linker could
+    bracket a binding, the template element the handler is bound to. What the
+    scripts still do not explain is listed separately rather than left implicit.
+
+    Args:
+        module_attributed: ``"METHOD /path"`` entries from the pre-JS run.
+        js_calls: Every call the JavaScript pass found.
+
+    Returns:
+        The Markdown lines.
+    """
+    by_route: dict[str, list[JsCall]] = defaultdict(list)
+    for call in js_calls:
+        if call.route:
+            by_route[call.route].append(call)
+
+    # A path routinely carries several route rows, one per method — ``PUT`` and
+    # ``DELETE`` on ``/investments/{id}/navs/{nav_id}`` are two rows, and only
+    # one of them may be in this population. Matching on the verb as well as the
+    # path is what keeps a DELETE caller from being offered as evidence for the
+    # sibling PUT. A call that matches no row here is not lost: it is still a row
+    # in ``elements.csv`` and still counted in ``routes.csv``.
+    found: list[tuple[str, list[JsCall]]] = []
+    residual: list[str] = []
+    for entry in module_attributed:
+        methods, _, path = entry.partition(" ")
+        path = path or entry
+        allowed = set(methods.split("|"))
+        calls = [call for call in by_route.get(path, []) if call.verb in allowed]
+        if calls:
+            found.append((entry, calls))
+        else:
+            residual.append(entry)
+
+    lines: list[str] = []
+    lines.append(f"## Routes with JavaScript callers only ({len(found)})")
+    lines.append("")
+    lines.append(
+        "No template triggers these visibly — their caller is a script. The JavaScript pass "
+        "reads those scripts, so the caller below is evidence rather than inference: the "
+        "script location that issues the request and, where the handler could be traced back "
+        "to the element it is bound to, that element and its visible text. A route that gains "
+        "a linked trigger no longer needs the handler-module fallback for its Area."
+    )
+    lines.append("")
+    for entry, calls in found:
+        lines.append(f"* `{entry}`")
+        for call in sorted(calls, key=lambda c: (c.origin, c.line)):
+            detail = f"  * `{call.origin}:{call.line}` — {call.kind}, `{call.verb}`"
+            if call.wrapper:
+                detail += f", via `{call.wrapper}()`"
+            if "linked" in call.flags:
+                detail += f" — trigger `{call.selector}` in `{call.trigger_template}`"
+                detail += f":{call.trigger_line}"
+                if call.trigger_text:
+                    detail += f' — "{_md(call.trigger_text)}"'
+                if "multi-trigger" in call.flags:
+                    detail += f" (+{call.trigger_count - 1} more)"
+            else:
+                detail += " — no trigger element resolved"
+            lines.append(detail)
+    lines.append("")
+    lines.append(f"### Still without any known caller ({len(residual)})")
+    lines.append("")
+    lines.append(
+        "Neither a template nor a script explains these. They keep the handler-module Area, "
+        "which remains the weakest evidence in the inventory."
+    )
+    lines.append("")
+    for entry in residual:
+        lines.append(f"* `{entry}`")
+    lines.append("")
+    return lines
 
 
 def write_elements(out_dir: Path, elements: list[Element]) -> None:
@@ -1552,11 +2776,17 @@ def write_summary(
     excluded: set[str],
     route_note: str,
     module_attributed: list[str],
+    js_rows: list[Element] | None = None,
+    js_calls: list[JsCall] | None = None,
+    js_enabled: bool = False,
 ) -> None:
     """Write the generated ``summary.md``."""
+    js_rows = js_rows or []
+    js_calls = js_calls or []
     areas = sorted(
         {element.area for element in elements}
         | {part for route in routes for part in route.area.split("|")}
+        | {row.area for row in js_rows}
     )
     lines: list[str] = []
     lines.append("# UI inventory — summary")
@@ -1579,21 +2809,25 @@ def write_summary(
 
     lines.append("## Per Area")
     lines.append("")
+    js_column = " js calls |" if js_enabled else ""
+    js_rule = "---:|" if js_enabled else ""
     lines.append(
         "| Area | templates | element rows | headings | buttons | HTMX triggers | links | "
-        "form labels | pills | tiles | routes | distinct nouns |"
+        "form labels | pills | tiles | routes |" + js_column + " distinct nouns |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|" + js_rule + "---:|")
+    js_by_area = Counter(row.area for row in js_rows)
     for area in areas:
         rows = [element for element in elements if element.area == area]
         kinds = Counter(element.element_kind for element in rows)
         tpls = {element.template for element in rows if element.template}
         nouns = distinct_nouns([element.visible_text for element in rows])
         route_count = sum(1 for route in routes if area in route.area.split("|"))
+        js_cell = f" {js_by_area[area]} |" if js_enabled else ""
         lines.append(
             f"| {area} | {len(tpls)} | {len(rows)} | {kinds['heading']} | {kinds['button']} | "
             f"{kinds['htmx']} | {kinds['link']} | {kinds['form_label']} | {kinds['pill']} | "
-            f"{kinds['tile']} | {route_count} | {len(nouns)} |"
+            f"{kinds['tile']} | {route_count} |" + js_cell + f" {len(nouns)} |"
         )
     lines.append("")
     lines.append(NOUN_HEURISTIC)
@@ -1614,6 +2848,7 @@ def write_summary(
             for flag in element.flags
             if not flag.startswith(("options:", "verb:"))
         }
+        | ({"unlinked"} if js_enabled else set())
     )
     lines.append("## Flags per Area")
     lines.append("")
@@ -1650,6 +2885,10 @@ def write_summary(
         counts = Counter(
             flag for element in elements if element.area == area for flag in set(element.flags)
         )
+        if js_enabled:
+            counts["unlinked"] = sum(
+                1 for row in js_rows if row.area == area and "unlinked" in row.flags
+            )
         lines.append(f"| {area} | " + " | ".join(str(counts[flag]) for flag in all_flags) + " |")
     lines.append("")
 
@@ -1734,17 +2973,20 @@ def write_summary(
         )
     lines.append("")
 
-    lines.append(f"## Routes attributed by handler module ({len(module_attributed)})")
-    lines.append("")
-    lines.append(
-        "No template triggers these visibly — their caller is JavaScript, which this "
-        "inventory does not read. They inherit the single Area their sibling routes agree on. "
-        "Weakest evidence in the inventory; treat the Area as indicative."
-    )
-    lines.append("")
-    for entry in module_attributed:
-        lines.append(f"* `{entry}`")
-    lines.append("")
+    if js_enabled:
+        lines.extend(js_caller_section(module_attributed, js_calls))
+    else:
+        lines.append(f"## Routes attributed by handler module ({len(module_attributed)})")
+        lines.append("")
+        lines.append(
+            "No template triggers these visibly — their caller is JavaScript, which this "
+            "inventory does not read. They inherit the single Area their sibling routes agree "
+            "on. Weakest evidence in the inventory; treat the Area as indicative."
+        )
+        lines.append("")
+        for entry in module_attributed:
+            lines.append(f"* `{entry}`")
+        lines.append("")
 
     lines.append(f"## Templates with no owning Area ({len(unattributed)})")
     lines.append("")
@@ -1799,6 +3041,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="force the static route fallback instead of importing the application",
     )
+    parser.add_argument(
+        "--js-off",
+        action="store_true",
+        help="skip the JavaScript pass entirely (reproduces the pre-JS artefacts)",
+    )
     return parser
 
 
@@ -1841,8 +3088,42 @@ def main(argv: list[str] | None = None) -> int:
         facts = scan_template(root, repo_root, path)
         templates[facts.path] = facts
 
-    template_areas, route_areas, module_attributed = propagate(
+    # -- JavaScript ------------------------------------------------------
+    js_calls: list[JsCall] = []
+    anchors = AnchorIndex()
+    js_edges: dict[str, set[str]] = {}
+    js_nav_edges: dict[str, set[str]] = {}
+    if not args.js_off:
+        anchors = collect_template_anchors(root, repo_root, templates)
+        matchers = route_matcher([route.path for route in routes])
+        for origin, template, text in js_sources(root, repo_root):
+            found = scan_js(text, origin, template)
+            link_js_calls(found, text, anchors)
+            js_calls.extend(found)
+        resolve_js_routes(js_calls, matchers, anchors)
+        js_edges, js_nav_edges = js_edges_for(js_calls, anchors)
+
+    # The pre-JS attribution is kept as the baseline: it is the population the
+    # summary's JavaScript section reports against, and the only way to say
+    # which Areas the new edges actually changed.
+    base_template_areas, base_route_areas, base_module_attributed = propagate(
         templates, routes, renders, area_urls
+    )
+    if js_edges or js_nav_edges:
+        # The post-JS fallback list is discarded on purpose: the summary reports
+        # against the pre-JS population, which is what "the 29" refers to.
+        template_areas, route_areas, _ = propagate(
+            templates, routes, renders, area_urls, js_edges, js_nav_edges
+        )
+    else:
+        template_areas = base_template_areas
+        route_areas = base_route_areas
+
+    area_changes = sorted(
+        f"{path}: {'|'.join(sorted(base_route_areas.get(path, set()))) or UNASSIGNED}"
+        f" -> {'|'.join(sorted(route_areas.get(path, set()))) or UNASSIGNED}"
+        for path in {route.path for route in routes}
+        if base_route_areas.get(path, set()) != route_areas.get(path, set())
     )
 
     for route in routes:
@@ -1894,9 +3175,22 @@ def main(argv: list[str] | None = None) -> int:
 
     apply_cross_flags(elements)
     elements.sort(key=lambda e: (e.area, e.template, e.source_file, e.source_line, e.element_kind))
+
+    # Count per (path, verb), not per path: ``/investments/{id}/navs/{nav_id}``
+    # is two route rows, and a DELETE caller is not a caller of the sibling PUT.
+    callers = Counter((call.route, call.verb) for call in js_calls if call.route)
+    for route in routes:
+        methods = set(route.methods.split("|"))
+        route.js_callers = sum(
+            count
+            for (path, verb), count in callers.items()
+            if path == route.path and verb in methods
+        )
     routes.sort(key=lambda r: (r.area, r.path, r.methods))
 
-    write_elements(out_dir, elements)
+    js_rows = js_elements(js_calls, anchors, template_areas, route_areas) if js_calls else []
+
+    write_elements(out_dir, elements + js_rows)
     write_routes(out_dir, routes)
     write_summary(
         out_dir,
@@ -1906,12 +3200,20 @@ def main(argv: list[str] | None = None) -> int:
         template_areas,
         excluded,
         route_note,
-        module_attributed,
+        base_module_attributed,
+        js_rows,
+        js_calls,
+        not args.js_off,
     )
 
     parse_errors = [rel for rel, facts in templates.items() if facts.parse_error]
-    print(f"templates: {len(templates)}  elements: {len(elements)}  routes: {len(routes)}")
+    print(
+        f"templates: {len(templates)}  elements: {len(elements)}  routes: {len(routes)}"
+        + (f"  js rows: {len(js_rows)} from {len(js_calls)} calls" if js_calls else "")
+    )
     print(f"route pass: {route_note}")
+    for change in area_changes:
+        print(f"area change: {change}")
     print(f"written to: {out_dir}")
     if parse_errors:
         for rel in parse_errors:

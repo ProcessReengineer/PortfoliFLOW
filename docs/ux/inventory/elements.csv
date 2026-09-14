@@ -1180,3 +1180,47 @@ watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,verb:GET
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+admin,_partials/data_import_preview.html,,js,js_call,,/api/data-uploads/{param}/import-as-investments,,web/static/js/data_import_section.js,35,linked|verb:POST
+admin,_partials/data_import_preview.html,,js,js_call,,/investments,,web/static/js/data_import_section.js,66,linked|navigation|verb:GET
+assistants,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,104,unlinked|verb:GET|via:appendPinButton
+assistants,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,118,unlinked|verb:GET|via:appendPinButton
+assistants,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,133,dynamic-url|linked|verb:GET
+assistants,_partials/turn_started.html,,js,js_call,,/chat/stream/{param},,web/static/js/chat.js,170,event:keydown|linked|sse|url-from-attribute|verb:GET
+assistants,,,js,js_call,,/chat/tts,,web/static/js/chat.js,353,unlinked|verb:POST
+assistants,,,js,js_call,,/chat/voice,,web/static/js/chat.js,507,unlinked|verb:POST
+assistants,_partials/scraper_run_mount.html,,js,js_call,,/scraper/runs/{param}/stream,,web/static/js/scraper.js,153,event:click|linked|sse|url-from-attribute|verb:GET
+assistants,_partials/scraper_progress.html,,js,js_call,Cancel,/scraper/runs/{param}/cancel,,web/static/js/scraper.js,201,event:click|linked|multi-trigger|url-from-attribute|verb:POST
+back_office,_partials/saa_section.html,,js,js_call,,/back-office,,web/static/js/saa_section.js,94,linked|navigation|verb:GET
+back_office,_partials/saa_section.html,,js,js_call,,/api/saa/section,,web/static/js/saa_section.js,100,linked|verb:GET
+back_office,_partials/saa_section.html,,js,js_call,{{ config.name }} (active),/api/saa/configuration/{param},,web/static/js/saa_section.js,130,event:change|linked|verb:GET
+back_office,,,js,js_call,,/api/saa/configuration/{param}/activate,,web/static/js/saa_section.js,176,unlinked|verb:POST|via:fetchJson
+back_office,,,js,js_call,,/api/saa/configuration/{param},,web/static/js/saa_section.js,187,unlinked|verb:DELETE|via:fetchJson
+back_office,_partials/saa_section.html,,js,js_call,,/api/saa/configuration,,web/static/js/saa_section.js,209,event:submit|linked|verb:POST|via:fetchJson
+back_office,_partials/saa_configuration_partial.html,,js,js_call,Number of frontier points,/api/saa/configuration/{param},,web/static/js/saa_section.js,658,event:click|linked|verb:PUT|via:fetchJson
+back_office,_partials/saa_section.html,,js,js_call,,/api/saa/asset-classes,,web/static/js/saa_section.js,703,linked|verb:GET
+back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_section.js,719,unlinked|verb:PUT|via:fetchJson
+back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_section.js,738,unlinked|verb:DELETE|via:fetchJson
+back_office,_partials/saa_asset_classes_modal.html,,js,js_call,,/api/saa/asset-classes,,web/static/js/saa_section.js,847,event:submit|linked|verb:POST|via:fetchJson
+back_office,_partials/benchmarks_attribution_stage_a.html,,js,js_call,,/api/back-office/benchmarks-attribution/stage-a/investment-detail,,web/templates/_partials/benchmarks_attribution_stage_a.html,187,unlinked|verb:GET
+investments,investments/detail.html,,js,js_call,,/investments/{param}/navs/{param},,web/templates/investments/detail.html,374,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,,/investments/{param}/cashflows/{param},,web/templates/investments/detail.html,447,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param}/primary,,web/templates/investments/detail.html,501,unlinked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param},,web/templates/investments/detail.html,528,unlinked|verb:DELETE
+investments,investments/_nav_form.html,,js,js_call,,/investments/{param}/navs,,web/templates/investments/detail.html,599,event:submit|linked|verb:POST
+investments,investments/_cashflow_form.html,,js,js_call,,/investments/{param}/cashflows,,web/templates/investments/detail.html,633,event:submit|linked|verb:POST
+investments,investments/_identifier_form.html,,js,js_call,,/investments/{param}/identifiers,,web/templates/investments/detail.html,660,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/positions/{param},,web/templates/investments/detail.html,774,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions,,web/templates/investments/detail.html,873,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions/{param},,web/templates/investments/detail.html,873,event:submit|linked|verb:PUT
+investments,investments/_mode_flip_confirm.html,,js,js_call,,/investments/{param}/valuation-mode/unitised,,web/templates/investments/detail.html,909,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/detail.html,938,unlinked|verb:PATCH
+investments,investments/detail.html,,js,js_call,Delete,/investments/{param},,web/templates/investments/detail.html,964,event:click|linked|verb:DELETE
+investments,investments/detail.html,,js,js_call,Delete,/investments,,web/templates/investments/detail.html,968,event:click|linked|navigation|verb:GET
+investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,67,event:submit|linked|verb:PUT
+investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,79,event:submit|linked|navigation|verb:GET
+investments,investments/list.html,,js,js_call,,/investments/{param},,web/templates/investments/list.html,79,unlinked|verb:DELETE
+investments,investments/list.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/list.html,95,unlinked|verb:PATCH
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/saa_section.js,62,dynamic-url|unlinked|verb:GET
+unassigned,,,js,js_call,,/api/cmd-search,,web/static/js/section_nav.js,172,unlinked|verb:GET
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,210,dynamic-url|unlinked|verb:GET
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,216,dynamic-url|navigation|unlinked|verb:GET

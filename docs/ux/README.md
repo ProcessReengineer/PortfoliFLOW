@@ -21,6 +21,19 @@ application will not import (no database, missing environment); the element
 inventory is identical either way, only the route table is smaller. The tool
 exits 1 if any template raised a parse error, and writes its outputs regardless.
 
+Since P-UX-0b the tool also reads JavaScript, because a route whose only
+trigger is a script is invisible to a template-only pass. It scans every
+`web/static/js/*.js` and every inline `<script>` block, extracts the URL of each
+`fetch` / `htmx.ajax` / `EventSource` / `XMLHttpRequest` / `location` call and
+each `hx-*` attribute set from script, matches it to a route, and — by looking
+back from the call to the binding that reaches it — links it to the template
+element whose handler makes the call. Endpoints reached through a local wrapper
+(`fetchJson(url, …)`) are resolved at the wrapper's call sites, and a URL read
+out of a `data-*` attribute is followed to the template that writes it. The
+resulting rows carry `source_kind = js`; `routes.csv` gains a `js_callers`
+count. `--js-off` skips the pass entirely and reproduces the pre-JS artefacts
+byte-for-byte, which is the guard that the pass stays purely additive.
+
 The three files under `inventory/` — `elements.csv`, `routes.csv` and
 `summary.md` — are **generated artefacts. Do not hand-edit them.** A correction
 to what they contain is a change to `tools/ux_inventory.py` followed by a

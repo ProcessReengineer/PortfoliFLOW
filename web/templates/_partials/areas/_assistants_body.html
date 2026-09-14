@@ -10,19 +10,16 @@
     </header>
 
     {% with section_slug="shirley",
-            section_title="Shirley",
             section_body_template="_partials/shirley_section.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="report-scraper",
-            section_title="Report Scraper",
             section_body_template="_partials/scraper_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="providers-credentials",
-            section_title="Providers & Credentials",
             section_body='<p class="pf-section__placeholder">Provider credentials and AI configuration live under <a href="/admin#providers-credentials">Admin → Providers &amp; Credentials</a>.</p>' %}
         {% include "areas/_section.html" %}
     {% endwith %}

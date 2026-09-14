@@ -106,7 +106,10 @@ class SectionMeta:
     Mirrors the section markup produced by ``areas/_section.html``:
     ``slug`` is the section's HTML id (also the URL fragment), and
     ``title`` is the human-readable label rendered into the section
-    header and the indicator's hover tooltip.
+    header and the indicator's hover tooltip. Since P-UX-2 this
+    catalogue is the single source of the rendered heading: the body
+    partials pass only the slug, and ``areas/_section.html`` resolves
+    the title through :func:`section_title`.
     """
 
     slug: str
@@ -229,6 +232,40 @@ def all_sections(area_slug: str) -> tuple[SectionMeta, ...]:
         for unknown area slugs.
     """
     return _SECTIONS_BY_AREA.get(area_slug, ())
+
+
+def section_title(area_slug: str, section_slug: str) -> str:
+    """Return the catalogue title for ``section_slug`` inside ``area_slug``.
+
+    Registered as the ``pf_section_title`` Jinja global so that
+    ``areas/_section.html`` renders its ``<h2>`` straight from the
+    catalogue; the body partials no longer carry a title literal.
+
+    The lookup is keyed on the *pair* — ``providers-credentials``
+    exists under both ``admin`` and ``assistants``, so a slug-only
+    scan would be ambiguous.
+
+    Args:
+        area_slug: Area slug from :data:`_AREAS`.
+        section_slug: Section slug within that area.
+
+    Returns:
+        The human-readable section heading.
+
+    Raises:
+        LookupError: For an unknown pair: a body partial that renders
+            a slug the catalogue does not list is drift, and
+            ``tests/regression/test_section_catalogue_matches_body_partials.py``
+            exists so that drift never reaches a render.
+    """
+    for section in all_sections(area_slug):
+        if section.slug == section_slug:
+            return section.title
+    raise LookupError(
+        f"No section title for ({area_slug!r}, {section_slug!r}) in the shell "
+        "catalogue; add it to _SECTIONS_BY_AREA rather than titling it in the "
+        "body partial."
+    )
 
 
 def section_index_for(area_slug: str) -> list[dict[str, str]]:

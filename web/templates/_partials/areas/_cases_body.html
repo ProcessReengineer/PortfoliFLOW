@@ -33,19 +33,16 @@
     <div id="cases-new-case-slot"></div>
 
     {% with section_slug="open-cases",
-            section_title="Open Cases",
             section_body_template="_partials/cases_open_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="recently-closed",
-            section_title="Recently Closed",
             section_body_template="_partials/cases_recently_closed_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="archive",
-            section_title="Archive",
             section_body_template="_partials/cases_archive_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

@@ -33,19 +33,16 @@
     {% include "_partials/transactions/_negative_cash_shell.html" %}
 
     {% with section_slug="new",
-            section_title="New transaction",
             section_body_template="_partials/transactions/_new_section.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="blotter",
-            section_title="Blotter",
             section_body_template="_partials/transactions/_blotter_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="history",
-            section_title="History",
             section_body_template="_partials/transactions/_history_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

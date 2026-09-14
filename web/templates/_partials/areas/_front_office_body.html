@@ -19,25 +19,21 @@
     </header>
 
     {% with section_slug="overview",
-            section_title="Overview",
             section_body_template="_partials/overview_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="charts",
-            section_title="Charts",
             section_body_template="_partials/charts_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="statistics",
-            section_title="Statistics",
             section_body_template="_partials/statistics_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="portfolio-optimizer",
-            section_title="Portfolio Analysis",
             section_body_template="_partials/portfolio_analysis_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

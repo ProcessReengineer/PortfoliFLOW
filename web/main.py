@@ -91,6 +91,7 @@ from web.shell import (
     build_sha,
     config_ok,
     is_sidebar_collapsed,
+    section_title,
 )
 from web.tick_scheduler import start_tick_scheduler, stop_tick_scheduler
 
@@ -467,6 +468,13 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
         return "PortfoliFLOW"
 
     templates.env.globals["pf_area_label"] = _pf_area_label
+
+    # Jinja global — resolve an ``(area, section)`` slug pair into the
+    # section heading from the shell catalogue. Since P-UX-2 the
+    # catalogue is the single source of that heading, so the area body
+    # partials pass only the slug and ``areas/_section.html`` calls this.
+    templates.env.globals["pf_section_title"] = section_title
+
     app.state.templates = templates
 
     app.include_router(health_router)

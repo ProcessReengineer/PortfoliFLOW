@@ -4,7 +4,10 @@
      section_slug          — the module's ``module_name`` slug. Used as
                               the HTML id; 6F-2 binds anchor scrolling
                               and the section indicator to it.
-     section_title         — human-readable section heading.
+     (No ``section_title`` parameter: the heading comes from the
+      ``web.shell`` section catalogue via
+      ``pf_section_title(active_area, section_slug)`` and cannot be
+      overridden per call site.)
      section_pill          — short status pill (e.g. "in progress",
                               "polish in 6F-3"); optional.
      section_body          — pre-rendered HTML to drop into the body.
@@ -20,7 +23,7 @@
 <section class="pf-section" id="{{ section_slug }}" aria-labelledby="{{ section_slug }}-title">
     <header class="pf-section__header">
         <h2 class="pf-section__title" id="{{ section_slug }}-title">
-            {{ section_title }}
+            {{ pf_section_title(active_area, section_slug) }}
         </h2>
         {% if section_pill %}
             <span class="pf-section__pill">{{ section_pill }}</span>

@@ -13,7 +13,9 @@ checklist at ``docs/phase-6-block-1-6f-2-acceptance-checklist.md``.
 
 from __future__ import annotations
 
+import html
 import os
+import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -29,7 +31,7 @@ from core.tenant_constants import SENTINEL_TENANT_ID
 from services.password_hashing import hash_password
 from web.main import create_app
 from web.settings import WebSettings
-from web.shell import all_areas, all_sections
+from web.shell import all_areas, all_sections, section_title
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -466,3 +468,53 @@ async def test_section_anchors_in_htmx_fragment(
     body = response.text
     for slug in section_slugs:
         assert f'id="{slug}"' in body, f'{url} (HTMX) is missing section anchor id="{slug}"'
+
+
+# ---------------------------------------------------------------------------
+# Rendered section headings — P-UX-2
+# ---------------------------------------------------------------------------
+
+# The ``<h2>`` emitted by web/templates/areas/_section.html. The id
+# anchors the match to a section heading (sub-surface headings and page
+# ``<h1>``s do not carry the ``-title`` suffix), and the capture is the
+# raw inner HTML, collapsed and unescaped below.
+_SECTION_H2_RE: re.Pattern[str] = re.compile(
+    r'<h2 class="pf-section__title" id="([^"]+)-title">(.*?)</h2>',
+    re.DOTALL,
+)
+
+
+def _rendered_section_headings(body: str) -> dict[str, str]:
+    """Map section slug to the collapsed text of its rendered ``<h2>``."""
+    return {
+        slug: html.unescape(" ".join(inner.split())) for slug, inner in _SECTION_H2_RE.findall(body)
+    }
+
+
+@pytest.mark.parametrize("area_slug,url,section_slugs", _AREAS)
+async def test_rendered_section_titles_match_catalogue(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    area_slug: str,
+    url: str,
+    section_slugs: tuple[str, ...],
+) -> None:
+    """Every rendered heading is the catalogue's title for that pair.
+
+    Since P-UX-2 the body partials carry no ``section_title`` literal;
+    the heading is looked up from ``web.shell`` at render time. This is
+    the render-side half of that guarantee — the template-side half
+    (no literal comes back) lives in
+    tests/regression/test_section_catalogue_matches_body_partials.py.
+    """
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    response = await web_client.get(url, follow_redirects=False)
+    assert response.status_code == 200
+
+    rendered = _rendered_section_headings(response.text)
+    expected = {slug: section_title(area_slug, slug) for slug in section_slugs}
+    assert rendered == expected, (
+        f"{url}: rendered section headings disagree with the "
+        f"web.shell catalogue. rendered={rendered} expected={expected}"
+    )

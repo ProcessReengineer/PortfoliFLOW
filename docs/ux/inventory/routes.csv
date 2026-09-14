@@ -143,7 +143,7 @@ transactions,GET,/transactions,web.routes.areas,transactions_view,web/routes/are
 unassigned,GET,/api/cmd-search,web.routes.cmd_search,cmd_search,web/routes/cmd_search.py,66,,session
 unassigned,GET,/docs,fastapi.applications,swagger_ui_html,.venv/lib/python3.13/site-packages/fastapi/applications.py,1119,,none
 unassigned,GET,/docs/oauth2-redirect,fastapi.applications,swagger_ui_redirect,.venv/lib/python3.13/site-packages/fastapi/applications.py,1137,,none
-unassigned,GET,/favicon.ico,web.main,_favicon,web/main.py,408,,none
+unassigned,GET,/favicon.ico,web.main,_favicon,web/main.py,409,,none
 unassigned,GET,/health,web.routes.health,health,web/routes/health.py,55,,none
 unassigned,GET,/login,web.routes.login,login_form,web/routes/login.py,122,login.html,none
 unassigned,POST,/login,web.routes.login,login_submit,web/routes/login.py,140,login.html,none

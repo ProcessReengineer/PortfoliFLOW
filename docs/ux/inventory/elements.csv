@@ -1,5 +1,5 @@
 area,template,block,source_kind,element_kind,visible_text,target,hx_target,source_file,source_line,flags
-_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,395,
+_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,396,
 _shell,,shell,python,python_label,Front Office,,,web/shell.py,68,
 _shell,,shell,python,python_label,Back Office,,,web/shell.py,69,
 _shell,,shell,python,python_label,Assistants,,,web/shell.py,70,
@@ -9,33 +9,33 @@ _shell,,shell,python,python_label,Watch Desk,,,web/shell.py,87,internal-name
 _shell,,shell,python,python_label,Cases,,,web/shell.py,93,
 _shell,,shell,python,python_label,Transactions,,,web/shell.py,97,
 _shell,,shell,python,python_label,Admin,,,web/shell.py,98,
-_shell,,shell,python,python_title,Overview,,,web/shell.py,130,
-_shell,,shell,python,python_title,Charts,,,web/shell.py,135,
-_shell,,shell,python,python_title,Statistics,,,web/shell.py,136,
-_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,137,
-_shell,,shell,python,python_title,Briefing,,,web/shell.py,142,
-_shell,,shell,python,python_title,Journal,,,web/shell.py,143,
-_shell,,shell,python,python_title,Calibration,,,web/shell.py,144,
-_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,148,
-_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,149,
-_shell,,shell,python,python_title,Open Cases,,,web/shell.py,155,
-_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,156,
-_shell,,shell,python,python_title,Archive,,,web/shell.py,157,
-_shell,,shell,python,python_title,New transaction,,,web/shell.py,163,
-_shell,,shell,python,python_title,Blotter,,,web/shell.py,164,internal-name
-_shell,,shell,python,python_title,History,,,web/shell.py,165,
-_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,168,
-_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,169,
-_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,170,
-_shell,,shell,python,python_title,Data Import,,,web/shell.py,173,
-_shell,,shell,python,python_title,Market Data,,,web/shell.py,174,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,177,
-_shell,,shell,python,python_title,Users,,,web/shell.py,187,
-_shell,,shell,python,python_title,Investments,,,web/shell.py,193,
-_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,195,
-_shell,,shell,python,python_title,Shirley,,,web/shell.py,197,internal-name
-_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,198,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,201,
+_shell,,shell,python,python_title,Overview,,,web/shell.py,133,
+_shell,,shell,python,python_title,Charts,,,web/shell.py,138,
+_shell,,shell,python,python_title,Statistics,,,web/shell.py,139,
+_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,140,
+_shell,,shell,python,python_title,Briefing,,,web/shell.py,145,
+_shell,,shell,python,python_title,Journal,,,web/shell.py,146,
+_shell,,shell,python,python_title,Calibration,,,web/shell.py,147,
+_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,151,
+_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,152,
+_shell,,shell,python,python_title,Open Cases,,,web/shell.py,158,
+_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,159,
+_shell,,shell,python,python_title,Archive,,,web/shell.py,160,
+_shell,,shell,python,python_title,New transaction,,,web/shell.py,166,
+_shell,,shell,python,python_title,Blotter,,,web/shell.py,167,internal-name
+_shell,,shell,python,python_title,History,,,web/shell.py,168,
+_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,171,
+_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,172,
+_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,173,
+_shell,,shell,python,python_title,Data Import,,,web/shell.py,176,
+_shell,,shell,python,python_title,Market Data,,,web/shell.py,177,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,180,
+_shell,,shell,python,python_title,Users,,,web/shell.py,190,
+_shell,,shell,python,python_title,Investments,,,web/shell.py,196,
+_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,198,
+_shell,,shell,python,python_title,Shirley,,,web/shell.py,200,internal-name
+_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,201,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,204,
 _shell,_partials/command_palette.html,,template,tooltip,Command palette,,,web/templates/_partials/command_palette.html,10,from:aria-label|icon-only
 _shell,_partials/command_palette.html,,template,placeholder,"Jump to area, section or action…",,,web/templates/_partials/command_palette.html,12,
 _shell,_partials/command_palette.html,,template,tooltip,Search results,,,web/templates/_partials/command_palette.html,17,from:aria-label|icon-only
@@ -64,13 +64,8 @@ admin,,overview,python,python_title,Currency exposure,,,web/routes/overview.py,4
 admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,985,identifier-leak-loose|internal-name
 admin,_partials/areas/_admin_body.html,,template,area_header,"Admin Internal management — data import, market data, investments, user administration and audit surfaces.",,,web/templates/_partials/areas/_admin_body.html,3,
 admin,_partials/areas/_admin_body.html,Admin,template,heading,Admin,,,web/templates/_partials/areas/_admin_body.html,4,
-admin,_partials/areas/_admin_body.html,Admin,jinja,jinja_title,Data Import,,,web/templates/_partials/areas/_admin_body.html,12,
-admin,_partials/areas/_admin_body.html,Admin,jinja,jinja_title,Market Data,,,web/templates/_partials/areas/_admin_body.html,26,
-admin,_partials/areas/_admin_body.html,Admin,jinja,jinja_title,Providers & Credentials,,,web/templates/_partials/areas/_admin_body.html,33,
-admin,_partials/areas/_admin_body.html,Admin,jinja,jinja_title,Users,,,web/templates/_partials/areas/_admin_body.html,46,
-admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,57,inline-html|synonym-candidate
-admin,_partials/areas/_admin_body.html,Admin,jinja,jinja_title,Investments,,,web/templates/_partials/areas/_admin_body.html,57,
-admin,_partials/areas/_admin_body.html,Admin,template,link,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,57,inline-html|synonym-candidate
+admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,53,inline-html|synonym-candidate
+admin,_partials/areas/_admin_body.html,Admin,template,link,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,53,inline-html|synonym-candidate
 admin,_partials/data_import_preview.html,,template,htmx,← Back to upload,/api/data-import/section,#pf-data-import-panel,web/templates/_partials/data_import_preview.html,26,synonym-candidate|verb:GET
 admin,_partials/data_import_preview.html,{{ upload.filename }},template,heading,{{ upload.filename }},,,web/templates/_partials/data_import_preview.html,33,dynamic
 admin,_partials/data_import_preview.html,{{ upload.filename }},template,pill,{{ upload.filename }} uploaded · {{ sheets|length }} sheets · preview computed,,,web/templates/_partials/data_import_preview.html,36,dynamic
@@ -172,14 +167,11 @@ admin,_partials/tenant_users_section.html,Add a user,template,form_label,Role {{
 admin,_partials/tenant_users_section.html,Add a user,template,select,{{ label }},role,,web/templates/_partials/tenant_users_section.html,199,dynamic|options:1
 admin,_partials/tenant_users_section.html,Add a user,template,button,Create user,,,web/templates/_partials/tenant_users_section.html,206,
 admin,_partials/tenant_users_section_lazy.html,,template,htmx,Loading users…,/admin/users/section,this,web/templates/_partials/tenant_users_section_lazy.html,13,verb:GET
-admin,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-admin,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 assistants,_partials/areas/_assistants_body.html,,template,area_header,"Assistants AI-powered automation — Shirley (the chat assistant), report scraping for GP quarterly reports, and AI configuration.",,,web/templates/_partials/areas/_assistants_body.html,3,abbrev|internal-name
 assistants,_partials/areas/_assistants_body.html,Assistants,template,heading,Assistants,,,web/templates/_partials/areas/_assistants_body.html,4,
-assistants,_partials/areas/_assistants_body.html,Assistants,jinja,jinja_title,Shirley,,,web/templates/_partials/areas/_assistants_body.html,12,internal-name
-assistants,_partials/areas/_assistants_body.html,Assistants,jinja,jinja_title,Report Scraper,,,web/templates/_partials/areas/_assistants_body.html,18,
-assistants,_partials/areas/_assistants_body.html,Assistants,jinja,jinja_title,Providers & Credentials,,,web/templates/_partials/areas/_assistants_body.html,24,
-assistants,_partials/areas/_assistants_body.html,Assistants,template,link,Admin → Providers & Credentials,/admin#providers-credentials,,web/templates/_partials/areas/_assistants_body.html,24,inline-html
+assistants,_partials/areas/_assistants_body.html,Assistants,template,link,Admin → Providers & Credentials,/admin#providers-credentials,,web/templates/_partials/areas/_assistants_body.html,22,inline-html
 assistants,_partials/chat_empty.html,,template,empty_state,Start a conversation by typing a message below.,,,web/templates/_partials/chat_empty.html,9,
 assistants,_partials/chat_history.html,,template,button,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label
 assistants,_partials/chat_history.html,,template,htmx,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label|verb:GET
@@ -260,8 +252,8 @@ assistants,_partials/shirley_section.html,,template,tooltip,Stop and send,,,web/
 assistants,_partials/shirley_section.html,,template,button,Cancel,,,web/templates/_partials/shirley_section.html,128,duplicate-label|hidden
 assistants,_partials/shirley_section.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_section.html,128,from:aria-label|hidden
 assistants,_partials/shirley_section.html,,template,pill,,,,web/templates/_partials/shirley_section.html,130,
-assistants,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-assistants,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 back_office,,benchmarks_attribution,python,python_label,Mapping Coverage,,,web/routes/benchmarks_attribution.py,233,
 back_office,,benchmarks_attribution,python,python_label,Median Excess p.a.,,,web/routes/benchmarks_attribution.py,240,
 back_office,,benchmarks_attribution,python,python_label,Hit Rate,,,web/routes/benchmarks_attribution.py,247,
@@ -270,9 +262,6 @@ back_office,,benchmarks_attribution,python,python_message,Selected investment id
 back_office,,benchmarks_attribution,python,python_message,No benchmark mapping or no aligned observations for this investment.,,,web/routes/benchmarks_attribution.py,464,
 back_office,_partials/areas/_back_office_body.html,,template,area_header,"Back Office Operations and reporting — strategic asset allocation, benchmarks & attribution, and investment limits.",,,web/templates/_partials/areas/_back_office_body.html,4,
 back_office,_partials/areas/_back_office_body.html,Back Office,template,heading,Back Office,,,web/templates/_partials/areas/_back_office_body.html,5,
-back_office,_partials/areas/_back_office_body.html,Back Office,jinja,jinja_title,Strategic Asset Allocation,,,web/templates/_partials/areas/_back_office_body.html,12,
-back_office,_partials/areas/_back_office_body.html,Back Office,jinja,jinja_title,Benchmarks & Attribution,,,web/templates/_partials/areas/_back_office_body.html,18,
-back_office,_partials/areas/_back_office_body.html,Back Office,jinja,jinja_title,Investment Limits,,,web/templates/_partials/areas/_back_office_body.html,24,
 back_office,_partials/benchmarks_attribution_error.html,{{ error_type }},template,heading,{{ error_type }},,,web/templates/_partials/benchmarks_attribution_error.html,29,dynamic
 back_office,_partials/benchmarks_attribution_error.html,{{ error_type }},template,link,Data Import,/admin#data-import,,web/templates/_partials/benchmarks_attribution_error.html,36,
 back_office,_partials/benchmarks_attribution_section.html,,template,empty_state,No investments yet. Import portfolio data via the Data Import section.,,,web/templates/_partials/benchmarks_attribution_section.html,32,
@@ -371,15 +360,12 @@ back_office,_partials/saa_section.html,New SAA Configuration,template,form_label
 back_office,_partials/saa_section.html,New SAA Configuration,template,button,Cancel,,,web/templates/_partials/saa_section.html,97,duplicate-label
 back_office,_partials/saa_section.html,New SAA Configuration,template,button,Create,,,web/templates/_partials/saa_section.html,100,
 back_office,_partials/saa_section_lazy.html,,template,htmx,Loading strategic asset allocation…,/api/saa/section,this,web/templates/_partials/saa_section_lazy.html,10,verb:GET
-back_office,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-back_office,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 cases,_partials/areas/_cases_body.html,,template,area_header,"Cases Open questions about the portfolio, worked to a documented close — your to-do list in front, your decision log behind. New case",,,web/templates/_partials/areas/_cases_body.html,14,identifier-leak-loose
 cases,_partials/areas/_cases_body.html,Cases,template,heading,Cases,,,web/templates/_partials/areas/_cases_body.html,16,
 cases,_partials/areas/_cases_body.html,Cases,template,button,New case,/api/cases/new,#cases-new-case-slot,web/templates/_partials/areas/_cases_body.html,22,
 cases,_partials/areas/_cases_body.html,Cases,template,htmx,New case,/api/cases/new,#cases-new-case-slot,web/templates/_partials/areas/_cases_body.html,22,verb:GET
-cases,_partials/areas/_cases_body.html,Cases,jinja,jinja_title,Open Cases,,,web/templates/_partials/areas/_cases_body.html,35,
-cases,_partials/areas/_cases_body.html,Cases,jinja,jinja_title,Recently Closed,,,web/templates/_partials/areas/_cases_body.html,41,
-cases,_partials/areas/_cases_body.html,Cases,jinja,jinja_title,Archive,,,web/templates/_partials/areas/_cases_body.html,47,
 cases,_partials/cases_archive.html,,template,htmx,Search,/api/cases/archive,#cases-archive-results,web/templates/_partials/cases_archive.html,20,synonym-candidate|verb:GET
 cases,_partials/cases_archive.html,,template,placeholder,Title or closing note contains …,q,,web/templates/_partials/cases_archive.html,24,
 cases,_partials/cases_archive.html,,template,tooltip,Search closed cases by title or closing note,,,web/templates/_partials/cases_archive.html,24,from:aria-label|icon-only
@@ -441,8 +427,8 @@ cases,_partials/cases_open_lazy.html,,template,htmx,Loading open cases…,/api/c
 cases,_partials/cases_recently_closed.html,,template,link,"{{ case.badge }} {{ case.title }} closed {{ case.closed_date }} · “{{ case.closing_note | truncate(90, True, '…') }}” Closed",{{ case.href }},,web/templates/_partials/cases_recently_closed.html,23,dynamic
 cases,_partials/cases_recently_closed.html,,template,empty_state,No cases closed yet — closed cases land here as you work the open ones to a documented close.,,,web/templates/_partials/cases_recently_closed.html,44,
 cases,_partials/cases_recently_closed_lazy.html,,template,htmx,Loading recently closed cases…,/api/cases/recently-closed,this,web/templates/_partials/cases_recently_closed_lazy.html,3,verb:GET
-cases,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-cases,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 cases,cases_detail.html,content,template,link,← Cases,/cases,,web/templates/cases_detail.html,25,
 cases,cases_detail.html,content,template,heading,{{ head.title }},,,web/templates/cases_detail.html,31,dynamic
 cases,cases_detail.html,content,template,button,Add note,/api/cases/{{ case_id }}/composer/note,#case-composer-slot,web/templates/cases_detail.html,145,
@@ -482,10 +468,6 @@ front_office,,overview,python,python_title,Currency exposure,,,web/routes/overvi
 front_office,,statistics,python,python_description,Optional investment-id filter; repeatable.,,,web/routes/statistics.py,70,identifier-leak-loose
 front_office,_partials/areas/_front_office_body.html,,template,area_header,"Front office Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",,,web/templates/_partials/areas/_front_office_body.html,13,dynamic
 front_office,_partials/areas/_front_office_body.html,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",template,heading,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",,,web/templates/_partials/areas/_front_office_body.html,15,dynamic
-front_office,_partials/areas/_front_office_body.html,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",jinja,jinja_title,Overview,,,web/templates/_partials/areas/_front_office_body.html,21,
-front_office,_partials/areas/_front_office_body.html,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",jinja,jinja_title,Charts,,,web/templates/_partials/areas/_front_office_body.html,27,
-front_office,_partials/areas/_front_office_body.html,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",jinja,jinja_title,Statistics,,,web/templates/_partials/areas/_front_office_body.html,33,
-front_office,_partials/areas/_front_office_body.html,"Welcome back, {{ first_name }} Welcome — {{ tenant_name }} portfolio",jinja,jinja_title,Portfolio Analysis,,,web/templates/_partials/areas/_front_office_body.html,39,
 front_office,_partials/charts_investment_triplet.html,,template,pill,{{ pill.label }} {{ pill.value }},,,web/templates/_partials/charts_investment_triplet.html,47,dynamic
 front_office,_partials/charts_investment_triplet.html,,template,empty_state,No chart data is available for this investment.,,,web/templates/_partials/charts_investment_triplet.html,79,
 front_office,_partials/charts_section.html,,template,empty_state,No active investments to chart. Import investments via the Data Import section in Admin or create one from the Investments list.,,,web/templates/_partials/charts_section.html,23,
@@ -559,8 +541,8 @@ front_office,_partials/statistics_section.html,Details,template,tooltip,Risk met
 front_office,_partials/statistics_section.html,Details,template,tooltip,Risk / Return metrics table,,,web/templates/_partials/statistics_section.html,149,from:aria-label|icon-only
 front_office,_partials/statistics_section.html,Details,template,tooltip,Autocorrelation table,,,web/templates/_partials/statistics_section.html,160,from:aria-label|icon-only
 front_office,_partials/statistics_section_lazy.html,,template,htmx,Loading statistics…,/api/statistics/section,this,web/templates/_partials/statistics_section_lazy.html,10,verb:GET
-front_office,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-front_office,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 investments,investments/_cashflow_form.html,Add Cashflow,template,heading,Add Cashflow,,,web/templates/investments/_cashflow_form.html,13,
 investments,investments/_cashflow_form.html,Add Cashflow,template,form_label,Date,,,web/templates/investments/_cashflow_form.html,16,
 investments,investments/_cashflow_form.html,Add Cashflow,template,form_label,Kind {{ k }},,,web/templates/investments/_cashflow_form.html,20,dynamic
@@ -679,7 +661,6 @@ investor_communication,,portfolio_review,python,python_title,Region split,,,web/
 investor_communication,,portfolio_review,python,python_title,Sector split,,,web/routes/portfolio_review.py,227,
 investor_communication,_partials/areas/_investor_communication_body.html,,template,area_header,"Investor Communication Investor-facing reporting and correspondence — portfolio reviews, factsheets, and quarterly letters.",,,web/templates/_partials/areas/_investor_communication_body.html,3,
 investor_communication,_partials/areas/_investor_communication_body.html,Investor Communication,template,heading,Investor Communication,,,web/templates/_partials/areas/_investor_communication_body.html,4,
-investor_communication,_partials/areas/_investor_communication_body.html,Investor Communication,jinja,jinja_title,Portfolio Review,,,web/templates/_partials/areas/_investor_communication_body.html,11,
 investor_communication,_partials/portfolio_review_error.html,,template,htmx,As-of date Apply,/api/portfolio-review/section,closest .pf-section__body,web/templates/_partials/portfolio_review_error.html,16,synonym-candidate|verb:GET
 investor_communication,_partials/portfolio_review_error.html,,template,form_label,As-of date,,,web/templates/_partials/portfolio_review_error.html,20,
 investor_communication,_partials/portfolio_review_error.html,,template,button,Apply,,,web/templates/_partials/portfolio_review_error.html,26,
@@ -712,15 +693,13 @@ investor_communication,_partials/portfolio_review_section.html,Per-investment re
 investor_communication,_partials/portfolio_review_section.html,Per-investment reviews,template,link,Data Import,/admin#data-import,,web/templates/_partials/portfolio_review_section.html,136,
 investor_communication,_partials/portfolio_review_section.html,Per-investment reviews,template,link,Investments,/investments,,web/templates/_partials/portfolio_review_section.html,138,synonym-candidate
 investor_communication,_partials/portfolio_review_section_lazy.html,,template,htmx,Loading portfolio review…,/api/portfolio-review/section,this,web/templates/_partials/portfolio_review_section_lazy.html,9,synonym-candidate|verb:GET
-investor_communication,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-investor_communication,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 planning_desk,,planning_desk,python,python_title,Market shock,,,web/routes/planning_desk.py,1562,
 planning_desk,,planning_desk,python,python_title,FX shock,,,web/routes/planning_desk.py,1576,abbrev
 planning_desk,_partials/areas/_planning_desk_body.html,,template,area_header,"Planning Desk Projection and simulation over the plan world — where the Watch Desk watches what has changed, the Planning Desk asks what a change would do. Nothing entered here ever touches the book.",,,web/templates/_partials/areas/_planning_desk_body.html,14,internal-name
 planning_desk,_partials/areas/_planning_desk_body.html,Planning Desk,template,heading,Planning Desk,,,web/templates/_partials/areas/_planning_desk_body.html,15,
 planning_desk,_partials/areas/_planning_desk_body.html,Planning Desk,template,empty_state,Reading the parameter set…,,,web/templates/_partials/areas/_planning_desk_body.html,25,
-planning_desk,_partials/areas/_planning_desk_body.html,Planning Desk,jinja,jinja_title,Cash Flow Planning,,,web/templates/_partials/areas/_planning_desk_body.html,30,
-planning_desk,_partials/areas/_planning_desk_body.html,Planning Desk,jinja,jinja_title,Scenario Analysis,,,web/templates/_partials/areas/_planning_desk_body.html,36,
 planning_desk,_partials/planning_desk_cash_flow_planning.html,,template,tooltip,Periodisation,,,web/templates/_partials/planning_desk_cash_flow_planning.html,42,from:aria-label
 planning_desk,_partials/planning_desk_cash_flow_planning.html,,template,button,{{ label }},{{ section_url }}?{{ periodisation_links[value] }},,web/templates/_partials/planning_desk_cash_flow_planning.html,46,dynamic
 planning_desk,_partials/planning_desk_cash_flow_planning.html,,template,htmx,{{ label }},{{ section_url }}?{{ periodisation_links[value] }},,web/templates/_partials/planning_desk_cash_flow_planning.html,46,dynamic|verb:GET
@@ -822,8 +801,8 @@ planning_desk,_partials/planning_desk_shock_card.html,,template,select,{{ card.t
 planning_desk,_partials/planning_desk_shock_card.html,,template,tooltip,Timing (fixed in v1),,,web/templates/_partials/planning_desk_shock_card.html,57,from:aria-label
 planning_desk,_partials/planning_desk_shock_card.html,,template,button,Add shock,,,web/templates/_partials/planning_desk_shock_card.html,63,
 planning_desk,_partials/planning_desk_shock_card.html,,template,empty_state,{{ card.scope_empty }},,,web/templates/_partials/planning_desk_shock_card.html,67,dynamic
-planning_desk,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-planning_desk,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,form_label,Name,tenant-name,,web/templates/super_admin/_partials/_create_tenant_form.html,11,duplicate-label
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,placeholder,Versorgungswerk Beispielland,name,,web/templates/super_admin/_partials/_create_tenant_form.html,12,
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,form_label,Subdomain,tenant-subdomain,,web/templates/super_admin/_partials/_create_tenant_form.html,18,
@@ -869,9 +848,6 @@ transactions,,transactions,python,python_label,Commitment,,,web/routes/transacti
 transactions,,transactions,python,python_label,Secondary purchase,,,web/routes/transactions.py,501,
 transactions,_partials/areas/_transactions_body.html,,template,area_header,"Transactions Record a portfolio change, keep cash correct, and keep the trail from question to booking.",,,web/templates/_partials/areas/_transactions_body.html,20,
 transactions,_partials/areas/_transactions_body.html,Transactions,template,heading,Transactions,,,web/templates/_partials/areas/_transactions_body.html,22,
-transactions,_partials/areas/_transactions_body.html,Transactions,jinja,jinja_title,New transaction,,,web/templates/_partials/areas/_transactions_body.html,35,
-transactions,_partials/areas/_transactions_body.html,Transactions,jinja,jinja_title,Blotter,,,web/templates/_partials/areas/_transactions_body.html,41,internal-name
-transactions,_partials/areas/_transactions_body.html,Transactions,jinja,jinja_title,History,,,web/templates/_partials/areas/_transactions_body.html,47,
 transactions,_partials/transactions/_blotter_lazy.html,,template,htmx,Loading blotter…,/api/transactions/blotter,this,web/templates/_partials/transactions/_blotter_lazy.html,14,internal-name|verb:GET
 transactions,_partials/transactions/_blotter_row.html,,template,button,Open,/api/transactions/ticket/{{ row.id }},#tx-composer-host,web/templates/_partials/transactions/_blotter_row.html,46,
 transactions,_partials/transactions/_blotter_row.html,,template,htmx,Open,/api/transactions/ticket/{{ row.id }},#tx-composer-host,web/templates/_partials/transactions/_blotter_row.html,46,verb:GET
@@ -1074,8 +1050,8 @@ transactions,_partials/transactions/_wizard_outcome.html,,template,button,Propos
 transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,73,verb:POST
 transactions,_partials/transactions/_wizard_outcome.html,,template,button,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,
 transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,verb:POST
-transactions,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-transactions,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
 watch_desk,,watch_desk,python,python_label,Informational top,,,web/routes/watch_desk.py,2610,
 watch_desk,,watch_desk,python,python_label,Noteworthy top,,,web/routes/watch_desk.py,2618,
 watch_desk,,watch_desk,python,python_label,Decline threshold,,,web/routes/watch_desk.py,3299,
@@ -1094,9 +1070,6 @@ watch_desk,,watch_desk,python,python_label,Coverage floor,,,web/routes/watch_des
 watch_desk,,watch_desk,python,python_hint,Cover below this multiple of the projected calls is Triggered.,,,web/routes/watch_desk.py,3349,
 watch_desk,_partials/areas/_watch_desk_body.html,,template,area_header,"Watch Desk Calm-by-default briefing — what changed materially since your last review, and the audit trail of how you responded.",,,web/templates/_partials/areas/_watch_desk_body.html,8,identifier-leak-loose|internal-name
 watch_desk,_partials/areas/_watch_desk_body.html,Watch Desk,template,heading,Watch Desk,,,web/templates/_partials/areas/_watch_desk_body.html,9,internal-name
-watch_desk,_partials/areas/_watch_desk_body.html,Watch Desk,jinja,jinja_title,Briefing,,,web/templates/_partials/areas/_watch_desk_body.html,16,
-watch_desk,_partials/areas/_watch_desk_body.html,Watch Desk,jinja,jinja_title,Journal,,,web/templates/_partials/areas/_watch_desk_body.html,22,
-watch_desk,_partials/areas/_watch_desk_body.html,Watch Desk,jinja,jinja_title,Calibration,,,web/templates/_partials/areas/_watch_desk_body.html,28,
 watch_desk,_partials/watch_desk_briefing.html,,template,tile,Last beat {{ tiles.last_beat.time }} {{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }} Never ran yet No analysis beat has completed for this tenant yet.,,,web/templates/_partials/watch_desk_briefing.html,18,dynamic
 watch_desk,_partials/watch_desk_briefing.html,,template,tile,Subjects watched {{ tiles.subjects.value }} {{ tiles.subjects.sub }},,,web/templates/_partials/watch_desk_briefing.html,32,dynamic
 watch_desk,_partials/watch_desk_briefing.html,,template,tile,Open findings {{ tiles.open_findings.total }} · {{ band.text }},,,web/templates/_partials/watch_desk_briefing.html,38,dynamic
@@ -1205,5 +1178,5 @@ watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,R
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,empty_state,No watchpoints yet. Add one from the monitor beneath the Briefing.,,,web/templates/_partials/watch_desk_watchpoint_list.html,96,
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,verb:GET
-watch_desk,areas/_section.html,{{ section_title }},template,heading,{{ section_title }},,,web/templates/areas/_section.html,22,dynamic
-watch_desk,areas/_section.html,{{ section_title }},template,pill,{{ section_pill }},,,web/templates/areas/_section.html,26,dynamic
+watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
+watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic

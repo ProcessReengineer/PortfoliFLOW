@@ -29,6 +29,16 @@ template-scanning guards (see
 ``test_audit_engine_only_writes_login_audit.py`` and
 ``test_no_matplotlib_in_web.py``).
 
+Since P-UX-2 the catalogue feeds a third consumer: the rendered
+``<h2>`` itself. ``areas/_section.html`` resolves its heading through
+``web.shell.section_title(active_area, section_slug)``, so the 27
+``section_title="..."`` literals the body partials used to carry are
+gone and a title is declared exactly once. The guard below
+(``test_body_partials_carry_no_title_literals``) keeps them gone; the
+unit tests at the end of this module pin the helper itself, including
+the pair-keyed lookup that ``providers-credentials`` — a slug shared
+by ``admin`` and ``assistants`` — requires.
+
 If this guard goes red, the fix is to reconcile ``_SECTIONS_BY_AREA``
 with the body partial (or vice versa) so the two agree.
 """
@@ -38,7 +48,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from web.shell import _AREAS, all_areas, all_sections
+import pytest
+
+from web.shell import _AREAS, all_areas, all_sections, section_title
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 _AREAS_PARTIALS_DIR: Path = _REPO_ROOT / "web" / "templates" / "_partials" / "areas"
@@ -47,6 +59,12 @@ _AREAS_PARTIALS_DIR: Path = _REPO_ROOT / "web" / "templates" / "_partials" / "ar
 # as emitted by the ``{% with %}`` blocks that feed
 # ``areas/_section.html``. ``findall`` preserves render order.
 _SECTION_SLUG_RE: re.Pattern[str] = re.compile(r"""section_slug\s*=\s*["']([^"']+)["']""")
+
+
+# Matches any resurrected ``section_title=`` assignment in a body
+# partial. Deliberately looser than the slug pattern above: it fires on
+# the assignment alone, whatever the value's quoting.
+_SECTION_TITLE_RE: re.Pattern[str] = re.compile(r"section_title\s*=")
 
 
 def _partial_path(area_slug: str) -> Path:
@@ -89,3 +107,55 @@ def test_section_catalogue_matches_body_partials() -> None:
         "partials. Reconcile the catalogue (or the partial) so slugs and "
         "order match:\n" + "\n".join(drift)
     )
+
+
+def test_body_partials_carry_no_title_literals() -> None:
+    """No body partial may re-introduce a ``section_title=`` literal.
+
+    The heading is the catalogue's to state (P-UX-2). A literal here
+    would render a title that the section indicator and command search
+    do not know about — the exact two-sources drift this module exists
+    to prevent, one level deeper than slugs.
+    """
+    offenders: list[str] = []
+    for area in _AREAS:
+        partial = _partial_path(area.slug)
+        assert partial.exists(), f"expected body partial missing: {partial}"
+        hits = _SECTION_TITLE_RE.findall(partial.read_text(encoding="utf-8"))
+        if hits:
+            offenders.append(f"{partial.relative_to(_REPO_ROOT)}: {len(hits)} occurrence(s)")
+    assert not offenders, (
+        "Area body partials must not declare section titles. The title "
+        "belongs in web.shell._SECTIONS_BY_AREA, which areas/_section.html "
+        "reads via pf_section_title(active_area, section_slug). Remove the "
+        "literal(s) in:\n" + "\n".join(offenders)
+    )
+
+
+# ---------------------------------------------------------------------------
+# web.shell.section_title — the lookup the template calls
+# ---------------------------------------------------------------------------
+
+
+def test_section_title_resolves_a_catalogue_pair() -> None:
+    """A known ``(area, section)`` pair resolves to its catalogue title."""
+    assert section_title("transactions", "blotter") == "Blotter"
+
+
+def test_section_title_is_keyed_on_the_pair_not_the_slug() -> None:
+    """``providers-credentials`` lives in two areas and must stay distinct.
+
+    Both owning areas resolve it; a third area does not. A helper
+    reduced to a slug-only scan would answer for ``transactions`` too,
+    and this test would fail — which is the point.
+    """
+    assert section_title("admin", "providers-credentials") == "Providers & Credentials"
+    assert section_title("assistants", "providers-credentials") == "Providers & Credentials"
+    with pytest.raises(LookupError):
+        section_title("transactions", "providers-credentials")
+
+
+def test_section_title_raises_for_an_unknown_pair() -> None:
+    """An unlisted slug is drift, and drift must not render silently."""
+    with pytest.raises(LookupError):
+        section_title("front_office", "no-such-section")

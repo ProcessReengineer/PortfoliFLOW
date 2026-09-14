@@ -14,19 +14,16 @@
     </header>
 
     {% with section_slug="briefing",
-            section_title="Briefing",
             section_body_template="_partials/watch_desk_briefing_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="journal",
-            section_title="Journal",
             section_body_template="_partials/watch_desk_journal_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="calibration",
-            section_title="Calibration",
             section_body_template="_partials/watch_desk_calibration_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

@@ -10,19 +10,16 @@
     </header>
 
     {% with section_slug="saa",
-            section_title="Strategic Asset Allocation",
             section_body_template="_partials/saa_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="benchmarks-attribution",
-            section_title="Benchmarks & Attribution",
             section_body_template="_partials/benchmarks_attribution_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 
     {% with section_slug="limits",
-            section_title="Investment Limits",
             section_body_template="_partials/limits_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

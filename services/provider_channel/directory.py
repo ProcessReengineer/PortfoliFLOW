@@ -143,7 +143,8 @@ class ProviderEntry:
         jurisdictions: ISO 3166-1 alpha-2 codes, upper case.
         encryption_key_type: One of :data:`SUPPORTED_ENCRYPTION_KEY_TYPES`.
         encryption_public_key: 64 hex characters (32 bytes). Length-checked
-            only; nothing in Stage A encrypts.
+            at parse; :func:`~services.provider_channel.export.seal_export`
+            seals order exports to this key (B-D-12, SB-5).
     """
 
     provider_id: str

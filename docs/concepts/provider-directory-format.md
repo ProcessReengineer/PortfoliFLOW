@@ -66,7 +66,7 @@ table says otherwise; unknown keys are refused and named.
 | `asset_classes` | array of string | free-form hints; no closed vocabulary, because the directory has no opinion about a tenant's taxonomy | ADR-0129 §2 |
 | `jurisdictions` | array of string | ISO 3166-1 alpha-2, upper case | ADR-0129 §2 |
 | `encryption_key_type` | string | `"x25519-sealed-box"` | ADR-0129 D-1 |
-| `encryption_public_key` | string | 64 hex characters (32 bytes). **Length-checked only** — nothing in Stage A encrypts | ADR-0129 D-1 |
+| `encryption_public_key` | string | 64 hex characters (32 bytes). Length-checked at parse; since Stage B SB-5 the instance seals order exports to this key (`services/provider_channel/export.py`, B-D-12) | ADR-0129 D-1 |
 
 ### `SuccessorKey`
 
@@ -421,8 +421,9 @@ this section is left as the Stage A statement of what was parked.
 * The provider portal — web, not native; e-mail as notification only.
 * The `provider_channel.enabled` setting, via an ADR-0112 annex ADR.
 * A forward-compatible reader, if the compatibility story warrants one.
-* The sealed-box implementation (`x25519-sealed-box`): encryption and
-  decryption, currently named and not implemented.
+* The sealed-box implementation (`x25519-sealed-box`): named here;
+  implemented by Stage B SB-5 (`services/provider_channel/sealed_box.py`,
+  `export.py`, B-D-12) — the instance seals, only tests and the portal open.
 * Tenant-local provider entries — user-own provider lists, explicitly step 2
   within ADR-0129's own staging.
 * The `engagement` object, of which only `MESSAGE_TYPE_ENGAGEMENT` exists as

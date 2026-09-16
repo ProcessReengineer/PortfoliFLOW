@@ -252,11 +252,14 @@ _SUCCESSOR_KEYS: Final[frozenset[str]] = frozenset(
 
 
 def canonical_bytes(document: Mapping[str, object]) -> bytes:
-    """Serialise a directory document to the one byte string that gets signed.
+    """Serialise a document to the one byte string that gets signed or sealed.
 
     Sorted keys, no whitespace, UTF-8, no ``NaN``/``Infinity``. This is *the*
     signing input: :func:`verify_directory` refuses any document whose bytes
     do not already round-trip through this function unchanged.
+
+    Also the plaintext of a sealed export
+    (:mod:`~services.provider_channel.export`).
 
     Args:
         document: The document as JSON-ready primitives, without a

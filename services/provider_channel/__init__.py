@@ -13,12 +13,16 @@ signed provider-directory format and its trust gate
 (:mod:`~services.provider_channel.directory`), the publishing key the gate
 verifies against (:mod:`~services.provider_channel.publishing_key`), the
 ring-selection step that picks that key by the document's id
-(:mod:`~services.provider_channel.ring`, Stage B), and the seam that turns a
+(:mod:`~services.provider_channel.ring`, Stage B), the seam that turns a
 confirmation into proposed booking fields
-(:mod:`~services.provider_channel.prefill`).
+(:mod:`~services.provider_channel.prefill`), the libsodium sealed box
+(:mod:`~services.provider_channel.sealed_box`, Stage B) and the sealed export
+that applies it to an order (:mod:`~services.provider_channel.export`,
+Stage B).
 
-**Purity contract.** The package imports the standard library and
-``cryptography`` (Ed25519 and ``InvalidSignature``) and nothing else. It
+**Purity contract.** The package imports the standard library,
+``cryptography`` (Ed25519 and ``InvalidSignature``) and ``nacl`` (the
+libsodium sealed box, B-D-12) and nothing else. It
 reaches no database, no ORM, no HTTP client, no web framework, and — the
 structural point — nothing under the transactions package, whose own
 ``__init__`` would drag the whole ticket-service graph in behind it. Where a
@@ -26,8 +30,8 @@ vocabulary is shared with that package (the three channel statuses, the
 master-data keys, the ISIN scheme, the ticket kinds) the literal is
 re-declared locally beside a comment naming its twin, and the contract test
 asserts the two are equal: deliberate duplication of a string, with drift
-turned into a test failure. There is no network code, and nothing encrypts
-or decrypts.
+turned into a test failure. There is no network code; the sealed box
+encrypts to a provider's key, and nothing here decrypts in production.
 
 Decisions of record for this stage:
 
@@ -70,6 +74,11 @@ from services.provider_channel.directory import (
     sign_directory,
     verify_directory,
 )
+from services.provider_channel.export import (
+    UnsupportedEncryptionKeyType,
+    export_plaintext_bytes,
+    seal_export,
+)
 from services.provider_channel.prefill import (
     PREFILL_FIELD_CURRENCY,
     PREFILL_FIELD_FEES,
@@ -103,16 +112,36 @@ from services.provider_channel.schemas import (
     ENVELOPE_STATUS_EXECUTED,
     ENVELOPE_STATUS_SENT,
     ENVELOPE_STATUSES,
+    EXPORT_DIRECTION_BUY,
+    EXPORT_DIRECTION_SELL,
+    EXPORT_DIRECTIONS,
+    EXPORT_SCHEMA_VERSION,
     FILL_SCHEMA_VERSION,
     MESSAGE_TYPES,
     Envelope,
+    ExportEnvelope,
+    ExportPayload,
     FillPayload,
     SchemaError,
     UnknownSchemaVersion,
     envelope_to_dict,
+    export_envelope_to_dict,
+    export_to_dict,
     fill_to_dict,
     parse_envelope,
+    parse_export,
+    parse_export_envelope,
     parse_fill,
+)
+from services.provider_channel.sealed_box import (
+    SEALED_BOX_KEY_BYTES,
+    SEALED_BOX_OVERHEAD,
+    InvalidRecipientKey,
+    SealedBoxError,
+    SealedBoxOpenFailed,
+    open_sealed,
+    public_key_from_private,
+    seal,
 )
 
 __all__ = [
@@ -123,6 +152,10 @@ __all__ = [
     "ENVELOPE_STATUS_DECLINED",
     "ENVELOPE_STATUS_EXECUTED",
     "ENVELOPE_STATUS_SENT",
+    "EXPORT_DIRECTIONS",
+    "EXPORT_DIRECTION_BUY",
+    "EXPORT_DIRECTION_SELL",
+    "EXPORT_SCHEMA_VERSION",
     "FILL_SCHEMA_VERSION",
     "KEY_TYPE_X25519_SEALED_BOX",
     "MESSAGE_TYPES",
@@ -139,6 +172,8 @@ __all__ = [
     "PUBLISHING_KEY_ID",
     "PUBLISHING_KEY_PLACEHOLDER",
     "PUBLISHING_KEY_RING",
+    "SEALED_BOX_KEY_BYTES",
+    "SEALED_BOX_OVERHEAD",
     "SIGNATURE_SCHEME_ED25519",
     "SUCCESSOR_KEY",
     "SUCCESSOR_KEY_ID",
@@ -149,25 +184,40 @@ __all__ = [
     "DirectoryShapeError",
     "DirectoryVerificationError",
     "Envelope",
+    "ExportEnvelope",
+    "ExportPayload",
     "FillPayload",
     "InvalidDirectorySignature",
+    "InvalidRecipientKey",
     "ProviderEntry",
     "PublishingKeyNotConfigured",
     "RingVerification",
     "SchemaError",
+    "SealedBoxError",
+    "SealedBoxOpenFailed",
     "SuccessorKey",
     "SuccessorStatus",
     "UnknownDirectoryFormatVersion",
     "UnknownPublishingKeyId",
     "UnknownSchemaVersion",
+    "UnsupportedEncryptionKeyType",
     "UnsupportedSignatureScheme",
     "canonical_bytes",
     "envelope_to_dict",
+    "export_envelope_to_dict",
+    "export_plaintext_bytes",
+    "export_to_dict",
     "fill_to_dict",
     "fill_to_prefill",
     "is_placeholder",
+    "open_sealed",
     "parse_envelope",
+    "parse_export",
+    "parse_export_envelope",
     "parse_fill",
+    "public_key_from_private",
+    "seal",
+    "seal_export",
     "sign_directory",
     "verify_directory",
     "verify_directory_with_ring",

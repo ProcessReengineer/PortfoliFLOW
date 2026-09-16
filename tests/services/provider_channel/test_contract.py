@@ -58,10 +58,16 @@ from services.provider_channel.schemas import (
     ENVELOPE_STATUS_DECLINED,
     ENVELOPE_STATUS_EXECUTED,
     ENVELOPE_STATUS_SENT,
+    EXPORT_DIRECTION_BUY,
+    EXPORT_DIRECTION_SELL,
+    EXPORT_DIRECTIONS,
     FILL_SCHEMA_VERSION,
     FillPayload,
 )
 from services.transactions.constants import (
+    DIRECTION_BUY,
+    DIRECTION_SELL,
+    DIRECTIONS,
     KINDS,
     MD_IDENTIFIER_SCHEME as TICKET_MD_IDENTIFIER_SCHEME,
     MD_IDENTIFIER_VALUE as TICKET_MD_IDENTIFIER_VALUE,
@@ -135,6 +141,18 @@ def test_isin_scheme_is_one_the_web_surface_resolves() -> None:
 def test_every_prefill_field_is_a_ticket_column(field: str) -> None:
     """C-1: the pre-fill speaks the ticket's own field names, so no table translates."""
     assert hasattr(TradeTicket, field)
+
+
+def test_export_directions_mirror_the_ticket_directions() -> None:
+    """C-1: what a provider is told to do is what the ticket says, character for character.
+
+    A sealed export is opened by someone who cannot ask a follow-up question,
+    so a drifted literal would not be caught by a human reading it — it would
+    be a buy the other side declines to parse, or worse, reads as a sell.
+    """
+    assert EXPORT_DIRECTION_BUY == DIRECTION_BUY
+    assert EXPORT_DIRECTION_SELL == DIRECTION_SELL
+    assert EXPORT_DIRECTIONS == DIRECTIONS
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +251,78 @@ def test_provider_channel_source_has_no_forbidden_imports() -> None:
     assert not offenders, (
         "ADR-0129 Stage A keeps services/provider_channel pure — no ticket "
         f"service, ORM, web, network or clock. Offending lines: {offenders}"
+    )
+
+
+# Top-level modules a fresh ``import services.provider_channel`` may pull in.
+# ``cryptography`` and ``nacl`` are the package's two declared dependencies;
+# the rest are their own binding trees, which land in ``sys.modules`` under
+# top-level names of their own rather than as submodules — ``_cffi_backend``
+# and ``_openssl`` behind ``cryptography``, ``_sodium`` behind ``nacl``, and
+# ``cffi`` where the bindings go through its Python API. Anything else
+# appearing here is a dependency nobody declared.
+_ALLOWED_THIRD_PARTY: Final[frozenset[str]] = frozenset(
+    {"_cffi_backend", "_openssl", "_sodium", "cffi", "cryptography", "nacl"}
+)
+
+
+def test_nacl_is_the_only_new_third_party_import() -> None:
+    """C-2: B-D-12 adds ``nacl`` to the import graph and nothing else.
+
+    The companion to the forbidden-module scan above, asked the other way
+    round: that one names what may never appear, this one names everything
+    that may, so a transitive dependency arriving with a future version of
+    either library is a test failure rather than a quiet fact about the
+    package's reach. The list is printed because it is the delta Stage B has
+    to keep an eye on.
+
+    An editable install's own path finder is dropped rather than allow-listed:
+    it is *how* ``services`` is importable, not something the package imports,
+    and its module name carries the installed version.
+    """
+    code = (
+        "import importlib.util\n"
+        "import sys\n"
+        "import services.provider_channel  # noqa: F401\n"
+        "names = sorted(\n"
+        "    {m.split('.')[0] for m in sys.modules}\n"
+        "    - set(sys.stdlib_module_names)\n"
+        "    - {'services', '__main__'}\n"
+        ")\n"
+        "third_party = []\n"
+        "for name in names:\n"
+        "    if name.startswith('__editable__'):\n"
+        "        continue\n"
+        "    try:\n"
+        "        importable = importlib.util.find_spec(name) is not None\n"
+        "    except (ImportError, ValueError):\n"
+        "        importable = False\n"
+        "    if importable:\n"
+        "        third_party.append(name)\n"
+        "print(' '.join(third_party))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=_REPO_ROOT,
+    )
+    assert completed.returncode == 0, (
+        f"subprocess failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
+    )
+
+    third_party = completed.stdout.split()
+    print(f"third-party modules after importing services.provider_channel: {third_party}")
+
+    assert "nacl" in third_party, (
+        "B-D-12 makes the libsodium sealed box a runtime dependency; "
+        f"importing the package did not pull nacl in. Observed: {third_party}"
+    )
+    undeclared = sorted(set(third_party) - _ALLOWED_THIRD_PARTY)
+    assert not undeclared, (
+        "the provider channel imports the standard library, cryptography and "
+        f"nacl and nothing else; these arrived undeclared: {undeclared}"
     )
 
 

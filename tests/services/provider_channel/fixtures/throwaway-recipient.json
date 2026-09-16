@@ -1,0 +1,7 @@
+{
+  "note": "THROWAWAY X25519 key pair generated for the test suite - not a test-provider key (B-D-20); the private key is public by design",
+  "private_key_hex": "85f3903eec5dc4e38f9229a38f7039f707e016709159f7eb112ee1d0d85450df",
+  "public_key_hex": "a4ed736c37fe8a061f44389a143a7dc02d3de83905d2eb889e1edb17ed619e38",
+  "plaintext_utf8": "{\"correlation_id\":\"throwaway-0001\",\"currency\":\"EUR\",\"direction\":\"buy\",\"fees\":\"7.50\",\"gross_amount\":\"50625.00\",\"identifier_scheme\":\"isin\",\"identifier_value\":\"DE0001234567\",\"instrument_name\":null,\"message\":null,\"message_type\":\"order\",\"price_per_unit\":\"101.25\",\"schema_version\":1,\"settlement_date\":\"2026-09-18\",\"taxes\":\"0.00\",\"ticket_kind\":\"order\",\"trade_date\":\"2026-09-16\",\"units\":\"500\"}",
+  "ciphertext_base64": "GDOgoqXwGRQnWXZvKazqNUCHiyPs0kB8iL2COYIh9UoHY9TE2qmx+7CDFXpSpNiJsKuiBVGfc4JYFVwchZfdHjCwYCk8hNi0Y5GLwHUnutonQ2c2V+7i3md8OvFmnWoIgEC+zIFHcs5i55Oj6LpHI/n+LPGgcL9aGmv38pSrEqH8Px5qdiWS3x4Xn+5QQAQN3DqW59nc0T1U/jSeU0WfNuRWEUAL4Y75WPcoOMPecumJYwzIh6ULfMR/pdqPK48NbkrTi9Gbrg2IdDCoIBMbMOZQzxLDMMklzZg0bacytWIb7yOmWVDMWUinybcycEjSK10ErzLm3HDVFwydP6UqvfbQDI6Q2pik8ItRwca+sp1z55XZKYqqCJ/5hmIoSRSwzRe4UOWsuZzda90xlwRZM5c+CAyH9dNQVjiJghjcoMS+sGFMwnZ+VidCu06bbHfl5NDsO5LMIKEDjD5lLihfAX1PTvUsf1jK8GNuqOt1hNvQrivjaZpxAgcwU81llcTqFngy1/JBAWr+roSONykclJsyE0+f1IJ4i2nOznUR6YDKPdNSI7kyz9MYJgY1KNx92g=="
+}

@@ -449,7 +449,7 @@ async def get_stage_a_investment_detail(
     except ValueError:
         return _render_stage_a_empty_state(
             request,
-            message="Selected investment id is not a valid UUID.",
+            message="Selected investment is not valid.",
         )
 
     engine = _engine(request)

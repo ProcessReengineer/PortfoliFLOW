@@ -320,7 +320,7 @@ async def test_get_section_empty_renders_empty_state(
     # No configurations → no picker, empty-state copy instead.
     assert 'id="saa-config-switcher"' not in body
     assert "No SAA configurations yet" in body
-    assert "portfoliflow bootstrap" in body
+    assert "ask your administrator to install the three seed templates" in body
 
 
 async def test_get_section_with_config_id_pins_specific_configuration(

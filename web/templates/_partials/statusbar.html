@@ -12,7 +12,7 @@
                     this from the auth surface; for 6F-1 it is the
                     Sentinel Tenant fallback supplied by the shell
                     context processor).
-     build_sha    — short build SHA for diagnostic correlation;
+     build_sha    — short build identifier for diagnostic correlation;
                     falls back to "dev" when unset.
      config_ok    — boolean; true when the data store / engine
                     dependency is reachable. #}
@@ -39,7 +39,7 @@
            href="https://github.com/ProcessReengineer/PortfoliFLOW{% if build_sha and build_sha != 'dev' %}/tree/{{ build_sha }}{% endif %}"
            target="_blank" rel="noopener"
            title="Corresponding source (AGPL §13)">Source code</a>
-        <span class="pf-statusbar__build" title="Build SHA">
+        <span class="pf-statusbar__build" title="Build">
             {{ build_sha or "dev" }}
         </span>
         <span class="pf-statusbar__config"

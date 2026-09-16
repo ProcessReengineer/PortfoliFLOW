@@ -44,6 +44,14 @@ responsible for. Subcommands:
 - ``portfoliflow vault-rotate-key`` — re-encrypt every vault secret
   under a new master key, cross-tenant, in one transaction
   (ADR-0112 §2).
+- ``portfoliflow directory-refresh`` — fetch the signed provider
+  directory from portfoliflow.com once, verify it against the shipped
+  key ring and accept or refuse it by the monotonic rule (B-D-15);
+  no database, no tenant, no ``enabled`` gate. Exit 3 on a refusal,
+  4 when the server is unreachable (SB-3b).
+- ``portfoliflow directory-status`` — re-verify the cached directory
+  under ``DATA_DIR`` and print its provenance; exit 5 when no usable
+  cache exists (SB-3b).
 
 The CLI connects to Postgres as the **superuser** (the only code path
 in PortfoliFLOW permitted to do so — see ADR-0040 §2). Application
@@ -59,6 +67,7 @@ from cli.bootstrap import bootstrap_command, set_password_command
 from cli.create_super_admin import create_super_admin_command
 from cli.create_tenant import create_tenant_command
 from cli.create_user import create_user_command
+from cli.directory import directory_refresh_command, directory_status_command
 from cli.inspect_tenant import inspect_tenant_command
 from cli.irene_tick import irene_tick_command
 from cli.market_data_tick import market_data_tick_command
@@ -87,6 +96,8 @@ app.command(name="market-data-tick")(market_data_tick_command)
 app.command(name="seed-watchpoints")(seed_watchpoints_command)
 app.command(name="vault-generate-key")(vault_generate_key_command)
 app.command(name="vault-rotate-key")(vault_rotate_key_command)
+app.command(name="directory-refresh")(directory_refresh_command)
+app.command(name="directory-status")(directory_status_command)
 
 
 __all__ = ["app"]

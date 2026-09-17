@@ -856,8 +856,9 @@ no network, no clock, nothing decrypts in production; suite **155**
 pure package and `httpx`; its own import-isolation test forbids `core.*`,
 `sqlalchemy`, `fastapi`, `pydantic`, `services.transactions`; suite **89**
 (contract 3 · fetch 24 · cache 20 · provenance 7 · refresh 35), DB-free,
-same 89 with dead DSNs. Not yet in the `[tool.pyright]` island set
-(housekeeping pending). **CLI:** `cli/directory.py` — `directory-refresh`,
+same 89 with dead DSNs. In the `[tool.pyright]` island set since PB-H5
+(together with `services/provider_channel`; ADR-0109 §3 "island by
+island"). **CLI:** `cli/directory.py` — `directory-refresh`,
 `directory-status` (B-D-17 addendum); `tests/cli/` suite **102** (+24).
 Key ring (SB-1): `PUBLISHING_KEY`, `PUBLISHING_KEY_ID`, `SUCCESSOR_KEY`,
 `SUCCESSOR_KEY_ID`, `PUBLISHING_KEY_RING`, `PUBLISHING_KEY_PLACEHOLDER`,
@@ -869,11 +870,16 @@ addendum). Taxonomy: `PROVIDER_TAXONOMY` has `provider_channel` with the one
 config field `enabled` (SB-4); nothing reads it until SB-6. Fixtures:
 `tests/services/provider_channel/fixtures/directory-1.json` (1,180 B,
 SHA-256 `c1383c4f…ec83`), `directory-1.sig` (129 B),
-`throwaway-recipient.json`. Full-suite baseline **4,927 passed at
-`2a2be75`** (2026-09-11, `docs/reports/full-suite-2026-09-11-report.md`);
-the post-SB-5/SB-3b home run is owed before SB-6 (expected ≥ 5,094 =
-4,927 + 54 + 113). Reports in `docs/reports/` (PB-1a, PB-1b, PB-1d, PB-1e,
-PB-1f, PB-1g, PB-D2, PB-D3, PB-D4, PB-H1, PB-H3, full-suite). Roadmap
+`throwaway-recipient.json`. Full-suite baseline **5,109 passed at
+`3a34537`** (2026-09-17, `docs/reports/full-suite-2026-09-17-report.md`;
+5,118 selected, 0 failed, 8 skipped, 1 xfailed, 8 deselected; +188 over
+the 2026-09-11 baseline of 4,927 at `2a2be75` — SB-5 +54, SB-3b +113,
+UX track +21; the PB-H5 typing-only edits were in the tested tree). Six
+of the eight skips are sample-workbook tests that skip wherever
+`data/sample/` is absent, including CI; the 13 `@pytest.mark.asyncio`
+warnings PB-H3 removed are confirmed at 0 with Postgres up. Reports in
+`docs/reports/` (PB-1a, PB-1b, PB-1d, PB-1e, PB-1f, PB-1g, PB-D2, PB-D3,
+PB-D4, PB-H1, PB-H3, PB-H5, full-suite ×2). Roadmap
 #061 `shipped (2026-09-08)`; Stage B is #067 `in-progress`, tenant-local
 provider entries #068 `open`. Infra side (by reference): signing tool
 `verify` resolves the key from this repository's ring (D-SB2-14, PB-2c);

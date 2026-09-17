@@ -22,7 +22,7 @@ import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -373,9 +373,7 @@ def test_duplicate_provider_id_is_refused() -> None:
         "lower-case-jurisdiction",
     ],
 )
-def test_malformed_provider_entry_is_a_shape_error(
-    override: dict[str, object], needle: str
-) -> None:
+def test_malformed_provider_entry_is_a_shape_error(override: dict[str, Any], needle: str) -> None:
     """D-9: each closed vocabulary in an entry is enforced, and named on failure."""
     document = _document(providers=[_provider(**override)])
     with pytest.raises(DirectoryShapeError) as excinfo:
@@ -417,11 +415,12 @@ def test_shipped_publishing_key_is_real_and_the_placeholder_still_fails_closed()
         PUBLISHING_KEY_ID: PUBLISHING_KEY,
         SUCCESSOR_KEY_ID: SUCCESSOR_KEY,
     }
+    # The static refusal below is the same property this test asserts at runtime.
     # The ring is the root of trust: a caller must not be able to add a key to
     # it at runtime, which is what makes "rotation is a code release" (B-D-14)
     # a property of the build rather than a convention.
     with pytest.raises(TypeError):
-        PUBLISHING_KEY_RING[SUCCESSOR_KEY_ID] = PUBLISHING_KEY
+        PUBLISHING_KEY_RING[SUCCESSOR_KEY_ID] = PUBLISHING_KEY  # pyright: ignore[reportIndexIssue]
 
     payload, signature = sign_directory(_document(), private_key=_PRIVATE_BYTES)
     with pytest.raises(PublishingKeyNotConfigured) as excinfo:

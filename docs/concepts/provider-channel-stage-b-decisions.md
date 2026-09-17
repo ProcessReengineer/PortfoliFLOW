@@ -293,6 +293,25 @@ exclusively through a code release. Consequence accepted: replacing the host
 without carrying `DATA_DIR` loses the downgrade baseline until the next
 successful fetch.
 
+- *Addendum 2026-09-16 (delivered by SB-3b, PB-1f, commit `d0393bb`):*
+  the cache lives in `services/provider_directory/cache.py`, **outside**
+  `services/provider_channel/` — the C-2 contract forbids `httpx` and every
+  `core.*` import in the pure package, so the fetch client is its own
+  package that imports the pure one. Layout under
+  `<data_dir>/provider_directory/`: `directory.json` (the fetched bytes,
+  byte-exact), `directory.sig`, `meta.json` (`directory_version`,
+  `publishing_key_id`, `fetched_at`, `etag`, `source_url`;
+  `META_SCHEMA_VERSION = 1` names the cache-file layout only, not a wire
+  version). Written atomically (temp file + `os.replace`) and only after
+  verification. **Read re-verifies:** `read_cache(root, now=…)` checks the
+  bytes against the shipped ring on every read — the disk is data, not
+  trust. Two rules settled on delivery: a cached document that fails
+  signature or shape verification on read is treated as **no cache**; a
+  cached document that verifies but is **expired** remains the downgrade
+  baseline of B-D-15 (`read_cache` returns it with `verification=None`,
+  `Provenance.valid=False`) — a signed, dated document is a better anchor
+  against downgrade than nothing.
+
 ### B-D-14 · Key ring from code only; successor announcements are a notice (C-3)
 
 `services/provider_channel/publishing_key.py` holds the key ring
@@ -335,6 +354,23 @@ keep cache, notice ("server serves version n, cached is n+k"). Every
 publication, including a typo fix, bumps `directory_version` (format doc
 §9).
 
+- *Addendum 2026-09-16 (delivered by SB-3b, PB-1f):* the rule is
+  implemented as `services.provider_directory.refresh.refresh_directory(*,
+  cache_root, client, now, …) -> RefreshOutcome`, with the closed status
+  vocabulary `REFRESH_STATUSES` of **eight** outcomes: `updated`,
+  `unchanged` (also the ETag 304 branch, `fetched_at` only),
+  `refused_downgrade`, `refused_republished`, `refused_unknown_version`
+  (B-D-18), **`refused_unknown_key`** (a document signed under a key id
+  the shipped ring does not hold — same treatment as an unknown format
+  version: keep the cache, notice "client update required"; B-D-14 stands,
+  the announcement is not a key), `refused_invalid` (signature, shape,
+  scheme, expiry), `unavailable` (any network or HTTP failure). The
+  function never raises for a network or document problem; it raises only
+  for caller errors (naive `now`, a `current_key_id` not in the ring, an
+  unwritable cache root) before any I/O. The monotonic comparison uses the
+  cached `directory_version` even when the cached copy is expired
+  (B-D-13 addendum).
+
 ### B-D-16 · Directory validity: 90 days, re-signed at least every 60 (C-7)
 
 `valid_until` = `issued_at` + 90 days; re-sign and re-publish at least
@@ -351,6 +387,28 @@ against the ETag); never while the channel is disabled. Every fetch degrades
 on timeout or refusal to the cached document. The background timer built in
 B-1 is responsible for the directory only; the B-2 relay poll reuses the
 mechanism.
+
+- *Addendum 2026-09-16 (delivered by SB-3b, PB-1f/PB-1g):* the **how** is
+  delivered — conditional GET (`If-None-Match` from `meta.json`, 304 →
+  `unchanged`), a 10-second timeout, degradation to the cached document
+  with status `unavailable`, `Provenance` (`directory_version`,
+  `publishing_key_id`, `fetched_at`, `issued_at`, `valid_until`, `etag`,
+  `valid`, `successor_in_use`, `announced_successor`, `provider_count`,
+  `source_url`) for the panel. The **when** — on enable, on the refresh
+  gesture, the 24-hour background timer via the ADR-0117 scheduler hook,
+  and "never while disabled" — is SB-6's, which reads
+  `provider_channel.enabled` (B-D-25) and passes a tz-aware UTC `now`.
+  The directory URL is a code constant (`fetch.DIRECTORY_URL`,
+  `https://portfoliflow.com/directory/v1/directory.json` and its `.sig`
+  sibling), overridable only as a function argument — no environment
+  variable, no settings field, no taxonomy entry, per ADR-0131's
+  no-phone-home-switch reasoning. Operator instrument (PB-1g): `portfoliflow
+  directory-refresh [--url] [--data-dir] [--json]` and `portfoliflow
+  directory-status [--data-dir] [--json]`, database-free, exit codes
+  0 ok · 2 caller/config · 3 refused · 4 unavailable · 5 no cache; the
+  only clock read in the delivery sits behind `cli/directory.py::_now`.
+  The deployed-directory verification (B-D-24) is the publication-day walk
+  with these two commands; it is deferred to release `2026.09.1`.
 
 ### B-D-18 · No forward-compatible reader (C-5)
 
@@ -753,49 +811,79 @@ under substring matches; a positive import allow-list anticipates a
 binding's top-level modules (`_sodium`, `_cffi_backend`, `_openssl`) and
 editable-install finders, or it pins to one venv.
 
+Fetch-client lessons (PB-1f/PB-1g, 2026-09-16): (7) every line number in
+a verify-first table comes from `grep -n` on the slice, never from reading
+a printed excerpt — text anchors caught a three-line slip, but the slip was
+avoidable. (8) "With Postgres down" is written as its substitute proof:
+export dead DSNs (`postgresql://dead@127.0.0.1:1/x`; `.env` loads with
+`override=False`) plus a control test that skips — stronger, non-invasive,
+and it never asks a prompt to stop a container it does not own. (9) Pyright
+gates are scoped to the touched files; the ADR-0110 island set is not
+widened as a side effect of a build prompt. (10) A positive third-party
+import allow-list is not mirrored for a package whose import graph includes
+a CLI module (`httpx._main` drags in `click`, `rich`, `pygments`); pin what
+must be present and what must be absent. (11) Anything that reads the
+clock sits behind a patchable seam, and end-to-end tests derive `now` from
+the fixture document so the walk does not rot on the fixture's
+`valid_until`. (12) The prompt budget is **three pages**, not two: the
+enumerated test cases are what produced STOP-free runs; the enumeration
+stays, the budget moves.
+
 ---
 
-## 7. Coordinates (verified 2026-09-16, post-SB-5 full image, head `395b157`)
+## 7. Coordinates (verified 2026-09-17, post-SB-3b full image, head `de1b0cb`)
 
-Git: `395b157` = SB-5 (PB-1e). Release **`2026.09.0`** cut 2026-09-13
-(tag `a4de56b`, `pyproject.toml` version `2026.09.0`) without the
-publication (B-D-24 addendum). Alembic head `b034` (next instance-side
-migration takes `b035` — reserved for `engagements`, B-D-3/B-D-13; the
-directory cache is a file, B-D-13). Last ADR **0131**; next free **0132**
-(verify at writing time). Next free roadmap number **#069** (verify at
-writing time — the UX-overhaul track may take it first). Version constants
-all `= 1`: `ENVELOPE_SCHEMA_VERSION`, `FILL_SCHEMA_VERSION`,
-`EXPORT_SCHEMA_VERSION` (SB-5), directory format; first publication stays
-on v1 (B-D-2). Runtime dependencies: `httpx>=0.27`, `cryptography>=42`,
-`pynacl>=1.6.2` (SB-5); `pytest-httpx` in the dev extras. Package
-`services/provider_channel/`: `__init__` (`__all__` 76), `directory`,
-`export` (SB-5), `prefill`, `publishing_key`, `ring` (SB-3a), `schemas`,
-`sealed_box` (SB-5); purity contract: standard library, `cryptography`
-and `nacl`; no network, no clock, nothing decrypts in production. Key
-ring (SB-1): `PUBLISHING_KEY`, `PUBLISHING_KEY_ID`, `SUCCESSOR_KEY`,
+Git: `de1b0cb` = SB-3b CLI (PB-1g) on `d0393bb` = SB-3b library (PB-1f) on
+`654b574` = PB-D4 on `395b157` = SB-5 (PB-1e); `origin/main` at `de1b0cb`.
+Release **`2026.09.0`** cut 2026-09-13 (tag `a4de56b`, `pyproject.toml`
+version `2026.09.0`) without the publication (B-D-24 addendum). Full-image
+file count 1,420. Alembic head `b034` (next instance-side migration takes
+`b035` — reserved for `engagements`, B-D-3/B-D-13). Last ADR **0131**; next
+free **0132** (verify at writing time). Next free roadmap number **#069**
+(verify at writing time — the UX-overhaul track may take it first). Wire
+version constants all `= 1`: `ENVELOPE_SCHEMA_VERSION`,
+`FILL_SCHEMA_VERSION`, `EXPORT_SCHEMA_VERSION`, directory format;
+`META_SCHEMA_VERSION = 1` is the cache-file layout (B-D-13 addendum), not a
+wire version. Runtime dependencies: `httpx>=0.27`, `cryptography>=42`,
+`pynacl>=1.6.2`; `pytest-httpx` in the dev extras; SB-3b added none.
+**Pure package** `services/provider_channel/`: `__init__` (`__all__` 76),
+`directory`, `export`, `prefill`, `publishing_key`, `ring`, `schemas`,
+`sealed_box`; purity contract: standard library, `cryptography`, `nacl`;
+no network, no clock, nothing decrypts in production; suite **155**
+(`test_contract.py` 24 — the two C-2 tests unchanged since Stage A).
+**Client package** `services/provider_directory/` (SB-3b): `__init__`
+(`__all__` 29), `fetch`, `cache`, `provenance`, `refresh`; imports the
+pure package and `httpx`; its own import-isolation test forbids `core.*`,
+`sqlalchemy`, `fastapi`, `pydantic`, `services.transactions`; suite **89**
+(contract 3 · fetch 24 · cache 20 · provenance 7 · refresh 35), DB-free,
+same 89 with dead DSNs. Not yet in the `[tool.pyright]` island set
+(housekeeping pending). **CLI:** `cli/directory.py` — `directory-refresh`,
+`directory-status` (B-D-17 addendum); `tests/cli/` suite **102** (+24).
+Key ring (SB-1): `PUBLISHING_KEY`, `PUBLISHING_KEY_ID`, `SUCCESSOR_KEY`,
 `SUCCESSOR_KEY_ID`, `PUBLISHING_KEY_RING`, `PUBLISHING_KEY_PLACEHOLDER`,
 `is_placeholder`; `verify_directory(document_bytes, signature, *,
-publishing_key: bytes, now: date)` unchanged;
-`verify_directory_with_ring(...) -> RingVerification` and
-`UnknownPublishingKeyId` (SB-3a). Export (SB-5): `seal_export`,
-`export_plaintext_bytes`, `seal`, `open_sealed` — see the B-D-12
-addendum. Taxonomy: `PROVIDER_TAXONOMY` has `provider_channel` with the
-one config field `enabled` (SB-4); nothing reads it until SB-6. Fixtures:
+publishing_key: bytes, now: date)`; `verify_directory_with_ring(...) ->
+RingVerification` and `UnknownPublishingKeyId` (SB-3a). Export (SB-5):
+`seal_export`, `export_plaintext_bytes`, `seal`, `open_sealed` (B-D-12
+addendum). Taxonomy: `PROVIDER_TAXONOMY` has `provider_channel` with the one
+config field `enabled` (SB-4); nothing reads it until SB-6. Fixtures:
 `tests/services/provider_channel/fixtures/directory-1.json` (1,180 B,
 SHA-256 `c1383c4f…ec83`), `directory-1.sig` (129 B),
-`throwaway-recipient.json` (SB-5). Provider-channel suite **155** tests
-(`test_contract.py` 24: the two C-2 tests unchanged since Stage A, plus a
-C-1 direction pin and the positive allow-list test). Full-suite baseline
-**4,927 passed at `2a2be75`** (2026-09-11,
-`docs/reports/full-suite-2026-09-11-report.md`); a post-SB-5 home run is
-due before SB-3b (expected ≥ 4,981). Reports in `docs/reports/` (PB-1a,
-PB-1b, PB-1d, PB-1e, PB-D2, PB-D3, PB-H1, PB-H3, full-suite). Roadmap
+`throwaway-recipient.json`. Full-suite baseline **4,927 passed at
+`2a2be75`** (2026-09-11, `docs/reports/full-suite-2026-09-11-report.md`);
+the post-SB-5/SB-3b home run is owed before SB-6 (expected ≥ 5,094 =
+4,927 + 54 + 113). Reports in `docs/reports/` (PB-1a, PB-1b, PB-1d, PB-1e,
+PB-1f, PB-1g, PB-D2, PB-D3, PB-D4, PB-H1, PB-H3, full-suite). Roadmap
 #061 `shipped (2026-09-08)`; Stage B is #067 `in-progress`, tenant-local
 provider entries #068 `open`. Infra side (by reference): signing tool
 `verify` resolves the key from this repository's ring (D-SB2-14, PB-2c);
 `directory_version 1` signed 2026-09-10, unpublished until `2026.09.1`
-(B-D-24 addendum); re-sign `directory_version 2` by 2026-11-09; rotate to
-`portfoliflow-2027-01` on 2027-01-01.
+(B-D-24 addendum); publication-day walk: `env -u DATABASE_URL -u
+DATABASE_URL_SUPERUSER portfoliflow directory-refresh --data-dir
+/tmp/pf-walk --json` twice (`updated`, then `unchanged` via the Caddy
+ETag), then `directory-status --data-dir /tmp/pf-walk`; re-sign
+`directory_version 2` by 2026-11-09; rotate to `portfoliflow-2027-01` on
+2027-01-01.
 
 ## 8. Operator actions to open Stage B
 

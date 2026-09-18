@@ -53,7 +53,7 @@ _shell,_partials/sidebar.html,,template,button,Sign out ⏻,/logout,,web/templat
 _shell,_partials/statusbar.html,,template,tooltip,Command palette,,,web/templates/_partials/statusbar.html,33,from:title
 _shell,_partials/statusbar.html,,template,link,Source code,https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,38,synonym-candidate
 _shell,_partials/statusbar.html,,template,tooltip,Corresponding source (AGPL §13),https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,38,abbrev|from:title|synonym-candidate
-_shell,_partials/statusbar.html,,template,tooltip,Build SHA,,,web/templates/_partials/statusbar.html,42,abbrev|from:title
+_shell,_partials/statusbar.html,,template,tooltip,Build,,,web/templates/_partials/statusbar.html,42,from:title
 _shell,_partials/statusbar.html,,template,tooltip,Configuration loaded Configuration error,,,web/templates/_partials/statusbar.html,45,from:title
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,444,abbrev
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,447,abbrev
@@ -258,7 +258,7 @@ back_office,,benchmarks_attribution,python,python_label,Mapping Coverage,,,web/r
 back_office,,benchmarks_attribution,python,python_label,Median Excess p.a.,,,web/routes/benchmarks_attribution.py,240,
 back_office,,benchmarks_attribution,python,python_label,Hit Rate,,,web/routes/benchmarks_attribution.py,247,
 back_office,,benchmarks_attribution,python,python_label,Median IR,,,web/routes/benchmarks_attribution.py,254,abbrev
-back_office,,benchmarks_attribution,python,python_message,Selected investment id is not a valid UUID.,,,web/routes/benchmarks_attribution.py,452,abbrev
+back_office,,benchmarks_attribution,python,python_message,Selected investment is not valid.,,,web/routes/benchmarks_attribution.py,452,
 back_office,,benchmarks_attribution,python,python_message,No benchmark mapping or no aligned observations for this investment.,,,web/routes/benchmarks_attribution.py,464,
 back_office,_partials/areas/_back_office_body.html,,template,area_header,"Back Office Operations and reporting — strategic asset allocation, benchmarks & attribution, and investment limits.",,,web/templates/_partials/areas/_back_office_body.html,4,
 back_office,_partials/areas/_back_office_body.html,Back Office,template,heading,Back Office,,,web/templates/_partials/areas/_back_office_body.html,5,
@@ -272,7 +272,7 @@ back_office,_partials/benchmarks_attribution_section.html,Asset-Class Composites
 back_office,_partials/benchmarks_attribution_section.html,SAA Hypothetical Comparison,template,heading,SAA Hypothetical Comparison,,,web/templates/_partials/benchmarks_attribution_section.html,81,abbrev
 back_office,_partials/benchmarks_attribution_section_lazy.html,,template,htmx,Loading benchmarks & attribution…,/api/back-office/benchmarks-attribution/section,this,web/templates/_partials/benchmarks_attribution_section_lazy.html,9,verb:GET
 back_office,_partials/benchmarks_attribution_stage_a.html,,template,button,Show all metrics,,,web/templates/_partials/benchmarks_attribution_stage_a.html,18,
-back_office,_partials/benchmarks_attribution_stage_a.html,,template,empty_state,"No investment-vs-benchmark rows available. Either there are no active investments yet, or no asset class carries a benchmark mapping. Import benchmarks via the Data Import section — see ADR-0061 for the expected Excel format.",,,web/templates/_partials/benchmarks_attribution_stage_a.html,37,abbrev|identifier-leak-loose|internal-name
+back_office,_partials/benchmarks_attribution_stage_a.html,,template,empty_state,"No investment-vs-benchmark rows available. Either there are no active investments yet, or no asset class carries a benchmark mapping. Import benchmarks via the Data Import section.",,,web/templates/_partials/benchmarks_attribution_stage_a.html,37,identifier-leak-loose
 back_office,_partials/benchmarks_attribution_stage_a.html,,template,link,Data Import,/admin#data-import,,web/templates/_partials/benchmarks_attribution_stage_a.html,41,
 back_office,_partials/benchmarks_attribution_stage_a_detail_row.html,,template,empty_state,{{ empty_message }},,,web/templates/_partials/benchmarks_attribution_stage_a_detail_row.html,20,dynamic
 back_office,_partials/benchmarks_attribution_stage_c_chart.html,,template,empty_state,"No data to display. Either no SAA configuration is selected, the selected configuration is not yet optimizable, or the period has no overlap between SAA asset classes and the portfolio actuals. {{ opt.display_name }}: {{ opt.unavailable_hint }}",,,web/templates/_partials/benchmarks_attribution_stage_c_chart.html,19,dynamic
@@ -341,7 +341,7 @@ back_office,_partials/saa_configuration_partial.html,Optimisation,template,htmx,
 back_office,_partials/saa_configuration_partial.html,Optimisation,template,tooltip,Save controls,,,web/templates/_partials/saa_configuration_partial.html,101,from:aria-label
 back_office,_partials/saa_configuration_partial.html,Optimisation,template,button,Save Configuration,,,web/templates/_partials/saa_configuration_partial.html,102,
 back_office,_partials/saa_configuration_partial.html,Optimisation,template,pill,No changes,,,web/templates/_partials/saa_configuration_partial.html,109,
-back_office,_partials/saa_empty_state.html,,template,empty_state,"No SAA configurations yet. Create your first configuration to define forward-looking asset-class expectations and weight constraints. + Create your first SAA configuration Or run portfoliflow bootstrap to install three seed templates (Conservative Multi-Strategy, Balanced Institutional, Growth Private Markets).",,,web/templates/_partials/saa_empty_state.html,4,abbrev|identifier-leak-loose
+back_office,_partials/saa_empty_state.html,,template,empty_state,"No SAA configurations yet. Create your first configuration to define forward-looking asset-class expectations and weight constraints. + Create your first SAA configuration Or ask your administrator to install the three seed templates (Conservative Multi-Strategy, Balanced Institutional, Growth Private Markets).",,,web/templates/_partials/saa_empty_state.html,4,abbrev|identifier-leak-loose
 back_office,_partials/saa_empty_state.html,,template,button,+ Create your first SAA configuration,,,web/templates/_partials/saa_empty_state.html,10,abbrev
 back_office,_partials/saa_optimization_partial.html,,template,tile,"Tangency Portfolio Return{{ ""%.2f""|format(tangency_summary.expected_return * 100) }}% Volatility{{ ""%.2f""|format(tangency_summary.volatility * 100) }}% Sharpe{{ ""%.2f""|format(tangency_summary.sharpe_ratio) }}",,,web/templates/_partials/saa_optimization_partial.html,7,dynamic
 back_office,_partials/saa_optimization_partial.html,,template,tile,"Min-Variance Portfolio Return{{ ""%.2f""|format(min_var_summary.expected_return * 100) }}% Volatility{{ ""%.2f""|format(min_var_summary.volatility * 100) }}%",,,web/templates/_partials/saa_optimization_partial.html,15,dynamic
@@ -1201,7 +1201,7 @@ back_office,_partials/saa_section.html,,js,js_call,,/api/saa/asset-classes,,web/
 back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_section.js,719,unlinked|verb:PUT|via:fetchJson
 back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_section.js,738,unlinked|verb:DELETE|via:fetchJson
 back_office,_partials/saa_asset_classes_modal.html,,js,js_call,,/api/saa/asset-classes,,web/static/js/saa_section.js,847,event:submit|linked|verb:POST|via:fetchJson
-back_office,_partials/benchmarks_attribution_stage_a.html,,js,js_call,,/api/back-office/benchmarks-attribution/stage-a/investment-detail,,web/templates/_partials/benchmarks_attribution_stage_a.html,187,unlinked|verb:GET
+back_office,_partials/benchmarks_attribution_stage_a.html,,js,js_call,,/api/back-office/benchmarks-attribution/stage-a/investment-detail,,web/templates/_partials/benchmarks_attribution_stage_a.html,186,unlinked|verb:GET
 investments,investments/detail.html,,js,js_call,,/investments/{param}/navs/{param},,web/templates/investments/detail.html,374,unlinked|verb:DELETE
 investments,investments/detail.html,,js,js_call,,/investments/{param}/cashflows/{param},,web/templates/investments/detail.html,447,unlinked|verb:DELETE
 investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param}/primary,,web/templates/investments/detail.html,501,unlinked|verb:POST

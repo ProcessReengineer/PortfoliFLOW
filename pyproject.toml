@@ -65,6 +65,10 @@ dev = [
     # The test suite exercises the Telegram bot; keep this line equal to
     # the `bot` extra below.
     "aiogram>=3.0",
+    # Drives the screenshot atlas (`tools/ux_atlas.py`, P-UX-1). The browser
+    # itself is not a Python package: install it once with
+    # `playwright install chromium`.
+    "playwright>=1.47,<2",
 ]
 bot = [
     "aiogram>=3.0",

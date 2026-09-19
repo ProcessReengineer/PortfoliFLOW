@@ -37,3 +37,7 @@ repomix-output.*.xml
 repomix-output.xml
 repomix-output.tar.gz
 node_modules/
+
+# UX screenshot atlas — dated local runs, regenerable, never committed (P-UX-1)
+docs/ux/atlas/*
+!docs/ux/atlas/README.md

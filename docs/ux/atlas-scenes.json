@@ -1,0 +1,12 @@
+[
+  {
+    "name": "transactions-flow-chooser",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#tx-composer-host"}
+    ],
+    "shot": "flow-chooser"
+  }
+]

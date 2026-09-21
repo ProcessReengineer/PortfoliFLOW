@@ -69,12 +69,32 @@ Usage
     export PF_ATLAS_USER=… PF_ATLAS_PASSWORD=…
     python tools/ux_atlas.py
 
+Revealing, truncation and bands
+-------------------------------
+Most Areas load their heavy Sections on ``hx-trigger="revealed"``, which fires
+on intersection with the viewport. A page rendered without ever scrolling is
+therefore a column of "Loading…" placeholders below the fold, whatever
+``full_page`` does afterwards. Every shot is preceded by a reveal pass that
+walks the document to the bottom in sub-viewport steps, waiting for HTMX after
+each, until the page stops growing — then back to the top.
+
+A revealed page gets long, and two things follow. Chromium refuses a screenshot
+surface past 16,384 px and returns a silently truncated image, so the PNG's own
+IHDR height is compared against the final ``scrollHeight``. And a 10,000 px tall
+PNG is unreadable the moment a chat downscales it to ~1,568 px on the long edge,
+so ``--bands 1200`` cuts the same full-page render into viewport-wide slices
+with Playwright's ``clip``. Bands are the format to upload to a chat; the full
+PNG is the format for a human with a viewer.
+
 Output goes to ``docs/ux/atlas/<YYYY-MM-DD>/`` (gitignored — the atlas is a
 local, regenerable artefact, never a committed one).
 
-Exit codes: 0 clean; 1 at least one suspect capture or failed scene (the outputs
-are written either way); 2 the Chromium browser or the Playwright package is
-missing; 3 login failed.
+Exit codes: 0 clean; 1 at least one suspect capture, flagged scene shot or
+failed scene (the outputs are written either way); 2 the Chromium browser or the
+Playwright package is missing; 3 login failed, or a session lost mid-run — that
+aborts the remaining routes, because every one of them would photograph the
+login page, but the manifest and contact sheet are still written with what the
+run already had.
 """
 
 from __future__ import annotations
@@ -85,6 +105,7 @@ import csv
 import hashlib
 import json
 import os
+import struct
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -150,6 +171,45 @@ STEP_TIMEOUT_MS = 5_000
 #: empty shell rather than a rendered surface.
 SUSPECT_MIN_BYTES = 8 * 1024
 
+#: Chromium refuses a screenshot surface past this on either axis and hands back
+#: a silently cut image rather than an error.
+CHROMIUM_MAX_AXIS_PX = 16_384
+
+#: A PNG may round a fractional CSS pixel; a bigger shortfall than this is a cut.
+TRUNCATION_TOLERANCE_PX = 2
+
+TRUNCATION_REASON = f"page taller than Chromium's {CHROMIUM_MAX_AXIS_PX:,} px cap — use bands"
+
+SESSION_LOST_REASON = "session lost — run aborted"
+
+#: The reveal pass steps by less than one viewport because ``revealed`` fires on
+#: intersection with it: a full-viewport step can jump a short section clean over
+#: the observer and leave it a placeholder.
+REVEAL_STEP_RATIO = 0.8
+
+#: The guard against a page that never stops growing. Sized from measurement,
+#: not from the 16,384 px cap: Chromium 153 does not enforce that cap, so a
+#: revealed Area page can genuinely run past it, and at a 720 px step this walks
+#: ~43,000 px. A reveal that hits the guard is reported rather than assumed
+#: complete — see ``REVEAL_INCOMPLETE_REASON``.
+REVEAL_MAX_ITERATIONS = 60
+
+#: Shorter than the settle after a navigation: the reveal loop pays this once per
+#: iteration, and a surface holding an open stream never reaches networkidle at
+#: all, so the full timeout would be spent waiting for something that cannot come.
+REVEAL_NETWORK_IDLE_TIMEOUT_MS = 2_000
+
+#: Lets the last lazy swap paint before the shutter.
+REVEAL_QUIET_MS = 250
+REVEAL_INCOMPLETE_REASON = (
+    f"reveal hit the {REVEAL_MAX_ITERATIONS}-iteration guard — the foot of the page "
+    "may still be placeholders"
+)
+
+#: The band height that survives a chat's ~1,568 px downscale. ``--bands``
+#: defaults to off; this is the number to pass when it is on.
+RECOMMENDED_BAND_PX = 1200
+
 EXIT_OK = 0
 EXIT_SUSPECT = 1
 EXIT_NO_BROWSER = 2
@@ -189,6 +249,14 @@ class Capture:
     session: str
     suspect: bool = False
     reason: str | None = None
+    reveal_iterations: int | None = None
+    #: ``True`` until a reveal pass says otherwise, so a capture that never got
+    #: as far as revealing is not reported as under-revealed.
+    reveal_complete: bool = True
+    scroll_height: int | None = None
+    png_height: int | None = None
+    truncated: bool = False
+    bands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -200,6 +268,33 @@ class SceneResult:
     ok: bool
     failed_step: int | None = None
     reason: str | None = None
+    reveal_iterations: int | None = None
+    reveal_complete: bool = True
+    scroll_height: int | None = None
+    png_height: int | None = None
+    truncated: bool = False
+    bands: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RevealResult:
+    """What the reveal pass did before the shutter opened."""
+
+    iterations: int
+    scroll_height: int
+    complete: bool
+
+
+@dataclass
+class ShotMeta:
+    """What one full-page screenshot turned out to be, past the file itself."""
+
+    reveal_iterations: int
+    reveal_complete: bool
+    scroll_height: int
+    png_height: int | None
+    truncated: bool
+    bands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -225,10 +320,26 @@ class BrowserMissingError(RuntimeError):
 
 
 class LoginFailedError(RuntimeError):
-    """Raised when a session never reaches an authenticated page.
+    """Raised when a session never reaches, or stops reaching, an authenticated page.
+
+    Raised both at login time and mid-run, when a capture bounces to ``/login``:
+    the session is gone, and every later route would photograph the login page,
+    so the run ends rather than filling the atlas with them.
 
     The message never carries the credentials that were tried.
     """
+
+    def __init__(self, message: str, *, capture: Capture | None = None) -> None:
+        """Store the capture the bounce was seen on, when there was one.
+
+        Args:
+            message: The failure message, credential-free.
+            capture: The route capture that bounced, so the manifest can still
+                account for the route the run died on. ``None`` at login time,
+                where no route was being captured.
+        """
+        super().__init__(message)
+        self.capture = capture
 
 
 # --------------------------------------------------------------------------- #
@@ -458,7 +569,7 @@ def open_session(
     return Session(name=name, base_url=base_url, context=context)
 
 
-def settle(page: Page) -> None:
+def settle(page: Page, *, network_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS) -> None:
     """Wait for the network to go quiet, then for HTMX to finish swapping.
 
     ``networkidle`` is best-effort: a surface holding an open stream (the
@@ -467,12 +578,14 @@ def settle(page: Page) -> None:
 
     Args:
         page: The page to settle.
+        network_timeout_ms: How long to give ``networkidle``. The reveal pass
+            passes a shorter budget because it pays this once per scroll step.
     """
     # Both waits are best-effort: whatever goes wrong, the right answer is to
     # photograph the surface as it stands. A lazy section that never lands is a
     # finding for the report, not a reason to abandon the run.
     with contextlib.suppress(Exception):
-        page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+        page.wait_for_load_state("networkidle", timeout=network_timeout_ms)
     with contextlib.suppress(Exception):
         page.wait_for_function(
             "() => document.querySelectorAll('.htmx-request').length === 0",
@@ -489,25 +602,249 @@ def prepare(page: Page) -> None:
     page.add_style_tag(content=STILLNESS_CSS)
 
 
+def viewport_of(page: Page) -> tuple[int, int]:
+    """Return the page's viewport in CSS pixels.
+
+    Args:
+        page: The page to measure.
+
+    Returns:
+        Width and height, falling back to :data:`DEFAULT_VIEWPORT` for a context
+        opened without an explicit viewport.
+    """
+    size = page.viewport_size
+    if size is None:
+        return DEFAULT_VIEWPORT
+    return int(size["width"]), int(size["height"])
+
+
+def scroll_height_of(page: Page) -> int:
+    """Return the document's current scroll height in CSS pixels.
+
+    Args:
+        page: The page to measure.
+
+    Returns:
+        ``document.documentElement.scrollHeight``.
+    """
+    return int(page.evaluate("() => document.documentElement.scrollHeight"))
+
+
+def reveal(page: Page) -> RevealResult:
+    """Scroll the document top to bottom so every lazy Section loads.
+
+    Sections triggered by ``hx-trigger="revealed"`` load on intersection with
+    the viewport, so ``full_page=True`` on a page that was never scrolled
+    photographs their placeholders: the renderer lengthens the surface, it does
+    not scroll it. The pass walks down in sub-viewport steps, re-reading the
+    height each round because each newly swapped Section lengthens the page, and
+    stops only once the bottom is reached with the height standing still.
+
+    The document is the scroll container (``.pf-shell`` sets ``min-height``, not
+    ``height`` + ``overflow``), so scrolling the window is all this needs.
+
+    Args:
+        page: The page to reveal, already settled after its navigation.
+
+    Returns:
+        The :class:`RevealResult`; ``complete`` is ``False`` when the pass ran
+        out of iterations before the page stopped growing, which means the foot
+        of the page was never intersected and may still hold placeholders.
+    """
+    _, viewport_height = viewport_of(page)
+    step = max(1, int(viewport_height * REVEAL_STEP_RATIO))
+
+    offset = 0
+    previous_height = -1
+    iterations = 0
+    complete = False
+    for _ in range(REVEAL_MAX_ITERATIONS):
+        iterations += 1
+        height = scroll_height_of(page)
+        offset = min(offset + step, height)
+        page.evaluate("(y) => window.scrollTo({top: y, behavior: 'instant'})", offset)
+        settle(page, network_timeout_ms=REVEAL_NETWORK_IDLE_TIMEOUT_MS)
+        if offset >= height and height == previous_height:
+            complete = True
+            break
+        previous_height = height
+
+    page.evaluate("() => window.scrollTo({top: 0, behavior: 'instant'})")
+    settle(page, network_timeout_ms=REVEAL_NETWORK_IDLE_TIMEOUT_MS)
+    page.wait_for_timeout(REVEAL_QUIET_MS)
+    return RevealResult(
+        iterations=iterations, scroll_height=scroll_height_of(page), complete=complete
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Shot geometry
+# --------------------------------------------------------------------------- #
+
+
+def png_height(path: Path) -> int | None:
+    """Read a PNG's pixel height out of its IHDR chunk.
+
+    Eight bytes of signature, then the IHDR chunk: 4 length, 4 type, 4 width,
+    4 height. No image library is needed — and none is wanted, because the only
+    question asked of the file is how tall Chromium actually made it.
+
+    Args:
+        path: The PNG to measure.
+
+    Returns:
+        The height in pixels, or ``None`` if the file is absent, short, or not a
+        PNG.
+    """
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(24)
+    except OSError:
+        return None
+    if len(header) < 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        return None
+    return int(struct.unpack(">I", header[20:24])[0])
+
+
+def is_truncated(png_px: int | None, scroll_px: int) -> bool:
+    """Decide whether a full-page PNG came back cut.
+
+    Chromium does not raise on an over-tall page; it returns a shorter image. So
+    the only evidence is the arithmetic: a PNG standing exactly at the cap, or
+    falling more than a rounding pixel short of the document it was supposed to
+    cover, was cut.
+
+    Args:
+        png_px: The PNG's own height, or ``None`` when it could not be read.
+        scroll_px: The document height the reveal pass settled on.
+
+    Returns:
+        ``True`` when the image does not cover the page.
+    """
+    if png_px is None or scroll_px <= 0:
+        return False
+    if png_px == CHROMIUM_MAX_AXIS_PX:
+        return True
+    return scroll_px - png_px > TRUNCATION_TOLERANCE_PX
+
+
+def band_rects(scroll_px: int, band_px: int) -> list[tuple[int, int]]:
+    """Cut a page height into successive band rectangles.
+
+    Args:
+        scroll_px: The document height to cover.
+        band_px: Band height in CSS pixels.
+
+    Returns:
+        ``(top, height)`` pairs, top to bottom, the last one short; empty when
+        either argument is non-positive.
+    """
+    if band_px <= 0 or scroll_px <= 0:
+        return []
+    return [(top, min(band_px, scroll_px - top)) for top in range(0, scroll_px, band_px)]
+
+
+def write_bands(
+    page: Page, target: Path, out_dir: Path, *, scroll_px: int, band_px: int
+) -> list[str]:
+    """Cut the full-page render into chat-legible horizontal bands.
+
+    Each band is a second ``full_page`` screenshot narrowed by ``clip`` to one
+    slice of the same surface — so there is no stitching to go wrong, and the
+    sticky Section header appears once, where it actually sits, rather than
+    repeated at the top of every slice.
+
+    A page that fits in a single band gets none: that band would be a second
+    copy of the full PNG under a different name.
+
+    Args:
+        page: The page, already revealed and scrolled back to the top.
+        target: The full-page PNG; the bands are named after its stem.
+        out_dir: The run's output root, for the returned relative paths.
+        scroll_px: The document height the reveal pass settled on.
+        band_px: Band height in CSS pixels.
+
+    Returns:
+        The band paths relative to ``out_dir``, top to bottom.
+    """
+    rects = band_rects(scroll_px, band_px)
+    if len(rects) < 2:
+        return []
+    width, _ = viewport_of(page)
+    folder = target.parent / "bands"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    written: list[str] = []
+    for index, (top, height) in enumerate(rects, start=1):
+        band = folder / f"{target.stem}-{index:02d}.png"
+        page.screenshot(
+            path=str(band),
+            full_page=True,
+            clip={"x": 0, "y": top, "width": width, "height": height},
+        )
+        written.append(str(band.relative_to(out_dir)))
+    return written
+
+
+def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> ShotMeta:
+    """Reveal the page, photograph it whole, then measure what came back.
+
+    The one seam both the route pass and the scene pass go through, so a lazy
+    Section is revealed and a truncation is caught identically in either.
+
+    Args:
+        page: The page to photograph, already settled and styled.
+        target: Where the full-page PNG goes.
+        out_dir: The run's output root, for the returned relative band paths.
+        band_px: Band height in CSS pixels, or 0 for no bands.
+
+    Returns:
+        The :class:`ShotMeta` describing the shot.
+    """
+    revealed = reveal(page)
+    page.screenshot(path=str(target), full_page=True)
+    height = png_height(target)
+    meta = ShotMeta(
+        reveal_iterations=revealed.iterations,
+        reveal_complete=revealed.complete,
+        scroll_height=revealed.scroll_height,
+        png_height=height,
+        truncated=is_truncated(height, revealed.scroll_height),
+    )
+    if band_px > 0:
+        meta.bands = write_bands(
+            page, target, out_dir, scroll_px=revealed.scroll_height, band_px=band_px
+        )
+    return meta
+
+
 # --------------------------------------------------------------------------- #
 # Capture
 # --------------------------------------------------------------------------- #
 
 
-def capture_route(session: Session, route: RouteRow, out_dir: Path) -> Capture:
-    """Visit one route and write its full-page screenshot.
+def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: int = 0) -> Capture:
+    """Visit one route, reveal its lazy Sections and write its full-page screenshot.
 
     A non-2xx response is still captured — an error page is a UX surface, and
-    seeing it is the point of the atlas.
+    seeing it is the point of the atlas. A bounce to ``/login`` is the one
+    outcome that is not: the session is gone, so every later route would
+    photograph the login page instead of itself.
 
     Args:
         session: The authenticated session to visit through.
         route: The inventory row to capture.
         out_dir: The run's output root.
+        band_px: Band height in CSS pixels, or 0 for no bands.
 
     Returns:
         The :class:`Capture` record, flagged ``suspect`` when the PNG is
-        implausibly small or the session bounced to the login page.
+        truncated, implausibly small, or the response was an error.
+
+    Raises:
+        LoginFailedError: If the route bounced to ``/login``. The capture rides
+            on the error so the manifest still accounts for the route the run
+            died on.
     """
     partial = not is_page(route)
     folder = out_dir / area_dir(route.area)
@@ -525,7 +862,7 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path) -> Capture:
         )
         settle(page)
         prepare(page)
-        page.screenshot(path=str(target), full_page=True)
+        meta = capture_shot(page, target, out_dir, band_px=band_px)
         status = response.status if response is not None else None
         final_url = page.url
     finally:
@@ -539,11 +876,26 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path) -> Capture:
         final_url=final_url,
         partial=partial,
         session=session.name,
+        reveal_iterations=meta.reveal_iterations,
+        reveal_complete=meta.reveal_complete,
+        scroll_height=meta.scroll_height,
+        png_height=meta.png_height,
+        truncated=meta.truncated,
+        bands=meta.bands,
     )
     size = target.stat().st_size if target.exists() else 0
     if final_url.rstrip("/").endswith("/login"):
         capture.suspect = True
-        capture.reason = "bounced to /login — the session did not carry"
+        capture.reason = SESSION_LOST_REASON
+        raise LoginFailedError(
+            f"{route.path} bounced to /login — the session did not carry", capture=capture
+        )
+    if meta.truncated:
+        capture.suspect = True
+        capture.reason = TRUNCATION_REASON
+    elif not meta.reveal_complete:
+        capture.suspect = True
+        capture.reason = REVEAL_INCOMPLETE_REASON
     elif size < SUSPECT_MIN_BYTES:
         capture.suspect = True
         capture.reason = (
@@ -555,13 +907,20 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path) -> Capture:
     return capture
 
 
-def run_scene(scene: dict[str, Any], sessions: dict[str, Session], out_dir: Path) -> SceneResult:
+def run_scene(
+    scene: dict[str, Any],
+    sessions: dict[str, Session],
+    out_dir: Path,
+    *,
+    band_px: int = 0,
+) -> SceneResult:
     """Walk one scene's steps and screenshot where it lands.
 
     Args:
         scene: One entry of the scenes file.
         sessions: The available sessions, keyed by name.
         out_dir: The run's output root.
+        band_px: Band height in CSS pixels, or 0 for no bands.
 
     Returns:
         The :class:`SceneResult`; a step whose selector never appears yields
@@ -599,10 +958,20 @@ def run_scene(scene: dict[str, Any], sessions: dict[str, Session], out_dir: Path
                 )
             settle(page)
         prepare(page)
-        page.screenshot(path=str(target), full_page=True)
+        meta = capture_shot(page, target, out_dir, band_px=band_px)
     finally:
         page.close()
-    return SceneResult(name=name, file=str(target.relative_to(out_dir)), ok=True)
+    return SceneResult(
+        name=name,
+        file=str(target.relative_to(out_dir)),
+        ok=True,
+        reveal_iterations=meta.reveal_iterations,
+        reveal_complete=meta.reveal_complete,
+        scroll_height=meta.scroll_height,
+        png_height=meta.png_height,
+        truncated=meta.truncated,
+        bands=meta.bands,
+    )
 
 
 def apply_step(page: Page, step: dict[str, Any]) -> None:
@@ -699,6 +1068,7 @@ def write_manifest(
     base_url: str,
     admin_base_url: str | None,
     viewport: tuple[int, int],
+    band_px: int,
     routes_csv: Path,
     captured: list[Capture],
     scenes: list[SceneResult],
@@ -714,6 +1084,9 @@ def write_manifest(
         base_url: The tenant base URL.
         admin_base_url: The super-admin base URL, or ``None``.
         viewport: Width and height in CSS pixels.
+        band_px: The ``--bands`` height this run used, 0 when off — recorded so
+            an empty ``bands`` list reads as "not asked for" rather than
+            "attempted and empty".
         routes_csv: The route table this run selected from.
         captured: Every capture attempt.
         scenes: Every scene walk.
@@ -725,6 +1098,7 @@ def write_manifest(
         "base_url": base_url,
         "admin_base_url": admin_base_url,
         "viewport": {"width": viewport[0], "height": viewport[1]},
+        "bands": band_px,
         "routes_csv_sha256": file_sha256(routes_csv),
         "captured": [asdict(item) for item in captured],
         "scenes": [asdict(item) for item in scenes],
@@ -733,6 +1107,29 @@ def write_manifest(
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+
+
+def append_bands(lines: list[str], label: str, bands: list[str]) -> None:
+    """Append a collapsible band gallery to the contact sheet, if there is one.
+
+    A long page is a dozen bands, and inlining them would bury the contact
+    sheet's one-image-per-route rhythm under them, so they fold away behind a
+    ``<details>`` that every Markdown viewer renders closed.
+
+    Args:
+        lines: The document being built; appended to in place.
+        label: Alt-text stem for the band images.
+        bands: Band paths relative to the run root, top to bottom.
+    """
+    if not bands:
+        return
+    lines.append(f"<details><summary>{len(bands)} chat-legible bands</summary>")
+    lines.append("")
+    for index, band in enumerate(bands, start=1):
+        lines.append(f"![{label} band {index:02d}]({band})")
+        lines.append("")
+    lines.append("</details>")
+    lines.append("")
 
 
 def write_index(
@@ -795,6 +1192,7 @@ def write_index(
                 lines.append("")
                 lines.append(f"![{row.path}]({row.file})")
                 lines.append("")
+                append_bands(lines, row.path, row.bands)
         if area in scenes_by_area:
             lines.append("### Scenes")
             lines.append("")
@@ -803,11 +1201,17 @@ def write_index(
                 lines.append("")
                 lines.append(f"![{scene.name}]({scene.file})")
                 lines.append("")
+                append_bands(lines, scene.name, scene.bands)
 
     lines.append("## Needs a look")
     lines.append("")
     suspects = [item for item in captured if item.suspect]
     failed = [item for item in scenes if not item.ok]
+    # A scene that failed its walk is listed above; these are walks that landed
+    # and then produced a shot that cannot be trusted.
+    flagged_scenes = [
+        item for item in scenes if item.ok and (item.truncated or not item.reveal_complete)
+    ]
     if suspects:
         lines.append("### Suspect captures")
         lines.append("")
@@ -821,7 +1225,14 @@ def write_index(
             where = "" if scene.failed_step is None else f" at step {scene.failed_step}"
             lines.append(f"- {scene.name}{where} — {scene.reason or 'failed'}")
         lines.append("")
-    if not suspects and not failed:
+    if flagged_scenes:
+        lines.append("### Scene shots needing a look")
+        lines.append("")
+        for scene in flagged_scenes:
+            why = TRUNCATION_REASON if scene.truncated else REVEAL_INCOMPLETE_REASON
+            lines.append(f"- {scene.name} — {why}")
+        lines.append("")
+    if not suspects and not failed and not flagged_scenes:
         lines.append("Nothing suspect and no failed scene.")
         lines.append("")
 
@@ -912,6 +1323,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-scenes", action="store_true", help="Skip the scenes pass.")
     parser.add_argument(
+        "--bands",
+        type=int,
+        default=0,
+        metavar="PX",
+        help="Also cut every shot into horizontal bands this tall, for uploading to a "
+        "chat that downscales a long PNG into illegibility (default: 0, off; "
+        f"pass {RECOMMENDED_BAND_PX}).",
+    )
+    parser.add_argument(
         "--viewport",
         type=parse_viewport,
         default=DEFAULT_VIEWPORT,
@@ -967,8 +1387,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: Command-line arguments, or ``None`` for ``sys.argv``.
 
     Returns:
-        0 clean, 1 any suspect capture or failed scene, 2 browser or package
-        missing, 3 login failed.
+        0 clean, 1 any suspect capture, flagged scene shot or failed scene, 2
+        browser or package missing, 3 login failed or a session lost mid-run.
     """
     args = build_parser().parse_args(argv)
 
@@ -1019,8 +1439,11 @@ def main(argv: list[str] | None = None) -> int:
     # login must leave no empty dated folder behind to shift the next run's name.
     out_dir = resolve_out_dir(args.out)
 
+    band_px = max(0, args.bands)
+
     captured: list[Capture] = []
     scene_results: list[SceneResult] = []
+    session_lost = False
 
     with playwright_api.sync_playwright() as playwright:
         try:
@@ -1064,14 +1487,24 @@ def main(argv: list[str] | None = None) -> int:
                 session = sessions[
                     "super_admin" if route.auth_required == "super_admin" else "tenant"
                 ]
-                capture = capture_route(session, route, out_dir)
+                try:
+                    capture = capture_route(session, route, out_dir, band_px=band_px)
+                except LoginFailedError as exc:
+                    # The session is gone; every remaining route would photograph
+                    # the login page. Stop, but keep — and write — what the run
+                    # already has.
+                    if exc.capture is not None:
+                        captured.append(exc.capture)
+                    print(f"session lost: {exc}", file=sys.stderr)
+                    session_lost = True
+                    break
                 captured.append(capture)
                 mark = " SUSPECT" if capture.suspect else ""
                 print(f"{capture.status} {route.path} -> {capture.file}{mark}")
 
-            if not args.no_scenes:
+            if not session_lost and not args.no_scenes:
                 for scene in load_scenes(Path(args.scenes), args.area):
-                    result = run_scene(scene, sessions, out_dir)
+                    result = run_scene(scene, sessions, out_dir, band_px=band_px)
                     scene_results.append(result)
                     print(f"scene {result.name}: {'ok' if result.ok else 'FAILED'}")
         finally:
@@ -1082,6 +1515,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=base_url,
         admin_base_url=admin_base_url,
         viewport=args.viewport,
+        band_px=band_px,
         routes_csv=routes_csv,
         captured=captured,
         scenes=scene_results,
@@ -1098,12 +1532,17 @@ def main(argv: list[str] | None = None) -> int:
 
     suspects = sum(1 for item in captured if item.suspect)
     failures = sum(1 for item in scene_results if not item.ok)
+    flagged_scenes = sum(
+        1 for item in scene_results if item.ok and (item.truncated or not item.reveal_complete)
+    )
     print(
         f"captured: {len(captured)}  scenes: {len(scene_results)}  "
         f"skipped: {len(skipped)}  suspect: {suspects}  failed scenes: {failures}"
     )
     print(f"written to: {out_dir}")
-    return EXIT_SUSPECT if (suspects or failures) else EXIT_OK
+    if session_lost:
+        return EXIT_LOGIN_FAILED
+    return EXIT_SUSPECT if (suspects or failures or flagged_scenes) else EXIT_OK
 
 
 if __name__ == "__main__":

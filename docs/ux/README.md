@@ -61,8 +61,23 @@ export PF_ATLAS_BASE_URL=http://minathena-capital.localhost:8000
 export PF_ATLAS_USER=…
 export PF_ATLAS_PASSWORD=…
 
-python tools/ux_atlas.py
+python tools/ux_atlas.py --bands 1200
 ```
+
+Two things happen around each shot (P-UX-1b). Before it, a **reveal pass**
+scrolls the page to the bottom in sub-viewport steps, waiting for HTMX after
+each, so the Sections that load on `hx-trigger="revealed"` actually load:
+`full_page` lengthens the rendering surface, it never scrolls, so without the
+pass most of every page photographs as a "Loading…" placeholder. After it, the
+PNG's own height is checked against the document's, because an over-tall page
+can come back silently cut.
+
+`--bands 1200` additionally writes `bands/<stem>-NN.png` beside each full PNG —
+viewport-wide, 1200 px slices cut from the same render with Playwright's `clip`.
+A revealed Area page runs to several thousand pixels, and a chat downscales that
+to ~1,568 px on the long edge, which is unreadable; the bands are the format to
+upload, the full PNG the format for a human with a viewer. Both come out of one
+run, so `--bands 1200` is the form to use.
 
 Six environment variables are recognised: `PF_ATLAS_BASE_URL`, `PF_ATLAS_USER`
 and `PF_ATLAS_PASSWORD` for the tenant session, and the optional
@@ -84,5 +99,5 @@ Unlike the inventory, the atlas output is **not committed**: runs land in
 `atlas/README.md`. They photograph one commit against one database and go stale
 as soon as either moves, so they are regenerable rather than archival — the
 manual copies only the images it uses into `docs/manual/img/`, where they are
-committed and reviewed. See `atlas/README.md` for the flags, the scene format
-and how to read a run.
+committed and reviewed. See `atlas/README.md` for the flags, the scene format,
+the manifest schema and how to read a run.

@@ -3,11 +3,18 @@
 
 """Pure-function tests for the atlas's shot geometry (``tools/ux_atlas.py``).
 
-The reveal pass, the band writer and the capture loop all need a live browser,
-so none of them is exercised here. What *is* exercised is the arithmetic they
-hang on, which is browser-free by construction and is where a mistake would be
-silent: a truncated page that never gets flagged, or a band grid that drops the
-last slice of every page.
+The reveal pass, the loader loop, the chart wait, the band writer and the
+capture loop all need a live browser, so none of them is exercised here. What
+*is* exercised is the arithmetic and the pattern matching they hang on, which
+are browser-free by construction and are where a mistake would be silent: a
+truncated page that never gets flagged, a band grid that drops the last slice
+of every page, a debounce that returns on its first quiet sample, or a
+placeholder regex that misses the placeholders the templates actually write.
+
+The placeholder pattern is tested here in Python and handed to the browser
+verbatim as the argument to ``new RegExp``, so these cases are the ones that
+run in the page — the two engines agree on ``^``, ``\b``, ``.``, ``\u2026``
+and ``$``.
 
 The PNG fixtures are written by the tests themselves with ``zlib`` and
 ``struct`` — the atlas takes no image-library dependency, and neither does its
@@ -25,6 +32,9 @@ import pytest
 
 from tools.ux_atlas import (
     CHROMIUM_MAX_AXIS_PX,
+    LOADING_PLACEHOLDER_RE,
+    QUIET_HOLD_MS,
+    advance_quiet_window,
     band_rects,
     is_truncated,
     png_height,
@@ -139,3 +149,85 @@ class TestBandRects:
     )
     def test_non_positive_arguments_yield_no_bands(self, scroll_px: int, band_px: int) -> None:
         assert band_rects(scroll_px, band_px) == []
+
+
+class TestAdvanceQuietWindow:
+    """The debounce that keeps a swap-to-swap gap from counting as quiet."""
+
+    def test_the_first_quiet_poll_opens_the_window_but_does_not_satisfy_it(self) -> None:
+        # The bug this whole helper exists to prevent: returning on the first
+        # zero reading, which is exactly what a parent swap looks like in the
+        # 20 ms before HTMX re-checks ``revealed`` and fires the nested loader.
+        assert advance_quiet_window(True, None, 1_000.0) == (1_000.0, False)
+
+    def test_quiet_held_for_the_full_window_is_satisfied(self) -> None:
+        started, held = advance_quiet_window(True, 1_000.0, 1_000.0 + QUIET_HOLD_MS)
+        assert (started, held) == (1_000.0, True)
+
+    def test_quiet_held_one_millisecond_short_is_not(self) -> None:
+        assert advance_quiet_window(True, 1_000.0, 1_399.0) == (1_000.0, False)
+
+    def test_a_busy_poll_closes_the_window(self) -> None:
+        assert advance_quiet_window(False, 1_000.0, 1_200.0) == (None, False)
+
+    def test_a_busy_poll_restarts_the_hold_from_scratch(self) -> None:
+        # 399 ms of quiet, one request, then 399 ms more is not 798 ms of
+        # quiet — it is two windows that each fell short.
+        state, _ = advance_quiet_window(True, None, 0.0)
+        _, held = advance_quiet_window(True, state, 399.0)
+        assert held is False
+        state, held = advance_quiet_window(False, state, 400.0)
+        assert (state, held) == (None, False)
+        state, held = advance_quiet_window(True, state, 401.0)
+        assert (state, held) == (401.0, False)
+        _, held = advance_quiet_window(True, state, 800.0)
+        assert held is False
+
+    def test_a_shorter_hold_can_be_asked_for(self) -> None:
+        assert advance_quiet_window(True, 10.0, 60.0, hold_ms=50)[1] is True
+
+    def test_the_window_stays_open_across_several_quiet_polls(self) -> None:
+        state: float | None = None
+        for now in (0.0, 50.0, 100.0):
+            state, held = advance_quiet_window(True, state, now)
+            assert (state, held) == (0.0, False)
+
+
+class TestLoadingPlaceholderPattern:
+    """The generic "still loading" tripwire's pattern."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Loading charts…",
+            "Loading overview…",
+            "Loading portfolio review…",
+            "Loading providers & credentials…",
+            "Loading Global Infrastructure Fund II…",
+            "Loading…",
+        ],
+    )
+    def test_matches_the_placeholders_the_templates_write(self, text: str) -> None:
+        # Every one of these is a real string from ``web/templates`` with
+        # ``&hellip;`` resolved to the U+2026 the DOM hands back.
+        assert LOADING_PLACEHOLDER_RE.match(text) is not None
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "",
+            "Loading charts",  # three dots' worth of nothing: already swapped
+            "Loading charts...",  # ASCII dots are not what the templates emit
+            "Loaded charts…",
+            "Loadings are slow…",
+            "Reloading charts…",
+            "Still loading charts…",
+        ],
+    )
+    def test_does_not_match_anything_else(self, text: str) -> None:
+        assert LOADING_PLACEHOLDER_RE.match(text) is None
+
+    def test_the_ellipsis_must_end_the_text(self) -> None:
+        # The browser side trims and collapses whitespace before testing, so a
+        # placeholder's own text never carries a trailing newline into this.
+        assert LOADING_PLACEHOLDER_RE.match("Loading charts… done") is None

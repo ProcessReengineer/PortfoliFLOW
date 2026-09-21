@@ -120,6 +120,105 @@ that hits the guard is flagged `suspect` with `reveal_complete: false`
 rather than quietly passed off as whole; if the baseline shows real Area
 pages tripping it, raise `REVEAL_MAX_ITERATIONS`, don't ignore the flag.
 
+### Nested loaders
+
+Scroll geometry gets the top-level Sections in, and stops there. A
+Section that itself arrived on `revealed` can hold per-item loaders on
+the same trigger — `charts_section.html` swaps in one `<article>` per
+investment, each carrying a second `hx-get="/api/charts/investment/{id}"`
+— and those elements did not exist when the walk passed the height they
+now sit at. Nothing scrolls past them afterwards, so they stay
+placeholders.
+
+The walk is therefore followed by a loader-driven loop that takes the
+loaders as its work list rather than the page's height: every unfired
+`[hx-trigger*="revealed"]` is scrolled to its own centre, the page is
+allowed to go quiet, and the DOM is re-read — because what just landed
+may have brought more. Twelve rounds, far past the two levels the tree
+actually nests.
+
+"Unfired" is read off HTMX's own `htmx:beforeRequest`, via a context init
+script that stamps `data-pf-atlas-fired` on the element making the
+request. It has to be an *init* script: a listener attached after
+navigation misses every above-the-fold loader, and those would then read
+as unfired for the rest of the capture. Disappearance would not do as the
+marker either — most loaders swap `outerHTML` and do vanish, but the
+portfolio-review stack swaps `innerHTML` into the `<article>` that carries
+the trigger, so that one keeps its `hx-trigger` attribute forever.
+
+Only loaders a reader could see are driven, and the loop stops the moment
+a round dispatches nothing — a round that achieved nothing is a round
+every later round would repeat.
+
+What is left over splits in two, because the two are not the same fact:
+
+- `loaders_left` — **visible** loaders that never fired. A hole in the
+  shot, so the capture is flagged `suspect` with `unfired lazy loaders
+  (N)`.
+- `loaders_hidden` — unfired loaders that are off-screen anyway, inside a
+  collapsed `<details>` or an inactive tab. These are *not* suspect: the
+  section is missing from the shot exactly as it is missing from the
+  reader's view. They are recorded because a surface that hides a whole
+  Section behind a disclosure is worth knowing about — a design finding,
+  not a capture defect.
+
+"Visible" is `Element.checkVisibility()`, not `getClientRects()`.
+Chromium lays out the contents of a collapsed `<details>` under
+`content-visibility: hidden` and hands back a rect for something no
+reader can see; `checkVisibility` knows the difference. The rect count is
+the fallback for an engine without it.
+
+### Charts
+
+HTMX going quiet says the markup arrived. It says nothing about the
+figures: every chart in the tree is drawn by an inline `<script>` that
+runs after the swap, and `Plotly.newPlot` is asynchronous, so
+`.htmx-request` is long gone before the first trace appears. A page shot
+on HTMX-quiet alone is a grid of empty boxes.
+
+After the loaders are done the atlas waits — up to 15 s, polling every
+250 ms — for every chart target to have been drawn into. The targets are
+`.pf-plotly-target, .plotly-target, [data-pf-chart-plot]`, which is the
+union of the five render conventions in the tree, and "drawn" is Plotly's
+own `.js-plotly-plot` (or a `.main-svg` inside), on the container or a
+descendant. The per-template `data-pf-rendered` flags are deliberately
+*not* what is checked: they are conventions rather than a contract, and
+`chart_snapshot.js` sets its own before awaiting the draw, so it would
+report a figure ready that is not.
+
+Then one `resize` event and a frame to act on it: the figures are
+`responsive: true`, and the full-page shot is about to change the viewport
+they sized themselves against.
+
+Targets still undrawn are counted into `charts_pending` (out of
+`charts_total`) and flag the capture `suspect` with `charts not drawn
+(N of M)`.
+
+### The "still loading" backstop
+
+Immediately before the shutter the atlas counts visible elements whose
+*own* text reads `Loading …` — the shape every lazy placeholder in the
+tree has, from `&hellip;`-terminated `<p>`s and `<span>`s. Own text only,
+so an ancestor is not reported alongside the placeholder it wraps; and
+visible only, by the same `checkVisibility()` rule as the loaders, so a
+placeholder inside a collapsed `<details>` is not reported against a shot
+that is right to omit it.
+
+This knows nothing about HTMX or Plotly, which is the point: it is what
+catches a loader neither targeted wait recognises. The count lands in
+`loading_placeholders` and flags the capture `suspect` with `N loading
+placeholders visible`.
+
+### Quiet is debounced
+
+Everywhere the atlas "waits for HTMX", `.htmx-request` must read zero
+continuously for 400 ms, polled every 50 ms, inside the same overall 5 s
+budget. A single zero reading is not enough: between a parent swap
+landing and the nested request it triggers there is HTMX's 20 ms settle
+delay and one `revealed` re-check, and during that gap nothing is in
+flight and the page is not finished. Undebounced, the reveal pass walks
+straight past the section that is about to arrive.
+
 ## Bands
 
 A revealed Area page is several thousand pixels tall, and a chat
@@ -178,10 +277,16 @@ geometry:
 | `scroll_height` | The document height the reveal pass settled on, CSS px |
 | `png_height` | The PNG's own height from its IHDR, or `null` if unreadable |
 | `truncated` | `true` when the PNG does not cover `scroll_height` |
+| `reveal_rounds` | Rounds the loader-driven pass spent after the geometric walk; `0` when the page had no `revealed` loaders left to fire |
+| `loaders_left` | **Visible** `revealed` loaders still unfired when the last round ended — above zero, the shot shows placeholders |
+| `loaders_hidden` | Unfired loaders a reader could not see either; recorded, never `suspect` |
+| `charts_total` | Chart targets the page declares |
+| `charts_pending` | Of those, how many were still undrawn when the 15 s wait ran out |
+| `loading_placeholders` | Visible `Loading …` elements counted immediately before the shutter |
 | `bands` | Band paths relative to the run root, top to bottom; `[]` with `--bands` off or on a page that fits in one band |
 
-Entries of `scenes` carry the same six fields alongside `name`, `file`,
-`ok`, `failed_step` and `reason`.
+Entries of `scenes` carry the same twelve fields alongside `name`,
+`file`, `ok`, `failed_step` and `reason`.
 
 ## Scenes
 
@@ -232,10 +337,21 @@ Two things are expected rather than defects:
   surface, and it is flagged `suspect` so it surfaces in the contact
   sheet rather than being dropped.
 
-One thing that *is* a defect, and the reveal pass is what to blame:
-a "Loading…" placeholder in a shot. It means the Section never
-intersected the viewport, or landed after the shutter. Check
-`reveal_complete` and `reveal_iterations` on that capture first.
+A capture is flagged `suspect` for one reason, the first that applies of:
+
+| Reason | Means |
+|---|---|
+| `page taller than Chromium's 16,384 px cap — use bands` | The PNG does not cover the document — re-run with `--bands` |
+| `reveal hit the 60-iteration guard …` | The geometric walk never reached a standing height; the foot of the page may be placeholders |
+| `unfired lazy loaders (N)` | N `revealed` loaders were never dispatched. Almost always they cannot be scrolled to — inside a collapsed `<details>` or an inactive tab. A design finding about that surface, not an atlas bug |
+| `charts not drawn (N of M)` | N chart targets never became Plotly plots inside 15 s. Either the figure is genuinely broken, or its render path uses a convention `CHART_TARGET_SELECTOR` does not cover — check the template's `querySelectorAll` against that constant |
+| `N loading placeholders visible` | Something still says `Loading …` that neither targeted wait knew about. Find it in the PNG, then work out which loader it belongs to |
+| `png is … bytes` | Implausibly small — likely an empty shell or an error card |
+| `HTTP 4xx/5xx` | An error surface, captured deliberately |
+
+A "Loading…" placeholder in a shot is always a defect, and now always
+reported: `loading_placeholders` is the backstop that says so even when
+`loaders_left` and `charts_pending` are both clean.
 
 To check which Playwright the run used:
 

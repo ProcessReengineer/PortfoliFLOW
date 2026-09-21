@@ -78,6 +78,16 @@ therefore a column of "Loading…" placeholders below the fold, whatever
 walks the document to the bottom in sub-viewport steps, waiting for HTMX after
 each, until the page stops growing — then back to the top.
 
+Scroll geometry alone is not enough for two things it cannot see. A Section
+that arrives on ``revealed`` may itself hold per-item loaders on the same
+trigger, which did not exist when the walk passed their eventual position, so
+the walk is followed by a loader-driven loop that takes the unfired loaders
+themselves as its work list and re-reads the DOM after each round. And Plotly
+draws asynchronously from an inline script after the swap, long after
+``.htmx-request`` has gone, so the shutter waits on Plotly's own
+``.js-plotly-plot`` marker rather than on HTMX. A last sweep counts anything
+still reading "Loading …" — the backstop for whatever neither wait knows about.
+
 A revealed page gets long, and two things follow. Chromium refuses a screenshot
 surface past 16,384 px and returns a silently truncated image, so the PNG's own
 IHDR height is compared against the final ``scrollHeight``. And a 10,000 px tall
@@ -105,9 +115,11 @@ import csv
 import hashlib
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -206,6 +218,95 @@ REVEAL_INCOMPLETE_REASON = (
     "may still be placeholders"
 )
 
+#: How long ``.htmx-request`` must stay at zero before the page counts as quiet.
+#: A single-sample check calls the gap between a parent swap landing and the
+#: nested request it triggers (HTMX's 20 ms settle delay, then the ``revealed``
+#: re-check) "quiet", and the reveal pass walks on past a section that has not
+#: finished arriving.
+QUIET_HOLD_MS = 400
+
+#: Poll interval of the debounced quiet wait.
+QUIET_POLL_MS = 50
+
+#: Marks a loader the page has actually dispatched. Set from an init script
+#: listening on ``htmx:beforeRequest``, so it is in place before the first
+#: above-the-fold loader fires; without it a loader that swaps ``innerHTML``
+#: keeps its ``hx-trigger`` attribute and would read as unfired forever.
+FIRED_ATTR = "data-pf-atlas-fired"
+
+#: A monotonic count of dispatched requests, kept on ``window`` by the same
+#: init script. The attribute alone cannot say whether a *round* achieved
+#: anything — an ``outerHTML`` swap takes its marked element away with it — and
+#: a round that fires nothing is a round every later round will repeat.
+FIRED_TALLY = "__pfAtlasFired"
+
+#: Installed on the context, so it is present from document start on every page
+#: the session opens. Capture phase, so a listener that stops propagation
+#: cannot hide a request from it.
+LOADER_MARKER_SCRIPT = f"""
+window.{FIRED_TALLY} = 0;
+document.addEventListener("htmx:beforeRequest", function (evt) {{
+    var el = evt.target;
+    if (el && el.setAttribute) el.setAttribute({FIRED_ATTR!r}, "1");
+    window.{FIRED_TALLY} = (window.{FIRED_TALLY} || 0) + 1;
+}}, true);
+"""
+
+#: What counts as on-screen, for both the loader work list and the placeholder
+#: tripwire. ``getClientRects()`` alone is not enough: Chromium lays out the
+#: contents of a collapsed ``<details>`` under ``content-visibility: hidden``
+#: and hands back a rect for something no reader can see. ``checkVisibility``
+#: knows about that; the rect count is the fallback for an engine without it.
+VISIBLE_FN = """
+    function pfAtlasVisible(el) {
+        if (typeof el.checkVisibility === "function") return el.checkVisibility();
+        return el.getClientRects().length > 0;
+    }
+"""
+
+#: An ``hx-trigger="revealed"`` element that has not dispatched its request.
+#: ``*=`` because a trigger may list more than one event.
+UNFIRED_LOADER_SELECTOR = f'[hx-trigger*="revealed"]:not([{FIRED_ATTR}="1"])'
+
+#: The loader-driven reveal re-reads the DOM after each round because a section
+#: that arrives on ``revealed`` may itself contain per-item loaders on the same
+#: trigger (``charts_section.html`` → ``/api/charts/investment/{id}``). Twelve
+#: rounds is far past the two levels the tree actually nests.
+MAX_REVEAL_ROUNDS = 12
+
+UNFIRED_LOADERS_REASON = "unfired lazy loaders"
+
+#: Every Plotly render path in the tree, as one selector. The conventions are
+#: not uniform — ``.pf-plotly-target`` with ``data-spec`` (overview, limits,
+#: portfolio review), ``.pf-plotly-target`` with ``data-plotly-spec``
+#: (benchmarks), ``.plotly-target`` with ``data-spec`` (per-investment charts,
+#: statistics, portfolio analysis), ``.plotly-target`` with the spec inlined in
+#: its script (SAA), and ``[data-pf-chart-plot]`` (``chart_snapshot.js``) — so
+#: the union is what makes the wait cover them all rather than the three the
+#: first draft of this check knew about.
+CHART_TARGET_SELECTOR = ".pf-plotly-target, .plotly-target, [data-pf-chart-plot]"
+
+#: Plotly stamps this class on the container it draws into. It is the one
+#: marker every path shares: the ``data-pf-rendered`` flags are per-template
+#: conventions, and ``chart_snapshot.js`` sets its own *before* the async draw,
+#: so neither proves a figure is on screen.
+PLOTLY_DRAWN_SELECTOR = ".js-plotly-plot, .main-svg"
+
+#: Plotly draws asynchronously from an inline script after the swap, long after
+#: ``.htmx-request`` has gone. Generous, because it is only ever paid in full on
+#: a page where a chart genuinely never lands.
+CHART_TIMEOUT_MS = 15_000
+CHART_POLL_MS = 250
+
+CHARTS_PENDING_REASON = "charts not drawn"
+
+#: A lazy placeholder's own text: "Loading charts…", "Loading {name}…". The
+#: templates write ``&hellip;``, which reaches the DOM as U+2026. The pattern is
+#: handed to the browser as-is (``new RegExp``), so the pure test of it below
+#: tests what actually runs.
+LOADING_PLACEHOLDER_PATTERN = r"^Loading\b.*\u2026$"
+LOADING_PLACEHOLDER_RE = re.compile(LOADING_PLACEHOLDER_PATTERN)
+
 #: The band height that survives a chat's ~1,568 px downscale. ``--bands``
 #: defaults to off; this is the number to pass when it is on.
 RECOMMENDED_BAND_PX = 1200
@@ -256,6 +357,12 @@ class Capture:
     scroll_height: int | None = None
     png_height: int | None = None
     truncated: bool = False
+    reveal_rounds: int | None = None
+    loaders_left: int | None = None
+    loaders_hidden: int | None = None
+    charts_total: int | None = None
+    charts_pending: int | None = None
+    loading_placeholders: int | None = None
     bands: list[str] = field(default_factory=list)
 
 
@@ -273,6 +380,12 @@ class SceneResult:
     scroll_height: int | None = None
     png_height: int | None = None
     truncated: bool = False
+    reveal_rounds: int | None = None
+    loaders_left: int | None = None
+    loaders_hidden: int | None = None
+    charts_total: int | None = None
+    charts_pending: int | None = None
+    loading_placeholders: int | None = None
     bands: list[str] = field(default_factory=list)
 
 
@@ -283,6 +396,14 @@ class RevealResult:
     iterations: int
     scroll_height: int
     complete: bool
+    #: Rounds of the loader-driven pass that followed the geometric walk.
+    reveal_rounds: int = 0
+    #: Visible loaders still unfired when the last round ended. Anything above
+    #: zero is a section the shot will show as a placeholder.
+    loaders_left: int = 0
+    #: Unfired loaders a reader could not see either — inside a collapsed
+    #: ``<details>`` or an inactive tab. Recorded, never ``suspect``.
+    loaders_hidden: int = 0
 
 
 @dataclass
@@ -294,6 +415,12 @@ class ShotMeta:
     scroll_height: int
     png_height: int | None
     truncated: bool
+    reveal_rounds: int = 0
+    loaders_left: int = 0
+    loaders_hidden: int = 0
+    charts_total: int = 0
+    charts_pending: int = 0
+    loading_placeholders: int = 0
     bands: list[str] = field(default_factory=list)
 
 
@@ -546,6 +673,10 @@ def open_session(
         device_scale_factor=1,
         color_scheme="dark",
     )
+    # On the context, not the page, and as an init script: it has to be
+    # listening before the first above-the-fold loader fires, or that loader
+    # reads as unfired for the rest of the capture.
+    context.add_init_script(LOADER_MARKER_SCRIPT)
     page = context.new_page()
     page.goto(f"{base_url}/login", wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     page.fill('input[name="email"]', user)
@@ -569,12 +700,63 @@ def open_session(
     return Session(name=name, base_url=base_url, context=context)
 
 
+def advance_quiet_window(
+    quiet: bool, quiet_since_ms: float | None, now_ms: float, *, hold_ms: int = QUIET_HOLD_MS
+) -> tuple[float | None, bool]:
+    """Advance the debounced quiet wait by one poll.
+
+    The whole of the debounce's arithmetic, kept here as a pure function
+    because it is the part that can be wrong without a browser noticing: an
+    off-by-one that returns on the first quiet sample restores exactly the race
+    the debounce exists to close.
+
+    Args:
+        quiet: Whether this poll saw the page quiet.
+        quiet_since_ms: When the current run of quiet polls began, or ``None``
+            if the previous poll was not quiet.
+        now_ms: This poll's clock reading, in milliseconds on any monotonic
+            scale — only differences are used.
+        hold_ms: How long quiet must hold before the wait is satisfied.
+
+    Returns:
+        The new ``quiet_since_ms`` (``None`` once a poll is not quiet, which
+        restarts the hold from scratch) and whether the hold is satisfied.
+    """
+    if not quiet:
+        return None, False
+    started = now_ms if quiet_since_ms is None else quiet_since_ms
+    return started, (now_ms - started) >= hold_ms
+
+
+def htmx_quiet(page: Page) -> bool:
+    """Report whether no HTMX request is in flight on the page.
+
+    Args:
+        page: The page to sample.
+
+    Returns:
+        ``True`` when nothing carries ``.htmx-request``, and on any evaluation
+        error — a page that cannot be sampled is photographed as it stands
+        rather than waited out.
+    """
+    try:
+        return bool(page.evaluate("() => document.querySelectorAll('.htmx-request').length === 0"))
+    except Exception:  # noqa: BLE001 - an unsamplable page is not a reason to stall
+        return True
+
+
 def settle(page: Page, *, network_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS) -> None:
-    """Wait for the network to go quiet, then for HTMX to finish swapping.
+    """Wait for the network to go quiet, then for HTMX to stay finished.
 
     ``networkidle`` is best-effort: a surface holding an open stream (the
     assistants chat) never reaches it, and waiting out the timeout there is
     cheaper than not waiting at all elsewhere.
+
+    The HTMX wait is **debounced**: ``.htmx-request`` must read zero for
+    :data:`QUIET_HOLD_MS` continuously. A single sample is not enough, because
+    a parent swap and the nested ``revealed`` loader it brings with it are
+    separated by HTMX's settle delay and one intersection re-check — a gap in
+    which nothing is in flight and the page is not finished.
 
     Args:
         page: The page to settle.
@@ -586,11 +768,20 @@ def settle(page: Page, *, network_timeout_ms: int = NETWORK_IDLE_TIMEOUT_MS) -> 
     # finding for the report, not a reason to abandon the run.
     with contextlib.suppress(Exception):
         page.wait_for_load_state("networkidle", timeout=network_timeout_ms)
-    with contextlib.suppress(Exception):
-        page.wait_for_function(
-            "() => document.querySelectorAll('.htmx-request').length === 0",
-            timeout=HTMX_QUIET_TIMEOUT_MS,
-        )
+
+    # A real clock, not a count of polls: each poll also pays one round-trip
+    # into the page, so counting them would quietly stretch the budget on a
+    # slow surface — and the budget is what keeps the chat's open stream from
+    # holding the run.
+    quiet_since: float | None = None
+    deadline = time.monotonic() + HTMX_QUIET_TIMEOUT_MS / 1000
+    while True:
+        now_ms = time.monotonic() * 1000
+        quiet_since, held = advance_quiet_window(htmx_quiet(page), quiet_since, now_ms)
+        if held or time.monotonic() >= deadline:
+            return
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(QUIET_POLL_MS)
 
 
 def prepare(page: Page) -> None:
@@ -643,13 +834,20 @@ def reveal(page: Page) -> RevealResult:
     The document is the scroll container (``.pf-shell`` sets ``min-height``, not
     ``height`` + ``overflow``), so scrolling the window is all this needs.
 
+    The walk is the first of two passes, and it is kept because it is the one
+    that exercises the page the way a reader does — scroll-spy, sticky headers,
+    anything else hung on scroll position. What it cannot guarantee is that
+    every loader fired, so :func:`drive_loaders` follows it and finishes the
+    job from the loaders' own side.
+
     Args:
         page: The page to reveal, already settled after its navigation.
 
     Returns:
-        The :class:`RevealResult`; ``complete`` is ``False`` when the pass ran
+        The :class:`RevealResult`; ``complete`` is ``False`` when the walk ran
         out of iterations before the page stopped growing, which means the foot
-        of the page was never intersected and may still hold placeholders.
+        of the page was never intersected and may still hold placeholders, and
+        ``loaders_left`` is what the second pass could not fire.
     """
     _, viewport_height = viewport_of(page)
     step = max(1, int(viewport_height * REVEAL_STEP_RATIO))
@@ -669,12 +867,216 @@ def reveal(page: Page) -> RevealResult:
             break
         previous_height = height
 
+    rounds, loaders_left, loaders_hidden = drive_loaders(page)
+
     page.evaluate("() => window.scrollTo({top: 0, behavior: 'instant'})")
     settle(page, network_timeout_ms=REVEAL_NETWORK_IDLE_TIMEOUT_MS)
     page.wait_for_timeout(REVEAL_QUIET_MS)
     return RevealResult(
-        iterations=iterations, scroll_height=scroll_height_of(page), complete=complete
+        iterations=iterations,
+        scroll_height=scroll_height_of(page),
+        complete=complete,
+        reveal_rounds=rounds,
+        loaders_left=loaders_left,
+        loaders_hidden=loaders_hidden,
     )
+
+
+def unfired_loaders(page: Page) -> list[tuple[Any, bool]]:
+    """Return the ``revealed`` loaders that have not dispatched their request.
+
+    Args:
+        page: The page to inspect.
+
+    Returns:
+        One ``(handle, visible)`` pair per loader, document order. Empty on an
+        evaluation error — an unreadable page is photographed as it stands.
+    """
+    probe = f"""(sel) => {{
+        {VISIBLE_FN}
+        return Array.prototype.map.call(
+            document.querySelectorAll(sel), function (el) {{ return pfAtlasVisible(el); }}
+        );
+    }}"""
+    try:
+        handles = list(page.query_selector_all(UNFIRED_LOADER_SELECTOR))
+        visible = [bool(flag) for flag in page.evaluate(probe, UNFIRED_LOADER_SELECTOR)]
+    except Exception:  # noqa: BLE001 - an unreadable page is not a reason to stall
+        return []
+    if len(visible) != len(handles):
+        # The DOM moved between the two queries. Treat everything as visible:
+        # driving a loader that did not need it costs a scroll, skipping one
+        # that did costs a placeholder in the shot.
+        return [(handle, True) for handle in handles]
+    return list(zip(handles, visible, strict=True))
+
+
+def fired_tally(page: Page) -> int:
+    """Return how many HTMX requests the page has dispatched since it loaded.
+
+    Args:
+        page: The page to sample.
+
+    Returns:
+        The monotonic count kept by :data:`LOADER_MARKER_SCRIPT`, or ``-1`` if
+        it cannot be read. Two unreadable samples in a row compare equal, which
+        ends the loop — the right answer for a page that cannot be sampled at
+        all, since it cannot be driven either.
+    """
+    try:
+        return int(page.evaluate(f"() => window.{FIRED_TALLY} || 0"))
+    except Exception:  # noqa: BLE001 - unreadable is not "nothing happened"
+        return -1
+
+
+def drive_loaders(page: Page) -> tuple[int, int, int]:
+    """Fire every ``revealed`` loader by its own mechanism, round after round.
+
+    The geometric pass above walks the page by *height*, which is the right way
+    to exercise scroll-spy and sticky headers but the wrong way to guarantee a
+    loader fires: a section that arrives on ``revealed`` may itself contain
+    per-item loaders on the same trigger — ``charts_section.html`` swaps in one
+    ``<article>`` per investment, each holding a second
+    ``hx-get="/api/charts/investment/{id}"`` — and those did not exist when the
+    walk passed their eventual position. Here the loaders themselves are the
+    work list: each is scrolled to its own centre, the page is allowed to go
+    quiet, and the DOM is re-read, because what just landed may have brought
+    more.
+
+    Firing is read off HTMX's own ``htmx:beforeRequest``
+    (:data:`LOADER_MARKER_SCRIPT`) rather than off the element's disappearance:
+    most loaders swap ``outerHTML`` and do vanish, but the portfolio-review
+    stack swaps ``innerHTML`` into the ``<article>`` that carries the trigger,
+    so that one would read as unfired forever.
+
+    Only loaders a reader could see are driven, and the loop stops the moment a
+    round dispatches nothing — a round that achieved nothing is a round every
+    later round would repeat, and the ``<details>`` case below would otherwise
+    spend the whole budget on one element that can never fire.
+
+    Args:
+        page: The page to drive, already walked and settled.
+
+    Returns:
+        Rounds spent, how many *visible* loaders were still unfired at the end,
+        and how many unfired loaders were off-screen. The split matters: a
+        visible one is a hole in the shot, while an off-screen one — inside a
+        collapsed ``<details>`` or an inactive tab — is absent from the shot
+        exactly as it is absent from the reader's view, so it is a design
+        finding about that surface rather than a defect in the capture.
+    """
+    rounds = 0
+    for _ in range(MAX_REVEAL_ROUNDS):
+        pending = [handle for handle, visible in unfired_loaders(page) if visible]
+        if not pending:
+            break
+        rounds += 1
+        before = fired_tally(page)
+        for loader in pending:
+            with contextlib.suppress(Exception):
+                loader.evaluate("(el) => el.scrollIntoView({block: 'center'})")
+            settle(page, network_timeout_ms=REVEAL_NETWORK_IDLE_TIMEOUT_MS)
+        if fired_tally(page) == before:
+            break
+
+    left = unfired_loaders(page)
+    visible_left = sum(1 for _, visible in left if visible)
+    return rounds, visible_left, len(left) - visible_left
+
+
+def await_charts(page: Page) -> tuple[int, int]:
+    """Wait until every Plotly target on the page has been drawn into.
+
+    HTMX going quiet says the *markup* arrived; it says nothing about the
+    figures. Every chart in the tree is drawn by an inline script that runs
+    after the swap, and ``Plotly.newPlot`` is asynchronous, so ``.htmx-request``
+    is long gone by the time the first trace appears. Without this wait a
+    revealed page is photographed as a grid of empty boxes.
+
+    Readiness is Plotly's own ``.js-plotly-plot`` marker on the container (or a
+    ``.main-svg`` inside it), not the templates' ``data-pf-rendered`` flags:
+    those are per-template conventions, and ``chart_snapshot.js`` sets its own
+    *before* awaiting the draw.
+
+    Args:
+        page: The page to wait on.
+
+    Returns:
+        How many chart targets the page declares, and how many were still
+        undrawn when the wait ended. A non-zero remainder means the timeout was
+        reached — a figure that never lands is a finding, not a stall.
+    """
+    probe = f"""() => {{
+        const targets = Array.prototype.slice.call(
+            document.querySelectorAll({CHART_TARGET_SELECTOR!r})
+        );
+        const pending = targets.filter(function (el) {{
+            return !el.matches({PLOTLY_DRAWN_SELECTOR!r})
+                && !el.querySelector({PLOTLY_DRAWN_SELECTOR!r});
+        }});
+        return [targets.length, pending.length];
+    }}"""
+
+    total, pending = 0, 0
+    deadline = time.monotonic() + CHART_TIMEOUT_MS / 1000
+    while True:
+        try:
+            total, pending = (int(value) for value in page.evaluate(probe))
+        except Exception:  # noqa: BLE001 - an unreadable page is photographed as it stands
+            return total, pending
+        if pending == 0 or time.monotonic() >= deadline:
+            break
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(CHART_POLL_MS)
+
+    # ``responsive: true`` figures size themselves against the viewport they
+    # were drawn in, and the full-page shot is about to change it. One resize
+    # and a frame to act on it costs nothing and saves a squashed axis.
+    with contextlib.suppress(Exception):
+        page.evaluate("() => window.dispatchEvent(new Event('resize'))")
+        page.evaluate("() => new Promise((done) => requestAnimationFrame(() => done()))")
+    settle(page, network_timeout_ms=REVEAL_NETWORK_IDLE_TIMEOUT_MS)
+    return total, pending
+
+
+def count_loading_placeholders(page: Page) -> int:
+    """Count the visible "Loading …" placeholders left on the page.
+
+    The backstop under the two targeted waits: it knows nothing about HTMX or
+    Plotly and simply reads what a human would see, so a loader neither
+    :func:`drive_loaders` nor :func:`await_charts` recognises still shows up in
+    the manifest instead of only in the PNG.
+
+    Only an element's *own* text counts — the direct text-node children — so an
+    ancestor is not reported alongside the placeholder it wraps.
+
+    Args:
+        page: The page to inspect, immediately before the shutter.
+
+    Returns:
+        The number of visible placeholders, or ``0`` if the page cannot be
+        read.
+    """
+    probe = rf"""() => {{
+        {VISIBLE_FN}
+        const re = new RegExp({LOADING_PLACEHOLDER_PATTERN!r});
+        let count = 0;
+        document.querySelectorAll("body *").forEach(function (el) {{
+            let own = "";
+            for (const node of el.childNodes) {{
+                if (node.nodeType === 3) own += node.nodeValue;
+            }}
+            own = own.trim().replace(/\s+/g, " ");
+            if (!re.test(own)) return;
+            if (!pfAtlasVisible(el)) return;
+            count += 1;
+        }});
+        return count;
+    }}"""
+    try:
+        return int(page.evaluate(probe))
+    except Exception:  # noqa: BLE001 - an unreadable page is not a finding about loading
+        return 0
 
 
 # --------------------------------------------------------------------------- #
@@ -787,10 +1189,17 @@ def write_bands(
 
 
 def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> ShotMeta:
-    """Reveal the page, photograph it whole, then measure what came back.
+    """Reveal the page, wait for its charts, photograph it whole, then measure.
 
     The one seam both the route pass and the scene pass go through, so a lazy
-    Section is revealed and a truncation is caught identically in either.
+    Section is revealed, a chart is waited for and a truncation is caught
+    identically in either.
+
+    The order is the order the page itself works in: markup first
+    (:func:`reveal`), then the figures the markup's inline scripts draw
+    (:func:`await_charts`), then one last look for anything still saying
+    "Loading …" (:func:`count_loading_placeholders`) — and only then the
+    shutter.
 
     Args:
         page: The page to photograph, already settled and styled.
@@ -802,6 +1211,8 @@ def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> Sh
         The :class:`ShotMeta` describing the shot.
     """
     revealed = reveal(page)
+    charts_total, charts_pending = await_charts(page)
+    placeholders = count_loading_placeholders(page)
     page.screenshot(path=str(target), full_page=True)
     height = png_height(target)
     meta = ShotMeta(
@@ -810,6 +1221,12 @@ def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> Sh
         scroll_height=revealed.scroll_height,
         png_height=height,
         truncated=is_truncated(height, revealed.scroll_height),
+        reveal_rounds=revealed.reveal_rounds,
+        loaders_left=revealed.loaders_left,
+        loaders_hidden=revealed.loaders_hidden,
+        charts_total=charts_total,
+        charts_pending=charts_pending,
+        loading_placeholders=placeholders,
     )
     if band_px > 0:
         meta.bands = write_bands(
@@ -881,6 +1298,12 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
         scroll_height=meta.scroll_height,
         png_height=meta.png_height,
         truncated=meta.truncated,
+        reveal_rounds=meta.reveal_rounds,
+        loaders_left=meta.loaders_left,
+        loaders_hidden=meta.loaders_hidden,
+        charts_total=meta.charts_total,
+        charts_pending=meta.charts_pending,
+        loading_placeholders=meta.loading_placeholders,
         bands=meta.bands,
     )
     size = target.stat().st_size if target.exists() else 0
@@ -896,6 +1319,15 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
     elif not meta.reveal_complete:
         capture.suspect = True
         capture.reason = REVEAL_INCOMPLETE_REASON
+    elif meta.loaders_left > 0:
+        capture.suspect = True
+        capture.reason = f"{UNFIRED_LOADERS_REASON} ({meta.loaders_left})"
+    elif meta.charts_pending > 0:
+        capture.suspect = True
+        capture.reason = f"{CHARTS_PENDING_REASON} ({meta.charts_pending} of {meta.charts_total})"
+    elif meta.loading_placeholders > 0:
+        capture.suspect = True
+        capture.reason = f"{meta.loading_placeholders} loading placeholders visible"
     elif size < SUSPECT_MIN_BYTES:
         capture.suspect = True
         capture.reason = (
@@ -970,6 +1402,12 @@ def run_scene(
         scroll_height=meta.scroll_height,
         png_height=meta.png_height,
         truncated=meta.truncated,
+        reveal_rounds=meta.reveal_rounds,
+        loaders_left=meta.loaders_left,
+        loaders_hidden=meta.loaders_hidden,
+        charts_total=meta.charts_total,
+        charts_pending=meta.charts_pending,
+        loading_placeholders=meta.loading_placeholders,
         bands=meta.bands,
     )
 
@@ -1109,6 +1547,33 @@ def write_manifest(
     )
 
 
+def scene_shot_reason(scene: SceneResult) -> str | None:
+    """Return why a scene's shot cannot be trusted, or ``None`` if it can.
+
+    The scene-side twin of the ``suspect`` ladder in :func:`capture_route`, in
+    the same order, so a scene and a route that came back wrong the same way
+    are described the same way.
+
+    Args:
+        scene: A scene walk that landed (``ok``); a failed walk has no shot to
+            judge.
+
+    Returns:
+        The reason string for the contact sheet, or ``None``.
+    """
+    if scene.truncated:
+        return TRUNCATION_REASON
+    if not scene.reveal_complete:
+        return REVEAL_INCOMPLETE_REASON
+    if scene.loaders_left:
+        return f"{UNFIRED_LOADERS_REASON} ({scene.loaders_left})"
+    if scene.charts_pending:
+        return f"{CHARTS_PENDING_REASON} ({scene.charts_pending} of {scene.charts_total})"
+    if scene.loading_placeholders:
+        return f"{scene.loading_placeholders} loading placeholders visible"
+    return None
+
+
 def append_bands(lines: list[str], label: str, bands: list[str]) -> None:
     """Append a collapsible band gallery to the contact sheet, if there is one.
 
@@ -1209,9 +1674,7 @@ def write_index(
     failed = [item for item in scenes if not item.ok]
     # A scene that failed its walk is listed above; these are walks that landed
     # and then produced a shot that cannot be trusted.
-    flagged_scenes = [
-        item for item in scenes if item.ok and (item.truncated or not item.reveal_complete)
-    ]
+    flagged_scenes = [item for item in scenes if item.ok and scene_shot_reason(item)]
     if suspects:
         lines.append("### Suspect captures")
         lines.append("")
@@ -1229,8 +1692,7 @@ def write_index(
         lines.append("### Scene shots needing a look")
         lines.append("")
         for scene in flagged_scenes:
-            why = TRUNCATION_REASON if scene.truncated else REVEAL_INCOMPLETE_REASON
-            lines.append(f"- {scene.name} — {why}")
+            lines.append(f"- {scene.name} — {scene_shot_reason(scene)}")
         lines.append("")
     if not suspects and not failed and not flagged_scenes:
         lines.append("Nothing suspect and no failed scene.")

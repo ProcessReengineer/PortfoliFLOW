@@ -1,9 +1,10 @@
 {
     "_comment": "PortfoliFLOW UI Theme — centralised colour and font parameters for the PyQt6 GUI. Loaded by gui/theme.py via core/ui_theme.py.",
-    "_version": "1.0.0",
+    "_version": "1.1.0",
     "_display_name": "Default (Cyberpunk Dark)",
 
     "background": {
+        "chrome":    "#050505",
         "primary":   "#0A0A0A",
         "secondary": "#141414",
         "section":   "#1A1A1A"
@@ -12,7 +13,9 @@
     "accent": {
         "primary":         "#E8304A",
         "primary_hover":   "#FF4D66",
-        "primary_pressed": "#C42840"
+        "primary_pressed": "#C42840",
+        "on_accent":       "#000000",
+        "logo":            "#F30A27"
     },
 
     "button": {
@@ -20,19 +23,35 @@
     },
 
     "text": {
-        "primary":    "#E8304A",
+        "_comment":   "primary is the neutral high-emphasis colour since UX A-0 (design parameters §3.2); the brand red is accent.primary and is used for the one primary action, the active navigation marker, focus and the logo only.",
+        "primary":    "#EDEDED",
         "secondary":  "#B0B0B0",
+        "tertiary":   "#8C8C8C",
         "disabled":   "#555555",
         "on_sidebar": "#FFFFFF"
     },
 
     "border": {
-        "default": "#2A2A2A"
+        "default": "#2A2A2A",
+        "soft":    "#1F1F1F"
     },
 
     "font": {
-        "family":    "Inter, Segoe UI, Arial, sans-serif",
-        "size_base": 10
+        "family":    "IBM Plex Sans, Inter, Segoe UI, system-ui, sans-serif",
+        "size_base": 10,
+        "scale": {
+            "xs":   "12px",
+            "sm":   "13px",
+            "md":   "14px",
+            "lg":   "16px",
+            "xl":   "20px",
+            "hero": "40px"
+        },
+        "weight": {
+            "regular":  400,
+            "medium":   500,
+            "semibold": 600
+        }
     },
 
     "semantic": {
@@ -46,7 +65,76 @@
         "table_pos_bg":     "#DCFFDC",
         "table_neg_bg":     "#FFDCDC",
         "table_pos_bg_dark": "#1A3F1F",
-        "table_neg_bg_dark": "#3F1A1F"
+        "table_neg_bg_dark": "#3F1A1F",
+        "positive":         "#4CAF50",
+        "negative":         "#E8304A",
+        "warn":             "#FFA726"
+    },
+
+    "space": {
+        "1": "4px",
+        "2": "8px",
+        "3": "12px",
+        "4": "16px",
+        "5": "24px",
+        "6": "32px",
+        "7": "48px"
+    },
+
+    "radius": {
+        "sm": "4px",
+        "md": "8px"
+    },
+
+    "control": {
+        "height":       "34px",
+        "height_sm":    "28px",
+        "input_height": "36px",
+        "row_pad":      "10px"
+    },
+
+    "motion": {
+        "duration": "160ms"
+    },
+
+    "focus": {
+        "width":  "2px",
+        "offset": "2px"
+    },
+
+    "layout": {
+        "nav_width":           "252px",
+        "nav_width_collapsed": "56px",
+        "rail_width":          "44px",
+        "dock_width":          "380px",
+        "content_max":         "1664px",
+        "reading_width":       "960px",
+        "stage_conversation":  "420px"
+    },
+
+    "accessible": {
+        "_comment": "Overrides applied by the shell under data-a11y=\"on\" (design parameters §2.11); the remapping rule lives in the component layer, not here.",
+        "font_scale": {
+            "xs": "14px",
+            "sm": "16px",
+            "md": "17px",
+            "lg": "19px",
+            "xl": "24px"
+        },
+        "text_secondary": "#D6D6D6",
+        "text_tertiary":  "#B4B4B4",
+        "border_default": "#5A5A5A",
+        "control": {
+            "height":       "44px",
+            "height_sm":    "36px",
+            "input_height": "44px"
+        },
+        "layout": {
+            "nav_width":           "272px",
+            "nav_width_collapsed": "64px",
+            "dock_width":          "420px"
+        },
+        "motion_duration": "0ms"
     },
 
     "pf": {

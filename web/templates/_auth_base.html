@@ -30,6 +30,10 @@
     <link rel="manifest" href="/static/favicons/site.webmanifest">
     <meta name="theme-color" content="#dc1e1e">
 
+    {# Preload the body weight so lazily drawn charts and the first paint use
+       the product typeface (design parameters §2.12.6, UX A-0). #}
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          href="/static/vendor/fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2">
     <link rel="stylesheet" href="/static/css/theme.css">
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/layout.css">

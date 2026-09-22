@@ -4,7 +4,7 @@
     "_display_name": "Default (Dark)",
 
     "font": {
-        "family": ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
+        "family": ["IBM Plex Sans", "Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"],
         "title_size": 11,
         "axis_label_size": 9,
         "tick_label_size": 8,

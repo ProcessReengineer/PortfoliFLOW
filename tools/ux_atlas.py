@@ -996,7 +996,10 @@ def await_charts(page: Page) -> tuple[int, int]:
     Readiness is Plotly's own ``.js-plotly-plot`` marker on the container (or a
     ``.main-svg`` inside it), not the templates' ``data-pf-rendered`` flags:
     those are per-template conventions, and ``chart_snapshot.js`` sets its own
-    *before* awaiting the draw.
+    *before* awaiting the draw. The vendored typeface is awaited first, via
+    ``document.fonts.ready``: Plotly measures its margins against whatever face
+    is mounted when it draws, so a figure drawn on the fallback keeps the
+    fallback's metrics even after the real font swaps in.
 
     Args:
         page: The page to wait on.
@@ -1016,6 +1019,12 @@ def await_charts(page: Page) -> tuple[int, int]:
         }});
         return [targets.length, pending.length];
     }}"""
+
+    # The vendored typeface is `font-display: swap`: a shot taken before it
+    # lands photographs the fallback face. Plotly text re-renders on arrival,
+    # but the measured margins do not, so wait for the fonts first.
+    with contextlib.suppress(Exception):
+        page.evaluate("() => document.fonts.ready.then(() => true)")
 
     total, pending = 0, 0
     deadline = time.monotonic() + CHART_TIMEOUT_MS / 1000

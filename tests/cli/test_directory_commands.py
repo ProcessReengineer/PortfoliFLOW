@@ -26,6 +26,7 @@ exercised only as the *public* half already shipped in the ring.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
@@ -125,30 +126,53 @@ def _serve_the_published_fixture(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url=SIGNATURE_URL, content=(FIXTURES / "directory-1.sig").read_bytes())
 
 
+#: Typer forces a Rich terminal under ``GITHUB_ACTIONS``/``FORCE_COLOR``, which
+#: styles option names in fragments — so ``--data-dir`` is no longer contiguous.
+_ANSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI escape sequences, so a help assertion holds in any terminal mode.
+
+    ``typer.rich_utils`` decides ``FORCE_TERMINAL`` when it is imported, so no
+    ``env=`` on the invocation can switch the styling off again — the assertion
+    side has to be the robust one.
+
+    Args:
+        text: Captured command output, styled or not.
+
+    Returns:
+        The same text with every CSI escape sequence removed.
+    """
+    return _ANSI.sub("", text)
+
+
 # ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 
 
 def test_refresh_help_names_its_flags_and_carries_no_working_id() -> None:
-    result = runner.invoke(app, ["directory-refresh", "--help"])
+    result = runner.invoke(app, ["directory-refresh", "--help"], env={"COLUMNS": "200"})
+    output = _plain(result.output)
 
     assert result.exit_code == 0, result.output
-    assert "--url" in result.output
-    assert "--data-dir" in result.output
-    assert "--json" in result.output
+    assert "--url" in output
+    assert "--data-dir" in output
+    assert "--json" in output
     for forbidden in FORBIDDEN_IN_HELP:
-        assert forbidden not in result.output
+        assert forbidden not in output
 
 
 def test_status_help_names_its_flags_and_carries_no_working_id() -> None:
-    result = runner.invoke(app, ["directory-status", "--help"])
+    result = runner.invoke(app, ["directory-status", "--help"], env={"COLUMNS": "200"})
+    output = _plain(result.output)
 
     assert result.exit_code == 0, result.output
-    assert "--data-dir" in result.output
-    assert "--json" in result.output
+    assert "--data-dir" in output
+    assert "--json" in output
     for forbidden in FORBIDDEN_IN_HELP:
-        assert forbidden not in result.output
+        assert forbidden not in output
 
 
 def test_both_commands_are_registered_on_the_operator_cli() -> None:

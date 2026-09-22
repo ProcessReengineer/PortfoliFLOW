@@ -6,6 +6,16 @@
  * (e.g. system-font fallbacks for the skip link).
  */
 
+/* Typeface — IBM Plex Sans, self-hosted (ADR-0037 §9; design parameters §2.8).
+ * Weights 400 / 500 / 600; `font-display: swap` keeps text visible while the
+ * file loads. The family list itself is the token --ui-font-family. */
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap;
+             src: url("/static/vendor/fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap;
+             src: url("/static/vendor/fonts/ibm-plex-sans/IBMPlexSans-Medium.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap;
+             src: url("/static/vendor/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2") format("woff2"); }
+
 *,
 *::before,
 *::after {

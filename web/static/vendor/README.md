@@ -17,6 +17,7 @@ slices do not carry several megabytes of minified JavaScript.
 | Plotly.js | 2.35.2 | `plotly-2.35.2/plotly.min.js` (4.4 MB) | MIT — `plotly-2.35.2/LICENSE` | <https://cdn.plot.ly/plotly-2.35.2.min.js> |
 | Tabulator | 5.6.1 | `tabulator-5.6.1/tabulator.min.js` (410 KB), `tabulator-5.6.1/tabulator.min.css` (26 KB) | MIT — `tabulator-5.6.1/LICENSE` | <https://unpkg.com/tabulator-tables@5.6.1/dist/> |
 | Lucide icons | 1.47.0 (`lucide-static`) | `lucide/*.svg` — 38 files, the subset the shell uses; see `lucide/MANIFEST.md` | ISC — `lucide/LICENSE` | <https://lucide.dev> |
+| IBM Plex Sans (web font) | 3.327 (font revision) | `fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2` (62 KB), `fonts/ibm-plex-sans/IBMPlexSans-Medium.woff2` (65 KB), `fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2` (66 KB) | OFL 1.1 — `fonts/ibm-plex-sans/LICENSE.txt` | <https://github.com/IBM/plex> |
 
 The `fonts/` subdirectory is vendored and documented separately, as part
 of the shell's typography work.

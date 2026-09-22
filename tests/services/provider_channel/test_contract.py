@@ -278,14 +278,19 @@ def test_nacl_is_the_only_new_third_party_import() -> None:
 
     An editable install's own path finder is dropped rather than allow-listed:
     it is *how* ``services`` is importable, not something the package imports,
-    and its module name carries the installed version.
+    and its module name carries the installed version. Modules already loaded
+    when the interpreter starts — site ``.pth`` shims such as setuptools'
+    ``_distutils_hack``, which a CI interpreter has and a venv may not — are
+    the interpreter's, not the package's, and are taken as the baseline.
     """
     code = (
         "import importlib.util\n"
         "import sys\n"
+        "before = {m.split('.')[0] for m in sys.modules}\n"
         "import services.provider_channel  # noqa: F401\n"
         "names = sorted(\n"
         "    {m.split('.')[0] for m in sys.modules}\n"
+        "    - before\n"
         "    - set(sys.stdlib_module_names)\n"
         "    - {'services', '__main__'}\n"
         ")\n"

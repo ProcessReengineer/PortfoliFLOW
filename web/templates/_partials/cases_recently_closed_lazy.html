@@ -2,7 +2,7 @@
    cases_open_lazy.html for the pattern. #}
 <div class="pf-section__lazy"
      hx-get="/api/cases/recently-closed"
-     hx-trigger="revealed"
+     hx-trigger="intersect once"
      hx-target="this"
      hx-swap="outerHTML">
     <p class="pf-section__lazy-skeleton" aria-live="polite">

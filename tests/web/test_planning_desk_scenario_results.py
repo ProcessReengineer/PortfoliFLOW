@@ -255,7 +255,7 @@ def test_the_result_partial_renders_the_pair_kpi_and_headroom() -> None:
     assert "pd-deltatable" in html
     assert "pd-bar__fill--warn" in html
     # The composition drill-down is a lazy shell, not loaded inline.
-    assert 'hx-trigger="revealed"' in html
+    assert 'hx-trigger="intersect once"' in html
     assert "/api/planning-desk/scenario-composition" in html
 
 

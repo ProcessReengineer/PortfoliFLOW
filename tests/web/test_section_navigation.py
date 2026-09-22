@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for sub-stream 6F-2 — section anchors, sticky headers,
-section indicator and command palette.
+"""Tests for section anchors, the sticky view header and the palette.
 
-The tests in this module are deliberately ASGI-level: they assert
-markup, theme tokens, CSS rules and JSON endpoint shapes. Real
-browser-rendering behaviour (sticky-header backdrop, IntersectionObserver
-scroll-spy, Cmd+K key binding, focus traps) lives in the acceptance
-checklist at ``docs/phase-6-block-1-6f-2-acceptance-checklist.md``.
+Sub-stream 6F-2 originally, re-aimed by P-UX-A0b at the surface that
+replaced it: the right-edge dot strip and its scroll-spy are gone — an
+area shows one section at a time and the URL fragment selects it — so
+what used to assert the indicator now asserts its absence. The command
+palette survived the change intact and is still covered here.
+
+The tests are deliberately ASGI-level: they assert markup, CSS rules
+and JSON endpoint shapes. Real browser behaviour (the fragment
+switching views, Ctrl K, focus traps) is the operator walk in
+``docs/reports/P-UX-A0b-report.md``.
 """
 
 from __future__ import annotations
@@ -61,52 +65,48 @@ _AREAS: tuple[tuple[str, str, tuple[str, ...]], ...] = tuple(
 
 
 # ---------------------------------------------------------------------------
-# Theme-token presence — Commit 1
+# The sticky view header — P-UX-A0b
 # ---------------------------------------------------------------------------
 
-
-def test_sticky_header_theme_tokens_present() -> None:
-    """The regenerated ``theme.css`` carries the 6F-2 tokens.
-
-    Commit 1 of 6F-2 adds three groups of tokens — section indicator,
-    sticky header backdrop, and command palette chrome — under the
-    ``--pf-*`` namespace via a ``pf`` sub-section in
-    ``config/chart_theme.json``. Any miss here points to either the
-    JSON file or the generator round-trip, not the templates.
-    """
-    css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
-    required = (
-        "--pf-section-indicator-width",
-        "--pf-section-indicator-right",
-        "--pf-section-indicator-dot-size",
-        "--pf-section-indicator-dot-gap",
-        "--pf-section-indicator-label-bg",
-        "--pf-sticky-header-blur",
-        "--pf-sticky-header-bg",
-        "--pf-palette-overlay-bg",
-        "--pf-palette-panel-bg",
-        "--pf-palette-panel-border",
-        "--pf-palette-panel-width",
-        "--pf-palette-panel-max-height",
-        "--pf-palette-row-hover-bg",
-        "--pf-palette-row-active-bg",
-    )
-    for prop in required:
-        assert prop in css, f"theme.css is missing {prop}"
+# The 6F-2 theme-token assertion is gone with the surface it guarded:
+# the five ``--pf-section-indicator-*`` and two ``--pf-sticky-header-*``
+# tokens are no longer read by any sheet. They still sit in the ``pf``
+# block of config/chart_theme.json, which this strand does not touch —
+# see docs/reports/P-UX-A0b-report.md for the parked cleanup.
 
 
-def test_layout_css_sticky_section_header() -> None:
-    """``.pf-section__header`` uses position: sticky and the new tokens.
+def test_layout_css_sticky_view_header() -> None:
+    """``.pf-view__head`` sticks, opaquely, against the document scroll.
 
-    Asserts the sticky-positioning rule, the backdrop-filter binding to
-    the new ``--pf-sticky-header-blur`` token, and the background
-    binding to ``--pf-sticky-header-bg``. The actual visual sticking
-    behaviour is verified manually in the browser walk.
+    The header pins to the viewport rather than to an inner scroll
+    container, so it needs a solid background: the old in-card blur
+    read correctly only over the card it was cut into. The actual
+    sticking behaviour is verified in the browser walk.
     """
     css = (_STATIC_DIR / "css" / "layout.css").read_text(encoding="utf-8")
-    assert "position: sticky" in css
-    assert "var(--pf-sticky-header-blur)" in css
-    assert "var(--pf-sticky-header-bg)" in css
+    rule = re.search(r"\.pf-view__head\s*\{([^}]*)\}", css, flags=re.DOTALL)
+    assert rule is not None, "layout.css is missing the .pf-view__head rule"
+    body = rule.group(1)
+    assert "position: sticky" in body
+    assert "top: 0" in body
+    assert "background-color: var(--ui-background-primary)" in body
+    # The retired backdrop tokens must not come back with it.
+    assert "--pf-sticky-header-blur" not in css
+    assert "--pf-sticky-header-bg" not in css
+
+
+def test_layout_css_main_does_not_scroll() -> None:
+    """``.pf-main`` carries no ``overflow``.
+
+    An inner scroll container would break two things at once: the view
+    header would stick to the container instead of the viewport, and the
+    ``intersect once`` loaders — plus tools/ux_atlas.py, which drives
+    them by scrolling the page — would stop seeing the document move.
+    """
+    css = (_STATIC_DIR / "css" / "layout.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.pf-main\s*\{([^}]*)\}", css, flags=re.DOTALL)
+    assert rule is not None, "layout.css is missing the .pf-main rule"
+    assert "overflow" not in rule.group(1)
 
 
 # ---------------------------------------------------------------------------
@@ -224,39 +224,39 @@ async def _login(client: AsyncClient, email: str, password: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Section indicator markup — Commit 2
+# The retired section indicator — P-UX-A0b
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("area_slug,url,section_slugs", _AREAS)
-async def test_section_indicator_renders_per_area(
+@pytest.mark.parametrize("area_slug,url,_section_slugs", _AREAS)
+async def test_no_section_indicator_on_any_area(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     area_slug: str,
     url: str,
-    section_slugs: tuple[str, ...],
+    _section_slugs: tuple[str, ...],
 ) -> None:
-    """Each area URL renders a section indicator with one dot per section."""
+    """No area page carries the right-edge dot strip any more.
+
+    It was a map of a long scroll; there is no long scroll. The sidebar's
+    second level names the same sections and says which one you are on.
+    """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
     response = await web_client.get(url, follow_redirects=False)
     assert response.status_code == 200
-    body = response.text
-    assert 'class="pf-section-indicator"' in body
-    for slug in section_slugs:
-        assert f'data-section="{slug}"' in body, f"{url} missing indicator dot for {slug}"
-    assert body.count('class="pf-section-indicator__dot"') == len(section_slugs)
+    assert "pf-section-indicator" not in response.text
 
 
-@pytest.mark.parametrize("area_slug,url,section_slugs", _AREAS)
-async def test_section_indicator_in_htmx_fragment(
+@pytest.mark.parametrize("area_slug,url,_section_slugs", _AREAS)
+async def test_no_section_indicator_in_htmx_fragment(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     area_slug: str,
     url: str,
-    section_slugs: tuple[str, ...],
+    _section_slugs: tuple[str, ...],
 ) -> None:
-    """The HTMX area-swap fragment also carries the indicator markup."""
+    """Nor does the HTMX area-swap fragment, which used to re-emit it."""
     _id, email, password = seeded_user
     await _login(web_client, email, password)
     response = await web_client.get(
@@ -265,10 +265,7 @@ async def test_section_indicator_in_htmx_fragment(
         follow_redirects=False,
     )
     assert response.status_code == 200
-    body = response.text
-    assert 'class="pf-section-indicator"' in body
-    for slug in section_slugs:
-        assert f'data-section="{slug}"' in body
+    assert "pf-section-indicator" not in response.text
 
 
 def test_section_nav_js_is_referenced_in_base_template() -> None:
@@ -277,12 +274,17 @@ def test_section_nav_js_is_referenced_in_base_template() -> None:
     assert "/static/js/section_nav.js" in base
 
 
-def test_section_nav_js_uses_intersection_observer() -> None:
-    """The scroll-spy script binds via IntersectionObserver and rebinds
-    on HTMX swaps."""
+def test_shell_js_replaced_the_scroll_spy() -> None:
+    """``shell.js`` is linked and the scroll-spy is gone from its old home.
+
+    The two halves are one fact: the indicator's ``bindScrollSpy`` left
+    ``section_nav.js`` because ``shell.js`` marks the current section
+    from the URL fragment instead of from a scroll position.
+    """
+    base = (_REPO_ROOT / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "/static/js/shell.js" in base
     js = (_STATIC_DIR / "js" / "section_nav.js").read_text(encoding="utf-8")
-    assert "IntersectionObserver" in js
-    assert "htmx:afterSwap" in js
+    assert "bindScrollSpy" not in js
 
 
 # ---------------------------------------------------------------------------
@@ -477,9 +479,11 @@ async def test_section_anchors_in_htmx_fragment(
 # The ``<h2>`` emitted by web/templates/areas/_section.html. The id
 # anchors the match to a section heading (sub-surface headings and page
 # ``<h1>``s do not carry the ``-title`` suffix), and the capture is the
-# raw inner HTML, collapsed and unescaped below.
+# raw inner HTML, collapsed and unescaped below. The class became
+# ``pf-view__title`` in P-UX-A0b, when the section header became the
+# view header — every section still emits one, hidden ones included.
 _SECTION_H2_RE: re.Pattern[str] = re.compile(
-    r'<h2 class="pf-section__title" id="([^"]+)-title">(.*?)</h2>',
+    r'<h2 class="pf-view__title" id="([^"]+)-title">(.*?)</h2>',
     re.DOTALL,
 )
 

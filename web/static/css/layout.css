@@ -1,57 +1,68 @@
-/* Shell layout — sidebar plus content plus status bar.
+/* Shell layout — navigation column, work area, status bar.
  *
- * Tokens are sourced exclusively from theme.css (--pf-*, --ui-*).
- * No hardcoded colours, sizes or font families in this file.
+ * Tokens are sourced exclusively from theme.css (--ui-*, --pf-*).
+ * No hardcoded colours or font families in this file.
  *
- * Geometry:
+ * Geometry (P-UX-A0b):
  *
  *   +-------------------+----------------------------------+
  *   |  sidebar          |  shell-main                      |
- *   |                   |    (per-area content fragment)   |
+ *   |  areas, and the   |    ONE section per view:         |
+ *   |  active area's    |    sticky view header + body     |
+ *   |  sections         |                                  |
  *   +-------------------+----------------------------------+
  *   |              status bar                              |
  *   +------------------------------------------------------+
+ *
+ * The DOCUMENT scrolls — the two columns are ``position: sticky``, not
+ * inner scroll containers, and ``.pf-main`` deliberately carries no
+ * ``overflow``. The lazy loaders trigger on ``intersect once`` against
+ * the viewport and ``tools/ux_atlas.py`` drives them by scrolling the
+ * page; an inner scroll container would break both.
  */
 
 /* Shell grid ------------------------------------------------------- */
 
 .pf-shell {
     display: grid;
-    grid-template-columns: var(--pf-sidebar-width-expanded) 1fr;
-    grid-template-rows: 1fr var(--pf-statusbar-height);
-    grid-template-areas:
-        "sidebar main"
-        "statusbar statusbar";
+    grid-template-columns: var(--ui-layout-nav-width) minmax(0, 1fr);
     min-height: 100vh;
-    background-color: var(--pf-bg-deepest);
+    background-color: var(--ui-background-primary);
     color: var(--ui-text-secondary);
 }
 
 .pf-shell[data-sidebar-collapsed="true"] {
-    grid-template-columns: var(--pf-sidebar-width-collapsed) 1fr;
+    grid-template-columns: var(--ui-layout-nav-width-collapsed) minmax(0, 1fr);
 }
 
 /* Sidebar ---------------------------------------------------------- */
 
+/* Sticky, not fixed: the column keeps its grid slot (so the status bar
+ * still spans beneath it) while staying in view as the document scrolls.
+ * Its own overflow is scoped to itself — the page outside it is
+ * unaffected. */
 .pf-sidebar {
-    grid-area: sidebar;
+    position: sticky;
+    top: 0;
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: var(--pf-bg-surface);
-    border-right: 1px solid var(--ui-border-default);
-    overflow: hidden;
+    min-width: 0;
+    background-color: var(--ui-background-chrome);
+    border-right: 1px solid var(--ui-border-soft);
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .pf-sidebar__brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--ui-border-default);
+    gap: var(--ui-space-3);
+    padding: var(--ui-space-3) var(--ui-space-4);
+    border-bottom: 1px solid var(--ui-border-soft);
     color: var(--ui-text-primary);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    font-size: 0.95rem;
+    font-weight: var(--ui-font-weight-semibold);
+    letter-spacing: 0.01em;
     white-space: nowrap;
     overflow: hidden;
 }
@@ -70,266 +81,429 @@
 
 .pf-sidebar__nav {
     flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 12px 0;
+    padding: var(--ui-space-2) var(--ui-space-3);
     gap: 2px;
-    overflow-y: auto;
 }
 
+/* First level — one entry per Area. The label is allowed to wrap onto a
+ * second line: "Investor Communication" does not fit the nav width on
+ * one, and an ellipsis there reads as a defect (6F-2 polish loop). */
 .pf-sidebar__item {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 9px 16px;
+    gap: var(--ui-space-3);
+    min-height: var(--ui-control-height);
+    padding: 6px var(--ui-space-3);
+    border-radius: var(--ui-radius-sm);
     color: var(--ui-text-secondary);
     text-decoration: none;
-    border-left: 3px solid transparent;
-    font-size: 0.92rem;
+    font-size: var(--ui-font-scale-md);
     line-height: 1.25;
     cursor: pointer;
     background-color: transparent;
-    transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear;
+    transition: background-color var(--ui-motion-duration) linear,
+        color var(--ui-motion-duration) linear;
 }
 
-.pf-sidebar__item:hover,
-.pf-sidebar__item:focus-visible {
-    background-color: var(--pf-bg-hover);
-    color: var(--ui-text-on-sidebar);
+.pf-sidebar__item:hover {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
     text-decoration: none;
-    outline: none;
+}
+
+.pf-sidebar__item:focus-visible {
+    outline: var(--ui-focus-width) solid var(--ui-accent-primary-hover);
+    outline-offset: var(--ui-focus-offset);
+    color: var(--ui-text-primary);
+    text-decoration: none;
 }
 
 .pf-sidebar__item.is-active {
-    color: var(--ui-accent-primary);
-    background-color: var(--pf-accent-soft);
-    border-left-color: var(--ui-accent-primary);
-    font-weight: 600;
+    color: var(--ui-text-primary);
+    font-weight: var(--ui-font-weight-medium);
+}
+
+/* The accent bar is the marker for "you are here" — one of exactly two
+ * places red appears in the nav, the other being the active section. */
+.pf-sidebar__item.is-active::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--ui-space-3) * -1);
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background-color: var(--ui-accent-primary);
 }
 
 .pf-sidebar__glyph {
     flex: 0 0 auto;
-    width: 18px;
-    text-align: center;
-    font-size: 0.95rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
     color: inherit;
-    opacity: 0.85;
+}
+
+.pf-sidebar__glyph svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+}
+
+.pf-sidebar__label {
+    min-width: 0;
+}
+
+/* Second level — the sections of the ACTIVE area only. Each link is a
+ * URL fragment; web/static/js/shell.js turns it into a view switch. */
+.pf-sidebar__sections {
+    list-style: none;
+    margin: 2px 0 var(--ui-space-2) 0;
+    padding: 0 0 0 28px;
+}
+
+.pf-sidebar__section {
+    position: relative;
+    display: block;
+    min-height: 30px;
+    padding: 5px var(--ui-space-3);
+    border-radius: var(--ui-radius-sm);
+    color: var(--ui-text-tertiary);
+    text-decoration: none;
+    font-size: var(--ui-font-scale-sm);
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.pf-sidebar__section:hover {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
+    text-decoration: none;
+}
+
+.pf-sidebar__section:focus-visible {
+    outline: var(--ui-focus-width) solid var(--ui-accent-primary-hover);
+    outline-offset: var(--ui-focus-offset);
+    color: var(--ui-text-primary);
+    text-decoration: none;
+}
+
+.pf-sidebar__section[aria-current="true"] {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
+}
+
+.pf-sidebar__section[aria-current="true"]::before {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 5px;
+    bottom: 5px;
+    width: 2px;
+    background-color: var(--ui-accent-primary);
+}
+
+/* Collapsed state: icons only. The second level goes with the labels —
+ * a 56px column cannot carry section titles. */
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__label,
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__sections,
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__user {
     display: none;
 }
 
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__glyph {
-    display: inline-block;
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__nav,
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__footer {
+    padding-left: var(--ui-space-2);
+    padding-right: var(--ui-space-2);
 }
 
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__label {
-    display: none;
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__item {
+    justify-content: center;
+    padding: 6px 0;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__item.is-active::before {
+    left: calc(var(--ui-space-2) * -1);
 }
 
 .pf-sidebar__footer {
     flex: 0 0 auto;
-    border-top: 1px solid var(--ui-border-default);
-    padding: 8px 12px;
+    border-top: 1px solid var(--ui-border-soft);
+    padding: var(--ui-space-2) var(--ui-space-3);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
 }
 
 .pf-sidebar__user {
-    color: var(--ui-text-secondary);
-    font-size: 0.78rem;
+    padding: 0 var(--ui-space-3);
+    height: 28px;
+    display: flex;
+    align-items: center;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__user {
-    display: none;
-}
-
-.pf-sidebar__collapse-form {
+.pf-sidebar__collapse-form,
+.pf-sidebar__signout {
     margin: 0;
 }
 
-.pf-sidebar__collapse-button {
+.pf-sidebar__collapse-button,
+.pf-sidebar__signout-button {
     width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+    min-height: var(--ui-control-height-sm);
     background: transparent;
     border: 1px solid transparent;
-    color: var(--ui-text-secondary);
-    padding: 6px 8px;
-    border-radius: 4px;
-    font-size: 0.8rem;
+    color: var(--ui-text-tertiary);
+    padding: 5px var(--ui-space-3);
+    border-radius: var(--ui-radius-sm);
+    font-family: inherit;
+    font-size: var(--ui-font-scale-sm);
     text-align: left;
     cursor: pointer;
 }
 
 .pf-sidebar__collapse-button:hover,
-.pf-sidebar__collapse-button:focus-visible {
-    background-color: var(--pf-bg-hover);
-    color: var(--ui-text-on-sidebar);
-    outline: none;
-    border-color: var(--ui-border-default);
+.pf-sidebar__signout-button:hover {
+    background-color: var(--ui-background-section);
+    color: var(--ui-text-primary);
 }
 
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-button {
-    text-align: center;
-    padding: 6px 0;
-}
-
-.pf-sidebar__collapse-label-expanded {
-    display: inline;
-}
-
-.pf-sidebar__collapse-label-collapsed {
-    display: none;
-}
-
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-expanded {
-    display: none;
-}
-
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-collapsed {
-    display: inline;
-}
-
-/* Sign-out form sits beside the collapse toggle. */
-.pf-sidebar__signout {
-    margin: 0;
-}
-
-.pf-sidebar__signout-button {
-    width: 100%;
-    background: transparent;
-    border: 1px solid transparent;
-    color: var(--ui-text-secondary);
-    padding: 6px 8px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    text-align: left;
-    cursor: pointer;
-}
-
-.pf-sidebar__signout-button:hover,
+.pf-sidebar__collapse-button:focus-visible,
 .pf-sidebar__signout-button:focus-visible {
-    background-color: var(--pf-bg-hover);
-    color: var(--ui-text-on-sidebar);
-    outline: none;
-    border-color: var(--ui-border-default);
+    outline: var(--ui-focus-width) solid var(--ui-accent-primary-hover);
+    outline-offset: var(--ui-focus-offset);
+    color: var(--ui-text-primary);
 }
 
+.pf-sidebar__collapse-button svg,
+.pf-sidebar__signout-button svg {
+    flex: 0 0 auto;
+}
+
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-button,
 .pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-button {
-    text-align: center;
-    padding: 6px 0;
+    justify-content: center;
+    padding: 5px 0;
 }
 
+.pf-sidebar__collapse-label-expanded,
 .pf-sidebar__signout-label-expanded {
-    display: inline;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ui-space-2);
 }
 
+.pf-sidebar__collapse-label-collapsed,
 .pf-sidebar__signout-label-collapsed {
     display: none;
 }
 
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-expanded,
 .pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-label-expanded {
     display: none;
 }
 
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__collapse-label-collapsed,
 .pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__signout-label-collapsed {
-    display: inline;
+    display: inline-flex;
 }
 
-/* Main content area ------------------------------------------------ */
+/* Work area -------------------------------------------------------- */
 
+/* No `overflow`: the document scrolls, which is what lets the view
+ * header stick to the viewport and the `intersect once` loaders fire
+ * against it. */
 .pf-main {
-    grid-area: main;
-    overflow: auto;
-    padding: 24px 32px;
-    background-color: var(--pf-bg-deepest);
+    min-width: 0;
+    width: 100%;
+    max-width: var(--ui-layout-content-max);
+    margin: 0 auto;
+    padding: 0 var(--ui-space-6) var(--ui-space-7);
+    background-color: var(--ui-background-primary);
 }
 
 .pf-area {
-    max-width: 1400px;
-    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: var(--ui-space-5);
 }
 
 .pf-area__header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--ui-border-default);
+    gap: var(--ui-space-1);
+    padding: var(--ui-space-5) 0 var(--ui-space-3);
+    border-bottom: 1px solid var(--ui-border-soft);
 }
 
 .pf-area__title {
     color: var(--ui-text-primary);
-    font-size: 1.5rem;
+    font-size: var(--ui-font-scale-xl);
     margin: 0;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
 }
 
 .pf-area__subtitle {
-    color: var(--ui-text-secondary);
-    font-size: 0.9rem;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-sm);
     margin: 0;
 }
 
+/* One section per view. The section is the view: no card chrome, because
+ * only one is on screen and its header is the view header. The others
+ * stay in the DOM under the `hidden` attribute — `display: none`, so
+ * they never intersect and never load. */
 .pf-section {
-    background-color: var(--pf-bg-surface);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 6px;
-    padding: 20px 24px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    /* Headroom for the sticky section header on anchor-scroll navigation:
-     * leave the sticky strip clear of the section's first body line. */
-    scroll-margin-top: 56px;
+    gap: var(--ui-space-3);
+    min-width: 0;
 }
 
-.pf-section__header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    /* Sticky section header — pins to the top of the scrolling content
-     * area as the user scrolls past the section's first row. The blur
-     * separates the header from content sliding underneath. */
+/* Load-bearing, not belt-and-braces: an author `display` declaration beats
+ * the user-agent's `[hidden] { display: none }` whatever the specificity,
+ * so without this rule the `display: flex` above would keep every hidden
+ * section on screen — and its `intersect once` loaders would all fire on
+ * page load, which is the exact failure this shell exists to avoid. */
+.pf-section[hidden] {
+    display: none;
+}
+
+/* Sticky view header — title · as-of · command search · action slot.
+ * Sticks against the document scroll, so it needs an opaque background
+ * rather than the old in-card blur. */
+.pf-view__head {
     position: sticky;
     top: 0;
-    z-index: 5;
-    margin: -20px -24px 0 -24px;
-    padding: 14px 24px;
-    background-color: var(--pf-sticky-header-bg);
-    backdrop-filter: blur(var(--pf-sticky-header-blur));
-    -webkit-backdrop-filter: blur(var(--pf-sticky-header-blur));
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-4);
+    min-height: 72px;
+    padding: var(--ui-space-4) 0;
+    background-color: var(--ui-background-primary);
     border-bottom: 1px solid var(--ui-border-default);
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
 }
 
-.pf-section__title {
-    color: var(--ui-text-primary);
-    font-size: 1.05rem;
+.pf-view__title-row {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--ui-space-1) var(--ui-space-3);
+}
+
+.pf-view__title {
     margin: 0;
+    color: var(--ui-text-primary);
+    font-size: var(--ui-font-scale-xl);
+    font-weight: var(--ui-font-weight-semibold);
+    line-height: 1.2;
+}
+
+.pf-view__asof {
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-sm);
+}
+
+.pf-view__tools {
+    flex: 0 1 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-3);
+}
+
+/* Quiet control: it looks like an input but opens the command palette,
+ * which is also on Ctrl K. Shrinkable, so the header holds one row at
+ * 1280px / 125% zoom. */
+.pf-view__search {
+    flex: 0 1 300px;
+    min-width: 132px;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+    height: var(--ui-control-height);
+    padding: 0 var(--ui-space-3);
+    border: 1px solid var(--ui-border-default);
+    border-radius: var(--ui-radius-sm);
+    background-color: var(--ui-background-secondary);
+    color: var(--ui-text-tertiary);
+    font-family: inherit;
+    font-size: var(--ui-font-scale-sm);
+    text-align: left;
+    cursor: text;
+}
+
+.pf-view__search:hover {
+    border-color: var(--ui-text-disabled);
+    color: var(--ui-text-secondary);
+}
+
+.pf-view__search:focus-visible {
+    outline: var(--ui-focus-width) solid var(--ui-accent-primary-hover);
+    outline-offset: var(--ui-focus-offset);
+}
+
+.pf-view__search > span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pf-view__search svg {
+    flex: 0 0 auto;
+}
+
+.pf-view__search kbd {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid var(--ui-border-default);
+    border-radius: 3px;
+    color: var(--ui-text-tertiary);
+    font-family: inherit;
+    font-size: 11px;
+}
+
+.pf-view__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+}
+
+.pf-view__actions:empty {
+    display: none;
 }
 
 .pf-section__pill {
-    color: var(--ui-text-secondary);
-    background-color: var(--pf-bg-elevated);
+    color: var(--ui-text-tertiary);
+    background-color: var(--ui-background-section);
     border: 1px solid var(--ui-border-default);
     border-radius: 999px;
     padding: 2px 10px;
-    font-size: 0.72rem;
+    font-size: var(--ui-font-scale-xs);
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 .pf-section__body {
     color: var(--ui-text-secondary);
-    font-size: 0.9rem;
+    font-size: var(--ui-font-scale-md);
     line-height: 1.5;
 }
 
@@ -338,9 +512,9 @@
     font-style: italic;
 }
 
-/* Lazy-load shell — shared across sections that fetch their body
- * on first visibility (hx-trigger="revealed"). The 240px min-height
- * keeps the IntersectionObserver from re-firing as content drops in. */
+/* Lazy-load shell — shared across sections that fetch their body on
+ * first intersection (hx-trigger="intersect once"). The 240px
+ * min-height keeps the observer from re-firing as content drops in. */
 .pf-section__lazy {
     min-height: 240px;
     display: flex;
@@ -349,80 +523,9 @@
 }
 
 .pf-section__lazy-skeleton {
-    color: var(--ui-text-secondary);
-    font-size: 0.9rem;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-sm);
     font-style: italic;
-}
-
-/* Section indicator (6F-2) ----------------------------------------- *
- *
- * Fixed-position vertical strip of dots on the right edge of the
- * viewport, one per section in the active area. Hover reveals a
- * label tooltip; click anchor-scrolls; ``section_nav.js`` toggles
- * ``is-active`` via IntersectionObserver.
- */
-
-.pf-section-indicator {
-    position: fixed;
-    right: var(--pf-section-indicator-right);
-    top: 50%;
-    transform: translateY(-50%);
-    width: var(--pf-section-indicator-width);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--pf-section-indicator-dot-gap);
-    z-index: 10;
-    pointer-events: none;
-}
-
-.pf-section-indicator__dot {
-    pointer-events: auto;
-    width: var(--pf-section-indicator-dot-size);
-    height: var(--pf-section-indicator-dot-size);
-    border-radius: 50%;
-    background-color: var(--ui-text-disabled);
-    position: relative;
-    display: block;
-    text-decoration: none;
-    transition: background-color 120ms linear, transform 120ms linear;
-}
-
-.pf-section-indicator__dot:hover,
-.pf-section-indicator__dot:focus-visible {
-    background-color: var(--ui-accent-primary);
-    transform: scale(1.35);
-    outline: none;
-}
-
-.pf-section-indicator__dot.is-active {
-    background-color: var(--ui-accent-primary);
-}
-
-.pf-section-indicator__dot:focus-visible {
-    box-shadow: 0 0 0 2px var(--pf-accent-glow);
-}
-
-.pf-section-indicator__label {
-    position: absolute;
-    right: calc(100% + 10px);
-    top: 50%;
-    transform: translateY(-50%);
-    background-color: var(--pf-section-indicator-label-bg);
-    color: var(--ui-text-on-sidebar);
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 0.78rem;
-    line-height: 1.2;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms linear;
-}
-
-.pf-section-indicator__dot:hover .pf-section-indicator__label,
-.pf-section-indicator__dot:focus-visible .pf-section-indicator__label {
-    opacity: 1;
 }
 
 /* Command palette (6F-2) ------------------------------------------- *
@@ -547,14 +650,21 @@ dialog.pf-palette::backdrop {
 
 /* Status bar ------------------------------------------------------- */
 
+/* Spans both columns: the shell grid no longer names its areas. Sticky
+ * at the bottom, because the document scrolls now — without it the bar
+ * would sit below the fold on any view taller than the viewport, where
+ * it used to ride the viewport-high grid. */
 .pf-statusbar {
-    grid-area: statusbar;
+    grid-column: 1 / -1;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 16px;
-    background-color: var(--pf-bg-surface);
-    border-top: 1px solid var(--ui-border-default);
+    background-color: var(--ui-background-chrome);
+    border-top: 1px solid var(--ui-border-soft);
     color: var(--ui-text-secondary);
     font-size: 11px;
     height: var(--pf-statusbar-height);

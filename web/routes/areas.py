@@ -54,7 +54,7 @@ from web.routes.chat import (
 )
 from web.routes.data_import import load_data_import_section_context
 from web.routes.market_data import load_market_data_section_context
-from web.shell import is_htmx_request, section_index_for
+from web.shell import is_htmx_request, landing_section_for, section_index_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -171,6 +171,7 @@ def _render_area(
         "user_email": user_email,
         "csrf_token": csrf_token,
         "section_index": section_index_for(area_slug),
+        "landing_section": landing_section_for(area_slug),
     }
     if extra_context:
         context.update(extra_context)

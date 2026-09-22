@@ -264,9 +264,15 @@ VISIBLE_FN = """
     }
 """
 
-#: An ``hx-trigger="revealed"`` element that has not dispatched its request.
-#: ``*=`` because a trigger may list more than one event.
-UNFIRED_LOADER_SELECTOR = f'[hx-trigger*="revealed"]:not([{FIRED_ATTR}="1"])'
+#: A lazy-loader element that has not dispatched its request. Both trigger
+#: spellings are matched: P-UX-A0b moved the tree to ``intersect once``, and
+#: ``revealed`` stays in the selector because a stray one would otherwise go
+#: unnoticed rather than being reported as unfired. ``*=`` because a trigger
+#: may list more than one event.
+UNFIRED_LOADER_SELECTOR = (
+    f'[hx-trigger*="revealed"]:not([{FIRED_ATTR}="1"]),'
+    f'[hx-trigger*="intersect"]:not([{FIRED_ATTR}="1"])'
+)
 
 #: The loader-driven reveal re-reads the DOM after each round because a section
 #: that arrives on ``revealed`` may itself contain per-item loaders on the same

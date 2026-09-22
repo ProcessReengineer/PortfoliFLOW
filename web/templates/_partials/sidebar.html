@@ -11,6 +11,12 @@
    not derived at render time; keep it in step with `_AREAS`, which carries
    the rationale for the order.
 
+   Since P-UX-A0b the nav carries a second level: under the *active*
+   area the list expands to that area's sections (``section_index``),
+   each one a fragment link the shell's ``shell.js`` turns into a view
+   switch. Only the active area expands — the sections of an area you
+   are not in are a level of noise, not navigation.
+
    The id ``pf-sidebar`` is the OOB swap target — when the
    ``sidebar_oob`` flag is set, the rendered <aside> carries
    ``hx-swap-oob="outerHTML"`` so HTMX replaces the live sidebar in
@@ -43,9 +49,16 @@
                hx-swap="innerHTML"
                hx-push-url="true"
                aria-current="{% if active_area == slug %}page{% else %}false{% endif %}">
-                <span class="pf-sidebar__glyph" aria-hidden="true">{{ label[0] }}</span>
+                <span class="pf-sidebar__glyph" aria-hidden="true">{{ pf_icon(slug.replace("_", "-")) }}</span>
                 <span class="pf-sidebar__label">{{ label }}</span>
             </a>
+            {% if active_area == slug and section_index %}
+                <ul class="pf-sidebar__sections" aria-label="{{ label }} sections">
+                    {% for s in section_index %}
+                    <li><a class="pf-sidebar__section" href="#{{ s.slug }}" data-pf-section-link="{{ s.slug }}"{% if s.landing == "true" %} aria-current="true"{% endif %}>{{ s.title }}</a></li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
         {% endfor %}
         {% if show_super_admin_link %}
             {# Platform Admin entry — only rendered for super-admins.
@@ -55,7 +68,7 @@
             <a class="pf-sidebar__item pf-sidebar__item--platform{% if active_area == 'super_admin' %} is-active{% endif %}"
                href="/super-admin/tenants"
                data-area="super_admin">
-                <span class="pf-sidebar__glyph" aria-hidden="true">P</span>
+                <span class="pf-sidebar__glyph" aria-hidden="true">{{ pf_icon("platform-admin") }}</span>
                 <span class="pf-sidebar__label">Platform Admin</span>
             </a>
         {% endif %}
@@ -78,10 +91,10 @@
                     class="pf-sidebar__collapse-button"
                     aria-label="{% if sidebar_collapsed %}Expand sidebar{% else %}Collapse sidebar{% endif %}">
                 <span class="pf-sidebar__collapse-label-expanded">
-                    « Collapse
+                    {{ pf_icon("nav-collapse") }}Collapse
                 </span>
                 <span class="pf-sidebar__collapse-label-collapsed">
-                    »
+                    {{ pf_icon("nav-expand") }}
                 </span>
             </button>
         </form>
@@ -95,10 +108,13 @@
                 <button type="submit"
                         class="pf-sidebar__signout-button">
                     <span class="pf-sidebar__signout-label-expanded">
-                        Sign out
+                        {{ pf_icon("sign-out") }}Sign out
                     </span>
+                    {# Collapsed: the icon IS the control, so it carries the
+                       accessible name — the button has no aria-label of its
+                       own and the expanded text span is display:none here. #}
                     <span class="pf-sidebar__signout-label-collapsed">
-                        ⏻
+                        {{ pf_icon("sign-out", "Sign out") }}
                     </span>
                 </button>
             </form>

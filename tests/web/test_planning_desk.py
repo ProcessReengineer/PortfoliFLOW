@@ -634,7 +634,7 @@ async def test_planning_desk_renders_both_sections(
     assert "Planning Desk" in body
     for slug in ("cash-flow-planning", "scenario-analysis"):
         assert f'id="{slug}"' in body, f'missing section anchor id="{slug}"'
-        assert f'data-section="{slug}"' in body, f"missing section-indicator dot for {slug}"
+        assert f'data-pf-section="{slug}"' in body, f"missing section block for {slug}"
 
 
 async def test_planning_desk_htmx_fragment(
@@ -675,7 +675,7 @@ async def test_the_area_body_lazy_loads_the_lens_and_mounts_the_strip(
     body = (await web_client.get("/planning-desk")).text
 
     assert SECTION_URL in body, "the lazy shell does not target the section"
-    assert 'hx-trigger="revealed"' in body
+    assert 'hx-trigger="intersect once"' in body
     assert 'id="pd-paramstrip"' in body
     # Both Sections are live since S34.4 — Cash Flow Planning lost its pill in
     # S2.4b, Scenario Analysis dropped its "planned" pill here — so the area
@@ -2110,7 +2110,7 @@ async def test_a_market_shock_moves_the_scenario_panel_off_the_baseline(
     assert "could not be scored" not in body
     # The composition drill-down remains a lazy shell — not loaded inline.
     assert 'hx-get="/api/planning-desk/scenario-composition' in body
-    assert 'hx-trigger="revealed"' in body
+    assert 'hx-trigger="intersect once"' in body
 
 
 async def test_the_composition_endpoint_returns_the_lazy_drill_down(
@@ -2518,5 +2518,8 @@ async def test_watch_desk_renders_three_sections_without_scenarios(
     for slug in ("briefing", "journal", "calibration"):
         assert f'id="{slug}"' in body
     assert 'id="scenarios"' not in body
-    assert 'data-section="scenarios"' not in body
-    assert body.count('class="pf-section-indicator__dot"') == 3
+    assert 'data-pf-section="scenarios"' not in body
+    # Three section blocks and no fourth. The count used to come off the
+    # right-edge indicator's dots; since P-UX-A0b it comes off the
+    # sections themselves, which is the thing the dots were counting.
+    assert body.count('data-pf-section="') == 3

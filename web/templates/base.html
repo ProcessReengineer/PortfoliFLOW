@@ -79,9 +79,6 @@
 
         <main id="shell-main" class="pf-main" tabindex="-1">
             {% block content %}{% endblock %}
-            {% if section_index %}
-                {% include "_partials/section_indicator.html" %}
-            {% endif %}
         </main>
 
         {% include "_partials/statusbar.html" %}
@@ -89,7 +86,8 @@
 
     {# Command palette overlay — Sub-stream 6F-2. Document-level
        element shared across all area pages; ``section_nav.js`` toggles
-       its open state via Cmd+K / Ctrl+K. #}
+       its open state via Cmd+K / Ctrl+K and from each view header's
+       Search control. #}
     {% include "_partials/command_palette.html" %}
 
     {% block scripts %}{% endblock %}
@@ -100,5 +98,9 @@
     <script src="/static/js/chat.js" defer></script>
     <script src="/static/js/scraper.js" defer></script>
     <script src="/static/js/section_nav.js" defer></script>
+    {# One section per view (P-UX-A0b): shows the fragment's section and
+       hides the rest. Deferred, so it runs before HTMX processes the
+       body — the sections it hides never fire their loaders. #}
+    <script src="/static/js/shell.js" defer></script>
 </body>
 </html>

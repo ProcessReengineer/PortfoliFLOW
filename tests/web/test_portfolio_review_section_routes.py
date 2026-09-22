@@ -27,7 +27,7 @@ Coverage targets — sub-stream 6F-3d:
 Coverage targets — A7 / ADR-0073 (per-investment stack):
 
 * The section body carries one lazy placeholder per active investment,
-  each with the shared resolved as-of date and ``hx-trigger="revealed"``.
+  each with the shared resolved as-of date and ``hx-trigger="intersect once"``.
 * ``GET /api/portfolio-review/investment/{id}/section`` (valid id)
   renders the six-tile fragment (including the Total Return tile) with
   investment-suffixed DOM ids and a KPI strip.
@@ -545,7 +545,7 @@ async def test_section_renders_per_investment_placeholders(
     """The section body carries one lazy placeholder per active investment.
 
     Each placeholder fetches its own six-tile fragment via
-    ``hx-trigger="revealed"`` and carries the overview's resolved as-of
+    ``hx-trigger="intersect once"`` and carries the overview's resolved as-of
     date (default resolution lands on 2026-03-31) in its ``hx-get`` URL.
     """
     user_id, email, password = seeded_user
@@ -564,7 +564,7 @@ async def test_section_renders_per_investment_placeholders(
 
     # One placeholder article per active investment.
     assert body.count('class="pr-investment-stack__item"') == 2
-    assert 'hx-trigger="revealed"' in body
+    assert 'hx-trigger="intersect once"' in body
     for inv_id, _name in seeded:
         assert (
             'hx-get="/api/portfolio-review/investment/'

@@ -1,15 +1,30 @@
 {# Reusable section block — one per module within an area template.
 
+   Since P-UX-A0b an area shows one section at a time: the section whose
+   slug matches ``landing_section`` renders visible, every other one
+   renders with the ``hidden`` attribute and ``web/static/js/shell.js``
+   swaps that attribute as the URL fragment changes. A hidden section's
+   lazy loaders never fire — they trigger on ``intersect once``, and a
+   ``display: none`` element never intersects.
+
    Parameters (passed via ``{% with %}`` in the area template):
      section_slug          — the module's ``module_name`` slug. Used as
-                              the HTML id; 6F-2 binds anchor scrolling
-                              and the section indicator to it.
+                              the HTML id, as the URL fragment that
+                              selects the section, and as the key the
+                              sidebar's second level links to.
      (No ``section_title`` parameter: the heading comes from the
       ``web.shell`` section catalogue via
       ``pf_section_title(active_area, section_slug)`` and cannot be
       overridden per call site.)
      section_pill          — short status pill (e.g. "in progress",
                               "polish in 6F-3"); optional.
+     section_as_of         — as-of date for the section's data, rendered
+                              into the view header beside the title;
+                              optional.
+     section_primary_template — optional path to a Jinja partial holding
+                              the section's primary action control(s),
+                              rendered into the view header's action
+                              slot.
      section_body          — pre-rendered HTML to drop into the body.
      section_body_template — optional path to a Jinja partial included
                               inside the body. When set, it wins over
@@ -19,15 +34,23 @@
                               the area template's ``{% with %}`` block
                               are visible to the included partial.
      section_placeholder   — optional placeholder string when neither a
-                              body nor a body template is supplied. #}
-<section class="pf-section" id="{{ section_slug }}" aria-labelledby="{{ section_slug }}-title">
-    <header class="pf-section__header">
-        <h2 class="pf-section__title" id="{{ section_slug }}-title">
-            {{ pf_section_title(active_area, section_slug) }}
-        </h2>
-        {% if section_pill %}
-            <span class="pf-section__pill">{{ section_pill }}</span>
-        {% endif %}
+                              body nor a body template is supplied.
+
+   From the area context (web/routes/areas.py):
+     landing_section       — slug of the section this area opens on. #}
+<section class="pf-section" id="{{ section_slug }}" aria-labelledby="{{ section_slug }}-title" data-pf-section="{{ section_slug }}"{% if section_slug != landing_section %} hidden{% endif %}>
+    <header class="pf-view__head">
+        <div class="pf-view__title-row">
+            <h2 class="pf-view__title" id="{{ section_slug }}-title">{{ pf_section_title(active_area, section_slug) }}</h2>
+            {% if section_pill %}<span class="pf-section__pill">{{ section_pill }}</span>{% endif %}
+            {% if section_as_of %}<span class="pf-view__asof">As of {{ section_as_of }}</span>{% endif %}
+        </div>
+        <div class="pf-view__tools">
+            <button type="button" class="pf-view__search" data-pf-palette-open aria-keyshortcuts="Control+K">
+                {{ pf_icon("search") }}<span>Search</span><kbd>Ctrl K</kbd>
+            </button>
+            <div class="pf-view__actions">{% if section_primary_template %}{% include section_primary_template with context %}{% endif %}</div>
+        </div>
     </header>
     <div class="pf-section__body">
         {% if section_body_template %}

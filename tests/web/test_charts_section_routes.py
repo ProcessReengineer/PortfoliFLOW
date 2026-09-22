@@ -301,8 +301,8 @@ async def test_section_renders_one_article_per_active_investment(
     assert "Investment B" in body
     # Two per-investment lazy-loaders pointing at the right URL.
     assert body.count('hx-get="/api/charts/investment/') == 2
-    # Both use hx-trigger="revealed".
-    assert body.count('hx-trigger="revealed"') >= 2
+    # Both use hx-trigger="intersect once".
+    assert body.count('hx-trigger="intersect once"') >= 2
 
 
 async def test_investment_triplet_returns_three_plotly_targets(

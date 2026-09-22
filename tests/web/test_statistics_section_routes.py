@@ -463,7 +463,7 @@ async def test_front_office_renders_statistics_lazy_shell(
     body = response.text
 
     assert 'hx-get="/api/statistics/section"' in body
-    assert 'hx-trigger="revealed"' in body
+    assert 'hx-trigger="intersect once"' in body
     assert "Loading statistics" in body
     # The KPI / correlation markers must be absent on the initial
     # area render — they only appear after HTMX fetches the section.

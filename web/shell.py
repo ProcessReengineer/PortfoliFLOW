@@ -17,6 +17,10 @@ Two primitives are exported:
 * :func:`is_htmx_request` — FastAPI dependency that returns ``True``
   when the request carries the ``HX-Request: true`` header.
 
+Since P-UX-A0b an area shows one section at a time: the URL fragment
+selects it, and :func:`landing_section_for` names the section the area
+opens on when the fragment is absent.
+
 Per ADR-0046 the shell is a presentational concern. This module never
 imports from ``modules/``; it only depends on FastAPI and the
 read-only environment surface.
@@ -105,15 +109,19 @@ class SectionMeta:
 
     Mirrors the section markup produced by ``areas/_section.html``:
     ``slug`` is the section's HTML id (also the URL fragment), and
-    ``title`` is the human-readable label rendered into the section
-    header and the indicator's hover tooltip. Since P-UX-2 this
+    ``title`` is the human-readable label rendered into the section's
+    view header and the sidebar's second level. Since P-UX-2 this
     catalogue is the single source of the rendered heading: the body
     partials pass only the slug, and ``areas/_section.html`` resolves
     the title through :func:`section_title`.
+
+    ``landing`` marks the section shown when the area is opened without
+    a fragment; at most one per area, else the first entry.
     """
 
     slug: str
     title: str
+    landing: bool = False
 
 
 # Sub-stream 6F-2 section catalogue. The slug list per area mirrors
@@ -164,7 +172,7 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
     # history (booked / cancelled). Placeholder bodies until S4 / S5.
     "transactions": (
         SectionMeta(slug="new", title="New transaction"),
-        SectionMeta(slug="blotter", title="Blotter"),
+        SectionMeta(slug="blotter", title="Blotter", landing=True),
         SectionMeta(slug="history", title="History"),
     ),
     "back_office": (
@@ -268,21 +276,75 @@ def section_title(area_slug: str, section_slug: str) -> str:
     )
 
 
+def landing_section_for(area_slug: str) -> str:
+    """Return the slug of the section ``area_slug`` opens on.
+
+    Since P-UX-A0b an area shows one section at a time and the URL
+    fragment selects it. With no fragment the landing section is
+    shown: the catalogue entry flagged ``landing``, or — the common
+    case, where no entry is flagged — the first one.
+
+    Args:
+        area_slug: Area slug from :data:`_AREAS`.
+
+    Returns:
+        The landing section's slug.
+
+    Raises:
+        LookupError: For an unknown area, in the style of
+            :func:`section_title` — an area whose sections the
+            catalogue does not list cannot name a landing view, and
+            failing here surfaces the drift rather than rendering a
+            page with every section hidden.
+    """
+    sections = all_sections(area_slug)
+    if not sections:
+        raise LookupError(
+            f"No sections for area {area_slug!r} in the shell catalogue; add "
+            "it to _SECTIONS_BY_AREA rather than defaulting the landing view."
+        )
+    for section in sections:
+        if section.landing:
+            return section.slug
+    return sections[0].slug
+
+
 def section_index_for(area_slug: str) -> list[dict[str, str]]:
     """Project :func:`all_sections` to the template-friendly dict form.
 
-    The Jinja templates iterate over a list of dicts (``slug`` and
-    ``title`` keys) rather than dataclass instances, matching the
-    pattern used elsewhere in the codebase for shell context.
+    The Jinja templates iterate over a list of dicts (``slug``,
+    ``title`` and ``landing`` keys) rather than dataclass instances,
+    matching the pattern used elsewhere in the codebase for shell
+    context. ``landing`` stays a string — ``"true"`` / ``"false"`` —
+    so the dict type is uniform and the sidebar template compares it
+    the way it compares every other rendered attribute value.
+
+    ``landing`` carries the *resolved* landing view from
+    :func:`landing_section_for`, not the raw ``SectionMeta.landing``
+    flag: exactly one entry per area is ``"true"``, including the eight
+    areas that flag nothing and fall back to their first section. The
+    sidebar's second level marks that entry ``aria-current``, and it has
+    to be marked on every area, not only on the one that carries a flag.
 
     Args:
         area_slug: Area slug to look up.
 
     Returns:
-        List of ``{"slug": str, "title": str}`` dicts. Empty list for
-        unknown areas.
+        List of ``{"slug": str, "title": str, "landing": str}`` dicts.
+        Empty list for unknown areas.
     """
-    return [{"slug": section.slug, "title": section.title} for section in all_sections(area_slug)]
+    sections = all_sections(area_slug)
+    if not sections:
+        return []
+    landing = landing_section_for(area_slug)
+    return [
+        {
+            "slug": section.slug,
+            "title": section.title,
+            "landing": "true" if section.slug == landing else "false",
+        }
+        for section in sections
+    ]
 
 
 def is_sidebar_collapsed(request: Request) -> bool:

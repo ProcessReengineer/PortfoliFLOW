@@ -575,7 +575,7 @@ async def test_front_office_renders_portfolio_analysis_lazy_shell(
     body = response.text
 
     assert 'hx-get="/api/portfolio-analysis/section"' in body
-    assert 'hx-trigger="revealed"' in body
+    assert 'hx-trigger="intersect once"' in body
     assert "Loading portfolio analysis" in body
     # The Compute form must not appear in the initial area render.
     assert 'name="frontier_points"' not in body

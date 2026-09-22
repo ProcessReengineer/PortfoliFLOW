@@ -1,7 +1,7 @@
 {# Portfolio Review section body — embedded in
    /investor-communication#portfolio-review (sub-stream 6F-3d).
 
-   Fetched via HTMX on first visibility (hx-trigger="revealed" in the
+   Fetched via HTMX on first visibility (hx-trigger="intersect once" in the
    lazy shell). The persistent as-of-date form re-submits this same
    endpoint and HTMX swaps only the section body.
 
@@ -119,7 +119,7 @@
                 {% for a in investment_articles %}
                     <article class="pr-investment-stack__item"
                              hx-get="/api/portfolio-review/investment/{{ a.id }}/section?as_of_date={{ as_of_date_display }}"
-                             hx-trigger="revealed"
+                             hx-trigger="intersect once"
                              hx-swap="innerHTML">
                         <p class="pr-investment-stack__loading" aria-live="polite">
                             Loading {{ a.name }}&hellip;

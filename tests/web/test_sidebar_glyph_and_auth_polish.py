@@ -5,9 +5,11 @@
 
 Three small follow-ups from the 6F-2 browser walk:
 
-* The sidebar renders single-letter glyphs (visible only when the
-  sidebar is collapsed) instead of the legacy two-letter codes
-  ``FO`` / ``BO`` / ``AD`` / ``IC`` / ``AS``.
+* The sidebar renders one Lucide icon per area. This began as
+  single-letter glyphs replacing the legacy two-letter codes
+  ``FO`` / ``BO`` / ``AD`` / ``IC`` / ``AS``; P-UX-A0b retired the
+  letters in turn (design parameters §2.8: one icon set) and the
+  glyph is visible at both nav widths now, not only when collapsed.
 * The ``.pf-sidebar__item`` rule no longer forces single-line
   truncation, so ``Investor Communication`` wraps to two lines
   instead of being cut off at the 200px sidebar width.
@@ -59,8 +61,12 @@ _AREAS: tuple[tuple[str, str, str], ...] = (
     ("assistants", "/assistants", "A"),
     ("admin", "/admin", "A"),
 )
+"""Area slug, URL, and the single letter the glyph used to carry.
 
-_LEGACY_CODES: tuple[str, ...] = ("FO", "BO", "AD", "IC", "AS")
+The letters are retired (P-UX-A0b); they stay in the table so the
+parametrize ids still name the area, and so the record of what was
+there survives the change.
+"""
 
 
 def _require_db() -> None:
@@ -179,18 +185,21 @@ def _read_css(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("slug,url,glyph", _AREAS)
-async def test_sidebar_uses_single_letter_glyphs(
+@pytest.mark.parametrize("slug,url,_glyph", _AREAS)
+async def test_sidebar_uses_icon_glyphs(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     slug: str,
     url: str,
-    glyph: str,
+    _glyph: str,
 ) -> None:
-    """The sidebar emits ``pf-sidebar__glyph`` spans carrying the
-    first letter of each area label. The legacy two-letter codes
-    (``FO`` / ``BO`` / ``AD`` / ``IC`` / ``AS``) must not appear
-    inside the glyph / icon spans any more.
+    """Every ``pf-sidebar__glyph`` holds one Lucide icon and no letter.
+
+    P-UX-A0b retired the single-letter glyphs by decision (design
+    parameters §2.8: one icon set), so the assertion is no longer
+    "which letter" but "an icon, and nothing beside it" — which also
+    closes the door on the legacy two-letter codes the 6F-2 polish
+    loop removed.
     """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
@@ -204,30 +213,23 @@ async def test_sidebar_uses_single_letter_glyphs(
     # Legacy class name has been retired.
     assert "pf-sidebar__icon" not in body, f"{url} still emits the legacy pf-sidebar__icon class"
 
-    # Each glyph span contains a single letter — extract them all and
-    # confirm the expected initials appear in render order. Nine areas since
-    # ADR-0128 §7 added Transactions ("T"); the sidebar order is Front Office
-    # → Back Office → Assistants → Planning Desk → Investor Communication →
-    # Watch Desk → Cases → Transactions → Admin (ADR-0122 §1, superseding the
-    # ADR-0104 §6 order, with Transactions inserted between Cases and Admin).
-    # Both Assistants and Admin render "A", hence the repeated initial.
-    span_contents = re.findall(
-        r'<span class="pf-sidebar__glyph"[^>]*>([^<]*)</span>',
+    spans = re.findall(
+        r'<span class="pf-sidebar__glyph"[^>]*>(.*?)</span>',
         body,
+        flags=re.DOTALL,
     )
-    assert span_contents == ["F", "B", "A", "P", "I", "W", "C", "T", "A"], (
-        f"{url} glyph contents were {span_contents!r}"
-    )
-
-    # Scoped negative assertion: the 200 characters immediately after
-    # each pf-sidebar__glyph class occurrence must not contain any of
-    # the legacy two-letter codes.
-    for match in re.finditer(r'class="pf-sidebar__glyph"', body):
-        window = body[match.end() : match.end() + 200]
-        for code in _LEGACY_CODES:
-            assert code not in window, (
-                f"{url} leaks legacy code {code!r} inside a glyph span window: {window!r}"
-            )
+    # Nine areas since ADR-0128 §7 added Transactions; a super-admin would
+    # add a tenth (Platform Admin), but this session is a tenant owner.
+    assert len(spans) == 9, f"{url} rendered {len(spans)} glyph spans"
+    for inner in spans:
+        assert inner.count('<svg class="pf-icon"') == 1, (
+            f"{url} glyph span is not exactly one icon: {inner!r}"
+        )
+        # Nothing but the icon: no letter survives outside the markup.
+        text_outside_svg = re.sub(r"<svg\b.*?</svg>", "", inner, flags=re.DOTALL)
+        assert text_outside_svg.strip() == "", (
+            f"{url} glyph span carries text beside its icon: {text_outside_svg!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

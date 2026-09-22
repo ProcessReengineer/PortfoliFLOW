@@ -1,80 +1,23 @@
-/* PortfoliFLOW — section indicator scroll-spy and command palette.
+/* PortfoliFLOW — command palette.
  *
- * Sub-stream 6F-2. Two responsibilities live in this file:
+ * Sub-stream 6F-2, narrowed by P-UX-A0b. The palette is a native
+ * ``<dialog>``: Cmd/Ctrl+K or a view header's Search control opens it,
+ * the input field is debounced and fetches ``/api/cmd-search``, arrow
+ * keys navigate, Enter activates, Escape closes.
  *
- *   1. The section indicator's scroll-spy: an IntersectionObserver
- *      watches each ``.pf-section`` and toggles ``is-active`` on the
- *      matching ``.pf-section-indicator__dot``.
- *   2. The command palette: Cmd/Ctrl+K opens a native ``<dialog>``;
- *      the input field is debounced and fetches ``/api/cmd-search``;
- *      arrow keys navigate, Enter activates, Escape closes.
+ * The scroll-spy that used to share this file went with the right-edge
+ * dot strip (P-UX-A0b): an area now shows one section at a time, so
+ * there is no scroll position to spy on — ``shell.js`` marks the
+ * current section from the URL fragment instead.
  *
- * The script is loaded with ``defer`` from ``base.html``, so the DOM
- * is parsed before this code runs. HTMX area swaps replace the
- * ``#shell-main`` subtree, which drops the previous indicator's dots
- * out of the observer; the ``htmx:afterSwap`` handler rebinds the
- * observer to the new dots.
+ * The script is loaded with ``defer`` from ``base.html``, so the DOM is
+ * parsed before this code runs. The Search control lives inside
+ * ``#shell-main`` and is re-rendered by every area swap, so its click
+ * handler is delegated on ``document`` rather than bound per button.
  */
 
 (function () {
     "use strict";
-
-    // --- Scroll-spy --------------------------------------------------
-
-    let scrollSpyObserver = null;
-
-    function bindScrollSpy() {
-        if (scrollSpyObserver !== null) {
-            scrollSpyObserver.disconnect();
-            scrollSpyObserver = null;
-        }
-
-        const dots = document.querySelectorAll(
-            ".pf-section-indicator__dot"
-        );
-        if (dots.length === 0) {
-            return;
-        }
-        const dotBySlug = new Map();
-        dots.forEach(function (dot) {
-            dotBySlug.set(dot.getAttribute("data-section"), dot);
-        });
-
-        // Centre-of-viewport heuristic: a section counts as "current"
-        // when its bounds straddle the middle 20 % of the viewport.
-        scrollSpyObserver = new IntersectionObserver(
-            function (entries) {
-                entries.forEach(function (entry) {
-                    const slug = entry.target.getAttribute("id");
-                    if (!slug) {
-                        return;
-                    }
-                    const dot = dotBySlug.get(slug);
-                    if (!dot) {
-                        return;
-                    }
-                    if (entry.isIntersecting) {
-                        dots.forEach(function (other) {
-                            other.classList.remove("is-active");
-                        });
-                        dot.classList.add("is-active");
-                    }
-                });
-            },
-            {
-                root: null,
-                rootMargin: "-40% 0px -40% 0px",
-                threshold: 0,
-            }
-        );
-
-        document.querySelectorAll(".pf-section").forEach(function (section) {
-            scrollSpyObserver.observe(section);
-        });
-    }
-
-    document.addEventListener("DOMContentLoaded", bindScrollSpy);
-    document.body.addEventListener("htmx:afterSwap", bindScrollSpy);
 
     // --- Command palette --------------------------------------------
 
@@ -319,6 +262,17 @@
             });
         }
     }
+
+    // Delegated: each area swap re-renders the view header, so a handler
+    // bound to the button itself would be dropped with the old markup.
+    document.addEventListener("click", function (event) {
+        const trigger = event.target.closest("[data-pf-palette-open]");
+        if (!trigger) {
+            return;
+        }
+        event.preventDefault();
+        openPalette();
+    });
 
     document.addEventListener("DOMContentLoaded", bindPalette);
 })();

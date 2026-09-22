@@ -58,6 +58,7 @@ from services.ai_service_core import AIServiceCore, get_ai_service_core
 from services.auth.local_password import LocalPasswordAuthBackend
 from services.credential_vault import is_vault_configured
 from services.tenant_resolution import SubdomainTenantResolver
+from web.icons import pf_icon
 from web.routes.areas import router as areas_router
 from web.routes.benchmarks_attribution import (
     router as benchmarks_attribution_router,
@@ -474,6 +475,11 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
     # catalogue is the single source of that heading, so the area body
     # partials pass only the slug and ``areas/_section.html`` calls this.
     templates.env.globals["pf_section_title"] = section_title
+
+    # Jinja global — inline one vendored Lucide SVG by its product name.
+    # Keeps the icon set addressable from templates without a file path,
+    # so an upstream rename is absorbed in web/icons.py (ADR-0037 §9).
+    templates.env.globals["pf_icon"] = pf_icon
 
     app.state.templates = templates
 

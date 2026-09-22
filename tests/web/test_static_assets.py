@@ -71,17 +71,64 @@ def test_base_html_includes_chart_container_and_table_css() -> None:
     assert "components/tables.css" in base
 
 
-def test_base_html_includes_plotly_cdn() -> None:
-    base = _read(_TEMPLATES_DIR / "base.html")
-    assert "cdn.plot.ly/plotly-" in base
+# Third-party assets are served from the tree, not a CDN (ADR-0037 §9).
+# The paths below are the contract between base.html and web/static/vendor/;
+# test_vendor_files_present asserts each one resolves to a file on disk, so a
+# version bump that misses the template — or vice versa — fails here rather
+# than as an empty page in a browser.
+_VENDOR_PLOTLY_JS = "/static/vendor/plotly-2.35.2/plotly.min.js"
+_VENDOR_TABULATOR_CSS = "/static/vendor/tabulator-5.6.1/tabulator.min.css"
+_VENDOR_TABULATOR_JS = "/static/vendor/tabulator-5.6.1/tabulator.min.js"
+_VENDOR_HTMX_JS = "/static/vendor/htmx-1.9.12/htmx.min.js"
+_VENDOR_HTMX_SSE_JS = "/static/vendor/htmx-1.9.12/ext/sse.js"
+
+_VENDOR_PATHS = (
+    _VENDOR_PLOTLY_JS,
+    _VENDOR_TABULATOR_CSS,
+    _VENDOR_TABULATOR_JS,
+    _VENDOR_HTMX_JS,
+    _VENDOR_HTMX_SSE_JS,
+)
 
 
-def test_base_html_includes_tabulator_cdn() -> None:
+def test_base_html_loads_plotly_from_vendor() -> None:
+    """Plotly is served from the tree; no CDN delivery remains."""
     base = _read(_TEMPLATES_DIR / "base.html")
-    # CSS and JS deliveries are pinned to the same Tabulator version.
-    assert "tabulator-tables" in base
-    assert "/dist/css/tabulator.min.css" in base
-    assert "/dist/js/tabulator.min.js" in base
+    assert _VENDOR_PLOTLY_JS in base
+    assert "cdn.plot.ly" not in base
+
+
+def test_base_html_loads_tabulator_from_vendor() -> None:
+    """CSS and JS deliveries are pinned to the same vendored version."""
+    base = _read(_TEMPLATES_DIR / "base.html")
+    assert _VENDOR_TABULATOR_CSS in base
+    assert _VENDOR_TABULATOR_JS in base
+    assert "unpkg.com" not in base
+
+
+def test_base_html_loads_htmx_from_vendor() -> None:
+    """HTMX and its SSE extension load locally, without SRI.
+
+    Subresource Integrity guards bytes fetched over the network. These
+    are read from the same checkout as the template, so an ``integrity``
+    attribute would pin the shell to a hash that a legitimate version
+    bump has to remember to update — a guard with no threat left to
+    cover. Byte-identity with the CDN copies was verified once, when the
+    files were vendored (docs/reports/P-UX-A0v-report.md).
+    """
+    base = _read(_TEMPLATES_DIR / "base.html")
+    assert _VENDOR_HTMX_JS in base
+    assert _VENDOR_HTMX_SSE_JS in base
+    assert "unpkg.com" not in base
+    assert "integrity=" not in base
+
+
+def test_vendor_files_present() -> None:
+    """Every vendored path base.html references resolves to a file."""
+    for href in _VENDOR_PATHS:
+        relative = href.removeprefix("/static/")
+        path = _STATIC_DIR / relative
+        assert path.is_file(), f"Vendored asset missing from the tree: {href}"
 
 
 def test_base_html_loads_tabulator_base_css_before_tables_overrides() -> None:
@@ -105,14 +152,16 @@ def test_base_html_loads_tabulator_base_css_before_tables_overrides() -> None:
     # references "components/tables.css", so a bare-substring search for
     # that filename would match the comment (which sits *before* the
     # Tabulator link) instead of the actual override stylesheet link.
-    tabulator_cdn_pos = base.find("tabulator-tables@5.6.1/dist/css/tabulator.min.css")
+    # Since the local-vendor switch the anchor is the vendored path; the
+    # assertion is unchanged, only the string it looks for.
+    tabulator_base_pos = base.find(_VENDOR_TABULATOR_CSS)
     tables_override_pos = base.find('href="/static/css/components/tables.css"')
-    assert tabulator_cdn_pos != -1, "Tabulator base CSS link is missing."
+    assert tabulator_base_pos != -1, "Tabulator base CSS link is missing."
     assert tables_override_pos != -1, "components/tables.css link is missing."
-    assert tabulator_cdn_pos < tables_override_pos, (
+    assert tabulator_base_pos < tables_override_pos, (
         "Tabulator base CSS must be loaded before components/tables.css "
         "so the PortfoliFLOW overrides win the cascade. Found Tabulator "
-        f"at position {tabulator_cdn_pos}, tables.css at position "
+        f"at position {tabulator_base_pos}, tables.css at position "
         f"{tables_override_pos}."
     )
 

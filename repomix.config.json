@@ -1,5 +1,10 @@
 {
   "security": {
     "enableSecurityCheck": false
+  },
+  "ignore": {
+    "customPatterns": [
+      "web/static/vendor/**"
+    ]
   }
 }

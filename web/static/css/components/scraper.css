@@ -62,7 +62,7 @@
     color: var(--ui-text-primary);
     border: 1px solid var(--ui-border-default);
     border-radius: 6px;
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.9rem;
 }
 

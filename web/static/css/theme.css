@@ -16,7 +16,6 @@
     --ui-accent-primary-pressed: #C42840;
     --ui-accent-on-accent: #000000;
     --ui-accent-logo: #F30A27;
-    --ui-button-fg: #000000;
     --ui-text-primary: #EDEDED;
     --ui-text-secondary: #B0B0B0;
     --ui-text-tertiary: #8C8C8C;
@@ -25,6 +24,7 @@
     --ui-border-default: #2A2A2A;
     --ui-border-soft: #1F1F1F;
     --ui-font-family: IBM Plex Sans, Inter, Segoe UI, system-ui, sans-serif;
+    --ui-font-family-mono: IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace;
     --ui-font-size-base: 10;
     --ui-font-scale-xs: 12px;
     --ui-font-scale-sm: 13px;
@@ -64,6 +64,8 @@
     --ui-motion-duration: 160ms;
     --ui-focus-width: 2px;
     --ui-focus-offset: 2px;
+    --ui-shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.6);
+    --ui-shadow-scrim: rgba(0, 0, 0, 0.55);
     --ui-layout-nav-width: 252px;
     --ui-layout-nav-width-collapsed: 56px;
     --ui-layout-rail-width: 44px;
@@ -79,9 +81,11 @@
     --ui-accessible-text-secondary: #D6D6D6;
     --ui-accessible-text-tertiary: #B4B4B4;
     --ui-accessible-border-default: #5A5A5A;
+    --ui-accessible-border-soft: #4A4A4A;
     --ui-accessible-control-height: 44px;
     --ui-accessible-control-height-sm: 36px;
     --ui-accessible-control-input-height: 44px;
+    --ui-accessible-control-row-pad: 14px;
     --ui-accessible-layout-nav-width: 272px;
     --ui-accessible-layout-nav-width-collapsed: 64px;
     --ui-accessible-layout-dock-width: 420px;
@@ -254,7 +258,6 @@
     --ui-accent-primary-pressed: #3A7DB0;
     --ui-accent-on-accent: #FFFFFF;
     --ui-accent-logo: #F30A27;
-    --ui-button-fg: #FFFFFF;
     --ui-text-primary: #EDEDED;
     --ui-text-secondary: #B0B0B0;
     --ui-text-tertiary: #8C8C8C;
@@ -263,6 +266,7 @@
     --ui-border-default: #2A2A2A;
     --ui-border-soft: #1F1F1F;
     --ui-font-family: IBM Plex Sans, Inter, Segoe UI, system-ui, sans-serif;
+    --ui-font-family-mono: IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace;
     --ui-font-size-base: 10;
     --ui-font-scale-xs: 12px;
     --ui-font-scale-sm: 13px;
@@ -302,6 +306,8 @@
     --ui-motion-duration: 160ms;
     --ui-focus-width: 2px;
     --ui-focus-offset: 2px;
+    --ui-shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.6);
+    --ui-shadow-scrim: rgba(0, 0, 0, 0.55);
     --ui-layout-nav-width: 252px;
     --ui-layout-nav-width-collapsed: 56px;
     --ui-layout-rail-width: 44px;
@@ -317,9 +323,11 @@
     --ui-accessible-text-secondary: #D6D6D6;
     --ui-accessible-text-tertiary: #B4B4B4;
     --ui-accessible-border-default: #5A5A5A;
+    --ui-accessible-border-soft: #4A4A4A;
     --ui-accessible-control-height: 44px;
     --ui-accessible-control-height-sm: 36px;
     --ui-accessible-control-input-height: 44px;
+    --ui-accessible-control-row-pad: 14px;
     --ui-accessible-layout-nav-width: 272px;
     --ui-accessible-layout-nav-width-collapsed: 64px;
     --ui-accessible-layout-dock-width: 420px;
@@ -336,7 +344,6 @@
     --ui-accent-primary-pressed: #155A95;
     --ui-accent-on-accent: #FFFFFF;
     --ui-accent-logo: #F30A27;
-    --ui-button-fg: #FFFFFF;
     --ui-text-primary: #1A1A1A;
     --ui-text-secondary: #5A5A5A;
     --ui-text-tertiary: #7A7A7A;
@@ -345,6 +352,7 @@
     --ui-border-default: #C8C8C8;
     --ui-border-soft: #E0E0E0;
     --ui-font-family: IBM Plex Sans, Inter, Segoe UI, system-ui, sans-serif;
+    --ui-font-family-mono: IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace;
     --ui-font-size-base: 10;
     --ui-font-scale-xs: 12px;
     --ui-font-scale-sm: 13px;
@@ -384,6 +392,8 @@
     --ui-motion-duration: 160ms;
     --ui-focus-width: 2px;
     --ui-focus-offset: 2px;
+    --ui-shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.18);
+    --ui-shadow-scrim: rgba(0, 0, 0, 0.35);
     --ui-layout-nav-width: 252px;
     --ui-layout-nav-width-collapsed: 56px;
     --ui-layout-rail-width: 44px;
@@ -399,9 +409,11 @@
     --ui-accessible-text-secondary: #3A3A3A;
     --ui-accessible-text-tertiary: #5A5A5A;
     --ui-accessible-border-default: #8A8A8A;
+    --ui-accessible-border-soft: #9A9A9A;
     --ui-accessible-control-height: 44px;
     --ui-accessible-control-height-sm: 36px;
     --ui-accessible-control-input-height: 44px;
+    --ui-accessible-control-row-pad: 14px;
     --ui-accessible-layout-nav-width: 272px;
     --ui-accessible-layout-nav-width-collapsed: 64px;
     --ui-accessible-layout-dock-width: 420px;

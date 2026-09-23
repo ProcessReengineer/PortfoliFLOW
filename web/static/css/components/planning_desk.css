@@ -36,7 +36,7 @@
     background: var(--ui-background-secondary);
     border: 1px solid var(--ui-border-default);
     border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--ui-shadow-panel);
 }
 
 .pd-paramstrip__label {
@@ -75,15 +75,15 @@
 }
 
 .pd-chip--txn {
-    border-color: #25384a;
-    background: #161d26;
-    color: #b6d4f0;
+    border-color: color-mix(in srgb, var(--ui-semantic-info) 30%, var(--ui-background-secondary));
+    background: color-mix(in srgb, var(--ui-semantic-info) 10%, var(--ui-background-secondary));
+    color: var(--ui-semantic-info);
 }
 
 .pd-chip--pacing {
-    border-color: #254a30;
-    background: #16211a;
-    color: #b6f0c4;
+    border-color: color-mix(in srgb, var(--ui-semantic-positive) 30%, var(--ui-background-secondary));
+    background: color-mix(in srgb, var(--ui-semantic-positive) 10%, var(--ui-background-secondary));
+    color: var(--ui-semantic-positive);
 }
 
 /* Both shock kinds share one chip — the mockup's chip--shock. Accent-tinted
@@ -91,7 +91,7 @@
  * surface's own transformation, so it wears the surface's accent. */
 .pd-chip--shock {
     border-color: var(--ui-accent-primary);
-    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    background: var(--pf-accent-soft);
     color: var(--ui-accent-primary);
 }
 
@@ -135,12 +135,12 @@
 }
 
 .pd-toggle__opt:hover:not(.is-on) {
-    background: var(--pf-bg-hover, #222222);
+    background: var(--pf-bg-hover);
     color: var(--ui-text-primary);
 }
 
 .pd-toggle__opt.is-on {
-    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    background: var(--pf-accent-soft);
     color: var(--ui-accent-primary);
     font-weight: 600;
     cursor: default;
@@ -238,14 +238,14 @@ table.pd-tl td.pd-seam-l {
 
 /* Plan cells read as projections, not as statements. */
 .pd-plancell {
-    color: #9fb2c2;
+    color: var(--ui-text-secondary);
     font-style: italic;
 }
 
 table.pd-tl tr.pd-rowgroup th,
 table.pd-tl tr.pd-rowgroup td {
-    background: #101418;
-    color: #cfd6dd;
+    background: var(--ui-background-chrome);
+    color: var(--ui-text-primary);
     font-weight: 600;
 }
 
@@ -435,7 +435,7 @@ table.pd-tl tr.pd-rowgroup td {
     padding: 5px 12px;
     border: 1px solid var(--ui-accent-primary);
     border-radius: 6px;
-    background: var(--pf-accent-soft, rgba(232, 48, 74, 0.15));
+    background: var(--pf-accent-soft);
     color: var(--ui-accent-primary);
     font-size: 0.78rem;
     font-weight: 600;
@@ -552,13 +552,13 @@ table.pd-hyp__table thead th {
 }
 
 .pd-pill--buy {
-    background: #1a3f1f;
-    color: #8affa0;
+    background: var(--ui-semantic-table-pos-bg-dark);
+    color: var(--ui-semantic-positive);
 }
 
 .pd-pill--sell {
-    background: #3f1a1f;
-    color: #ff8a8a;
+    background: var(--ui-semantic-table-neg-bg-dark);
+    color: var(--ui-semantic-negative);
 }
 
 /* AUM invariance is a construction property of the executor (ADR-0104 §2), so

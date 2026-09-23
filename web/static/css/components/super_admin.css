@@ -87,14 +87,14 @@
 
 .sa-banner--error {
     background-color: var(--ui-background-section);
-    border: 1px solid var(--ui-semantic-error, #b00020);
-    color: var(--ui-semantic-error, #b00020);
+    border: 1px solid var(--ui-semantic-error);
+    color: var(--ui-semantic-error);
 }
 
 .sa-banner--success {
     background-color: var(--ui-background-section);
-    border: 1px solid var(--ui-semantic-success, #2e7d32);
-    color: var(--ui-semantic-success, #2e7d32);
+    border: 1px solid var(--ui-semantic-success);
+    color: var(--ui-semantic-success);
 }
 
 /* ---- Sections ---------------------------------------------------- */
@@ -240,7 +240,7 @@
 }
 
 .sa-button:hover {
-    background-color: var(--ui-background-tertiary, var(--ui-background-section));
+    background-color: var(--ui-background-section);
 }
 
 .sa-button--primary {
@@ -324,7 +324,7 @@
 }
 
 .sa-pill--active {
-    background-color: var(--ui-semantic-success, #2e7d32);
+    background-color: var(--ui-semantic-success);
     color: var(--ui-background-primary);
 }
 

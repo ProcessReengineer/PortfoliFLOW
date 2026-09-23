@@ -87,7 +87,7 @@
 
 /* Correlation matrix container */
 .stats-correlation {
-    background: var(--ui-surface-primary, transparent);
+    background: var(--ui-background-primary);
     border-radius: 4px;
     padding: 0;
 }
@@ -98,7 +98,7 @@
 .stats-block__sub {
     margin-top: 16px;
     padding-top: 8px;
-    border-top: 1px solid var(--ui-border, #2c2c2c);
+    border-top: 1px solid var(--ui-border-default);
 }
 
 .stats-block__sub:first-of-type {
@@ -111,7 +111,7 @@
     margin: 0 0 8px;
     font-size: 0.95rem;
     font-weight: 600;
-    color: var(--ui-text-primary, #e8e8e8);
+    color: var(--ui-text-primary);
 }
 
 /* Collapsible detail sub-blocks (ADR-0062). The four Details tables
@@ -133,7 +133,7 @@ details.stats-subblock > summary.stats-subblock__summary::-webkit-details-marker
 
 .stats-subblock__chevron {
     font-size: 0.8em;
-    color: var(--ui-text-secondary, #9a9a9a);
+    color: var(--ui-text-secondary);
     transition: transform 0.15s ease;
 }
 

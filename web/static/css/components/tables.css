@@ -120,7 +120,7 @@
     display: inline-block;
     padding: 2px 8px;
     background-color: var(--ui-semantic-success);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-radius: 3px;
     font-size: 0.72rem;
     font-weight: 600;

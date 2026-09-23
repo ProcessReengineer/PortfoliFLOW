@@ -27,8 +27,8 @@
  *   - the mock's `--pf-bg-elevated` is replaced by `--ui-background-section`,
  *     which holds the identical value in the default theme and, unlike the
  *     `--pf-*` family, is redefined per theme;
- *   - mono text uses the app stack `var(--ui-font-mono, …)`, the
- *     components/cases.css idiom, since the app defines no `--ui-font-mono`;
+ *   - mono text uses the app stack `var(--ui-font-family-mono)`, the
+ *     components/cases.css idiom;
  *   - `--ui-text-primary` is the accent colour in this theme, so the mock's
  *     own use of it for emphasis carries over unchanged.
  *
@@ -84,7 +84,7 @@ button.tx-flow:hover {
 }
 
 .tx-flow__code {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.66rem;
     letter-spacing: 0.06em;
     color: var(--ui-semantic-muted);
@@ -135,7 +135,7 @@ button.tx-flow:hover {
 }
 
 .tx-ticket__id {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.82rem;
     color: var(--ui-text-secondary);
 }
@@ -267,7 +267,7 @@ button.tx-flow:hover {
 }
 
 .tx-field--numeric input {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     text-align: right;
 }
 
@@ -310,7 +310,7 @@ button.tx-flow:hover {
 
 .tx-direction__radio:checked + .tx-direction__option {
     background: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
 }
 
 .tx-direction__radio:focus-visible + .tx-direction__option {
@@ -344,7 +344,7 @@ button.tx-flow:hover {
 }
 
 .tx-context__value {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.86rem;
     color: var(--ui-text-secondary);
 }
@@ -367,7 +367,7 @@ button.tx-flow:hover {
 }
 
 .tx-derived__row span:last-child {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     color: var(--ui-text-secondary);
 }
 
@@ -423,7 +423,7 @@ button.tx-flow:hover {
     gap: 12px;
     align-items: baseline;
     padding: 4px 0;
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.84rem;
 }
 
@@ -555,7 +555,7 @@ button.tx-flow:hover {
 }
 
 .tx-settle__balance {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.85rem;
     color: var(--ui-text-secondary);
 }
@@ -669,7 +669,7 @@ button.tx-flow:hover {
 }
 
 .tx-num {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
 }
 
 .tx-num--neg {
@@ -720,7 +720,7 @@ button.tx-flow:hover {
 
 .tx-btn--primary {
     background: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-accent-primary);
     font-weight: 600;
 }
@@ -767,7 +767,7 @@ button.tx-flow:hover {
 
 .tx-confirm__lead em {
     font-style: normal;
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     color: var(--ui-text-secondary);
 }
 
@@ -844,7 +844,7 @@ a.tx-btn {
 .tx-step.is-active .tx-step__dot {
     border-color: var(--ui-accent-primary);
     background: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
 }
 
 .tx-step.is-active .tx-step__label {
@@ -945,7 +945,7 @@ a.tx-btn {
 }
 
 .tx-mono {
-    font-family: var(--ui-font-mono, "SFMono-Regular", "Consolas", "Liberation Mono", monospace);
+    font-family: var(--ui-font-family-mono);
 }
 
 /* --- Classify step: the AnlV field when the gate is open ------------- */
@@ -1000,7 +1000,7 @@ a.tx-btn {
 .tx-sumcard dd {
     margin: 0;
     color: var(--ui-text-secondary);
-    font-family: var(--ui-font-mono, "SFMono-Regular", "Consolas", "Liberation Mono", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.83rem;
     text-align: right;
 }
@@ -1148,7 +1148,7 @@ a.tx-btn {
 }
 
 .tx-row__id {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     color: var(--ui-text-secondary);
 }
 
@@ -1259,7 +1259,7 @@ a.tx-btn {
 
 .tx-btn--danger:hover:not(:disabled) {
     background: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-semantic-error);
 }
 
@@ -1315,7 +1315,7 @@ a.tx-btn {
 .tx-filters input[type="date"] {
     border: 1px solid var(--ui-border-default);
     border-radius: 4px;
-    background: var(--ui-background-input);
+    background: var(--ui-background-secondary);
     color: var(--ui-text-primary);
     padding: 5px 8px;
     font-size: 0.82rem;
@@ -1386,7 +1386,7 @@ a.tx-btn {
 .tx-msg__code {
     display: block;
     margin-top: 4px;
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.76rem;
     color: var(--ui-text-disabled);
 }
@@ -1540,7 +1540,7 @@ a.tx-btn {
 .tx-impact__basis dd {
     display: inline;
     margin: 0 0 0 4px;
-    font-family: var(--ui-font-mono);
+    font-family: var(--ui-font-family-mono);
     color: var(--ui-text-secondary);
 }
 
@@ -1600,7 +1600,7 @@ a.tx-btn {
 }
 
 .tx-delta__pair {
-    font-family: var(--ui-font-mono);
+    font-family: var(--ui-font-family-mono);
     text-align: right;
     white-space: nowrap;
 }
@@ -1639,7 +1639,7 @@ a.tx-btn {
 .tx-delta__badge--breach {
     color: var(--ui-semantic-error);
     border-color: var(--ui-semantic-error);
-    background: rgba(255, 107, 107, 0.08);
+    background: color-mix(in srgb, var(--ui-semantic-error) 8%, transparent);
 }
 
 /* Only the rows the trade moved carry a tone — the eye goes to the

@@ -18,10 +18,6 @@
         "logo":            "#F30A27"
     },
 
-    "button": {
-        "fg": "#FFFFFF"
-    },
-
     "text": {
         "_comment":   "primary is the neutral high-emphasis colour since UX A-0 (design parameters §3.2); the brand red is accent.primary and is used for the one primary action, the active navigation marker, focus and the logo only.",
         "primary":    "#EDEDED",
@@ -38,6 +34,7 @@
 
     "font": {
         "family":    "IBM Plex Sans, Inter, Segoe UI, system-ui, sans-serif",
+        "family_mono": "IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace",
         "size_base": 10,
         "scale": {
             "xs":   "12px",
@@ -102,6 +99,12 @@
         "offset": "2px"
     },
 
+    "shadow": {
+        "_comment": "Elevation. panel is the drop shadow under a menu, the activity panel, the planning-desk popover, the SAA drawers and the command palette; scrim is the backdrop behind a modal. Both are whole CSS values, not colours, so a stylesheet never restates a blur radius.",
+        "panel": "0 12px 32px rgba(0, 0, 0, 0.6)",
+        "scrim": "rgba(0, 0, 0, 0.55)"
+    },
+
     "layout": {
         "nav_width":           "252px",
         "nav_width_collapsed": "56px",
@@ -124,10 +127,12 @@
         "text_secondary": "#D6D6D6",
         "text_tertiary":  "#B4B4B4",
         "border_default": "#5A5A5A",
+        "border_soft":    "#4A4A4A",
         "control": {
             "height":       "44px",
             "height_sm":    "36px",
-            "input_height": "44px"
+            "input_height": "44px",
+            "row_pad":      "14px"
         },
         "layout": {
             "nav_width":           "272px",

@@ -338,7 +338,7 @@
 .ba-segmented__option:has(input[type="radio"]:checked) {
     background: var(--ui-accent-primary);
     border-color: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     z-index: 1;
 }
 

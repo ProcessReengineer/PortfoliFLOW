@@ -160,7 +160,7 @@
 
 .inv-pill--actual {
     background-color: var(--ui-semantic-success);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
 }
 
 .inv-pill--plan {
@@ -180,7 +180,7 @@
 /* Primary-identifier marker — reads as the "active" affirmative. */
 .inv-pill--primary {
     background-color: var(--ui-semantic-success);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
 }
 
 /* Inactive badge — complement to .badge-active in tables.css. */
@@ -218,13 +218,13 @@
 
 .inv-row-action-btn--delete:hover {
     background-color: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-semantic-error);
 }
 
 .inv-row-action-btn--activate:hover {
     background-color: var(--ui-semantic-success);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-semantic-success);
 }
 
@@ -240,7 +240,7 @@
 
 .inv-row-delete-btn:hover {
     background-color: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-semantic-error);
 }
 
@@ -277,7 +277,7 @@ dialog.inv-dialog {
 }
 
 dialog.inv-dialog::backdrop {
-    background-color: rgba(0, 0, 0, 0.55);
+    background-color: var(--ui-shadow-scrim);
 }
 
 dialog.inv-dialog h3 {
@@ -320,7 +320,7 @@ dialog.inv-dialog h3 {
  * if a second consumer surfaces. */
 .btn--danger {
     background-color: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border: 1px solid var(--ui-semantic-error);
 }
 
@@ -336,7 +336,7 @@ dialog.inv-dialog h3 {
    'reported' as the neutral default the whole book carried before. */
 .inv-pill--unitised {
     background-color: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
 }
 
 .inv-pill--reported {
@@ -350,26 +350,26 @@ dialog.inv-dialog h3 {
    produced the row (ADR-0098 §1). */
 .inv-pill--computed {
     background-color: var(--ui-semantic-info);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     text-transform: lowercase;
 }
 
 /* Ledger transaction-type badges. */
 .inv-pill--opening {
     background-color: var(--ui-semantic-info);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     text-transform: lowercase;
 }
 
 .inv-pill--buy {
     background-color: var(--ui-semantic-success);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     text-transform: lowercase;
 }
 
 .inv-pill--sell {
     background-color: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     text-transform: lowercase;
 }
 
@@ -418,7 +418,7 @@ dialog.inv-dialog h3 {
 
 .inv-row-edit-btn:hover {
     background-color: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-accent-primary);
 }
 

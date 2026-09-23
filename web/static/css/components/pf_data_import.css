@@ -112,7 +112,7 @@
 
 .pf-data-import__apply {
     padding: 18px;
-    border: 1px solid rgba(232, 48, 74, 0.25);
+    border: 1px solid color-mix(in srgb, var(--ui-accent-primary) 25%, transparent);
     border-radius: 8px;
 }
 

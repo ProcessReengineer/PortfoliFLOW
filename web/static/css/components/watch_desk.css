@@ -357,7 +357,7 @@
 
 .pf-dc-btn--primary {
     background: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-accent-primary);
 }
 
@@ -488,8 +488,7 @@ a.pf-dc-res-tag:hover {
  * species: the badge links to the case, a muted "Case" mark stands in for the
  * band column, and the closing-note excerpt sits under the title. */
 .pf-dc-journal__caselink {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular",
-        "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     color: var(--ui-text-secondary);
     text-decoration: none;
 }
@@ -752,8 +751,7 @@ a.pf-dc-res-tag:hover {
 }
 
 .pf-dc-monitor .mono {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular",
-        "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
 }
 
 .pf-dc-monitor .tag {

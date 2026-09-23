@@ -456,8 +456,8 @@
     margin: 0;
     padding: 6px 10px;
     border-radius: 6px;
-    background-color: color-mix(in srgb, var(--ui-semantic-danger) 10%, transparent);
-    color: var(--ui-semantic-danger);
+    background-color: color-mix(in srgb, var(--ui-semantic-error) 10%, transparent);
+    color: var(--ui-semantic-error);
     font-size: 0.82rem;
 }
 

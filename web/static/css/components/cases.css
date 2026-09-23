@@ -20,7 +20,7 @@
  *     this theme, and secondary stays legible on the light theme; the
  *     open/closed and title/body hierarchies are carried by font-weight, not
  *     hue (as DC did for its tile values);
- *   - mono text uses the app stack `var(--ui-font-mono, …)`, not the mock's
+ *   - mono text uses the app stack `var(--ui-font-family-mono)`, not the mock's
  *     "JetBrains Mono" (which the app does not ship).
  * The mock's mock-local `--pf-bg-surface` (#121212) is NOT reintroduced: its
  * only consumer is the shared `.pf-section`, already owned by layout.css, and
@@ -58,7 +58,7 @@
 .pf-cases .pf-btn--primary,
 .pf-cases .pf-cases__new-btn--primary {
     background: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-accent-primary);
 }
 
@@ -134,7 +134,7 @@
 }
 
 .pf-cases .pf-case-row__id {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.8rem;
     color: var(--ui-text-secondary);
 }
@@ -429,7 +429,7 @@
 }
 
 .pf-cases .pf-case-head__id {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.85rem;
     color: var(--ui-text-disabled);
 }
@@ -843,7 +843,7 @@
 /* Mono size row, linked-objects mono, artifact size — one bare-.mono rule.
  * (The DC monitor's `.mono` is scoped separately and out of this tree.) */
 .pf-cases .mono {
-    font-family: var(--ui-font-mono, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+    font-family: var(--ui-font-family-mono);
     font-size: 0.8rem;
     color: var(--ui-text-secondary);
 }

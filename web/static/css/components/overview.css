@@ -307,7 +307,7 @@
 }
 
 .fo-welcome__tenant {
-    color: var(--chart-colours-primary, var(--ui-accent-primary, #E8304A));
+    color: var(--chart-colours-primary, var(--ui-accent-primary));
 }
 
 @media (max-width: 640px) {

@@ -83,8 +83,8 @@
 
 .ch-article {
     padding: 16px;
-    background: var(--ui-surface-secondary, #161616);
-    border: 1px solid var(--ui-border, #2c2c2c);
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
     border-radius: 4px;
 }
 
@@ -96,7 +96,7 @@
     margin: 0;
     font-size: 1.05rem;
     font-weight: 600;
-    color: var(--ui-text-primary, #e8e8e8);
+    color: var(--ui-text-primary);
 }
 
 /* The article title is a link to the investment's detail page. It
@@ -194,8 +194,8 @@
     align-items: baseline;
     gap: 6px;
     padding: 4px 12px;
-    background: var(--ui-surface-secondary, #161616);
-    border: 1px solid var(--ui-border, #2c2c2c);
+    background: var(--ui-background-secondary);
+    border: 1px solid var(--ui-border-default);
     border-radius: 999px;
     font-size: 0.8rem;
 }
@@ -208,7 +208,7 @@
 }
 
 .ch-kpi-caption__value {
-    color: var(--ui-text-primary, #e8e8e8);
+    color: var(--ui-text-primary);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }

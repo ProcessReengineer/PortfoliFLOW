@@ -221,12 +221,12 @@
 
 .tabulator .tabulator-cell.saa-cell-validation-error,
 .tabulator .tabulator-cell.tabulator-validation-fail {
-    background-color: rgba(229, 75, 75, 0.18);
+    background-color: color-mix(in srgb, var(--ui-semantic-negative) 18%, transparent);
     border: 1px solid var(--ui-semantic-error);
 }
 
 .tabulator .tabulator-row.saa-row-validation-error {
-    background-color: rgba(229, 75, 75, 0.1);
+    background-color: color-mix(in srgb, var(--ui-semantic-negative) 10%, transparent);
 }
 
 .saa-row-delete-btn {
@@ -244,7 +244,7 @@
 
 .saa-row-delete-btn:hover {
     background-color: var(--ui-semantic-error);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: var(--ui-semantic-error);
 }
 
@@ -264,7 +264,7 @@
     align-items: center;
     gap: 16px;
     z-index: 50;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--ui-shadow-panel);
 }
 
 .save-bar__label {
@@ -281,7 +281,7 @@
 }
 
 .save-bar__indicator.dirty {
-    background-color: var(--ui-semantic-warning, #F5A623);
+    background-color: var(--ui-semantic-warning);
 }
 
 .save-bar__status {
@@ -291,7 +291,7 @@
 }
 
 .save-bar__status--dirty {
-    color: var(--ui-semantic-warning, #F5A623);
+    color: var(--ui-semantic-warning);
 }
 
 .save-bar__status--error {
@@ -342,11 +342,11 @@ dialog.saa-dialog {
     padding: 20px 24px;
     max-width: 520px;
     width: 90vw;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--ui-shadow-panel);
 }
 
 dialog.saa-dialog::backdrop {
-    background-color: rgba(0, 0, 0, 0.55);
+    background-color: var(--ui-shadow-scrim);
 }
 
 dialog.saa-dialog h2 {
@@ -385,7 +385,7 @@ dialog.saa-dialog .dialog-actions {
 
 .saa-dialog__error {
     color: var(--ui-semantic-error);
-    background-color: rgba(229, 75, 75, 0.08);
+    background-color: color-mix(in srgb, var(--ui-semantic-negative) 8%, transparent);
     border: 1px solid var(--ui-semantic-error);
     border-radius: 4px;
     padding: 6px 10px;
@@ -554,5 +554,5 @@ dialog.saa-dialog--large {
     position: sticky;
     bottom: 0;
     margin-top: 18px;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--ui-shadow-panel);
 }

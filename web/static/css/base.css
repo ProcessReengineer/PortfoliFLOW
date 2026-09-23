@@ -97,7 +97,7 @@ button:disabled {
     left: 0;
     padding: 8px 12px;
     background-color: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     font-weight: 600;
     z-index: 1000;
 }
@@ -164,7 +164,7 @@ button:disabled {
 .app-header__nav-link:hover,
 .app-header__nav-link:focus {
     color: var(--ui-text-primary);
-    background-color: var(--ui-background-default);
+    background-color: var(--ui-background-primary);
     outline: none;
 }
 
@@ -205,7 +205,7 @@ button:disabled {
 
 .btn--primary {
     background-color: var(--ui-accent-primary);
-    color: var(--ui-button-fg);
+    color: var(--ui-accent-on-accent);
     border-color: transparent;
     font-weight: 600;
 }
@@ -273,14 +273,14 @@ button:disabled {
 }
 
 .alert--success {
-    background-color: rgba(46, 160, 67, 0.12);
-    border-color: rgba(46, 160, 67, 0.5);
+    background-color: color-mix(in srgb, var(--ui-semantic-positive) 12%, transparent);
+    border-color: color-mix(in srgb, var(--ui-semantic-positive) 50%, transparent);
     color: var(--ui-text-primary);
 }
 
 .alert--info {
-    background-color: rgba(56, 139, 253, 0.12);
-    border-color: rgba(56, 139, 253, 0.5);
+    background-color: color-mix(in srgb, var(--ui-semantic-info) 12%, transparent);
+    border-color: color-mix(in srgb, var(--ui-semantic-info) 50%, transparent);
     color: var(--ui-text-primary);
 }
 

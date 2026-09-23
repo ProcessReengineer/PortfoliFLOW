@@ -119,7 +119,7 @@ details.pa-subblock > summary.pa-subblock__summary {
     user-select: none;
     font-size: 0.95rem;
     font-weight: 600;
-    color: var(--ui-text-primary, #e8e8e8);
+    color: var(--ui-text-primary);
 }
 
 details.pa-subblock > summary.pa-subblock__summary::-webkit-details-marker {
@@ -128,7 +128,7 @@ details.pa-subblock > summary.pa-subblock__summary::-webkit-details-marker {
 
 .pa-subblock__chevron {
     font-size: 0.8em;
-    color: var(--ui-text-secondary, #9a9a9a);
+    color: var(--ui-text-secondary);
     transition: transform 0.15s ease;
 }
 

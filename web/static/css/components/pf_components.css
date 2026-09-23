@@ -132,7 +132,7 @@
 .pf-menu { position: relative; }
 .pf-menu > summary { list-style: none; }
 .pf-menu > summary::-webkit-details-marker { display: none; }
-.pf-menu__list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 4; min-width: 190px; padding: var(--ui-space-1); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }
+.pf-menu__list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 4; min-width: 190px; padding: var(--ui-space-1); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: var(--ui-shadow-panel); }
 .pf-menu__item { display: block; width: 100%; padding: 7px var(--ui-space-3); border: 0; border-radius: var(--ui-radius-sm); background: none; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); text-align: left; cursor: pointer; white-space: nowrap; }
 .pf-menu__item:hover { background: var(--ui-border-default); }
 .pf-menu__item--danger { color: var(--ui-semantic-error); }
@@ -238,7 +238,7 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
 .pf-activity__btn:hover, .pf-activity__btn[aria-expanded="true"] { background: var(--ui-background-section); color: var(--ui-text-primary); }
 .pf-spin { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ui-border-default); border-top-color: var(--ui-text-primary); animation: pf-spin 900ms linear infinite; }
 @keyframes pf-spin { to { transform: rotate(360deg); } }
-.pf-activity__panel { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 6; width: 360px; padding: var(--ui-space-2); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: 0 12px 32px rgba(0, 0, 0, .6); white-space: normal; }
+.pf-activity__panel { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 6; width: 360px; padding: var(--ui-space-2); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: var(--ui-shadow-panel); white-space: normal; }
 .pf-activity__panel[hidden] { display: none; }
 
 /* ---- Skeleton: the empty shape of what is coming */
@@ -301,12 +301,11 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
     --ui-text-secondary: var(--ui-accessible-text-secondary);
     --ui-text-tertiary: var(--ui-accessible-text-tertiary);
     --ui-border-default: var(--ui-accessible-border-default);
+    --ui-border-soft: var(--ui-accessible-border-soft);
     --ui-control-height: var(--ui-accessible-control-height);
     --ui-control-height-sm: var(--ui-accessible-control-height-sm);
     --ui-control-input-height: var(--ui-accessible-control-input-height);
-    /* theme.css publishes no --ui-accessible-control-row-pad, so the
-       source's own 14px stands in. See the P-UX-A0d report, §Flags. */
-    --ui-control-row-pad: 14px;
+    --ui-control-row-pad: var(--ui-accessible-control-row-pad);
     --ui-motion-duration: var(--ui-accessible-motion-duration);
     --ui-layout-nav-width: var(--ui-accessible-layout-nav-width);
     /* layout.css switches the collapsed grid on the -collapsed name

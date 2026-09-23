@@ -78,12 +78,56 @@
 <body data-theme="{{ data_theme or '' }}">
     <a class="skip-link" href="#shell-main">Skip to main content</a>
 
-    <div class="pf-shell" data-sidebar-collapsed="{{ 'true' if sidebar_collapsed else 'false' }}">
+    <div class="pf-shell" data-sidebar-collapsed="{{ 'true' if sidebar_collapsed else 'false' }}"
+         data-shirley="{{ shirley_state or 'closed' }}">
         {% include "_partials/sidebar.html" %}
 
         <main id="shell-main" class="pf-main" tabindex="-1">
             {% block content %}{% endblock %}
         </main>
+
+        {# Shirley's stage (P-UX-A0e). Shares the ``main`` grid cell with
+           ``#shell-main``: the state rule hides the view rather than
+           unmounting it, so "Back to dock" returns to exactly the view
+           that was open, scroll position included.
+
+           The ``hidden`` attribute is the no-CSS fallback. The stage
+           state rule in ``layout.css`` sets ``display: grid`` on this
+           element and out-specifies the UA's ``[hidden]`` rule — the
+           trap P-UX-A0d documented — and ``shirley.js`` strips the
+           attribute the first time the stage is entered anyway. #}
+        <div class="pf-stage" id="pf-stage" hidden>
+            <div class="pf-stage__chat" id="stage-chat-host"></div>
+            <div class="pf-stage__canvas">
+                <div class="pf-stage__head">
+                    <h1 class="pf-stage__title">Shirley</h1>
+                    <button class="pf-btn pf-btn--quiet" type="button"
+                            data-set-shirley="docked">{{ pf_icon("dock") }}Back to dock</button>
+                </div>
+                <div class="pf-empty">
+                    <p class="pf-empty__lead">Nothing on the stage yet.</p>
+                    <p>Figures Shirley renders will open here at full size.</p>
+                </div>
+            </div>
+        </div>
+
+        {# Shirley's column — the rail when closed, the dock when open.
+           Both hosts live OUTSIDE ``#shell-main``, so an HTMX area swap
+           never touches them: that is what lets the one chat instance —
+           and a running SSE stream — survive navigation. The chat itself
+           is loaded once per page life, on the first open, from
+           ``GET /chat/dock``; every area render stays DB-free. #}
+        <aside class="pf-side" id="pf-side" aria-label="Shirley">
+            <div class="pf-rail">
+                <button class="pf-btn pf-btn--quiet pf-btn--icon pf-rail__btn" type="button"
+                        data-set-shirley="docked"
+                        aria-label="Open Shirley"
+                        title="Open Shirley  Ctrl J">{{ pf_icon("shirley") }}<span class="pf-presence" aria-hidden="true"></span></button>
+                <span class="pf-rail__name" aria-hidden="true">Shirley</span>
+            </div>
+            <div class="pf-dockhost" id="dock-chat-host"
+                 hx-get="/chat/dock" hx-trigger="pf:shirley-open once" hx-swap="innerHTML"></div>
+        </aside>
 
         {% include "_partials/statusbar.html" %}
     </div>
@@ -101,6 +145,11 @@
     <script src="/static/js/chart_snapshot.js" defer></script>
     <script src="/static/js/chat.js" defer></script>
     <script src="/static/js/scraper.js" defer></script>
+    {# Shirley's three states and the one chat instance (P-UX-A0e).
+       After chat.js — whose listeners the moved subtree keeps — and
+       before section_nav.js, which owns the keyboard and binds Ctrl J
+       to ``window.pfShirley.toggle``. #}
+    <script src="/static/js/shirley.js" defer></script>
     <script src="/static/js/section_nav.js" defer></script>
     {# One section per view (P-UX-A0b): shows the fragment's section and
        hides the rest. Deferred, so it runs before HTMX processes the

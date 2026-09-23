@@ -1,17 +1,24 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Shirley-embedded Assistants area surface (ADR-0051).
+"""Tests for the Assistants area surface after Shirley left it.
 
-Three assertions:
+ADR-0051 folded the standalone ``GET /chat`` page into the Assistants
+area's ``shirley`` section; P-UX-A0e moved the conversation out again,
+into the shell's Shirley column, where every Area reaches it. What this
+module pins is what is left behind:
 
-* ``GET /assistants`` renders the chat shell (composer form, history
-  div, "New chat" button) inside the ``shirley`` section.
-* ``model_id`` is rendered when the AI core has a model set, and the
-  "Model: …" status line is omitted otherwise.
-* The HTMX request branch (``HX-Request: true``) returns the area
-  body fragment (no ``<html>`` wrapper) and still renders the
-  embedded Shirley shell intact.
+* ``GET /assistants`` renders the ``shirley`` Section as a **pointer** —
+  prose plus "Open on stage" — and carries none of the chat's anchor ids.
+* The HTMX request branch (``HX-Request: true``) returns the area body
+  fragment (no ``<html>`` wrapper) and carries neither the chat nor the
+  shell's Shirley column: the hosts live outside ``#shell-main``.
+* The Providers & Credentials tile still points at Admin.
+
+The conversation's own render is pinned by ``test_shirley_dock.py``; the
+"Model: …" status line has no assertions anywhere, because record §2.10.3
+demoted it — the model a tenant runs is configuration, and its home is
+Providers & Credentials.
 """
 
 from __future__ import annotations
@@ -176,10 +183,16 @@ async def _login(client: AsyncClient, email: str, password: str) -> None:
     )
 
 
-async def test_assistants_renders_chat_shell_inside_shirley_section(
+async def test_assistants_shirley_section_is_the_pointer(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
+    """The section keeps its slug and heading, and points at the dock.
+
+    The conversation is a shell element now (P-UX-A0e): none of its
+    anchor ids may appear in the area body, or ``#chat-form`` and
+    ``#chat-history`` would stop being unique the moment the dock loads.
+    """
     _id, email, password = seeded_user
     client, _app = await web_client_factory(model="anthropic/claude-opus-4-7")
     await _login(client, email, password)
@@ -188,58 +201,31 @@ async def test_assistants_renders_chat_shell_inside_shirley_section(
     assert response.status_code == 200
     body = response.text
 
-    # The shirley section opens the chat shell.
+    # The section itself is unchanged — same slug, same heading.
     assert 'id="shirley"' in body
-    # The composer form, history div, and "New chat" button live inside
-    # the embedded shell — anchor ids unchanged so chat.js still wires.
-    assert 'id="chat-history"' in body
-    assert 'id="chat-form"' in body
-    assert 'id="chat-input"' in body
-    assert 'hx-post="/chat/messages"' in body
-    assert 'hx-get="/chat/history"' in body
-    assert "New chat" in body
-    # Section heading is "Shirley" (no longer "Shirley (Chat)").
     assert ">Shirley<" in body or "Shirley</h2>" in body
-    # The embedded shell's order: history pane, then controls row,
-    # then composer (controls sit above the composer, not the history).
-    history_pos = body.index('id="chat-history"')
-    controls_pos = body.index("chat-controls__new")
-    composer_pos = body.index("chat-composer__row")
-    assert history_pos < controls_pos < composer_pos
+
+    # Its body is a pointer: the prose and the stage button.
+    assert "Shirley is in the dock on the right" in body
+    assert 'data-set-shirley="stage"' in body
+    assert "Open on stage" in body
+
+    # And not the conversation.
+    assert 'id="chat-form"' not in body
+    assert 'id="chat-history"' not in body
+    assert 'id="chat-input"' not in body
 
 
-async def test_assistants_renders_model_status_line_when_set(
+async def test_assistants_htmx_fragment_carries_neither_chat_nor_column(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    _id, email, password = seeded_user
-    client, _app = await web_client_factory(model="anthropic/claude-opus-4-7")
-    await _login(client, email, password)
+    """The area swap touches ``#shell-main`` and nothing beside it.
 
-    response = await client.get("/assistants", follow_redirects=False)
-    body = response.text
-    assert "Model: anthropic/claude-opus-4-7" in body
-
-
-async def test_assistants_omits_model_line_when_unset(
-    web_client_factory: Any,
-    seeded_user: tuple[UUID, str, str],
-) -> None:
-    _id, email, password = seeded_user
-    client, _app = await web_client_factory(model="")
-    await _login(client, email, password)
-
-    response = await client.get("/assistants", follow_redirects=False)
-    body = response.text
-    # When the core has no model set, the embedded shell skips the
-    # "Model: …" status line entirely (no empty label leaks through).
-    assert "chat-embed__model" not in body
-
-
-async def test_assistants_htmx_request_returns_fragment_with_chat_shell(
-    web_client_factory: Any,
-    seeded_user: tuple[UUID, str, str],
-) -> None:
+    The rail, the dock host and the stage host live outside the swap
+    target, which is exactly why a running conversation survives
+    navigating to another Area — so the fragment must not carry them.
+    """
     _id, email, password = seeded_user
     client, _app = await web_client_factory(model="fake/model")
     await _login(client, email, password)
@@ -253,9 +239,12 @@ async def test_assistants_htmx_request_returns_fragment_with_chat_shell(
     body = response.text
     # HTMX path returns the area body fragment — no full <html> wrapper.
     assert "<html" not in body
-    # The Shirley shell still renders inside the fragment.
-    assert 'id="chat-history"' in body
-    assert 'id="chat-form"' in body
+    assert 'id="chat-history"' not in body
+    assert 'id="chat-form"' not in body
+    # ``id=``-qualified: ``pf-sidebar`` contains ``pf-side`` as a prefix.
+    assert 'id="pf-side"' not in body
+    assert 'id="dock-chat-host"' not in body
+    assert 'id="stage-chat-host"' not in body
 
 
 async def test_assistants_provider_credentials_section_links_to_admin(

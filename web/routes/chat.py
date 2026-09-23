@@ -2106,6 +2106,57 @@ async def get_chat_history(
 
 
 # ---------------------------------------------------------------------------
+# GET /chat/dock — the one chat instance, loaded on first open
+# ---------------------------------------------------------------------------
+
+
+@router.get("/chat/dock", response_class=HTMLResponse)
+async def get_chat_dock(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Return Shirley's conversation as a bare fragment for the dock.
+
+    P-UX-A0e made Shirley a shell element (record §2.10): the rail, the
+    dock host and the stage host render on **every** page, but empty.
+    ``#dock-chat-host`` fetches this fragment once per page life, on the
+    first open (``hx-trigger="pf:shirley-open once"``), and ``shirley.js``
+    then *moves* that one subtree between the dock and the stage.
+
+    Loading it lazily rather than inlining it in ``base.html`` is what
+    keeps every area render as DB-free as it was: the two reads below —
+    the per-tenant voice chain and the case-brief validation — are paid
+    once, when the reader actually opens the conversation, not on each of
+    the nine Areas. The history inside the fragment stays lazy too: the
+    ``#chat-history`` div carries its own ``hx-get="/chat/history"`` on
+    ``load``, which fires when HTMX processes this swap.
+
+    ``brief_banner`` is resolved from the **session stash** with no marker
+    of its own, so a ``?case=`` set earlier by ``GET /assistants`` is
+    picked up here — the marker sets the stash on the area page, the dock
+    renders the banner from it. A stale stash (case closed or vanished)
+    clears silently and yields no banner.
+
+    Returns:
+        The ``_partials/shirley_dock.html`` fragment — no shell, no
+        ``<html>`` wrapper.
+    """
+    templates = _templates(request)
+    return cast(
+        HTMLResponse,
+        templates.TemplateResponse(
+            request,
+            "_partials/shirley_dock.html",
+            {
+                "csrf_token": session.csrf_token,
+                "voice_enabled": await _resolve_voice_enabled(request, session),
+                "brief_banner": await resolve_active_brief_banner(request, session, None),
+            },
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # POST /chat/brief/dismiss — clear the active case brief
 # ---------------------------------------------------------------------------
 

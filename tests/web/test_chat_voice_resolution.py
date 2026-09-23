@@ -340,7 +340,9 @@ async def _login(client: AsyncClient, email: str, password: str) -> str:
         data={"email": email, "password": password, "csrf_token": csrf},
         follow_redirects=False,
     )
-    page = await client.get("/assistants", follow_redirects=False)
+    # The composer moved to ``GET /chat/dock`` in P-UX-A0e — Shirley is a
+    # shell element now, loaded on first open.
+    page = await client.get("/chat/dock", follow_redirects=False)
     assert page.status_code == 200
     match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
     assert match is not None
@@ -564,14 +566,14 @@ async def test_a_tenant_row_enables_voice_with_the_environment_silent(
 
     # Off first: no row, no environment.
     assert (await _post_tts(client, csrf)).status_code == 404
-    off_page = await client.get("/assistants", follow_redirects=False)
+    off_page = await client.get("/chat/dock", follow_redirects=False)
     assert "data-pf-voice-toggle" not in off_page.text
 
     await _write_setting(app.state.engine, provider="voice", key="enabled", value="true")
 
     assert (await _post_tts(client, csrf)).status_code == 200
     assert (await _post_voice(client, csrf)).status_code == 200
-    on_page = await client.get("/assistants", follow_redirects=False)
+    on_page = await client.get("/chat/dock", follow_redirects=False)
     assert "data-pf-voice-toggle" in on_page.text
 
 

@@ -343,7 +343,9 @@ async def _login_and_get_csrf(client: AsyncClient, email: str, password: str) ->
         data={"email": email, "password": password, "csrf_token": csrf},
         follow_redirects=False,
     )
-    page = await client.get("/assistants", follow_redirects=False)
+    # The composer moved to ``GET /chat/dock`` in P-UX-A0e — Shirley is a
+    # shell element now, loaded on first open.
+    page = await client.get("/chat/dock", follow_redirects=False)
     match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
     assert match is not None
     return match.group(1)
@@ -604,7 +606,7 @@ async def test_disabled_service_404s_and_hides_controls(
     )
     assert tts.status_code == 404
 
-    page = await client.get("/assistants", follow_redirects=False)
+    page = await client.get("/chat/dock", follow_redirects=False)
     assert "data-pf-voice-toggle" not in page.text
 
 
@@ -612,14 +614,18 @@ async def test_enabled_service_renders_controls(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """``VOICE_ENABLED=true`` → the composer renders the voice toggle marker."""
+    """``VOICE_ENABLED=true`` → the composer renders the voice toggle marker.
+
+    Asserted on ``GET /chat/dock``: the composer is the shell's Shirley
+    column since P-UX-A0e, not the Assistants body.
+    """
     _id, email, password = seeded_user
     provider = _FakeVoiceProvider()
     client, _app = await web_client_factory([], voice_provider=provider)
     csrf = await _login_and_get_csrf(client, email, password)
     del csrf  # only needed to confirm login succeeded
 
-    page = await client.get("/assistants", follow_redirects=False)
+    page = await client.get("/chat/dock", follow_redirects=False)
     assert "data-pf-voice-toggle" in page.text
 
 

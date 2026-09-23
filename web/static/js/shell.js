@@ -15,6 +15,30 @@
         return document.querySelectorAll("#shell-main [data-pf-section]");
     }
 
+    // ``/assistants#shirley`` is the one fragment that names a shell
+    // element rather than a Section body (P-UX-A0e): the Section itself
+    // is the pointer, and the conversation opens on the stage. shirley.js
+    // is loaded before this file, so the global is there; the guard is
+    // for the auth pages, which load neither.
+    //
+    // The EXPLICIT fragment, not the resolved slug: ``shirley`` is also
+    // the Assistants landing view, so resolve() names it for a bare
+    // ``/assistants`` too — and opening the stage there would take
+    // ``/assistants?case=…`` (which arrives docked, with its banner) off
+    // the dock the operator asked for.
+    function openStageForShirley(slug) {
+        if (slug !== "shirley" || window.location.hash.slice(1) !== "shirley") {
+            return;
+        }
+        if (!window.pfShirley) {
+            return;
+        }
+        if (!document.querySelector('[data-area="assistants"]')) {
+            return;
+        }
+        window.pfShirley.setState("stage");
+    }
+
     function show(slug) {
         if (!slug) {
             return;
@@ -22,6 +46,10 @@
         sections().forEach(function (section) {
             section.hidden = section.getAttribute("data-pf-section") !== slug;
         });
+        // Navigating AWAY from it does nothing: the stage stays until the
+        // reader leaves it by its own "Back to dock", which restores the
+        // view beneath — never removed, only hidden.
+        openStageForShirley(slug);
         document.querySelectorAll("[data-pf-section-link]").forEach(function (link) {
             if (link.getAttribute("data-pf-section-link") === slug) {
                 link.setAttribute("aria-current", "true");

@@ -235,7 +235,12 @@ async def client_factory(
 
 
 async def _login_and_csrf(client: AsyncClient, email: str, password: str) -> str:
-    """Log in and return the session CSRF token (read off the composer form)."""
+    """Log in and return the session CSRF token (read off the composer form).
+
+    The composer moved to ``GET /chat/dock`` in P-UX-A0e — Shirley is a
+    shell element now, loaded on first open — so the token is read from
+    the dock fragment rather than the Assistants page.
+    """
     get_response = await client.get("/login")
     pre_csrf = get_response.cookies.get("portfoliflow_csrf_pre_session")
     assert pre_csrf is not None
@@ -244,7 +249,7 @@ async def _login_and_csrf(client: AsyncClient, email: str, password: str) -> str
         data={"email": email, "password": password, "csrf_token": pre_csrf},
         follow_redirects=False,
     )
-    page = await client.get("/assistants", follow_redirects=False)
+    page = await client.get("/chat/dock", follow_redirects=False)
     match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
     assert match is not None, page.text
     return match.group(1)
@@ -412,9 +417,10 @@ async def test_a_stale_closed_since_stash_clears_and_runs_unbriefed(
     await _drive_turn(client, csrf)
     assert core.last_system_prompt == "BASE"  # stale stash cleared
 
-    # The stash is gone: the banner no longer renders.
-    page = await client.get("/assistants")
-    assert "Consulting for" not in page.text
+    # The stash is gone: the banner no longer renders. Asserted on the
+    # dock fragment, which is where the banner lives since P-UX-A0e.
+    dock = await client.get("/chat/dock")
+    assert "Consulting for" not in dock.text
 
 
 # ---------------------------------------------------------------------------
@@ -436,32 +442,40 @@ async def test_marker_hygiene_banner_dismiss_and_replace(
     client, _core = await client_factory()
     await _login_and_csrf(client, email, password)
 
+    # The marker still arrives on ``/assistants`` — that is what a case's
+    # "Consult Shirley" links to — and sets the session stash there. The
+    # banner it promises renders in the dock fragment (P-UX-A0e), so each
+    # marker below is followed by the ``/chat/dock`` render it produced.
+
     # Malformed, unknown, closed — no banner, no error.
     for marker in ("not-a-uuid", str(uuid4()), str(closed_id)):
         page = await client.get(f"/assistants?case={marker}")
         assert page.status_code == 200
-        assert "Consulting for" not in page.text
+        dock = await client.get("/chat/dock")
+        assert "Consulting for" not in dock.text
 
     # A valid open case → banner with badge + title.
-    page = await client.get(f"/assistants?case={open_a}")
-    assert "Consulting for" in page.text
-    assert f"CASE-{num_a:04d}" in page.text
-    assert "Alpha" in page.text
+    await client.get(f"/assistants?case={open_a}")
+    dock = await client.get("/chat/dock")
+    assert "Consulting for" in dock.text
+    assert f"CASE-{num_a:04d}" in dock.text
+    assert "Alpha" in dock.text
 
     # A second valid marker replaces the first.
-    page = await client.get(f"/assistants?case={open_b}")
-    assert f"CASE-{num_b:04d}" in page.text
-    assert f"CASE-{num_a:04d}" not in page.text
+    await client.get(f"/assistants?case={open_b}")
+    dock = await client.get("/chat/dock")
+    assert f"CASE-{num_b:04d}" in dock.text
+    assert f"CASE-{num_a:04d}" not in dock.text
 
     # Dismiss clears the stash — the banner is gone on the next render.
-    csrf_match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
+    csrf_match = re.search(r'name="csrf_token"\s+value="([^"]+)"', dock.text)
     assert csrf_match is not None
     csrf = csrf_match.group(1)
     dismissed = await client.post("/chat/brief/dismiss", data={"csrf_token": csrf})
     assert dismissed.status_code == 200
     assert dismissed.text.strip() == ""
-    page = await client.get("/assistants")
-    assert "Consulting for" not in page.text
+    dock = await client.get("/chat/dock")
+    assert "Consulting for" not in dock.text
 
 
 # ---------------------------------------------------------------------------

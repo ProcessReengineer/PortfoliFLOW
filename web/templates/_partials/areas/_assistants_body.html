@@ -9,8 +9,15 @@
         </p>
     </header>
 
+    {# The conversation itself left this body in P-UX-A0e — Shirley is a
+       shell element now, in the dock beside every Area. The Section keeps
+       its slug (the catalogue and the sidebar's second level are
+       unchanged) and becomes the pointer to her: shell.js reads the
+       ``#shirley`` fragment and opens the stage, and this is what a
+       reader sees beneath it once they leave the stage again. #}
     {% with section_slug="shirley",
-            section_body_template="_partials/shirley_section.html" %}
+            section_body='<p class="pf-section__placeholder">Shirley is in the dock on the right — Ctrl J opens it from any view.</p>'
+                         '<button class="pf-btn" type="button" data-set-shirley="stage">Open on stage</button>' %}
         {% include "areas/_section.html" %}
     {% endwith %}
 

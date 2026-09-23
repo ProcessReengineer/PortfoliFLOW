@@ -23,16 +23,54 @@
 
 /* Shell grid ------------------------------------------------------- */
 
+/* Three columns, two rows, placed by NAME (P-UX-A0e). The implicit
+ * order no longer serves: ``.pf-stage`` shares the middle cell with
+ * ``#shell-main`` and the status bar spans all three, so every child
+ * names its area and the grid decides nothing by document order. The
+ * third column is Shirley — 44 px of rail when closed, the dock's width
+ * when docked, and zero when she is on the stage (the conversation then
+ * lives in the work area, not beside it). */
 .pf-shell {
     display: grid;
-    grid-template-columns: var(--ui-layout-nav-width) minmax(0, 1fr);
+    grid-template-columns:
+        var(--ui-layout-nav-width) minmax(0, 1fr) var(--ui-layout-rail-width);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "nav main side"
+        "status status status";
     min-height: 100vh;
     background-color: var(--ui-background-primary);
     color: var(--ui-text-secondary);
+    transition: grid-template-columns var(--ui-motion-duration) ease;
 }
 
 .pf-shell[data-sidebar-collapsed="true"] {
-    grid-template-columns: var(--ui-layout-nav-width-collapsed) minmax(0, 1fr);
+    grid-template-columns:
+        var(--ui-layout-nav-width-collapsed) minmax(0, 1fr)
+        var(--ui-layout-rail-width);
+}
+
+/* The two Shirley-open states, each swapping only the third column —
+ * so a collapsed sidebar and an open dock compose without a combined
+ * selector. */
+.pf-shell[data-shirley="docked"] {
+    grid-template-columns:
+        var(--ui-layout-nav-width) minmax(0, 1fr) var(--ui-layout-dock-width);
+}
+
+.pf-shell[data-sidebar-collapsed="true"][data-shirley="docked"] {
+    grid-template-columns:
+        var(--ui-layout-nav-width-collapsed) minmax(0, 1fr)
+        var(--ui-layout-dock-width);
+}
+
+.pf-shell[data-shirley="stage"] {
+    grid-template-columns: var(--ui-layout-nav-width) minmax(0, 1fr) 0;
+}
+
+.pf-shell[data-sidebar-collapsed="true"][data-shirley="stage"] {
+    grid-template-columns:
+        var(--ui-layout-nav-width-collapsed) minmax(0, 1fr) 0;
 }
 
 /* Sidebar ---------------------------------------------------------- */
@@ -42,9 +80,13 @@
  * Its own overflow is scoped to itself — the page outside it is
  * unaffected. */
 .pf-sidebar {
+    grid-area: nav;
     position: sticky;
     top: 0;
-    height: 100vh;
+    /* Clears the sticky status bar (P-UX-A0e). At a flat ``100vh`` the
+     * column ended exactly where the bar begins, so the bar rode on top
+     * of the footer and "Sign out" was unreachable. */
+    height: calc(100vh - var(--pf-statusbar-height));
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -327,6 +369,7 @@
  * header stick to the viewport and the `intersect once` loaders fire
  * against it. */
 .pf-main {
+    grid-area: main;
     min-width: 0;
     width: 100%;
     max-width: var(--ui-layout-content-max);
@@ -648,14 +691,184 @@ dialog.pf-palette::backdrop {
     font-style: italic;
 }
 
+/* Shirley — rail, dock, stage (P-UX-A0e) ---------------------------- */
+
+/* Transcribed from ``~/DC-UX-D/shared.css`` 167–181 and the stage rules
+ * below it, onto the ``--ui-*`` names by the P-UX-A0d mapping. Three
+ * states live on ``.pf-shell[data-shirley]``; ``web/static/js/shirley.js``
+ * is the only thing that writes that attribute.
+ *
+ * ONE chat instance. ``#pf-chat`` is moved between ``#dock-chat-host``
+ * and ``#stage-chat-host`` — never cloned — so ``#chat-history`` and
+ * ``#chat-form`` stay unique and a running SSE stream survives both the
+ * state change and an area swap (the hosts sit outside ``#shell-main``).
+ *
+ * The bubbles, composer and voice panel keep their ``chat-embed`` rules
+ * from ``components/chat.css``; only the column, the head and the stage
+ * are new here. */
+
+.pf-side {
+    grid-area: side;
+    position: sticky;
+    top: 0;
+    /* Same clearance as the sidebar: the sticky status bar owns the
+     * bottom band of the viewport. */
+    height: calc(100vh - var(--pf-statusbar-height));
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--ui-background-chrome);
+    border-left: 1px solid var(--ui-border-soft);
+    overflow: hidden;
+}
+
+.pf-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ui-space-2);
+    padding-top: 11px;
+}
+
+.pf-rail__btn {
+    position: relative;
+}
+
+.pf-presence {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ui-semantic-positive);
+}
+
+.pf-rail__name {
+    writing-mode: vertical-rl;
+    margin-top: var(--ui-space-2);
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
+    letter-spacing: 0.04em;
+}
+
+.pf-shell[data-shirley="docked"] .pf-rail,
+.pf-shell[data-shirley="stage"] .pf-rail {
+    display: none;
+}
+
+.pf-shell[data-shirley="closed"] .pf-dockhost,
+.pf-shell[data-shirley="stage"] .pf-side {
+    display: none;
+}
+
+.pf-dockhost {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.pf-chat {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.pf-chat__head {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+    height: 56px;
+    padding: 0 var(--ui-space-3) 0 var(--ui-space-4);
+    flex: none;
+}
+
+.pf-chat__name {
+    flex: 1;
+    color: var(--ui-text-primary);
+    font-weight: var(--ui-font-weight-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+}
+
+/* In the head the dot sits in the flow beside the name, not pinned to a
+ * button's corner as it is on the rail. */
+.pf-chat__name .pf-presence {
+    position: static;
+}
+
+/* Stage: Shirley takes the work area — conversation left, canvas right.
+ *
+ * ``.pf-stage`` shares the ``main`` cell with ``#shell-main`` and the
+ * state rule hides the view rather than unmounting it, so "Back to
+ * dock" returns to exactly the view (and scroll position) that was
+ * open. The markup carries ``hidden`` for the no-CSS case; the
+ * ``display: grid`` below out-specifies the UA's ``[hidden]`` rule —
+ * the same trap P-UX-A0d documented — and shirley.js strips the
+ * attribute the first time the stage is entered. */
+.pf-stage {
+    grid-area: main;
+    display: none;
+    height: 100%;
+}
+
+.pf-shell[data-shirley="stage"] #shell-main {
+    display: none;
+}
+
+.pf-shell[data-shirley="stage"] .pf-stage {
+    display: grid;
+    grid-template-columns: var(--ui-layout-stage-conversation) minmax(0, 1fr);
+}
+
+.pf-stage__chat {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    background: var(--ui-background-chrome);
+    border-right: 1px solid var(--ui-border-soft);
+}
+
+.pf-stage__canvas {
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--ui-space-5) var(--ui-space-6) var(--ui-space-7);
+}
+
+.pf-stage__head {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-3);
+    min-height: 48px;
+    margin-bottom: var(--ui-space-4);
+}
+
+.pf-stage__title {
+    flex: 1;
+    margin: 0;
+    color: var(--ui-text-primary);
+    font-size: var(--ui-font-scale-xl);
+    font-weight: var(--ui-font-weight-semibold);
+}
+
+.pf-stage__note {
+    max-width: 70ch;
+    margin: var(--ui-space-4) 0 0;
+    color: var(--ui-text-secondary);
+    font-size: var(--ui-font-scale-sm);
+}
+
 /* Status bar ------------------------------------------------------- */
 
-/* Spans both columns: the shell grid no longer names its areas. Sticky
- * at the bottom, because the document scrolls now — without it the bar
- * would sit below the fold on any view taller than the viewport, where
- * it used to ride the viewport-high grid. */
+/* Spans all three columns by name (P-UX-A0e restored the named areas).
+ * Sticky at the bottom, because the document scrolls now — without it
+ * the bar would sit below the fold on any view taller than the
+ * viewport, where it used to ride the viewport-high grid. */
 .pf-statusbar {
-    grid-column: 1 / -1;
+    grid-area: status;
     position: sticky;
     bottom: 0;
     z-index: 3;

@@ -27,5 +27,28 @@
     "section": "history",
     "steps": [],
     "shot": "history"
+  },
+  {
+    "name": "shirley-docked",
+    "area": "front_office",
+    "start": "/front-office",
+    "session": "tenant",
+    "steps": [
+      {"click": ".pf-rail__btn"},
+      {"wait": "#pf-chat"},
+      {"wait": ".chat-history"}
+    ],
+    "shot": "shirley-docked"
+  },
+  {
+    "name": "shirley-stage",
+    "area": "assistants",
+    "start": "/assistants#shirley",
+    "session": "tenant",
+    "steps": [
+      {"wait": ".pf-stage__canvas"},
+      {"wait": "#pf-chat"}
+    ],
+    "shot": "shirley-stage"
   }
 ]

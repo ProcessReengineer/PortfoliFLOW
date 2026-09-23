@@ -184,6 +184,16 @@
         return event.metaKey || event.ctrlKey;
     }
 
+    // Ctrl J / Cmd J — Shirley, closed <-> open (P-UX-A0e). It sits
+    // beside Ctrl K deliberately: one file owns the shell's keyboard, so
+    // the two shortcuts cannot drift apart or shadow one another.
+    function isShirleyHotkey(event) {
+        if (event.key !== "j" && event.key !== "J") {
+            return false;
+        }
+        return event.metaKey || event.ctrlKey;
+    }
+
     function bindPalette() {
         paletteDialog = document.getElementById("pf-palette");
         if (!paletteDialog) {
@@ -272,6 +282,21 @@
         }
         event.preventDefault();
         openPalette();
+    });
+
+    // Outside bindPalette: the palette dialog's absence must not take
+    // the dock's shortcut with it. shirley.js is loaded before this file
+    // (base.html), so the global is there; the guard covers the auth
+    // pages, which load neither.
+    document.addEventListener("keydown", function (event) {
+        if (!isShirleyHotkey(event)) {
+            return;
+        }
+        if (!window.pfShirley) {
+            return;
+        }
+        event.preventDefault();
+        window.pfShirley.toggle();
     });
 
     document.addEventListener("DOMContentLoaded", bindPalette);

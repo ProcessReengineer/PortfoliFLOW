@@ -1,16 +1,26 @@
-{# Shirley chat surface, embedded inside /assistants#shirley.
+{# Shirley's conversation — the ONE instance, wherever she is showing.
+
+   P-UX-A0e moved this out of the Assistants body and made it a shell
+   element (record §2.10): ``shirley.js`` moves this subtree between
+   ``#dock-chat-host`` (the 380 px column beside the work area) and
+   ``#stage-chat-host`` (the 420 px conversation on the stage). It is
+   moved, never cloned — ``#chat-history`` and ``#chat-form`` stay
+   unique, and a running SSE stream survives both the move and an HTMX
+   area swap, because the hosts sit outside ``#shell-main``.
 
    The composer, history, controls and SSE-driven streaming are
-   identical to the retired /chat page (ADR-0051); only the layout
-   chrome is trimmed for the area-section mount. The anchor ids
-   ``chat-history``, ``chat-form``, ``chat-input`` are preserved so
+   otherwise identical to the retired /chat page (ADR-0051). The anchor
+   ids ``chat-history``, ``chat-form``, ``chat-input`` are preserved so
    ``web/static/js/chat.js`` continues to wire up Enter-to-send,
    autoscroll, and the one-shot EventSource bootstrap without
    modification.
 
-   Required context (set by ``assistants_view`` via ``extra_context``):
+   Rendered as a bare fragment by ``GET /chat/dock``, once per page
+   life, when the dock is first opened. ``#chat-history`` then loads
+   itself from ``/chat/history`` on its own ``load`` trigger, as before.
+
+   Required context (set by ``get_chat_dock`` in ``web/routes/chat.py``):
      csrf_token    — session-bound CSRF token.
-     model_id      — currently active Shirley model, or ``None``.
      voice_enabled — True when voice is switched on **per tenant**
                      (ADR-0076; ADR-0118 §5 made it a per-tenant answer).
                      Gates the voice toggle and the record/stop/cancel
@@ -18,11 +28,35 @@
      brief_banner  — {badge, title, href} when a case brief is active
                      (ADR-0107 C6), else ``None``. Renders the
                      "Consulting for CASE-NNNN" banner.
+
+   The "Model: …" status line is gone (record §2.10.3): the model a
+   tenant runs is configuration, and its home is Providers &
+   Credentials, not the conversation's chrome.
 #}
-<div class="chat-embed">
-    {% if model_id %}
-        <p class="chat-embed__model">Model: {{ model_id }}</p>
-    {% endif %}
+<section class="pf-chat chat-embed" id="pf-chat" aria-label="Conversation with Shirley">
+    {# The dock's head — presence, name, and the three controls. "New
+       chat" moved up here out of the old ``.chat-controls`` row; the two
+       icon buttons are shirley.js's, and their labels flip with the
+       state (``Open on stage`` ↔ ``Back to dock``). #}
+    <header class="pf-chat__head">
+        <span class="pf-chat__name"><span class="pf-presence" aria-hidden="true"></span>Shirley</span>
+        <button type="button"
+                class="pf-btn pf-btn--quiet pf-btn--sm"
+                hx-post="/chat/new"
+                hx-target="#chat-history"
+                hx-swap="innerHTML"
+                hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>{{ pf_icon("new") }}New chat</button>
+        <button type="button"
+                class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon"
+                data-toggle-stage
+                aria-label="Open on stage"
+                title="Open on stage">{{ pf_icon("stage") }}</button>
+        <button type="button"
+                class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon"
+                data-set-shirley="closed"
+                aria-label="Close Shirley"
+                title="Close  Ctrl J">{{ pf_icon("close") }}</button>
+    </header>
 
     {# "Consulting for CASE-NNNN" banner (ADR-0107 C6, Step 1) — chat furniture,
        not a message bubble. Present whenever the session's case-brief stash is
@@ -74,17 +108,6 @@
        both swap it back to empty / a quiet confirmation. Sits below the
        history so opening it never disturbs the scroll. #}
     <div id="chat-pin-dialog"></div>
-
-    <div class="chat-controls">
-        <button type="button"
-                class="chat-controls__new"
-                hx-post="/chat/new"
-                hx-target="#chat-history"
-                hx-swap="innerHTML"
-                hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
-            New chat
-        </button>
-    </div>
 
     <div class="chat-composer">
         <form id="chat-form"
@@ -139,4 +162,4 @@
             <p class="chat-composer__hint">Enter to send · Shift+Enter for newline · attach a photo to ask about it</p>
         </form>
     </div>
-</div>
+</section>

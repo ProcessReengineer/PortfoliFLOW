@@ -47,11 +47,7 @@ from core.repositories.tenant_repository import TenantRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO, SessionRepository
 from web.auth import require_session
-from web.routes.chat import (
-    _ai_core,
-    _resolve_voice_enabled,
-    resolve_active_brief_banner,
-)
+from web.routes.chat import resolve_active_brief_banner
 from web.routes.data_import import load_data_import_section_context
 from web.routes.market_data import load_market_data_section_context
 from web.shell import is_htmx_request, landing_section_for, section_index_for
@@ -146,6 +142,7 @@ def _render_area(
     csrf_token: str,
     htmx: bool,
     extra_context: dict | None = None,
+    shirley_state: str | None = None,
 ) -> HTMLResponse:
     """Render an area template, branching on the HTMX flag.
 
@@ -180,6 +177,12 @@ def _render_area(
             route to pre-load the Data Import section's Stage 1
             content server-side (sub-stream 6F-5; the surface moved
             from Front Office to Admin in the 6F-3 mid-polish).
+        shirley_state: Optional initial state for the shell's Shirley
+            column (P-UX-A0e) — ``"docked"`` or ``"stage"``. ``None``
+            leaves ``base.html`` on its ``"closed"`` default, which is
+            what every area but Assistants passes. The state is not
+            persisted: a full page load resets it to whatever the
+            server said here.
     """
     templates = _templates(request)
     user = getattr(request.state, "user", None)
@@ -191,6 +194,7 @@ def _render_area(
         "is_tenant_owner": is_owner,
         "section_index": section_index_for(area_slug, is_tenant_owner=is_owner),
         "landing_section": landing_section_for(area_slug),
+        "shirley_state": shirley_state,
     }
     if extra_context:
         context.update(extra_context)
@@ -451,27 +455,32 @@ async def assistants_view(
     session: SessionDTO = Depends(require_session),
     htmx: bool = Depends(is_htmx_request),
 ) -> HTMLResponse:
-    """Render the Assistants area page with Shirley embedded.
+    """Render the Assistants area page; Shirley herself lives in the shell.
 
     ADR-0051 folded the standalone ``GET /chat`` page into the
-    Assistants area's ``shirley`` section. The active model id is
-    threaded into the section context so the embedded shell can show
-    the "Model: …" status line previously rendered by ``chat.html``.
+    Assistants area's ``shirley`` section; P-UX-A0e moved the
+    conversation out again, into the shell's Shirley column, where it is
+    reachable from every Area. What remains in the section is a pointer,
+    and the chat's own context — voice, banner, CSRF — is served by
+    ``GET /chat/dock`` when the dock is first opened. That is why this
+    handler no longer resolves ``model_id`` or ``voice_enabled``.
 
-    ``voice_enabled`` is resolved **per tenant** (ADR-0118 §5): the one
-    template-context site for the voice affordances asks the credential
-    façade's ``voice.enabled`` chain rather than a process-global switch,
-    at the cost of one session-scoped read per Assistants render.
+    The ``?case=<id>`` marker (ADR-0107 C6) still arrives **here**,
+    because that is the URL a case's "Consult Shirley" action links to.
+    :func:`resolve_active_brief_banner` is called for its side effect: a
+    marker naming an open case sets the session's case-brief stash, from
+    which ``/chat/dock`` then renders the "Consulting for CASE-NNNN"
+    banner. Malformed, unknown or closed markers are dropped silently
+    (binding decision 5); the stash and banner logic lives in ``chat.py``.
 
-    A ``?case=<id>`` marker (ADR-0107 C6) sets the session's case-brief
-    stash when it names an open case, and — whether freshly set or
-    carried from a previous turn — the "Consulting for CASE-NNNN"
-    banner is rendered from the current stash, validated fresh.
-    Malformed, unknown or closed markers are dropped silently (binding
-    decision 5); the stash and banner logic lives in ``chat.py``.
+    A marker that landed a live brief opens the dock on arrival, so the
+    consultation the operator asked for is in front of them. The test is
+    "a marker was supplied *and* a brief is now active" — a malformed
+    marker arriving on top of an already-stashed case therefore also
+    opens the dock, which is the harmless way round: the banner it shows
+    is the true one.
     """
     user_email = await _resolve_user_email(request, session)
-    model_id = _ai_core(request).get_model() or None
     brief_banner = await resolve_active_brief_banner(request, session, case)
     return _render_area(
         request,
@@ -480,9 +489,5 @@ async def assistants_view(
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,
-        extra_context={
-            "model_id": model_id,
-            "voice_enabled": await _resolve_voice_enabled(request, session),
-            "brief_banner": brief_banner,
-        },
+        shirley_state="docked" if case and brief_banner else None,
     )

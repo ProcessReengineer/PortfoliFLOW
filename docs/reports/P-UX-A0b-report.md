@@ -369,7 +369,7 @@ label is noise.
 | 2 | contract diff (`hx-target=`, `hx-get=`, `hx-post=`, `hx-swap-oob=`, `id="tx-`, `@router.`) | ✅ **no lines** — see below |
 | 3 | no `section_indicator` / `pf-section-indicator` in `web/`, `tools/`, `tests/` | ⚠️ **clean in `web/` and `tools/`**; the `tests/` hits are the absence-assertions §2.10 asked for — see below |
 | 4 | DB-free selection | ✅ **98 passed** |
-| 5 | DB-bound selection, Postgres up | see below |
+| 5 | DB-bound selection, Postgres up | ✅ **374 passed** in two slices — see below |
 | 6 | `ruff check` / `ruff format --check`; `pyright` advisory | ✅ all checks passed / already formatted; **pyright: 0 errors, 0 warnings** |
 | 7 | hex count must not rise; report `var(--ui-` count | ✅ **0 → 0**; `var(--ui-` **134** |
 | 8 | icon-only controls named; no `confirm(`/`alert(`/`hx-confirm`; no `type="number"` | ✅ — see below |
@@ -400,6 +400,24 @@ the "no `pf-section-indicator` in the page" tests §2.10 explicitly asked for, a
 `test_section_navigation.py:72` is a comment naming the parked tokens. A test that
 proves a string is absent has to name the string; the gate's intent — no live
 surface left — is met.
+
+### Gate 5 — the DB-bound selection
+
+Postgres was up (`portfoliflow-postgres`, healthy). Run in two slices because of
+wall-clock, and widened beyond the prompt's list with the four extra modules check 12
+named as touching the classes this prompt changes.
+
+| Slice | Modules | Result |
+|---|---|---|
+| 1 | `test_shell_sections.py`, `test_section_navigation.py`, `test_logo_partial.py` | **76 passed** (134s) |
+| 2 | `test_charts_section_routes.py`, `test_planning_desk.py`, `test_planning_desk_scenario_results.py`, `test_portfolio_analysis_section_routes.py`, `test_portfolio_review_section_routes.py`, `test_statistics_section_routes.py`, `test_sidebar_glyph_and_auth_polish.py`, `test_shell_sidebar_and_areas.py`, `test_watch_desk.py`, `test_auth_surface_layout.py` | **298 passed** (547s) |
+
+**374 passed, 0 failed.** The 83 warnings are pre-existing
+`HTTP_422_UNPROCESSABLE_ENTITY` deprecations in `web/routes/watch_desk.py`,
+untouched by this prompt.
+
+Slice 1 predates the `.pf-section[hidden]` fix, so `test_shell_sections.py` was
+re-run afterwards, together with the catalogue tests: **39 passed** (14s).
 
 ### Gate 7 — CSS colour discipline
 

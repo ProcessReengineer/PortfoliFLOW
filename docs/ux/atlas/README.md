@@ -101,10 +101,18 @@ the route it died on carries the reason `session lost — run aborted`.
 
 ## Revealing lazy Sections
 
-Most Areas load their heavy Sections on `hx-trigger="revealed"`, which
-fires when the element intersects the viewport. `full_page=True` does not
-scroll — it lengthens the rendering surface — so a page shot straight
-after load is a column of "Loading…" placeholders below the first 900 px.
+An Area page renders every one of its Sections and shows one, so the
+atlas walks them the way a reader does: by the URL fragment, one
+`switch_section` per `data-pf-section` it finds in the DOM. Section
+bodies load on `hx-trigger="intersect once"`, which fires when the
+element meets the viewport, and `full_page=True` does not scroll — it
+lengthens the rendering surface — so a page shot straight after load is a
+column of "Loading…" placeholders below the first 900 px. A hidden
+Section can never intersect, so the loader driver leaves its loaders out
+of the work list rather than spending rounds on something no observer
+will see. Each Section gets its own full shot and its own bands, named
+`<route>--<section>`, and a scene may name a `section` of its own to
+start from.
 
 Before every shot the atlas therefore walks the document to the bottom in
 steps of 0.8 viewports (`revealed` fires on intersection, so a

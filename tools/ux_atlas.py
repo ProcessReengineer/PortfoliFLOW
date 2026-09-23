@@ -69,17 +69,33 @@ Usage
     export PF_ATLAS_USER=… PF_ATLAS_PASSWORD=…
     python tools/ux_atlas.py
 
+Sections
+--------
+Since P-UX-A0b an Area page renders every one of its Sections but *shows* one:
+the URL fragment selects it and ``web/static/js/shell.js`` moves the ``hidden``
+attribute from one to the next. A hidden Section's lazy loaders never fire —
+they trigger on ``intersect once``, and a ``display: none`` element never
+intersects — so a single shot per Area page would photograph the landing
+Section and nothing else.
+
+The atlas therefore reads the Section list off the DOM and walks it the way a
+reader does, through the fragment, taking one full shot and its bands per
+Section: ``<area>/<route>--<section>.png``. A surface with no Sections — the
+login door, ``/investments``, the super-admin pages — keeps the single-shot
+path unchanged, and a scene may name a ``section`` of its own, switched to
+after its ``start`` loads and before its steps run.
+
 Revealing, truncation and bands
 -------------------------------
-Most Areas load their heavy Sections on ``hx-trigger="revealed"``, which fires
-on intersection with the viewport. A page rendered without ever scrolling is
-therefore a column of "Loading…" placeholders below the fold, whatever
+Most Sections load their heavy bodies on ``hx-trigger="intersect once"``, which
+fires on intersection with the viewport. A page rendered without ever scrolling
+is therefore a column of "Loading…" placeholders below the fold, whatever
 ``full_page`` does afterwards. Every shot is preceded by a reveal pass that
 walks the document to the bottom in sub-viewport steps, waiting for HTMX after
 each, until the page stops growing — then back to the top.
 
 Scroll geometry alone is not enough for two things it cannot see. A Section
-that arrives on ``revealed`` may itself hold per-item loaders on the same
+body that lands on ``intersect`` may itself hold per-item loaders on the same
 trigger, which did not exist when the walk passed their eventual position, so
 the walk is followed by a loader-driven loop that takes the unfired loaders
 themselves as its work list and re-reads the DOM after each round. And Plotly
@@ -167,6 +183,25 @@ PATH_SKIPS: tuple[tuple[str, str], ...] = (
 )
 
 DEFAULT_VIEWPORT = (1440, 900)
+
+#: The shell's Section markers, in DOM order. ``#shell-main`` is the swap target
+#: an Area body lands in, and ``web/templates/areas/_section.html`` stamps
+#: ``data-pf-section`` with the slug that doubles as the URL fragment.
+SECTION_SELECTOR = "#shell-main [data-pf-section]"
+
+#: The one Section the shell is showing. Exactly one is unhidden at a time —
+#: ``web/static/js/shell.js`` is the only thing that moves the attribute.
+VISIBLE_SECTION_SELECTOR = f"{SECTION_SELECTOR}:not([hidden])"
+
+#: A Section the shell is not showing. ``hidden`` is ``display: none``, and a
+#: ``display: none`` element never intersects, so its lazy loaders can never
+#: fire however hard they are scrolled to.
+HIDDEN_SECTION_SELECTOR = "[data-pf-section][hidden]"
+
+#: How long a fragment switch has to take effect. ``shell.js`` acts on
+#: ``hashchange`` synchronously, so this is a guard against a page served
+#: without the script rather than a budget anything normally spends.
+SECTION_SWITCH_TIMEOUT_MS = 5_000
 
 #: Kills motion so two runs of the same unchanged page are byte-comparable.
 STILLNESS_CSS = (
@@ -275,9 +310,9 @@ UNFIRED_LOADER_SELECTOR = (
 )
 
 #: The loader-driven reveal re-reads the DOM after each round because a section
-#: that arrives on ``revealed`` may itself contain per-item loaders on the same
-#: trigger (``charts_section.html`` → ``/api/charts/investment/{id}``). Twelve
-#: rounds is far past the two levels the tree actually nests.
+#: body that arrives on ``intersect`` may itself contain per-item loaders on the
+#: same trigger (``charts_section.html`` → ``/api/charts/investment/{id}``).
+#: Twelve rounds is far past the two levels the tree actually nests.
 MAX_REVEAL_ROUNDS = 12
 
 UNFIRED_LOADERS_REASON = "unfired lazy loaders"
@@ -370,6 +405,13 @@ class Capture:
     charts_pending: int | None = None
     loading_placeholders: int | None = None
     bands: list[str] = field(default_factory=list)
+    #: One ``(slug, shot)`` pair per Section of an Area page, in DOM order.
+    #: Empty for a surface the shell does not section — the login door,
+    #: ``/investments``, the super-admin pages, every partial — which keeps the
+    #: single-shot fields above as its whole record. On a sectioned page those
+    #: fields carry the fold of the Sections (see :func:`aggregate_sections`)
+    #: and ``file`` names the first Section's shot.
+    sections: list[tuple[str, ShotMeta]] = field(default_factory=list)
 
 
 @dataclass
@@ -421,6 +463,10 @@ class ShotMeta:
     scroll_height: int
     png_height: int | None
     truncated: bool
+    #: The PNG's path relative to the run root. Carried on the shot rather than
+    #: only on the :class:`Capture` because an Area page writes one shot per
+    #: Section and the route-level ``file`` can name only one of them.
+    file: str = ""
     reveal_rounds: int = 0
     loaders_left: int = 0
     loaders_hidden: int = 0
@@ -450,6 +496,18 @@ class Session:
 
 class BrowserMissingError(RuntimeError):
     """Raised when Playwright cannot find the Chromium it is asked to drive."""
+
+
+class SectionSwitchError(RuntimeError):
+    """Raised when a fragment switch never brings its Section into view.
+
+    The fragment is the shell's own navigation (``hashchange`` →
+    ``web/static/js/shell.js``), so this is what a page served without that
+    script, or with a Section the catalogue no longer renders, looks like from
+    the outside. It is a finding about one surface, not a reason to abandon the
+    run: the route pass lets it end that route's captures and the scene pass
+    turns it into a failed scene.
+    """
 
 
 class LoginFailedError(RuntimeError):
@@ -623,6 +681,29 @@ def route_slug(path: str) -> str:
     slug = path.replace("/", "__")
     slug = slug.removeprefix("__")
     return slug or "index"
+
+
+def section_shot_stem(path: str, slug: str) -> str:
+    """Name the shot of one Section of one route.
+
+    ``<route>--<section>``: ``/front-office`` plus ``charts`` becomes
+    ``front-office--charts``. Both halves go through :func:`route_slug`, so a
+    Section slug that ever grows a separator is flattened the same way a route
+    path is and the stem stays one filesystem-safe token.
+
+    The route half rather than the Area folder's name is what disambiguates two
+    routes landing on the same Sections: ``/`` redirects to ``/front-office``,
+    so ``index--charts`` and ``front-office--charts`` sit side by side instead
+    of overwriting one another.
+
+    Args:
+        path: The route path the Section was captured on.
+        slug: The Section's ``data-pf-section`` value.
+
+    Returns:
+        The screenshot stem, without an extension.
+    """
+    return f"{route_slug(path)}--{route_slug(slug)}"
 
 
 def area_dir(area: str) -> str:
@@ -827,6 +908,87 @@ def scroll_height_of(page: Page) -> int:
     return int(page.evaluate("() => document.documentElement.scrollHeight"))
 
 
+def section_slugs(page: Page) -> list[str]:
+    """Return the page's Section slugs in DOM order.
+
+    The shell's Section list is read off the page rather than out of
+    ``web.shell`` — the atlas is an observer of the running product, and a
+    Section added to the catalogue must appear in the next run without touching
+    this file, exactly as a new route does.
+
+    Args:
+        page: The page to inspect, already navigated and settled.
+
+    Returns:
+        The ``data-pf-section`` values, document order. Empty for a surface the
+        shell does not section — the login door, ``/investments``, the
+        super-admin pages, every HTMX partial — and empty on an evaluation
+        error, which keeps such a page on the single-shot path.
+    """
+    probe = """(sel) => Array.prototype.map.call(
+        document.querySelectorAll(sel),
+        function (el) { return el.getAttribute("data-pf-section"); }
+    ).filter(function (slug) { return !!slug; })"""
+    try:
+        return [str(slug) for slug in page.evaluate(probe, SECTION_SELECTOR)]
+    except Exception:  # noqa: BLE001 - an unreadable page is not a sectioned page
+        return []
+
+
+def visible_section(page: Page) -> str | None:
+    """Return the slug of the Section the shell is currently showing.
+
+    Args:
+        page: The page to inspect.
+
+    Returns:
+        The one Section without ``hidden``, or ``None`` on a page with no
+        Sections at all — or one the shell script never got to.
+    """
+    probe = """(sel) => {
+        const el = document.querySelector(sel);
+        return el ? el.getAttribute("data-pf-section") : null;
+    }"""
+    try:
+        value = page.evaluate(probe, VISIBLE_SECTION_SELECTOR)
+    except Exception:  # noqa: BLE001 - an unreadable page shows nothing knowable
+        return None
+    return None if value is None else str(value)
+
+
+def switch_section(page: Page, slug: str) -> None:
+    """Show one Section by the route a reader takes: the URL fragment.
+
+    Nothing is clicked and no request is issued. The fragment is set, the
+    browser raises ``hashchange``, and ``web/static/js/shell.js`` — the only
+    thing that moves the ``hidden`` attribute — swaps the Sections over and
+    scrolls to the top. Driving the shell's own path rather than unhiding the
+    element directly is what makes the shot evidence about the product: a
+    fragment that does not resolve is a finding here, where unhiding by hand
+    would have photographed a surface no reader can reach.
+
+    Args:
+        page: The page to switch, already navigated and settled.
+        slug: The Section's ``data-pf-section`` value.
+
+    Raises:
+        SectionSwitchError: If the Section never becomes the visible one.
+    """
+    page.evaluate("(slug) => { window.location.hash = '#' + slug; }", slug)
+    watch = f"""(expected) => {{
+        const el = document.querySelector({VISIBLE_SECTION_SELECTOR!r});
+        return !!el && el.getAttribute("data-pf-section") === expected;
+    }}"""
+    try:
+        page.wait_for_function(watch, arg=slug, timeout=SECTION_SWITCH_TIMEOUT_MS)
+    except Exception as exc:  # noqa: BLE001 - re-raised as a typed, legible error
+        raise SectionSwitchError(
+            f"fragment #{slug} never brought its section into view within "
+            f"{SECTION_SWITCH_TIMEOUT_MS} ms (showing {visible_section(page)!r})"
+        ) from exc
+    settle(page)
+
+
 def reveal(page: Page) -> RevealResult:
     """Scroll the document top to bottom so every lazy Section loads.
 
@@ -894,27 +1056,43 @@ def unfired_loaders(page: Page) -> list[tuple[Any, bool]]:
     Args:
         page: The page to inspect.
 
+    Loaders inside a Section the shell is not showing are left out entirely,
+    not merely marked invisible. ``hidden`` is ``display: none``, so they can
+    never intersect however hard they are scrolled to, and counting them would
+    put every *other* Section's placeholders into this Section's record. They
+    are captured when their own Section is switched to.
+
     Returns:
-        One ``(handle, visible)`` pair per loader, document order. Empty on an
-        evaluation error — an unreadable page is photographed as it stands.
+        One ``(handle, visible)`` pair per loader in a shown Section, document
+        order. Empty on an evaluation error — an unreadable page is
+        photographed as it stands.
     """
     probe = f"""(sel) => {{
         {VISIBLE_FN}
         return Array.prototype.map.call(
-            document.querySelectorAll(sel), function (el) {{ return pfAtlasVisible(el); }}
+            document.querySelectorAll(sel),
+            function (el) {{
+                return [
+                    el.closest({HIDDEN_SECTION_SELECTOR!r}) === null,
+                    pfAtlasVisible(el),
+                ];
+            }}
         );
     }}"""
     try:
         handles = list(page.query_selector_all(UNFIRED_LOADER_SELECTOR))
-        visible = [bool(flag) for flag in page.evaluate(probe, UNFIRED_LOADER_SELECTOR)]
+        flags = [
+            (bool(shown), bool(seen))
+            for shown, seen in page.evaluate(probe, UNFIRED_LOADER_SELECTOR)
+        ]
     except Exception:  # noqa: BLE001 - an unreadable page is not a reason to stall
         return []
-    if len(visible) != len(handles):
+    if len(flags) != len(handles):
         # The DOM moved between the two queries. Treat everything as visible:
         # driving a loader that did not need it costs a scroll, skipping one
         # that did costs a placeholder in the shot.
         return [(handle, True) for handle in handles]
-    return list(zip(handles, visible, strict=True))
+    return [(handle, seen) for handle, (shown, seen) in zip(handles, flags, strict=True) if shown]
 
 
 def fired_tally(page: Page) -> int:
@@ -940,7 +1118,7 @@ def drive_loaders(page: Page) -> tuple[int, int, int]:
 
     The geometric pass above walks the page by *height*, which is the right way
     to exercise scroll-spy and sticky headers but the wrong way to guarantee a
-    loader fires: a section that arrives on ``revealed`` may itself contain
+    loader fires: a section body that lands on ``intersect`` may itself contain
     per-item loaders on the same trigger — ``charts_section.html`` swaps in one
     ``<article>`` per investment, each holding a second
     ``hx-get="/api/charts/investment/{id}"`` — and those did not exist when the
@@ -1015,9 +1193,14 @@ def await_charts(page: Page) -> tuple[int, int]:
         undrawn when the wait ended. A non-zero remainder means the timeout was
         reached — a figure that never lands is a finding, not a stall.
     """
+    # Scoped to the shown Section on a sectioned page: a Section already walked
+    # leaves its drawn figures in the DOM behind ``hidden``, and counting those
+    # again would make every later Section's ``charts_total`` the running sum of
+    # the ones before it. ``document`` on a page the shell does not section.
     probe = f"""() => {{
+        const root = document.querySelector({VISIBLE_SECTION_SELECTOR!r}) || document;
         const targets = Array.prototype.slice.call(
-            document.querySelectorAll({CHART_TARGET_SELECTOR!r})
+            root.querySelectorAll({CHART_TARGET_SELECTOR!r})
         );
         const pending = targets.filter(function (el) {{
             return !el.matches({PLOTLY_DRAWN_SELECTOR!r})
@@ -1231,6 +1414,7 @@ def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> Sh
     page.screenshot(path=str(target), full_page=True)
     height = png_height(target)
     meta = ShotMeta(
+        file=str(target.relative_to(out_dir)),
         reveal_iterations=revealed.iterations,
         reveal_complete=revealed.complete,
         scroll_height=revealed.scroll_height,
@@ -1250,13 +1434,102 @@ def capture_shot(page: Page, target: Path, out_dir: Path, *, band_px: int) -> Sh
     return meta
 
 
+def aggregate_sections(metas: list[ShotMeta]) -> ShotMeta:
+    """Fold one Area page's per-Section shots into a single route-level record.
+
+    The route-level fields predate Sections and are read by the manifest, the
+    contact sheet and the suspect ladder, so they keep meaning something on a
+    sectioned page: the counters sum, because a placeholder in any Section is a
+    placeholder on that page; ``truncated`` and ``reveal_complete`` take the
+    worst case, because one cut Section makes the page's record of itself
+    incomplete; the heights take the tallest Section, because that is what the
+    16,384 px cap is up against. ``file`` names the first Section's shot — the
+    others are reachable through ``Capture.sections``.
+
+    Args:
+        metas: One shot per Section, in DOM order. Must not be empty.
+
+    Returns:
+        The folded :class:`ShotMeta`.
+    """
+    heights = [meta.png_height for meta in metas if meta.png_height is not None]
+    return ShotMeta(
+        file=metas[0].file,
+        reveal_iterations=max(meta.reveal_iterations for meta in metas),
+        reveal_complete=all(meta.reveal_complete for meta in metas),
+        scroll_height=max(meta.scroll_height for meta in metas),
+        png_height=max(heights) if heights else None,
+        truncated=any(meta.truncated for meta in metas),
+        reveal_rounds=max(meta.reveal_rounds for meta in metas),
+        loaders_left=sum(meta.loaders_left for meta in metas),
+        loaders_hidden=sum(meta.loaders_hidden for meta in metas),
+        charts_total=sum(meta.charts_total for meta in metas),
+        charts_pending=sum(meta.charts_pending for meta in metas),
+        loading_placeholders=sum(meta.loading_placeholders for meta in metas),
+        bands=[band for meta in metas for band in meta.bands],
+    )
+
+
+def shot_size(out_dir: Path, meta: ShotMeta) -> int:
+    """Return the byte size of the PNG a shot wrote.
+
+    Args:
+        out_dir: The run's output root, which ``ShotMeta.file`` is relative to.
+        meta: The shot to measure.
+
+    Returns:
+        The size in bytes, or ``0`` when the file is absent — which the suspect
+        ladder reads as "empty or an error card", the right answer either way.
+    """
+    if not meta.file:
+        return 0
+    path = out_dir / meta.file
+    return path.stat().st_size if path.exists() else 0
+
+
 # --------------------------------------------------------------------------- #
 # Capture
 # --------------------------------------------------------------------------- #
 
 
+def shot_reason(meta: ShotMeta, *, size: int) -> str | None:
+    """Return why one shot cannot be trusted, or ``None`` if it can.
+
+    The ladder is ordered by how far upstream the fault is, so the reported
+    reason is the cause rather than one of its symptoms: a truncated PNG
+    explains missing content better than the placeholders it cut off, and an
+    unfired loader explains a placeholder better than the placeholder does.
+
+    Args:
+        meta: The shot to judge.
+        size: The PNG's size in bytes.
+
+    Returns:
+        The reason string, or ``None``.
+    """
+    if meta.truncated:
+        return TRUNCATION_REASON
+    if not meta.reveal_complete:
+        return REVEAL_INCOMPLETE_REASON
+    if meta.loaders_left > 0:
+        return f"{UNFIRED_LOADERS_REASON} ({meta.loaders_left})"
+    if meta.charts_pending > 0:
+        return f"{CHARTS_PENDING_REASON} ({meta.charts_pending} of {meta.charts_total})"
+    if meta.loading_placeholders > 0:
+        return f"{meta.loading_placeholders} loading placeholders visible"
+    if size < SUSPECT_MIN_BYTES:
+        return f"png is {size} bytes (< {SUSPECT_MIN_BYTES}) — likely empty or an error card"
+    return None
+
+
 def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: int = 0) -> Capture:
-    """Visit one route, reveal its lazy Sections and write its full-page screenshot.
+    """Visit one route and photograph every Section the shell shows on it.
+
+    An Area page renders all of its Sections and shows one, so one shot would
+    be a photograph of the landing Section and a promise about the rest. The
+    Section list is read off the DOM and walked through the URL fragment — the
+    reader's own path — with a full shot and its bands taken per Section. A
+    surface the shell does not section keeps the single-shot path.
 
     A non-2xx response is still captured — an error page is a UX surface, and
     seeing it is the point of the atlas. A bounce to ``/login`` is the one
@@ -1270,8 +1543,10 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
         band_px: Band height in CSS pixels, or 0 for no bands.
 
     Returns:
-        The :class:`Capture` record, flagged ``suspect`` when the PNG is
-        truncated, implausibly small, or the response was an error.
+        The :class:`Capture` record, carrying one entry in ``sections`` per
+        Section photographed and flagged ``suspect`` when any of them is
+        truncated, implausibly small, left holding placeholders, or the
+        response was an error.
 
     Raises:
         LoginFailedError: If the route bounced to ``/login``. The capture rides
@@ -1286,6 +1561,8 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
     target = folder / f"{route_slug(route.path)}.png"
 
     page = session.context.new_page()
+    sections: list[tuple[str, ShotMeta]] = []
+    switch_error: str | None = None
     try:
         response = page.goto(
             f"{session.base_url}{route.path}",
@@ -1294,7 +1571,21 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
         )
         settle(page)
         prepare(page)
-        meta = capture_shot(page, target, out_dir, band_px=band_px)
+        for slug in section_slugs(page):
+            try:
+                switch_section(page, slug)
+            except SectionSwitchError as exc:
+                # One unreachable fragment ends this route's walk and is
+                # reported; the Sections already photographed are kept, and the
+                # run goes on to the next route.
+                switch_error = str(exc)
+                break
+            shot = folder / f"{section_shot_stem(route.path, slug)}.png"
+            sections.append((slug, capture_shot(page, shot, out_dir, band_px=band_px)))
+        if sections:
+            meta = aggregate_sections([shot_meta for _, shot_meta in sections])
+        else:
+            meta = capture_shot(page, target, out_dir, band_px=band_px)
         status = response.status if response is not None else None
         final_url = page.url
     finally:
@@ -1303,7 +1594,7 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
     capture = Capture(
         area=route.area,
         path=route.path,
-        file=str(target.relative_to(out_dir)),
+        file=meta.file,
         status=status,
         final_url=final_url,
         partial=partial,
@@ -1320,37 +1611,33 @@ def capture_route(session: Session, route: RouteRow, out_dir: Path, *, band_px: 
         charts_pending=meta.charts_pending,
         loading_placeholders=meta.loading_placeholders,
         bands=meta.bands,
+        sections=sections,
     )
-    size = target.stat().st_size if target.exists() else 0
     if final_url.rstrip("/").endswith("/login"):
         capture.suspect = True
         capture.reason = SESSION_LOST_REASON
         raise LoginFailedError(
             f"{route.path} bounced to /login — the session did not carry", capture=capture
         )
-    if meta.truncated:
+
+    # Judged per Section, and named by the Section, because "unfired lazy
+    # loaders (3)" on an Area page of four Sections is a question rather than a
+    # finding until it says which one.
+    reason = switch_error
+    if reason is None:
+        if sections:
+            for slug, shot_meta in sections:
+                found = shot_reason(shot_meta, size=shot_size(out_dir, shot_meta))
+                if found is not None:
+                    reason = f"{slug}: {found}"
+                    break
+        else:
+            reason = shot_reason(meta, size=shot_size(out_dir, meta))
+    if reason is None and status is not None and status >= 400:
+        reason = f"HTTP {status}"
+    if reason is not None:
         capture.suspect = True
-        capture.reason = TRUNCATION_REASON
-    elif not meta.reveal_complete:
-        capture.suspect = True
-        capture.reason = REVEAL_INCOMPLETE_REASON
-    elif meta.loaders_left > 0:
-        capture.suspect = True
-        capture.reason = f"{UNFIRED_LOADERS_REASON} ({meta.loaders_left})"
-    elif meta.charts_pending > 0:
-        capture.suspect = True
-        capture.reason = f"{CHARTS_PENDING_REASON} ({meta.charts_pending} of {meta.charts_total})"
-    elif meta.loading_placeholders > 0:
-        capture.suspect = True
-        capture.reason = f"{meta.loading_placeholders} loading placeholders visible"
-    elif size < SUSPECT_MIN_BYTES:
-        capture.suspect = True
-        capture.reason = (
-            f"png is {size} bytes (< {SUSPECT_MIN_BYTES}) — likely empty or an error card"
-        )
-    elif status is not None and status >= 400:
-        capture.suspect = True
-        capture.reason = f"HTTP {status}"
+        capture.reason = reason
     return capture
 
 
@@ -1369,9 +1656,15 @@ def run_scene(
         out_dir: The run's output root.
         band_px: Band height in CSS pixels, or 0 for no bands.
 
+    A scene may name a ``section``: the Section is switched to through the URL
+    fragment once ``start`` has loaded and before the first step runs, so a
+    sub-surface that lives outside the Area's landing Section is reachable
+    without spending a ``click`` step on the navigation.
+
     Returns:
-        The :class:`SceneResult`; a step whose selector never appears yields
-        ``ok=False`` with the failing index rather than aborting the run.
+        The :class:`SceneResult`; a step whose selector never appears, or a
+        ``section`` that never comes into view, yields ``ok=False`` rather than
+        aborting the run.
     """
     name = str(scene.get("name", "unnamed"))
     session_name = str(scene.get("session", "tenant"))
@@ -1392,6 +1685,12 @@ def run_scene(
         )
         settle(page)
         prepare(page)
+        section = scene.get("section")
+        if section:
+            try:
+                switch_section(page, str(section))
+            except SectionSwitchError as exc:
+                return SceneResult(name=name, file=None, ok=False, reason=str(exc))
         for index, step in enumerate(scene.get("steps", [])):
             try:
                 apply_step(page, step)
@@ -1515,6 +1814,35 @@ def resolve_out_dir(explicit: str | None) -> Path:
     return candidate
 
 
+def manifest_entry(capture: Capture) -> dict[str, Any]:
+    """Render one capture as its manifest object.
+
+    ``asdict`` alone would spell the Section shots as ``[slug, {…the whole
+    ShotMeta…}]`` pairs — faithful to the dataclass and unreadable as a record.
+    They are re-shaped into named objects carrying what a reader of the
+    manifest asks of a Section: where its shot is, how many bands it was cut
+    into, whether it came back cut, and how much of it was still loading.
+
+    Args:
+        capture: The capture to render.
+
+    Returns:
+        A JSON-serialisable object.
+    """
+    entry = asdict(capture)
+    entry["sections"] = [
+        {
+            "section": slug,
+            "file": meta.file,
+            "bands": len(meta.bands),
+            "truncated": meta.truncated,
+            "loading_placeholders": meta.loading_placeholders,
+        }
+        for slug, meta in capture.sections
+    ]
+    return entry
+
+
 def write_manifest(
     out_dir: Path,
     *,
@@ -1553,7 +1881,8 @@ def write_manifest(
         "viewport": {"width": viewport[0], "height": viewport[1]},
         "bands": band_px,
         "routes_csv_sha256": file_sha256(routes_csv),
-        "captured": [asdict(item) for item in captured],
+        "sections_total": sum(len(item.sections) for item in captured),
+        "captured": [manifest_entry(item) for item in captured],
         "scenes": [asdict(item) for item in scenes],
         "skipped": [asdict(item) for item in skipped],
     }
@@ -1587,6 +1916,38 @@ def scene_shot_reason(scene: SceneResult) -> str | None:
     if scene.loading_placeholders:
         return f"{scene.loading_placeholders} loading placeholders visible"
     return None
+
+
+def humanise_slug(slug: str) -> str:
+    """Turn a machine slug into a title for the contact sheet.
+
+    The catalogue's own titles live in ``web.shell``, which the atlas does not
+    import — it observes the running product and never links against it — so
+    the heading is built from the slug the DOM carries. That is close enough to
+    read as prose and, unlike a title, is exactly the string the URL fragment
+    uses.
+
+    Args:
+        slug: An Area folder name or a Section slug.
+
+    Returns:
+        The slug with its separators spaced out and its words capitalised.
+    """
+    return slug.replace("_", " ").replace("-", " ").title()
+
+
+def section_heading(area: str, path: str, slug: str) -> str:
+    """Build the contact sheet's heading for one Section of one route.
+
+    Args:
+        area: The capture's raw inventory area cell.
+        path: The route path.
+        slug: The Section slug.
+
+    Returns:
+        e.g. ``Transactions › Blotter — `/transactions#blotter```.
+    """
+    return f"{humanise_slug(area_dir(area))} › {humanise_slug(slug)} — `{path}#{slug}`"
 
 
 def append_bands(lines: list[str], label: str, bands: list[str]) -> None:
@@ -1623,8 +1984,11 @@ def write_index(
 ) -> None:
     """Write ``index.md``, the contact sheet.
 
-    One ``##`` section per Area — pages first, then partials, then scenes —
-    followed by a closing section listing everything that needs a human look.
+    One ``##`` heading per Area — pages first, then partials, then scenes —
+    followed by a closing block listing everything that needs a human look. A
+    page the shell sections gets one ``####`` heading per Section, its shot and
+    its own bands beneath it, so the sheet reads in the order a reader walks
+    the product rather than one image per URL.
 
     Args:
         out_dir: The run's output root.
@@ -1641,7 +2005,9 @@ def write_index(
         f"- Commit: `{git_head() or 'unknown'}`",
         f"- Base URL: `{base_url}`",
         f"- Viewport: {viewport[0]}x{viewport[1]}, dark",
-        f"- Captured: {len(captured)} route(s), {len(scenes)} scene(s), {len(skipped)} skipped",
+        f"- Captured: {len(captured)} route(s), "
+        f"{sum(len(item.sections) for item in captured)} section(s), "
+        f"{len(scenes)} scene(s), {len(skipped)} skipped",
         "",
     ]
 
@@ -1670,9 +2036,20 @@ def write_index(
                 flag = f" — **suspect:** {row.reason}" if row.suspect else ""
                 lines.append(f"**`{row.path}`** — HTTP {row.status}{flag}")
                 lines.append("")
-                lines.append(f"![{row.path}]({row.file})")
-                lines.append("")
-                append_bands(lines, row.path, row.bands)
+                if not row.sections:
+                    lines.append(f"![{row.path}]({row.file})")
+                    lines.append("")
+                    append_bands(lines, row.path, row.bands)
+                    continue
+                # One heading per Section, so the sheet is addressable by the
+                # same fragment the reader navigates by and the bands beneath a
+                # heading belong to that Section alone.
+                for slug, meta in row.sections:
+                    lines.append(f"#### {section_heading(row.area, row.path, slug)}")
+                    lines.append("")
+                    lines.append(f"![{row.path}#{slug}]({meta.file})")
+                    lines.append("")
+                    append_bands(lines, f"{row.path}#{slug}", meta.bands)
         if area in scenes_by_area:
             lines.append("### Scenes")
             lines.append("")

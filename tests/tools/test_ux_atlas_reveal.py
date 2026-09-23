@@ -3,13 +3,15 @@
 
 """Pure-function tests for the atlas's shot geometry (``tools/ux_atlas.py``).
 
-The reveal pass, the loader loop, the chart wait, the band writer and the
-capture loop all need a live browser, so none of them is exercised here. What
-*is* exercised is the arithmetic and the pattern matching they hang on, which
-are browser-free by construction and are where a mistake would be silent: a
-truncated page that never gets flagged, a band grid that drops the last slice
-of every page, a debounce that returns on its first quiet sample, or a
-placeholder regex that misses the placeholders the templates actually write.
+The reveal pass, the loader loop, the chart wait, the band writer, the Section
+switch and the capture loop all need a live browser, so none of them is
+exercised here. What *is* exercised is the arithmetic, the naming and the
+pattern matching they hang on, which are browser-free by construction and are
+where a mistake would be silent: a truncated page that never gets flagged, a
+band grid that drops the last slice of every page, a debounce that returns on
+its first quiet sample, a placeholder regex that misses the placeholders the
+templates actually write, or — since P-UX-A0t — two Sections of two routes
+writing their shots to the same name.
 
 The placeholder pattern is tested here in Python and handed to the browser
 verbatim as the argument to ``new RegExp``, so these cases are the ones that
@@ -24,6 +26,7 @@ test.
 from __future__ import annotations
 
 import itertools
+import json
 import struct
 import zlib
 from pathlib import Path
@@ -32,12 +35,20 @@ import pytest
 
 from tools.ux_atlas import (
     CHROMIUM_MAX_AXIS_PX,
+    DEFAULT_SCENES,
     LOADING_PLACEHOLDER_RE,
     QUIET_HOLD_MS,
+    Capture,
+    ShotMeta,
     advance_quiet_window,
     band_rects,
     is_truncated,
+    load_scenes,
+    manifest_entry,
     png_height,
+    section_heading,
+    section_shot_stem,
+    write_index,
 )
 
 
@@ -231,3 +242,317 @@ class TestLoadingPlaceholderPattern:
         # The browser side trims and collapses whitespace before testing, so a
         # placeholder's own text never carries a trailing newline into this.
         assert LOADING_PLACEHOLDER_RE.match("Loading charts… done") is None
+
+
+def shot(file: str, **overrides: object) -> ShotMeta:
+    """Build a :class:`ShotMeta` standing in for one captured Section.
+
+    Args:
+        file: The shot's path relative to the run root.
+        **overrides: Any field to set away from its benign default.
+
+    Returns:
+        The shot.
+    """
+    fields: dict[str, object] = {
+        "file": file,
+        "reveal_iterations": 3,
+        "reveal_complete": True,
+        "scroll_height": 2400,
+        "png_height": 2400,
+        "truncated": False,
+    }
+    fields.update(overrides)
+    return ShotMeta(**fields)  # type: ignore[arg-type]
+
+
+def sectioned_capture(*sections: tuple[str, ShotMeta]) -> Capture:
+    """Build a route capture carrying the given Section shots.
+
+    Args:
+        *sections: ``(slug, shot)`` pairs in DOM order.
+
+    Returns:
+        The capture, shaped as ``capture_route`` leaves one.
+    """
+    return Capture(
+        area="transactions",
+        path="/transactions",
+        file=sections[0][1].file,
+        status=200,
+        final_url="http://tenant.localhost:8000/transactions",
+        partial=False,
+        session="tenant",
+        sections=list(sections),
+    )
+
+
+class TestSectionShotStem:
+    """The ``<route>--<section>`` shot name."""
+
+    def test_the_worked_example(self) -> None:
+        assert section_shot_stem("/front-office", "charts") == "front-office--charts"
+
+    def test_a_nested_route_keeps_the_route_slug_rules(self) -> None:
+        # ``route_slug`` flattens every separator to ``__`` and strips the
+        # leading pair; the Section half rides on the same rule.
+        assert section_shot_stem("/admin/users/section", "users") == "admin__users__section--users"
+
+    def test_the_root_route_is_named_index(self) -> None:
+        # ``/`` redirects to ``/front-office``, so it photographs the same four
+        # Sections — under its own stem, not over the ones already written.
+        assert section_shot_stem("/", "overview") == "index--overview"
+        assert section_shot_stem("/", "overview") != section_shot_stem("/front-office", "overview")
+
+    def test_two_sections_of_one_route_never_collide(self) -> None:
+        stems = {section_shot_stem("/transactions", slug) for slug in ("new", "blotter", "history")}
+        assert len(stems) == 3
+
+    def test_a_multi_word_section_slug_survives_whole(self) -> None:
+        assert (
+            section_shot_stem("/planning-desk", "cash-flow-planning")
+            == "planning-desk--cash-flow-planning"
+        )
+
+
+class TestSectionHeading:
+    """The contact sheet's per-Section heading."""
+
+    def test_the_worked_example(self) -> None:
+        assert (
+            section_heading("transactions", "/transactions", "blotter")
+            == "Transactions › Blotter — `/transactions#blotter`"
+        )
+
+    def test_an_underscored_area_reads_as_words(self) -> None:
+        assert section_heading("front_office", "/front-office", "charts").startswith(
+            "Front Office › Charts — "
+        )
+
+    def test_a_hyphenated_slug_reads_as_words(self) -> None:
+        assert "Cash Flow Planning" in section_heading(
+            "planning_desk", "/planning-desk", "cash-flow-planning"
+        )
+
+    def test_the_fragment_is_the_one_the_reader_navigates_by(self) -> None:
+        assert section_heading("admin", "/admin", "users").endswith("`/admin#users`")
+
+
+class TestManifestEntry:
+    """The manifest's shape for a route the shell sections."""
+
+    def test_a_route_with_two_sections_lists_both_in_dom_order(self) -> None:
+        entry = manifest_entry(
+            sectioned_capture(
+                ("new", shot("transactions/transactions--new.png", bands=["a", "b"])),
+                ("blotter", shot("transactions/transactions--blotter.png", truncated=True)),
+            )
+        )
+        assert [item["section"] for item in entry["sections"]] == ["new", "blotter"]
+
+    def test_each_section_carries_its_shot_bands_truncation_and_placeholders(self) -> None:
+        entry = manifest_entry(
+            sectioned_capture(
+                ("new", shot("transactions/transactions--new.png", bands=["a", "b"])),
+                (
+                    "blotter",
+                    shot(
+                        "transactions/transactions--blotter.png",
+                        truncated=True,
+                        loading_placeholders=2,
+                    ),
+                ),
+            )
+        )
+        assert entry["sections"] == [
+            {
+                "section": "new",
+                "file": "transactions/transactions--new.png",
+                "bands": 2,
+                "truncated": False,
+                "loading_placeholders": 0,
+            },
+            {
+                "section": "blotter",
+                "file": "transactions/transactions--blotter.png",
+                "bands": 0,
+                "truncated": True,
+                "loading_placeholders": 2,
+            },
+        ]
+
+    def test_the_band_count_replaces_the_band_list(self) -> None:
+        # The route-level ``bands`` key keeps the paths; a Section's keeps the
+        # count, because the sheet is what lists a Section's bands by name.
+        entry = manifest_entry(sectioned_capture(("new", shot("t/a.png", bands=["x", "y", "z"]))))
+        assert entry["sections"][0]["bands"] == 3
+
+    def test_a_route_without_sections_carries_an_empty_list(self) -> None:
+        entry = manifest_entry(
+            Capture(
+                area="investments",
+                path="/investments",
+                file="investments/investments.png",
+                status=200,
+                final_url="http://tenant.localhost:8000/investments",
+                partial=False,
+                session="tenant",
+            )
+        )
+        assert entry["sections"] == []
+
+    def test_the_route_level_fields_survive_alongside(self) -> None:
+        entry = manifest_entry(sectioned_capture(("new", shot("t/a.png"))))
+        assert entry["path"] == "/transactions"
+        assert entry["status"] == 200
+
+
+class TestWriteIndexSections:
+    """The contact sheet's per-Section rendering."""
+
+    def written(self, tmp_path: Path, capture: Capture) -> str:
+        """Run ``write_index`` over one capture and read the sheet back.
+
+        Args:
+            tmp_path: The run root to write into.
+            capture: The one capture the sheet describes.
+
+        Returns:
+            The rendered ``index.md``.
+        """
+        write_index(
+            tmp_path,
+            base_url="http://tenant.localhost:8000",
+            viewport=(1440, 900),
+            captured=[capture],
+            scenes=[],
+            skipped=[],
+        )
+        return (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    def two_sections(self) -> Capture:
+        """Build a two-Section capture with bands under the second.
+
+        Returns:
+            The capture.
+        """
+        return sectioned_capture(
+            ("new", shot("transactions/transactions--new.png")),
+            (
+                "blotter",
+                shot(
+                    "transactions/transactions--blotter.png",
+                    bands=[
+                        "transactions/bands/transactions--blotter-01.png",
+                        "transactions/bands/transactions--blotter-02.png",
+                    ],
+                ),
+            ),
+        )
+
+    def test_both_sections_get_their_own_heading(self, tmp_path: Path) -> None:
+        sheet = self.written(tmp_path, self.two_sections())
+        assert "#### Transactions › New — `/transactions#new`" in sheet
+        assert "#### Transactions › Blotter — `/transactions#blotter`" in sheet
+
+    def test_each_section_shows_its_own_shot(self, tmp_path: Path) -> None:
+        sheet = self.written(tmp_path, self.two_sections())
+        assert "![/transactions#new](transactions/transactions--new.png)" in sheet
+        assert "![/transactions#blotter](transactions/transactions--blotter.png)" in sheet
+
+    def test_a_sections_bands_are_listed_under_its_heading(self, tmp_path: Path) -> None:
+        sheet = self.written(tmp_path, self.two_sections())
+        blotter = sheet.index("#### Transactions › Blotter")
+        assert "transactions/bands/transactions--blotter-01.png" in sheet[blotter:]
+        assert "transactions/bands/transactions--blotter-02.png" in sheet[blotter:]
+        # …and under that heading only: the unbanded Section precedes it.
+        assert "bands/transactions--blotter-01.png" not in sheet[:blotter]
+
+    def test_the_run_header_counts_the_sections(self, tmp_path: Path) -> None:
+        sheet = self.written(tmp_path, self.two_sections())
+        assert "1 route(s), 2 section(s), 0 scene(s)" in sheet
+
+    def test_a_route_without_sections_still_shows_one_shot(self, tmp_path: Path) -> None:
+        sheet = self.written(
+            tmp_path,
+            Capture(
+                area="investments",
+                path="/investments",
+                file="investments/investments.png",
+                status=200,
+                final_url="http://tenant.localhost:8000/investments",
+                partial=False,
+                session="tenant",
+            ),
+        )
+        assert "![/investments](investments/investments.png)" in sheet
+        assert "####" not in sheet
+        assert "1 route(s), 0 section(s)" in sheet
+
+
+class TestScenesCarryASection:
+    """The scenes file's optional ``section`` key."""
+
+    def scenes_file(self, tmp_path: Path) -> Path:
+        """Write a scenes file holding one scene with a ``section`` and one without.
+
+        Args:
+            tmp_path: Where to write it.
+
+        Returns:
+            The file's path.
+        """
+        path = tmp_path / "atlas-scenes.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "transactions-blotter",
+                        "area": "transactions",
+                        "start": "/transactions",
+                        "session": "tenant",
+                        "section": "blotter",
+                        "steps": [],
+                        "shot": "blotter",
+                    },
+                    {
+                        "name": "investments-list",
+                        "area": "investments",
+                        "start": "/investments",
+                        "session": "tenant",
+                        "steps": [{"wait": "#investments-table"}],
+                        "shot": "list",
+                    },
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_a_scene_naming_a_section_loads_with_it(self, tmp_path: Path) -> None:
+        scenes = load_scenes(self.scenes_file(tmp_path), None)
+        assert scenes[0]["section"] == "blotter"
+
+    def test_a_scene_without_one_still_loads(self, tmp_path: Path) -> None:
+        scenes = load_scenes(self.scenes_file(tmp_path), None)
+        assert "section" not in scenes[1]
+        assert scenes[1]["steps"] == [{"wait": "#investments-table"}]
+
+    def test_the_area_filter_is_unaffected_by_the_new_key(self, tmp_path: Path) -> None:
+        scenes = load_scenes(self.scenes_file(tmp_path), ["transactions"])
+        assert [scene["name"] for scene in scenes] == ["transactions-blotter"]
+
+
+class TestShippedScenesFile:
+    """The scenes file the repository ships."""
+
+    def test_every_transactions_scene_names_its_section(self) -> None:
+        # The three Transactions Sections are the worked example of the
+        # ``section`` key; a scene that lost it would silently photograph the
+        # landing Section three times.
+        scenes = load_scenes(DEFAULT_SCENES, ["transactions"])
+        assert {scene["name"]: scene["section"] for scene in scenes} == {
+            "transactions-flow-chooser": "new",
+            "transactions-blotter": "blotter",
+            "transactions-history": "history",
+        }

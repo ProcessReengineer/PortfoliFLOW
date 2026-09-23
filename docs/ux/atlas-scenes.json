@@ -4,9 +4,28 @@
     "area": "transactions",
     "start": "/transactions",
     "session": "tenant",
+    "section": "new",
     "steps": [
       {"wait": "#tx-composer-host"}
     ],
     "shot": "flow-chooser"
+  },
+  {
+    "name": "transactions-blotter",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "blotter",
+    "steps": [],
+    "shot": "blotter"
+  },
+  {
+    "name": "transactions-history",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "history",
+    "steps": [],
+    "shot": "history"
   }
 ]

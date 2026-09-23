@@ -62,6 +62,12 @@
         {% include "_partials/chat_empty.html" %}
     </div>
 
+    {# Sources line (UX A-0, P-UX-A0d §5.2). Empty container for the
+       per-answer source chips built from the turn's tool calls: no
+       content, no script and no route yet. Placed with the chat partial
+       so A0e transcribes one unit. #}
+    <ul class="pf-sources" id="shirley-sources" hidden></ul>
+
     {# The consultation pin dialog swaps in here (ADR-0107 C6, Step 2). A
        completed assistant bubble's "Pin to case…" affordance hx-GETs
        /api/chat/pin-consultation into this slot; Cancel and a successful pin

@@ -1,0 +1,380 @@
+/*
+ * PortfoliFLOW component vocabulary — the one set of classes every
+ * surface builds from.
+ *
+ * Origin: DC-UX-D ``shared.css`` (record v4, 2026-09-22), transcribed
+ * onto the generated ``--ui-*`` design tokens. Selector names and
+ * values are the mock's; only the token references changed.
+ *
+ * Two rules govern this file:
+ *
+ *   1. No colour literal. Every colour resolves through a
+ *      ``var(--ui-…)`` or ``var(--chart-…)`` declared in theme.css.
+ *      Pixel geometry that no token carries — dot and key sizes,
+ *      hairlines, the 16 px notice column — stays literal: it is
+ *      geometry, not theme.
+ *   2. No ``--pf-*`` reference. The mock's private token namespace
+ *      does not exist in the product; the ``--pf-*`` names that do
+ *      appear in theme.css are the legacy shell block and are not
+ *      this vocabulary's.
+ *
+ * Local custom properties (``--dot``, ``--tone``, ``--key``) are set
+ * by the component's own modifiers and are kept as the source has
+ * them.
+ *
+ * One rule here is not in the source: ``.pf-state--dormant``
+ * (Phase A, Q-UX-A-11), marked at its site.
+ *
+ * Container queries are deliberately absent. ``.pf-main`` declares no
+ * container yet, so every one of them in the source would be inert;
+ * the narrow-width collapses they carry land with the container
+ * declaration (see the P-UX-A0d report, §Flags).
+ *
+ * The ten legacy sheets in this directory still carry their own
+ * button, table and form rules. They migrate onto these classes
+ * strand by strand — P-UX-A0d2 sweeps their colour literals, A-3
+ * takes Cases. Until then this file loads first, so a scoped legacy
+ * rule still out-specifies the global family and no surface changes
+ * look before its own strand touches it.
+ */
+
+.pf-kbd { padding: 1px 6px; border: 1px solid var(--ui-border-default); border-radius: 3px; font-size: 11px; color: var(--ui-text-tertiary); }
+
+/* ---- The one button family: primary · default · quiet (+ icon-only).
+        The bare ``.pf-btn`` *is* the default — there is no
+        ``--default`` modifier to add. */
+.pf-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--ui-space-2); height: var(--ui-control-height); padding: 0 var(--ui-space-4); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); white-space: nowrap; cursor: pointer; }
+.pf-btn:hover { background: var(--ui-background-section); text-decoration: none; }
+.pf-btn--primary { border-color: var(--ui-accent-primary); background: var(--ui-accent-primary); color: var(--ui-accent-on-accent); font-weight: var(--ui-font-weight-semibold); }
+.pf-btn--primary:hover { background: var(--ui-accent-primary-hover); border-color: var(--ui-accent-primary-hover); }
+.pf-btn--primary:active { background: var(--ui-accent-primary-pressed); }
+.pf-btn--quiet { border-color: transparent; background: none; color: var(--ui-text-secondary); }
+.pf-btn--quiet:hover { color: var(--ui-text-primary); }
+.pf-btn--icon { width: var(--ui-control-height); padding: 0; }
+.pf-btn--sm { height: var(--ui-control-height-sm); padding: 0 var(--ui-space-3); font-size: var(--ui-font-scale-xs); }
+.pf-btn--sm.pf-btn--icon { width: var(--ui-control-height-sm); padding: 0; }
+
+/* ---- Chart frame: the frame reads the chart theme's canvas, so the
+        frame and the Plotly paper are always the same surface. The
+        mock's [data-charts="brand"] block is folded in — in the
+        product that is the only look. No gridline rule: the chart
+        theme already publishes a fully transparent grid. */
+.pf-chart { min-width: 0; padding: var(--ui-space-3) var(--ui-space-3) var(--ui-space-2); border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-md); background: var(--chart-colours-plot-area); }
+.pf-chart__title { margin: 0 0 2px var(--ui-space-1); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); }
+.pf-chart__legend { display: flex; flex-wrap: wrap; gap: 2px var(--ui-space-3); margin: 0 0 var(--ui-space-1) var(--ui-space-1); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-chart__key::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; background: var(--key); }
+.pf-chart__plot { display: block; width: 100%; }
+.pf-chart__plot text { font-family: var(--ui-font-family); font-size: 11px; fill: var(--chart-colours-text); opacity: .85; }
+
+/* ---- Crumb (D-UI-crumb): ‹ Parent › Sub in the view header */
+.pf-crumb { display: flex; align-items: center; gap: var(--ui-space-2); margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-xl); font-weight: var(--ui-font-weight-semibold); line-height: 1.2; min-width: 0; }
+.pf-crumb__back { white-space: nowrap; display: inline-flex; align-items: center; gap: var(--ui-space-1); height: 32px; margin-left: -8px; padding: 0 var(--ui-space-2); border: 0; border-radius: var(--ui-radius-sm); background: none; color: var(--ui-text-secondary); font-weight: var(--ui-font-weight-medium); cursor: pointer; }
+.pf-crumb__back:hover { background: var(--ui-background-section); color: var(--ui-text-primary); }
+.pf-crumb__sep { color: var(--ui-text-tertiary); font-weight: var(--ui-font-weight-regular); }
+.pf-crumb__here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Functional state: a dot and a word, never a filled pill */
+.pf-state { display: inline-flex; align-items: center; gap: 6px; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--ui-text-tertiary)); box-shadow: inset 0 0 0 7px var(--dot, transparent); }
+.pf-state--draft, .pf-state--unsaved { color: var(--ui-text-secondary); }
+.pf-state--draft::before, .pf-state--unsaved::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+.pf-state--proposed { --dot: var(--ui-semantic-info); }
+.pf-state--approved, .pf-state--booked { --dot: var(--ui-semantic-positive); }
+.pf-state--reversed { --dot: var(--ui-semantic-warn); }
+.pf-state--cancelled { color: var(--ui-text-tertiary); }
+/* The one rule not in DC-UX-D shared.css: Phase A, Q-UX-A-11. A
+   dormant subject reads like a draft — hollow dot — but sits one step
+   quieter in the text ladder. */
+.pf-state--dormant { color: var(--ui-text-tertiary); }
+.pf-state--dormant::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+
+/* ---- Notice and message: one pattern, three tones */
+.pf-note { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 2px var(--ui-space-3); align-items: start; padding: var(--ui-space-3) var(--ui-space-4); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); box-shadow: inset 2px 0 0 var(--tone, var(--ui-text-tertiary)); font-size: var(--ui-font-scale-sm); }
+.pf-note + .pf-note { margin-top: var(--ui-space-2); }
+.pf-note .pf-icon { margin-top: 2px; color: var(--tone, var(--ui-text-tertiary)); }
+.pf-note--warn { --tone: var(--ui-semantic-warn); }
+.pf-note--block { --tone: var(--ui-semantic-error); }
+.pf-note--info { --tone: var(--ui-semantic-info); }
+.pf-note__lead { margin: 0; color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-note__inline { color: var(--ui-text-secondary); font-weight: var(--ui-font-weight-regular); }
+.pf-note__inline a { color: var(--ui-text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.pf-note__sub { grid-column: 2 / -1; margin: 0; color: var(--ui-text-secondary); }
+.pf-note__sub a { color: var(--ui-text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.pf-neg, .pf-table td.pf-neg { color: var(--ui-semantic-error); }
+
+/* ---- Disclosure: prose on demand */
+.pf-more { font-size: var(--ui-font-scale-sm); color: var(--ui-text-secondary); }
+.pf-more > summary { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: var(--ui-text-tertiary); cursor: pointer; list-style: none; }
+.pf-more > summary::-webkit-details-marker { display: none; }
+.pf-more > summary::before { content: "›"; display: inline-block; transition: transform var(--ui-motion-duration); }
+.pf-more[open] > summary::before { transform: rotate(90deg); }
+.pf-more > summary:hover { color: var(--ui-text-primary); }
+.pf-more p { max-width: 78ch; margin: var(--ui-space-1) 0 var(--ui-space-2); }
+
+/* ---- Table: the blotter is the archetype */
+.pf-table { width: 100%; border-collapse: collapse; font-size: var(--ui-font-scale-sm); }
+.pf-table th { padding: 0 var(--ui-space-3) var(--ui-space-2); border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-medium); text-align: left; white-space: nowrap; }
+.pf-table td { padding: var(--ui-control-row-pad) var(--ui-space-3); border-bottom: 1px solid var(--ui-border-soft); color: var(--ui-text-primary); vertical-align: top; }
+.pf-table .pf-num { text-align: right; white-space: nowrap; }
+.pf-table__row { cursor: pointer; }
+.pf-table__row:hover td, .pf-table__row.is-open td { background: var(--ui-background-secondary); }
+.pf-table__row.is-open td { border-bottom-color: transparent; }
+.pf-table__id { color: var(--ui-text-secondary); white-space: nowrap; }
+.pf-table__id button { border: 0; padding: 0; background: none; color: inherit; cursor: pointer; }
+.pf-table__sub { display: block; margin-top: 1px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-table__creating { color: var(--ui-text-secondary); }
+.pf-table__unit { color: var(--ui-text-tertiary); margin-left: 4px; }
+.pf-table__actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; margin: -4px -6px -4px 0; }
+.pf-table__slot > td { padding: 0; border-bottom: 0; }
+.pf-table__slot.is-open > td { border-bottom: 1px solid var(--ui-border-soft); }
+
+/* ---- Menu: <details>, no script needed */
+.pf-menu { position: relative; }
+.pf-menu > summary { list-style: none; }
+.pf-menu > summary::-webkit-details-marker { display: none; }
+.pf-menu__list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 4; min-width: 190px; padding: var(--ui-space-1); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }
+.pf-menu__item { display: block; width: 100%; padding: 7px var(--ui-space-3); border: 0; border-radius: var(--ui-radius-sm); background: none; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); text-align: left; cursor: pointer; white-space: nowrap; }
+.pf-menu__item:hover { background: var(--ui-border-default); }
+.pf-menu__item--danger { color: var(--ui-semantic-error); }
+
+/* ---- Slot panel: what opens inside a table's detail row */
+.pf-panel { padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5); background: var(--ui-background-secondary); }
+.pf-panel__head { display: flex; align-items: flex-start; gap: var(--ui-space-4); margin-bottom: var(--ui-space-4); }
+.pf-panel__titles { flex: 1; min-width: 0; }
+.pf-panel__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
+.pf-panel__sub { margin: 2px 0 0; max-width: 78ch; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-panel__foot { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-4); }
+.pf-panel__chart { max-width: 980px; }
+.pf-facts { display: flex; flex-wrap: wrap; gap: var(--ui-space-2) var(--ui-space-6); margin: 0 0 var(--ui-space-5); }
+.pf-facts dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-facts dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); }
+
+/* ---- Form */
+.pf-form { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--ui-space-6); align-items: start; }
+.pf-form__main { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-space-6); }
+.pf-field { grid-column: span 2; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pf-field--half { grid-column: span 3; }
+.pf-field--wide { grid-column: span 4; }
+.pf-field--full { grid-column: 1 / -1; }
+.pf-label { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-optional { color: var(--ui-text-tertiary); }
+.pf-input, .pf-select, .pf-textarea { width: 100%; height: var(--ui-control-input-height); padding: 0 var(--ui-space-3); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); }
+.pf-textarea { height: auto; min-height: 64px; padding: var(--ui-space-2) var(--ui-space-3); resize: vertical; }
+.pf-input:hover, .pf-select:hover, .pf-textarea:hover { border-color: color-mix(in srgb, var(--ui-border-default) 80%, var(--ui-text-tertiary)); }
+.pf-input:focus, .pf-select:focus, .pf-textarea:focus { outline: none; border-color: var(--ui-text-secondary); box-shadow: 0 0 0 1px var(--ui-text-secondary); }
+.pf-input--num { text-align: right; }
+.pf-input::placeholder, .pf-textarea::placeholder { color: var(--ui-text-tertiary); }
+.pf-hint { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-check { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-3); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); cursor: pointer; }
+.pf-check input { accent-color: var(--ui-text-primary); margin: 0; }
+
+/* ---- Summary rail: derived figures, ledger effect, settlement */
+.pf-rail-sum { position: sticky; top: 88px; display: flex; flex-direction: column; gap: var(--ui-space-5); padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5); border-radius: var(--ui-radius-md); background: var(--ui-background-secondary); }
+.pf-rail-sum__title { margin: 0 0 var(--ui-space-2); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-semibold); }
+.pf-sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px var(--ui-space-4); margin: 0; font-size: var(--ui-font-scale-sm); }
+.pf-sum dt { color: var(--ui-text-secondary); }
+.pf-sum dd { margin: 0; color: var(--ui-text-primary); text-align: right; }
+.pf-sum__formula { grid-column: 1 / -1; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-sum__total { padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border-default); font-weight: var(--ui-font-weight-semibold); }
+dt.pf-sum__total { color: var(--ui-text-primary); }
+dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
+.pf-leg { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: var(--ui-space-2); padding: 5px 0; font-size: var(--ui-font-scale-sm); color: var(--ui-text-primary); }
+.pf-leg + .pf-leg { border-top: 1px solid var(--ui-border-soft); }
+.pf-leg__type { color: var(--ui-text-tertiary); }
+.pf-leg em { color: var(--ui-text-tertiary); font-style: normal; }
+.pf-leg__amount { text-align: right; white-space: nowrap; }
+
+/* ---- Action bar: the one place where a form's outcome actions live */
+.pf-actionbar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-6); padding: var(--ui-space-3) 0; border-top: 1px solid var(--ui-border-default); background: var(--ui-background-primary); }
+.pf-actionbar__hint { flex: 1; min-width: 0; margin: 0; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-btn--danger { color: var(--ui-semantic-error); border-color: color-mix(in srgb, var(--ui-semantic-error) 30%, var(--ui-background-secondary)); }
+.pf-btn--danger:hover { background: color-mix(in srgb, var(--ui-semantic-error) 10%, var(--ui-background-secondary)); }
+.pf-btn[disabled] { opacity: .4; cursor: not-allowed; }
+.pf-btn--primary[disabled] { background: var(--ui-background-section); border-color: var(--ui-border-default); color: var(--ui-text-tertiary); opacity: 1; }
+
+/* ---- Flow list (the chooser) */
+.pf-flows { display: flex; flex-direction: column; max-width: 720px; margin: 0; padding: 0; list-style: none; }
+.pf-flow { display: grid; grid-template-columns: minmax(0, 1fr) 16px; align-items: center; gap: 2px var(--ui-space-4); width: 100%; padding: var(--ui-space-4) var(--ui-space-3); border: 0; border-bottom: 1px solid var(--ui-border-soft); background: none; text-align: left; cursor: pointer; }
+.pf-flow:hover { background: var(--ui-background-secondary); }
+.pf-flow__name { color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-medium); }
+.pf-flow__hint { grid-column: 1; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-flow .pf-icon { grid-row: 1 / span 2; grid-column: 2; color: var(--ui-text-tertiary); }
+
+/* ---- Filters */
+.pf-filters { display: flex; flex-wrap: wrap; gap: var(--ui-space-3) var(--ui-space-4); margin-bottom: var(--ui-space-5); }
+.pf-filters__field { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.pf-filters .pf-select, .pf-filters .pf-input { height: calc(var(--ui-control-input-height) - 4px); font-size: var(--ui-font-scale-sm); }
+
+/* ---- Empty state: one sentence, one way forward */
+.pf-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ui-space-3); padding: var(--ui-space-7) 0; color: var(--ui-text-secondary); }
+.pf-empty__lead { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); }
+
+/* ---- As-of stamp: every view that shows figures says from when */
+.pf-asof { display: flex; align-items: center; gap: var(--ui-space-5); margin: 0; }
+.pf-asof__pair { display: flex; flex-direction: column; }
+.pf-asof dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-asof dd { margin: 0; display: flex; align-items: center; gap: 6px; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+
+/* ---- Figures row: headline numbers without boxes */
+.pf-figures { display: flex; flex-wrap: wrap; gap: var(--ui-space-4) var(--ui-space-7); margin: 0 0 var(--ui-space-6); padding: var(--ui-space-4) 0; border-top: 1px solid var(--ui-border-soft); border-bottom: 1px solid var(--ui-border-soft); }
+.pf-figures dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-figures dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-xl); font-weight: var(--ui-font-weight-medium); }
+
+/* ---- Sources line under an answer: built from the tool calls, not from prose */
+.pf-sources { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-1) var(--ui-space-2); margin: var(--ui-space-2) 0 0; padding: var(--ui-space-2) 0 0; border-top: 1px solid var(--ui-border-soft); list-style: none; font-size: var(--ui-font-scale-xs); color: var(--ui-text-tertiary); }
+.pf-sources a { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); color: var(--ui-text-secondary); }
+.pf-sources a:hover { color: var(--ui-text-primary); text-decoration: none; background: var(--ui-background-section); }
+.pf-sources .pf-icon { width: 12px; height: 12px; }
+/* Load-bearing, as for .pf-section in layout.css: an author `display`
+   declaration beats the user-agent's [hidden] { display: none } whatever
+   the specificity, so without this the `display: flex` above would keep
+   an empty, hidden sources line on screen — drawing its top border as a
+   stray rule under the answer. */
+.pf-sources[hidden] { display: none; }
+
+/* ---- Background activity: lives in the statusbar, survives navigation */
+.pf-activity { position: relative; }
+.pf-activity__btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 0; border-radius: var(--ui-radius-sm); background: none; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); cursor: pointer; }
+.pf-activity__btn:hover, .pf-activity__btn[aria-expanded="true"] { background: var(--ui-background-section); color: var(--ui-text-primary); }
+.pf-spin { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ui-border-default); border-top-color: var(--ui-text-primary); animation: pf-spin 900ms linear infinite; }
+@keyframes pf-spin { to { transform: rotate(360deg); } }
+.pf-activity__panel { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 6; width: 360px; padding: var(--ui-space-2); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-md); background: var(--ui-background-section); box-shadow: 0 12px 32px rgba(0, 0, 0, .6); white-space: normal; }
+.pf-activity__panel[hidden] { display: none; }
+
+/* ---- Skeleton: the empty shape of what is coming */
+.pf-skel { display: inline-block; height: 0.8em; min-width: 40px; border-radius: 3px; background: var(--ui-background-section); vertical-align: middle; animation: pf-pulse 1.8s ease-in-out infinite; }
+.pf-skel--plot { display: block; width: 100%; height: 210px; border-radius: var(--ui-radius-sm); }
+@keyframes pf-pulse { 50% { opacity: .45; } }
+.pf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- Setup checklist: replaces scattered recovery links while the book is empty */
+.pf-setup { max-width: 760px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.pf-setup__head { display: flex; align-items: baseline; gap: var(--ui-space-4); max-width: 760px; margin: var(--ui-space-5) 0 var(--ui-space-3); }
+.pf-setup__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-semibold); }
+.pf-setup__count { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-step { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 2px var(--ui-space-4); align-items: center; padding: var(--ui-space-4) var(--ui-space-2); border-top: 1px solid var(--ui-border-soft); counter-increment: step; }
+.pf-step__mark { grid-row: 1 / span 2; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--ui-border-default); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-step__mark::before { content: counter(step); }
+.pf-step.is-done .pf-step__mark { box-shadow: none; background: var(--ui-semantic-positive); color: var(--ui-background-chrome); }
+.pf-step.is-done .pf-step__mark::before { content: "✓"; font-weight: var(--ui-font-weight-semibold); }
+.pf-step__name { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-step.is-done .pf-step__name { color: var(--ui-text-secondary); font-weight: var(--ui-font-weight-regular); }
+.pf-step__sub { grid-column: 2; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-step__tag { margin-left: var(--ui-space-2); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-regular); }
+.pf-step__action { grid-row: 1 / span 2; grid-column: 3; }
+
+/* ---- Switch and settings rows */
+.pf-settings { max-width: 760px; }
+.pf-settings__group { margin: 0 0 var(--ui-space-6); }
+.pf-settings__title { display: flex; align-items: baseline; gap: var(--ui-space-3); margin: 0 0 var(--ui-space-2); color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
+.pf-settings__title span { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-regular); }
+.pf-setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--ui-space-5); align-items: center; padding: var(--ui-space-4) 0; border-top: 1px solid var(--ui-border-soft); }
+.pf-setting__name { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-setting__sub { grid-column: 1; margin: 0; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); max-width: 62ch; }
+.pf-setting__control { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: center; gap: var(--ui-space-2); }
+.pf-switch { position: relative; width: 38px; height: 22px; flex: none; }
+.pf-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.pf-switch span { display: block; height: 100%; border-radius: 11px; background: var(--ui-border-default); transition: background var(--ui-motion-duration); }
+.pf-switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--ui-text-primary); transition: transform var(--ui-motion-duration); }
+.pf-switch input:checked + span { background: var(--ui-semantic-positive); }
+.pf-switch input:checked + span::after { transform: translateX(16px); background: var(--ui-background-chrome); }
+.pf-switch input:focus-visible + span { outline: 2px solid var(--ui-accent-primary-hover); outline-offset: 2px; }
+
+/* ---- Number entry feedback */
+.pf-read { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-read b { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-input.is-unclear { border-color: var(--ui-semantic-warn); }
+
+/* ---- Accessible mode: a per-user preference, one attribute on the shell.
+        Contrast, focus, keyboard and non-colour status are the default for
+        everyone; the mode only adds what not everyone wants.
+
+        Nothing writes data-a11y yet. The stored preference is a later
+        prompt (record §2.11, Q-UX-D-13); until then the mode is checked
+        by setting the attribute in devtools. */
+.pf-shell[data-a11y="on"] {
+    --ui-font-scale-xs: var(--ui-accessible-font-scale-xs);
+    --ui-font-scale-sm: var(--ui-accessible-font-scale-sm);
+    --ui-font-scale-md: var(--ui-accessible-font-scale-md);
+    --ui-font-scale-lg: var(--ui-accessible-font-scale-lg);
+    --ui-font-scale-xl: var(--ui-accessible-font-scale-xl);
+    --ui-text-secondary: var(--ui-accessible-text-secondary);
+    --ui-text-tertiary: var(--ui-accessible-text-tertiary);
+    --ui-border-default: var(--ui-accessible-border-default);
+    --ui-control-height: var(--ui-accessible-control-height);
+    --ui-control-height-sm: var(--ui-accessible-control-height-sm);
+    --ui-control-input-height: var(--ui-accessible-control-input-height);
+    /* theme.css publishes no --ui-accessible-control-row-pad, so the
+       source's own 14px stands in. See the P-UX-A0d report, §Flags. */
+    --ui-control-row-pad: 14px;
+    --ui-motion-duration: var(--ui-accessible-motion-duration);
+    --ui-layout-nav-width: var(--ui-accessible-layout-nav-width);
+    /* layout.css switches the collapsed grid on the -collapsed name
+       directly, so the mode widens that name too; the guard below
+       covers anything that reads the expanded name while collapsed. */
+    --ui-layout-nav-width-collapsed: var(--ui-accessible-layout-nav-width-collapsed);
+    --ui-layout-dock-width: var(--ui-accessible-layout-dock-width);
+}
+/* The mode's wider nav must not defeat the collapsed state (same specificity, later rule won). */
+.pf-shell[data-a11y="on"][data-sidebar-collapsed="true"] { --ui-layout-nav-width: var(--ui-accessible-layout-nav-width-collapsed); }
+.pf-shell[data-a11y="on"] a, .pf-shell[data-a11y="on"] .pf-btn--quiet, .pf-shell[data-a11y="on"] .pf-table__id button { text-decoration: underline; text-underline-offset: 3px; }
+.pf-shell[data-a11y="on"] .pf-sidebar__item, .pf-shell[data-a11y="on"] .pf-sidebar__section { text-decoration: none; }
+.pf-shell[data-a11y="on"] .pf-skel, .pf-shell[data-a11y="on"] .pf-spin { animation: none; }
+.pf-shell[data-a11y="on"] .pf-hero__value { font-size: 46px; }
+.pf-shell[data-a11y="on"] .pf-kbd { font-size: 13px; }
+.pf-shell[data-a11y="on"] .pf-chart__plot text { font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .pf-skel, .pf-spin { animation: none; } }
+/* Reaches the default theme only: :root[data-theme="…"] out-specifies a
+   bare :root, so the named themes keep their own ladder. */
+@media (prefers-contrast: more) {
+    :root {
+        --ui-text-secondary: var(--ui-accessible-text-secondary);
+        --ui-text-tertiary: var(--ui-accessible-text-tertiary);
+        --ui-border-default: var(--ui-accessible-border-default);
+    }
+}
+
+/* ---- Tabs: sibling questions over the same data, inside one view */
+.pf-tabs { display: flex; gap: var(--ui-space-5); margin: 0 0 var(--ui-space-5); border-bottom: 1px solid var(--ui-border-default); flex-wrap: wrap; row-gap: 0; } /* tabs wrap, never scroll out of sight (125 % rule) */
+.pf-tab { position: relative; height: 38px; padding: 0 2px; border: 0; background: none; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-md); white-space: nowrap; cursor: pointer; }
+.pf-tab:hover { color: var(--ui-text-primary); }
+.pf-tab[aria-selected="true"] { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ui-text-primary); }
+
+/* ---- Toolbar above a table or chart */
+.pf-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-3) var(--ui-space-5); margin: 0 0 var(--ui-space-4); }
+.pf-toolbar__spacer { flex: 1; }
+.pf-toolbar .pf-more { flex: 1 1 320px; }
+
+/* ---- Sortable header, signed figures */
+.pf-table th[aria-sort] { cursor: pointer; user-select: none; }
+.pf-table th[aria-sort]:hover { color: var(--ui-text-primary); }
+.pf-table th[aria-sort]::after { content: ""; display: inline-block; width: 0; height: 0; margin-left: 6px; vertical-align: 2px; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; }
+.pf-table th[aria-sort="ascending"] { color: var(--ui-text-primary); }
+.pf-table th[aria-sort="ascending"]::after { border-bottom: 5px solid currentColor; }
+.pf-table th[aria-sort="descending"] { color: var(--ui-text-primary); }
+.pf-table th[aria-sort="descending"]::after { border-top: 5px solid currentColor; }
+.pf-table td.pf-pos { color: var(--ui-semantic-positive); }
+.pf-table__chev { display: inline-block; width: 12px; margin-right: 4px; color: var(--ui-text-tertiary); transition: transform var(--ui-motion-duration); }
+.pf-table__row.is-open .pf-table__chev { transform: rotate(90deg); }
+.pf-scroll-x { overflow-x: auto; }
+
+/* ---- Reading width: administrative lists and forms; figure tables keep the full column */
+.pf-narrow { max-width: var(--ui-layout-reading-width); }
+
+/* ---- Action groups: several small forms inside one slot panel */
+.pf-acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--ui-space-5) var(--ui-space-6); align-items: start; }
+.pf-act { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pf-act__row { display: flex; gap: var(--ui-space-2); }
+.pf-act__row > .pf-input, .pf-act__row > .pf-select { flex: 1 1 auto; min-width: 0; }
+.pf-act__row > .pf-btn { flex: 0 0 auto; }
+.pf-act__warn { display: flex; gap: 6px; align-items: flex-start; margin: 0; color: var(--ui-semantic-warn); font-size: var(--ui-font-scale-xs); }
+.pf-act__warn .pf-icon { flex: 0 0 auto; margin-top: 1px; }
+.pf-act__text { margin: 0; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-panel > .pf-note { margin-bottom: var(--ui-space-4); }
+
+/* ---- Invalid field: border + the refusal above the form; never colour alone */
+.pf-input[aria-invalid="true"], .pf-select[aria-invalid="true"] { border-color: var(--ui-semantic-error); }
+
+/* ---- Self marker in a user row */
+.pf-self { margin-left: var(--ui-space-2); padding: 0 6px; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }

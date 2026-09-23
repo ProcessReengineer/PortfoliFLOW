@@ -371,7 +371,13 @@ async def test_web_statusbar_contents(
     url: str,
     label: str,
 ) -> None:
-    """Status bar shows area, tenant, Cmd+K hint, build SHA and config flag."""
+    """Status bar shows area, tenant, build SHA and config flag.
+
+    The Cmd+K hint was retired by P-UX-A0d §6: the view header's search
+    field is the one shortcut affordance, and its tooltip carries the
+    shortcut, so the status bar no longer duplicates it with a glyph
+    that is wrong on every non-Mac keyboard.
+    """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
     response = await web_client.get(url, follow_redirects=False)
@@ -383,8 +389,8 @@ async def test_web_statusbar_contents(
     assert label in body
     # Tenant name (from the dev fallback or auth surface).
     assert "Sentinel Tenant" in body
-    # Cmd+K hint key.
-    assert "pf-statusbar__shortcut-key" in body
+    # Cmd+K hint key — retired by P-UX-A0d §6, must stay gone.
+    assert "pf-statusbar__shortcut-key" not in body
     # Build SHA placeholder.
     assert "pf-statusbar__build" in body
     # Config status indicator data attribute.

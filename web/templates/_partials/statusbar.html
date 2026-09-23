@@ -30,15 +30,14 @@
         </span>
     </div>
     <div class="pf-statusbar__group pf-statusbar__group--right">
-        <span class="pf-statusbar__shortcut" title="Command palette">
-            <span class="pf-statusbar__shortcut-key">⌘</span>
-            <span class="pf-statusbar__shortcut-key">K</span>
-            <span class="pf-statusbar__shortcut-label">jump to section</span>
-        </span>
         <a class="pf-statusbar__source"
            href="https://github.com/ProcessReengineer/PortfoliFLOW{% if build_sha and build_sha != 'dev' %}/tree/{{ build_sha }}{% endif %}"
            target="_blank" rel="noopener"
            title="Corresponding source (AGPL §13)">Source code</a>
+        {# Background activity (UX A-0, P-UX-A0d §5.1). Empty container for
+           the statusbar activity list: no content, no script and no route
+           yet — the job feed fills it in a later strand. #}
+        <div class="pf-activity" id="pf-activities" hidden></div>
         <span class="pf-statusbar__build" title="Build">
             {{ build_sha or "dev" }}
         </span>

@@ -698,27 +698,6 @@ dialog.pf-palette::backdrop {
     white-space: nowrap;
 }
 
-.pf-statusbar__shortcut {
-    color: var(--ui-text-secondary);
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.pf-statusbar__shortcut-key {
-    background-color: var(--pf-bg-hover);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-    padding: 0 4px;
-    font-size: 10px;
-    line-height: 1.4;
-}
-
-.pf-statusbar__shortcut-label {
-    margin-left: 2px;
-    color: var(--ui-text-disabled);
-}
-
 /* AGPL §13 "corresponding source" link. Anchors do not inherit colour
    or text-decoration from the bar, so both are restated to match
    ``.pf-statusbar__build``; font size and family still inherit, which

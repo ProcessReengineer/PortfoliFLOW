@@ -14,7 +14,7 @@
         "primary":         "#4A9BD9",
         "primary_hover":   "#6BB1E5",
         "primary_pressed": "#3A7DB0",
-        "on_accent":       "#000000",
+        "on_accent":       "#FFFFFF",
         "logo":            "#F30A27"
     },
 

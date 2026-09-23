@@ -37,6 +37,10 @@
        components/tables.css win the cascade. #}
     <link rel="stylesheet" href="/static/vendor/tabulator-5.6.1/tabulator.min.css">
 
+    {# The one component vocabulary (UX A-0, P-UX-A0d). Loads before every
+       legacy component sheet so a scoped legacy rule still out-specifies
+       the global family while the surfaces migrate onto these classes. #}
+    <link rel="stylesheet" href="/static/css/components/pf_components.css">
     <link rel="stylesheet" href="/static/css/components/benchmarks_attribution.css">
     <link rel="stylesheet" href="/static/css/components/charts.css">
     <link rel="stylesheet" href="/static/css/components/tables.css">

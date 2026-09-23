@@ -158,6 +158,22 @@ def _render_area(
     HTMX scans the response for any element bearing ``hx-swap-oob``
     and pulls it out of the main swap into its own targeted swap.
 
+    ``is_tenant_owner`` is derived here, once, for every area rather
+    than by the individual handlers: it decides both the flag the body
+    partials read and the sections :func:`section_index_for` projects
+    into the sidebar's second level, and both branches below render
+    from this one dict — so the navigation is role-aware on a direct
+    load and on an HTMX area swap alike. The :class:`UserDTO` comes
+    from ``request.state``, where :func:`_resolve_user_email` — which
+    every area handler calls before this one — stashed it; a degraded
+    render (no engine, lookup failed) leaves it unset and the flag
+    ``False``, which yields the member catalogue and is the safe way
+    round.
+
+    For that reason ``extra_context`` must not carry a competing
+    ``is_tenant_owner``: it is merged after the base context and would
+    win the ``update``, silently overruling the derivation.
+
     Args:
         extra_context: Optional dict of area-specific context merged
             into the rendered template's namespace. Used by the Admin
@@ -166,11 +182,14 @@ def _render_area(
             from Front Office to Admin in the 6F-3 mid-polish).
     """
     templates = _templates(request)
+    user = getattr(request.state, "user", None)
+    is_owner = user is not None and user.has_role("owner")
     context = {
         "active_area": area_slug,
         "user_email": user_email,
         "csrf_token": csrf_token,
-        "section_index": section_index_for(area_slug),
+        "is_tenant_owner": is_owner,
+        "section_index": section_index_for(area_slug, is_tenant_owner=is_owner),
         "landing_section": landing_section_for(area_slug),
     }
     if extra_context:
@@ -374,21 +393,19 @@ async def admin_view(
     section, which had to be server-rendered here because it mirrored
     in-process singleton state.
 
-    The Users section (ADR-0121 §6) is lazy in the same way and adds one
-    flag: ``is_tenant_owner``, derived from the :class:`UserDTO`
-    :func:`_resolve_user_email` already stashed on ``request.state``, so
-    the shell can omit the section for a member without a second lookup.
-    It is cosmetic mirroring — ``web/routes/tenant_users.py`` carries the
-    authoritative gate on every one of its endpoints — and defaults to
-    ``False`` when the user could not be loaded, which is the safe way
-    round for a degraded render.
+    The Users section (ADR-0121 §6) is lazy in the same way, and it is
+    owner-only; so is Market Data (ADR-0126). Neither needs a flag from
+    here any more — :func:`_render_area` derives ``is_tenant_owner``
+    for every area and puts it in the base context, so this route
+    supplies it nowhere.
 
-    The Market Data section is owner-only too (ADR-0126), and it is *not*
-    lazy — it pre-renders from a schedule read. So the same flag also
-    decides whether that read happens at all: a member's ``/admin`` no
-    longer pays a DB round-trip for a section the shell will not render.
-    The context keys go missing in that case, harmlessly — their only
-    consumer is the include inside the owner conditional.
+    What stays local is the *cost* decision the flag also drives. Market
+    Data is not lazy — it pre-renders from a schedule read — so the
+    owner check below decides whether that read happens at all: a
+    member's ``/admin`` does not pay a DB round-trip for a section the
+    shell will not render. The context keys go missing in that case,
+    harmlessly — their only consumer is the include inside the owner
+    conditional.
     """
     user_email = await _resolve_user_email(request, session)
     user = getattr(request.state, "user", None)
@@ -405,7 +422,6 @@ async def admin_view(
         extra_context={
             **data_import_ctx,
             **market_data_ctx,
-            "is_tenant_owner": is_owner,
         },
     )
 

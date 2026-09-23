@@ -17,10 +17,13 @@
     {# Owner-only, and cosmetically so: the gate that matters is on
        web/routes/market_data.py, whose mutating routes refuse a member on
        the schedule save as much as on "Refresh now" (ADR-0126).
-       ``is_tenant_owner`` comes from the Admin route's extra_context and
-       defaults to false, so a degraded render omits the section rather than
-       offering a form whose save would 403 and a refresh button that would
-       silently do nothing. #}
+       ``is_tenant_owner`` comes from _render_area, which derives it once
+       for every area, and defaults to false — so a degraded render omits
+       the section rather than offering a form whose save would 403 and a
+       refresh button that would silently do nothing. The catalogue entry
+       in web/shell.py carries ``owner_only=True`` to match, which keeps
+       this section out of the navigation level and the command search
+       for a member; the regression guard pins the two together. #}
     {% if is_tenant_owner %}
         {% with section_slug="market-data",
                 section_body_template="_partials/market_data_section.html" %}
@@ -36,9 +39,12 @@
     {# Owner-only, and cosmetically so: the gate that matters is on
        web/routes/tenant_users.py, which refuses a member on the section
        GET as much as on the writes (ADR-0121 §6). ``is_tenant_owner``
-       comes from the Admin route's extra_context and defaults to false,
-       so a degraded render omits the section rather than offering one
-       whose every call would 403. #}
+       comes from _render_area, which derives it once for every area, and
+       defaults to false, so a degraded render omits the section rather
+       than offering one whose every call would 403. The catalogue entry
+       in web/shell.py carries ``owner_only=True`` to match, which keeps
+       this section out of the navigation level and the command search
+       for a member; the regression guard pins the two together. #}
     {% if is_tenant_owner %}
         {% with section_slug="users",
                 section_body_template="_partials/tenant_users_section_lazy.html" %}

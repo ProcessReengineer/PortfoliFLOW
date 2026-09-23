@@ -51,8 +51,15 @@ def test_section_index_marks_exactly_one_landing(area: str) -> None:
     The sidebar's second level marks that entry ``aria-current``, so the
     flag has to resolve on every area — including the eight that flag
     nothing and fall back to their first section.
+
+    Asserted on the owner projection: it is the full catalogue, so the
+    landing entry is present for every area. The member projection is
+    the regression guard's business
+    (``test_section_catalogue_matches_body_partials.py``), which also
+    pins the invariant that makes this safe — a landing section is
+    never ``owner_only``.
     """
-    index = section_index_for(area)
+    index = section_index_for(area, is_tenant_owner=True)
     assert index, f"{area} projected an empty section index"
     for entry in index:
         assert set(entry) == {"slug", "title", "landing"}
@@ -62,8 +69,13 @@ def test_section_index_marks_exactly_one_landing(area: str) -> None:
 
 
 def test_section_index_for_unknown_area_is_empty() -> None:
-    """An unknown area projects nothing — the pre-A0b contract."""
-    assert section_index_for("no-such-area") == []
+    """An unknown area projects nothing — the pre-A0b contract.
+
+    True for either role: the projection is empty because the catalogue
+    has no such area, not because the filter removed anything.
+    """
+    assert section_index_for("no-such-area", is_tenant_owner=True) == []
+    assert section_index_for("no-such-area", is_tenant_owner=False) == []
 
 
 def test_landing_section_for_unknown_area_raises() -> None:

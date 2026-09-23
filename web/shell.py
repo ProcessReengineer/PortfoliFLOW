@@ -117,11 +117,17 @@ class SectionMeta:
 
     ``landing`` marks the section shown when the area is opened without
     a fragment; at most one per area, else the first entry.
+
+    ``owner_only`` marks a section whose body the area partial renders
+    only for a tenant owner; the navigation level and the command search
+    omit it for everyone else. It is cosmetic mirroring of the route gate
+    (ADR-0121 §6, ADR-0126), never the gate itself.
     """
 
     slug: str
     title: str
     landing: bool = False
+    owner_only: bool = False
 
 
 # Sub-stream 6F-2 section catalogue. The slug list per area mirrors
@@ -182,25 +188,31 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
     ),
     "admin": (
         SectionMeta(slug="data-import", title="Data Import"),
-        SectionMeta(slug="market-data", title="Market Data"),
+        # Owner-only (ADR-0126): the schedule save and "Refresh now" both
+        # refuse a member, so the navigation level and the command search
+        # omit the section rather than pointing at a body the partial does
+        # not render. The flag is pinned to that partial's
+        # ``{% if is_tenant_owner %}`` block by
+        # tests/regression/test_section_catalogue_matches_body_partials.py,
+        # so catalogue and template cannot drift apart.
+        SectionMeta(slug="market-data", title="Market Data", owner_only=True),
         # Replaced the ADR-0052 ``ai-settings`` slot when the scoped
         # settings write surface landed (ADR-0112 §6, strand F3).
         SectionMeta(slug="providers-credentials", title="Providers & Credentials"),
-        # The tenant-owner user surface (ADR-0121 §6). The catalogue is
-        # role-blind by construction — it feeds the section indicator and
-        # command search, neither of which carries a user — so this entry
-        # is listed for members too, while the section body and its routes
-        # are owner-gated. A member therefore sees one indicator dot and
-        # one search hit that lead nowhere; the alternative was to let the
-        # catalogue drift from the body partial, which
-        # tests/regression/test_section_catalogue_matches_body_partials.py
-        # exists to prevent.
-        SectionMeta(slug="users", title="Users"),
+        # The tenant-owner user surface (ADR-0121 §6). Owner-only: the
+        # navigation level and the command search omit it for a member,
+        # who would otherwise get an entry leading to a body the partial
+        # does not render. The flag is pinned to that partial's
+        # ``{% if is_tenant_owner %}`` block by
+        # tests/regression/test_section_catalogue_matches_body_partials.py,
+        # so catalogue and template cannot drift apart.
+        SectionMeta(slug="users", title="Users", owner_only=True),
         # A pointer tile, not a section body of its own — it links out to the
         # full-page investment maintenance surface (GET /investments, ADR-0043
-        # §5). Listed role-blind like every catalogue entry; the list GET is
-        # session-gated, writes stay owner-gated on their own routes. Replaced
-        # the never-implemented "application-settings" placeholder slot.
+        # §5). Visible to every role — the list GET is session-gated and
+        # writes stay owner-gated on their own routes — so it carries no
+        # ``owner_only`` flag. Replaced the never-implemented
+        # "application-settings" placeholder slot.
         SectionMeta(slug="investments", title="Investments"),
     ),
     "investor_communication": (SectionMeta(slug="portfolio-review", title="Portfolio Review"),),
@@ -230,7 +242,15 @@ def get_area_meta(slug: str | None) -> AreaMeta | None:
 
 
 def all_sections(area_slug: str) -> tuple[SectionMeta, ...]:
-    """Return the section catalogue for ``area_slug`` in module order.
+    """Return the full section catalogue for ``area_slug`` in module order.
+
+    Role-blind by design: this is the catalogue as written, owner-only
+    entries included. It is what
+    ``tests/regression/test_section_catalogue_matches_body_partials.py``
+    compares against the body partial, and what :func:`section_title`
+    resolves a heading through — both of which have to see every entry.
+    Consumers that render *to a signed-in user* call :func:`sections_for`
+    instead.
 
     Args:
         area_slug: Area slug from :data:`_AREAS`.
@@ -240,6 +260,31 @@ def all_sections(area_slug: str) -> tuple[SectionMeta, ...]:
         for unknown area slugs.
     """
     return _SECTIONS_BY_AREA.get(area_slug, ())
+
+
+def sections_for(area_slug: str, *, is_tenant_owner: bool) -> tuple[SectionMeta, ...]:
+    """Return the sections ``area_slug`` shows to the signed-in role, in catalogue order.
+
+    An owner sees the full catalogue; every other role sees it without
+    the ``owner_only`` entries, because the area body partial does not
+    render those sections for them. Order is never disturbed — this is
+    a filter, not a re-sort.
+
+    Args:
+        area_slug: Area slug from :data:`_AREAS`.
+        is_tenant_owner: Whether the signed-in user holds the ``owner``
+            role. ``False`` is the safe default for a degraded render:
+            it yields the member catalogue, which points only at
+            sections every role can reach.
+
+    Returns:
+        Tuple of :class:`SectionMeta` in catalogue order. Empty tuple
+        for unknown area slugs.
+    """
+    sections = all_sections(area_slug)
+    if is_tenant_owner:
+        return sections
+    return tuple(section for section in sections if not section.owner_only)
 
 
 def section_title(area_slug: str, section_slug: str) -> str:
@@ -284,6 +329,14 @@ def landing_section_for(area_slug: str) -> str:
     shown: the catalogue entry flagged ``landing``, or — the common
     case, where no entry is flagged — the first one.
 
+    Deliberately role-blind, and safely so: a landing section is never
+    ``owner_only``, so the resolved landing view is present in every
+    role's index. That is an invariant of the catalogue rather than of
+    this function, and
+    ``tests/regression/test_section_catalogue_matches_body_partials.py``
+    is what holds it — flagging a landing entry ``owner_only`` would
+    land a member on a section their partial never rendered.
+
     Args:
         area_slug: Area slug from :data:`_AREAS`.
 
@@ -309,8 +362,8 @@ def landing_section_for(area_slug: str) -> str:
     return sections[0].slug
 
 
-def section_index_for(area_slug: str) -> list[dict[str, str]]:
-    """Project :func:`all_sections` to the template-friendly dict form.
+def section_index_for(area_slug: str, *, is_tenant_owner: bool) -> list[dict[str, str]]:
+    """Project :func:`sections_for` to the template-friendly dict form.
 
     The Jinja templates iterate over a list of dicts (``slug``,
     ``title`` and ``landing`` keys) rather than dataclass instances,
@@ -326,14 +379,22 @@ def section_index_for(area_slug: str) -> list[dict[str, str]]:
     sidebar's second level marks that entry ``aria-current``, and it has
     to be marked on every area, not only on the one that carries a flag.
 
+    The role is keyword-only and carries **no default**: the sidebar's
+    second level is the one place a member could be handed a link to a
+    section their page does not contain, so a caller that forgets to
+    pass the role fails loudly at the call rather than quietly
+    rendering the owner list to everyone.
+
     Args:
         area_slug: Area slug to look up.
+        is_tenant_owner: Whether the signed-in user holds the ``owner``
+            role; passed through to :func:`sections_for`.
 
     Returns:
         List of ``{"slug": str, "title": str, "landing": str}`` dicts.
         Empty list for unknown areas.
     """
-    sections = all_sections(area_slug)
+    sections = sections_for(area_slug, is_tenant_owner=is_tenant_owner)
     if not sections:
         return []
     landing = landing_section_for(area_slug)

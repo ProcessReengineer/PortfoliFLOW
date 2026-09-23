@@ -923,3 +923,119 @@ async def test_the_admin_page_omits_the_users_section_for_a_member(
     assert "/admin/users/section" not in body
     # The sections a member does get are untouched by the conditional.
     assert 'id="providers-credentials"' in body
+
+
+# ---------------------------------------------------------------------------
+# Admin shell — the role-aware navigation level and command palette (P-UX-A0c)
+# ---------------------------------------------------------------------------
+
+
+def _section_nav_block(body: str) -> str:
+    """Return the sidebar's second-level ``<ul>`` for the active area.
+
+    The block is rendered only for the active area, so on ``/admin``
+    there is exactly one. Sliced out by hand rather than parsed: this
+    module's other assertions are substring checks over the same source,
+    and a parser dependency would buy nothing here.
+    """
+    start = body.index('<ul class="pf-sidebar__sections"')
+    end = body.index("</ul>", start)
+    return body[start:end]
+
+
+async def test_the_navigation_level_omits_owner_only_sections_for_a_member(
+    client_factory: Any,
+) -> None:
+    """A member's second level lists only the sections their page renders.
+
+    Before P-UX-A0c the catalogue was role-blind, so Users and Market
+    Data appeared here for a member and led nowhere: the partial omits
+    both, and the shell script would fall back to the landing view.
+    """
+    member_client = await client_factory("member")
+    member_body = (await member_client.get("/admin", follow_redirects=False)).text
+
+    assert 'href="#users"' not in member_body
+    assert 'href="#market-data"' not in member_body
+    assert 'href="#data-import"' in member_body
+    assert 'href="#providers-credentials"' in member_body
+    assert 'href="#investments"' in member_body
+    assert _section_nav_block(member_body).count("data-pf-section-link") == 3
+
+    owner_client = await client_factory("owner")
+    owner_body = (await owner_client.get("/admin", follow_redirects=False)).text
+
+    assert 'href="#users"' in owner_body
+    assert 'href="#market-data"' in owner_body
+    assert _section_nav_block(owner_body).count("data-pf-section-link") == 5
+
+
+async def test_the_htmx_area_fragment_navigation_is_role_aware_too(
+    client_factory: Any,
+) -> None:
+    """The OOB sidebar in an area swap is filtered like the full page.
+
+    The flag is derived in ``_render_area`` and both branches render
+    from the same context dict, so switching *to* Admin from another
+    area cannot re-introduce the entries the full page omits.
+    """
+    member_client = await client_factory("member")
+    member_body = (
+        await member_client.get(
+            "/admin",
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+    ).text
+
+    assert 'href="#users"' not in member_body
+    assert 'href="#market-data"' not in member_body
+    assert _section_nav_block(member_body).count("data-pf-section-link") == 3
+
+    owner_client = await client_factory("owner")
+    owner_body = (
+        await owner_client.get(
+            "/admin",
+            headers={"HX-Request": "true"},
+            follow_redirects=False,
+        )
+    ).text
+
+    assert 'href="#users"' in owner_body
+    assert _section_nav_block(owner_body).count("data-pf-section-link") == 5
+
+
+async def test_cmd_search_omits_owner_only_sections_for_a_member(
+    client_factory: Any,
+) -> None:
+    """The command palette filters on the same flag as the sidebar.
+
+    ``/api/cmd-search`` is the palette's only source, so an entry that
+    survives here is reachable by typing even when the sidebar hides it.
+    """
+    member_client = await client_factory("member")
+    payload = (await member_client.get("/api/cmd-search?q=", follow_redirects=False)).json()
+    gated = [
+        entry
+        for entry in payload["sections"]
+        if entry["area"] == "admin" and entry["slug"] in {"users", "market-data"}
+    ]
+    assert gated == []
+
+    member_hits = (
+        await member_client.get("/api/cmd-search?q=users", follow_redirects=False)
+    ).json()
+    assert member_hits["sections"] == []
+
+    owner_client = await client_factory("owner")
+    owner_payload = (await owner_client.get("/api/cmd-search?q=", follow_redirects=False)).json()
+    owner_gated = {
+        entry["slug"]
+        for entry in owner_payload["sections"]
+        if entry["area"] == "admin" and entry["slug"] in {"users", "market-data"}
+    }
+    assert owner_gated == {"users", "market-data"}
+
+    owner_hits = (await owner_client.get("/api/cmd-search?q=users", follow_redirects=False)).json()
+    assert len(owner_hits["sections"]) == 1
+    assert owner_hits["sections"][0]["url"] == "/admin#users"

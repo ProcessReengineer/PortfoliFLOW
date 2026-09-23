@@ -727,6 +727,40 @@ def test_platform_card_names_no_internal_component(
 
 
 # ---------------------------------------------------------------------------
+# Shell — Shirley is off on this surface
+# ---------------------------------------------------------------------------
+
+
+def test_super_admin_surface_carries_no_shirley_rail(
+    super_admin_client: TestClient,
+) -> None:
+    """The platform-admin pages render none of Shirley's shell hosts.
+
+    ``super_admin/base.html`` extends ``base.html``, so before
+    P-UX-A0s the rail arrived here with everything else the shell
+    renders: a super-admin could open the dock, but ``POST
+    /chat/messages`` is ``require_role("owner", "member")`` and would
+    refuse every message. ADR-0064 §1 keeps tenant data off this
+    surface; the empty ``{% block shirley %}`` override keeps the
+    affordance off it too.
+
+    All three hosts are checked, not just the rail: the block carries
+    the stage as well, and a partial override would leave an empty
+    380 px column behind on Ctrl J.
+    """
+    for path in ("/super-admin/tenants", "/super-admin/users"):
+        response = super_admin_client.get(path, headers={"host": "localhost"})
+        assert response.status_code == 200, response.text
+        body = response.text
+        assert 'id="pf-side"' not in body, f"Shirley's column renders on {path}"
+        assert 'id="dock-chat-host"' not in body, f"the dock host renders on {path}"
+        assert 'id="pf-stage"' not in body, f"the stage renders on {path}"
+        # The shell itself is untouched — only the one block is empty.
+        assert 'class="pf-shell"' in body or "pf-shell" in body
+        assert 'id="shell-main"' in body
+
+
+# ---------------------------------------------------------------------------
 # Cross-tenant no-leak runtime check
 # ---------------------------------------------------------------------------
 

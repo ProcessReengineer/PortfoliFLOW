@@ -189,7 +189,13 @@ async def test_transactions_page_renders_three_sections(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """``GET /transactions`` renders the area with its three Sections."""
+    """``GET /transactions`` renders the area with its three Sections.
+
+    The right-edge section indicator this test used to pin (a
+    ``data-section`` dot per slug) was retired by P-UX-A0b; see the
+    twin in ``test_cases_area.py``. The second navigation level and
+    the per-section body are pinned in its place.
+    """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
 
@@ -200,7 +206,10 @@ async def test_transactions_page_renders_three_sections(
     assert "<html" in body.lower()
     for slug, title in _SECTIONS:
         assert f'id="{slug}"' in body, f'missing section anchor id="{slug}"'
-        assert f'data-section="{slug}"' in body, f"missing section-indicator dot for {slug}"
+        assert f'data-pf-section="{slug}"' in body, f"missing section body for {slug}"
+        assert f'data-pf-section-link="{slug}"' in body, (
+            f"missing second-level nav entry for {slug}"
+        )
         assert title in body, f"missing section title {title!r}"
 
 

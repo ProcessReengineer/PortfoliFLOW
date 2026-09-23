@@ -50,5 +50,151 @@
       {"wait": "#pf-chat"}
     ],
     "shot": "shirley-stage"
+  },
+  {
+    "name": "cases-detail",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cases-open-list"},
+      {"click": ".pf-area__header .pf-cases__new-btn"},
+      {"wait": ".pf-cases__new-form"},
+      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"wait": ".pf-case-detail"}
+    ],
+    "shot": "case-detail"
+  },
+  {
+    "name": "cases-composer-note",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cases-open-list"},
+      {"click": ".pf-area__header .pf-cases__new-btn"},
+      {"wait": ".pf-cases__new-form"},
+      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"wait": ".pf-case-detail"},
+      {"click": ".pf-case-actions button:has-text(\"Add note\")"},
+      {"wait": ".pf-case-composer__title:has-text(\"Add note\")"}
+    ],
+    "shot": "case-composer-note"
+  },
+  {
+    "name": "cases-composer-pin",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cases-open-list"},
+      {"click": ".pf-area__header .pf-cases__new-btn"},
+      {"wait": ".pf-cases__new-form"},
+      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"wait": ".pf-case-detail"},
+      {"click": ".pf-case-actions button:has-text(\"Pin document\")"},
+      {"wait": ".pf-case-composer__title:has-text(\"Pin document\")"}
+    ],
+    "shot": "case-composer-pin"
+  },
+  {
+    "name": "cases-composer-decision",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cases-open-list"},
+      {"click": ".pf-area__header .pf-cases__new-btn"},
+      {"wait": ".pf-cases__new-form"},
+      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"wait": ".pf-case-detail"},
+      {"click": ".pf-case-actions button:has-text(\"Record decision\")"},
+      {"wait": ".pf-case-composer__title:has-text(\"Record decision\")"}
+    ],
+    "shot": "case-composer-decision"
+  },
+  {
+    "name": "cases-composer-close",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cases-open-list"},
+      {"click": ".pf-area__header .pf-cases__new-btn"},
+      {"wait": ".pf-cases__new-form"},
+      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"wait": ".pf-case-detail"},
+      {"click": ".pf-case-actions button:has-text(\"Close case\")"},
+      {"wait": ".pf-case-composer--close"}
+    ],
+    "shot": "case-composer-close"
+  },
+  {
+    "name": "transactions-composer-order",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".tx-flow:has-text(\"Buy or sell units\")"},
+      {"wait": "#tx-order-form"}
+    ],
+    "shot": "composer-order"
+  },
+  {
+    "name": "transactions-composer-commitment",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".tx-flow:has-text(\"New commitment\")"},
+      {"wait": "#tx-commit-form"}
+    ],
+    "shot": "composer-commitment"
+  },
+  {
+    "name": "transactions-composer-secondary",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".tx-flow:has-text(\"Buy a stake (secondary)\")"},
+      {"wait": "#tx-secbuy-form"}
+    ],
+    "shot": "composer-secondary"
+  },
+  {
+    "name": "transactions-wizard-step-1",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".tx-flow:has-text(\"Buy a new instrument\")"},
+      {"wait": "#tx-wizard-form"},
+      {"wait": ".tx-stepper .tx-step.is-active"}
+    ],
+    "shot": "wizard-step-1"
   }
 ]

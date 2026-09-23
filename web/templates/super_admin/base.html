@@ -14,6 +14,16 @@
 
 {% block title %}Platform Administration — PortfoliFLOW{% endblock %}
 
+{# Shirley is off on this surface (P-UX-A0s, A0e flag 8). A
+   super-admin lives in the System Tenant, which holds no domain data,
+   and ``POST /chat/messages`` is ``require_role("owner", "member")`` —
+   so the rail led to a conversation that could be opened but never
+   sent. ADR-0064 §1 says this surface does not expose tenant data; an
+   affordance that leads nowhere is the visible half of that rule. The
+   empty override drops the rail, the dock host and the stage in one
+   go; ``shirley.js`` null-checks every host, so nothing else changes. #}
+{% block shirley %}{% endblock %}
+
 {% block extra_css %}
     <link rel="stylesheet" href="/static/css/components/super_admin.css">
 {% endblock %}

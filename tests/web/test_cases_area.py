@@ -482,7 +482,16 @@ async def test_cases_page_renders_three_sections(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """``GET /cases`` renders the area with its three Sections."""
+    """``GET /cases`` renders the area with its three Sections.
+
+    The right-edge section indicator this test used to pin (a
+    ``data-section`` dot per slug) was retired by P-UX-A0b: one section
+    is shown per view, and the second navigation level replaced the
+    dots (design parameters §2.1.2). The two markers that carry that
+    arrangement are pinned instead — ``data-pf-section-link`` in the
+    sidebar's second level, which ``shell.js`` marks ``aria-current``,
+    and ``data-pf-section`` on the body ``shell.js`` shows or hides.
+    """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
 
@@ -493,7 +502,10 @@ async def test_cases_page_renders_three_sections(
     assert "<html" in body.lower()
     for slug in ("open-cases", "recently-closed", "archive"):
         assert f'id="{slug}"' in body, f'missing section anchor id="{slug}"'
-        assert f'data-section="{slug}"' in body, f"missing section-indicator dot for {slug}"
+        assert f'data-pf-section="{slug}"' in body, f"missing section body for {slug}"
+        assert f'data-pf-section-link="{slug}"' in body, (
+            f"missing second-level nav entry for {slug}"
+        )
 
 
 async def test_cases_htmx_branch_returns_partial(

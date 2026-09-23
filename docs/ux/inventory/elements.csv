@@ -1,60 +1,97 @@
 area,template,block,source_kind,element_kind,visible_text,target,hx_target,source_file,source_line,flags
-_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,396,
-_shell,,shell,python,python_label,Front Office,,,web/shell.py,68,
-_shell,,shell,python,python_label,Back Office,,,web/shell.py,69,
-_shell,,shell,python,python_label,Assistants,,,web/shell.py,70,
-_shell,,shell,python,python_label,Planning Desk,,,web/shell.py,75,
-_shell,,shell,python,python_label,Investor Communication,,,web/shell.py,80,
-_shell,,shell,python,python_label,Watch Desk,,,web/shell.py,87,internal-name
-_shell,,shell,python,python_label,Cases,,,web/shell.py,93,
-_shell,,shell,python,python_label,Transactions,,,web/shell.py,97,
-_shell,,shell,python,python_label,Admin,,,web/shell.py,98,
-_shell,,shell,python,python_title,Overview,,,web/shell.py,133,
-_shell,,shell,python,python_title,Charts,,,web/shell.py,138,
-_shell,,shell,python,python_title,Statistics,,,web/shell.py,139,
-_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,140,
-_shell,,shell,python,python_title,Briefing,,,web/shell.py,145,
-_shell,,shell,python,python_title,Journal,,,web/shell.py,146,
-_shell,,shell,python,python_title,Calibration,,,web/shell.py,147,
-_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,151,
-_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,152,
-_shell,,shell,python,python_title,Open Cases,,,web/shell.py,158,
-_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,159,
-_shell,,shell,python,python_title,Archive,,,web/shell.py,160,
-_shell,,shell,python,python_title,New transaction,,,web/shell.py,166,
-_shell,,shell,python,python_title,Blotter,,,web/shell.py,167,internal-name
-_shell,,shell,python,python_title,History,,,web/shell.py,168,
-_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,171,
-_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,172,
-_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,173,
-_shell,,shell,python,python_title,Data Import,,,web/shell.py,176,
-_shell,,shell,python,python_title,Market Data,,,web/shell.py,177,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,180,
-_shell,,shell,python,python_title,Users,,,web/shell.py,190,
-_shell,,shell,python,python_title,Investments,,,web/shell.py,196,
-_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,198,
-_shell,,shell,python,python_title,Shirley,,,web/shell.py,200,internal-name
-_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,201,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,204,
+_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,397,
+_shell,,shell,python,python_label,Front Office,,,web/shell.py,72,
+_shell,,shell,python,python_label,Back Office,,,web/shell.py,73,
+_shell,,shell,python,python_label,Assistants,,,web/shell.py,74,
+_shell,,shell,python,python_label,Planning Desk,,,web/shell.py,79,
+_shell,,shell,python,python_label,Investor Communication,,,web/shell.py,84,
+_shell,,shell,python,python_label,Watch Desk,,,web/shell.py,91,internal-name
+_shell,,shell,python,python_label,Cases,,,web/shell.py,97,
+_shell,,shell,python,python_label,Transactions,,,web/shell.py,101,
+_shell,,shell,python,python_label,Admin,,,web/shell.py,102,
+_shell,,shell,python,python_title,Overview,,,web/shell.py,147,
+_shell,,shell,python,python_title,Charts,,,web/shell.py,152,
+_shell,,shell,python,python_title,Statistics,,,web/shell.py,153,
+_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,154,
+_shell,,shell,python,python_title,Briefing,,,web/shell.py,159,
+_shell,,shell,python,python_title,Journal,,,web/shell.py,160,
+_shell,,shell,python,python_title,Calibration,,,web/shell.py,161,
+_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,165,
+_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,166,
+_shell,,shell,python,python_title,Open Cases,,,web/shell.py,172,
+_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,173,
+_shell,,shell,python,python_title,Archive,,,web/shell.py,174,
+_shell,,shell,python,python_title,New transaction,,,web/shell.py,180,
+_shell,,shell,python,python_title,Blotter,,,web/shell.py,181,internal-name
+_shell,,shell,python,python_title,History,,,web/shell.py,182,
+_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,185,
+_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,186,
+_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,187,
+_shell,,shell,python,python_title,Data Import,,,web/shell.py,190,
+_shell,,shell,python,python_title,Market Data,,,web/shell.py,198,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,201,
+_shell,,shell,python,python_title,Users,,,web/shell.py,209,
+_shell,,shell,python,python_title,Investments,,,web/shell.py,216,
+_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,218,
+_shell,,shell,python,python_title,Shirley,,,web/shell.py,220,internal-name
+_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,221,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,224,
+_shell,_partials/chat_empty.html,,template,empty_state,Start a conversation by typing a message below.,,,web/templates/_partials/chat_empty.html,9,
 _shell,_partials/command_palette.html,,template,tooltip,Command palette,,,web/templates/_partials/command_palette.html,10,from:aria-label|icon-only
 _shell,_partials/command_palette.html,,template,placeholder,"Jump to area, section or action…",,,web/templates/_partials/command_palette.html,12,
 _shell,_partials/command_palette.html,,template,tooltip,Search results,,,web/templates/_partials/command_palette.html,17,from:aria-label|icon-only
-_shell,_partials/section_indicator.html,,template,tooltip,Section navigation,,,web/templates/_partials/section_indicator.html,16,from:aria-label
-_shell,_partials/section_indicator.html,,template,tooltip,{{ entry.title }},#{{ entry.slug }},,web/templates/_partials/section_indicator.html,18,dynamic|from:aria-label
-_shell,_partials/sidebar.html,,template,tooltip,Areas,,,web/templates/_partials/sidebar.html,29,from:aria-label
-_shell,_partials/sidebar.html,,template,tooltip,Area navigation,,,web/templates/_partials/sidebar.html,36,from:aria-label
-_shell,_partials/sidebar.html,,template,htmx,{{ label[0] }} {{ label }},{{ url }},#shell-main,web/templates/_partials/sidebar.html,38,dynamic|verb:GET
-_shell,_partials/sidebar.html,,template,link,{{ label[0] }} {{ label }},{{ url }},#shell-main,web/templates/_partials/sidebar.html,38,dynamic
-_shell,_partials/sidebar.html,,template,link,P Platform Admin,/super-admin/tenants,,web/templates/_partials/sidebar.html,55,synonym-candidate
-_shell,_partials/sidebar.html,,template,tooltip,{{ user_email }},,,web/templates/_partials/sidebar.html,65,dynamic|from:title
-_shell,_partials/sidebar.html,,template,button,« Collapse »,/shell/sidebar/toggle,,web/templates/_partials/sidebar.html,77,
-_shell,_partials/sidebar.html,,template,tooltip,Expand sidebar Collapse sidebar,,,web/templates/_partials/sidebar.html,77,from:aria-label
-_shell,_partials/sidebar.html,,template,button,Sign out ⏻,/logout,,web/templates/_partials/sidebar.html,95,
-_shell,_partials/statusbar.html,,template,tooltip,Command palette,,,web/templates/_partials/statusbar.html,33,from:title
-_shell,_partials/statusbar.html,,template,link,Source code,https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,38,synonym-candidate
-_shell,_partials/statusbar.html,,template,tooltip,Corresponding source (AGPL §13),https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,38,abbrev|from:title|synonym-candidate
-_shell,_partials/statusbar.html,,template,tooltip,Build,,,web/templates/_partials/statusbar.html,42,from:title
-_shell,_partials/statusbar.html,,template,tooltip,Configuration loaded Configuration error,,,web/templates/_partials/statusbar.html,45,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation with Shirley,,,web/templates/_partials/shirley_dock.html,36,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,43,dynamic
+_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,43,dynamic|verb:POST
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""stage"") }}",,,web/templates/_partials/shirley_dock.html,49,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,49,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,49,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""close"") }}",,,web/templates/_partials/shirley_dock.html,54,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Ctrl J,,,web/templates/_partials/shirley_dock.html,54,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Shirley,,,web/templates/_partials/shirley_dock.html,54,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,link,{{ brief_banner.badge }},{{ brief_banner.href }},,web/templates/_partials/shirley_dock.html,70,dynamic
+_shell,_partials/shirley_dock.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,duplicate-label|synonym-candidate
+_shell,_partials/shirley_dock.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,duplicate-label|synonym-candidate|verb:POST
+_shell,_partials/shirley_dock.html,,template,tooltip,Stop consulting for this case,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,from:aria-label|synonym-candidate
+_shell,_partials/shirley_dock.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_dock.html,88,icon-only|verb:GET
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_dock.html,88,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,htmx,Send 🎤 ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it,/chat/messages,#chat-history,web/templates/_partials/shirley_dock.html,113,verb:POST
+_shell,_partials/shirley_dock.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_dock.html,125,internal-name
+_shell,_partials/shirley_dock.html,,template,tooltip,Message,,,web/templates/_partials/shirley_dock.html,125,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,130,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,button,Send,,,web/templates/_partials/shirley_dock.html,135,
+_shell,_partials/shirley_dock.html,,template,button,🎤,,,web/templates/_partials/shirley_dock.html,142,
+_shell,_partials/shirley_dock.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_dock.html,142,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_dock.html,142,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,● Record,,,web/templates/_partials/shirley_dock.html,153,
+_shell,_partials/shirley_dock.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_dock.html,153,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_dock.html,155,hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_dock.html,155,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,button,Cancel,,,web/templates/_partials/shirley_dock.html,157,duplicate-label|hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_dock.html,157,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,pill,,,,web/templates/_partials/shirley_dock.html,159,
+_shell,_partials/sidebar.html,,template,tooltip,Areas,,,web/templates/_partials/sidebar.html,35,from:aria-label
+_shell,_partials/sidebar.html,,template,tooltip,Area navigation,,,web/templates/_partials/sidebar.html,42,from:aria-label
+_shell,_partials/sidebar.html,,template,htmx,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,44,dynamic|verb:GET
+_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,44,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,{{ label }} sections,,,web/templates/_partials/sidebar.html,56,dynamic|from:aria-label
+_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(""platform-admin"") }} Platform Admin",/super-admin/tenants,,web/templates/_partials/sidebar.html,68,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,{{ user_email }},,,web/templates/_partials/sidebar.html,78,dynamic|from:title
+_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""nav-collapse"") }}Collapse {{ pf_icon(""nav-expand"") }}",/shell/sidebar/toggle,,web/templates/_partials/sidebar.html,90,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,Expand sidebar Collapse sidebar,,,web/templates/_partials/sidebar.html,90,from:aria-label
+_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""sign-out"") }}Sign out {{ pf_icon(""sign-out"", ""Sign out"") }}",/logout,,web/templates/_partials/sidebar.html,108,dynamic
+_shell,_partials/statusbar.html,,template,link,Source code,https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,33,synonym-candidate
+_shell,_partials/statusbar.html,,template,tooltip,Corresponding source (AGPL §13),https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,33,abbrev|from:title|synonym-candidate
+_shell,_partials/statusbar.html,,template,tooltip,Build,,,web/templates/_partials/statusbar.html,41,from:title
+_shell,_partials/statusbar.html,,template,tooltip,Configuration loaded Configuration error,,,web/templates/_partials/statusbar.html,44,from:title
+_shell,base.html,shirley,template,heading,Shirley,,,web/templates/base.html,109,internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""dock"") }}Back to dock",,,web/templates/base.html,110,dynamic
+_shell,base.html,shirley,template,empty_state,Nothing on the stage yet. Figures Shirley renders will open here at full size.,,,web/templates/base.html,113,internal-name
+_shell,base.html,shirley,template,tooltip,Shirley,,,web/templates/base.html,126,from:aria-label|internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""shirley"") }}",,,web/templates/base.html,128,dynamic
+_shell,base.html,shirley,template,tooltip,Open Shirley Ctrl J,,,web/templates/base.html,128,from:title|internal-name
+_shell,base.html,shirley,template,tooltip,Open Shirley,,,web/templates/base.html,128,from:aria-label|internal-name
+_shell,base.html,shirley,template,htmx,,/chat/dock,,web/templates/base.html,134,icon-only|no-accessible-name|verb:GET
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,444,abbrev
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,447,abbrev
 admin,,overview,python,python_title,Cashflows,,,web/routes/overview.py,454,
@@ -64,8 +101,8 @@ admin,,overview,python,python_title,Currency exposure,,,web/routes/overview.py,4
 admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,985,identifier-leak-loose|internal-name
 admin,_partials/areas/_admin_body.html,,template,area_header,"Admin Internal management — data import, market data, investments, user administration and audit surfaces.",,,web/templates/_partials/areas/_admin_body.html,3,
 admin,_partials/areas/_admin_body.html,Admin,template,heading,Admin,,,web/templates/_partials/areas/_admin_body.html,4,
-admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,53,inline-html|synonym-candidate
-admin,_partials/areas/_admin_body.html,Admin,template,link,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,53,inline-html|synonym-candidate
+admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,59,inline-html|synonym-candidate
+admin,_partials/areas/_admin_body.html,Admin,template,link,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,59,inline-html|synonym-candidate
 admin,_partials/data_import_preview.html,,template,htmx,← Back to upload,/api/data-import/section,#pf-data-import-panel,web/templates/_partials/data_import_preview.html,26,synonym-candidate|verb:GET
 admin,_partials/data_import_preview.html,{{ upload.filename }},template,heading,{{ upload.filename }},,,web/templates/_partials/data_import_preview.html,33,dynamic
 admin,_partials/data_import_preview.html,{{ upload.filename }},template,pill,{{ upload.filename }} uploaded · {{ sheets|length }} sheets · preview computed,,,web/templates/_partials/data_import_preview.html,36,dynamic
@@ -167,52 +204,12 @@ admin,_partials/tenant_users_section.html,Add a user,template,form_label,Role {{
 admin,_partials/tenant_users_section.html,Add a user,template,select,{{ label }},role,,web/templates/_partials/tenant_users_section.html,199,dynamic|options:1
 admin,_partials/tenant_users_section.html,Add a user,template,button,Create user,,,web/templates/_partials/tenant_users_section.html,206,
 admin,_partials/tenant_users_section_lazy.html,,template,htmx,Loading users…,/admin/users/section,this,web/templates/_partials/tenant_users_section_lazy.html,13,verb:GET
-admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 assistants,_partials/areas/_assistants_body.html,,template,area_header,"Assistants AI-powered automation — Shirley (the chat assistant), report scraping for GP quarterly reports, and AI configuration.",,,web/templates/_partials/areas/_assistants_body.html,3,abbrev|internal-name
 assistants,_partials/areas/_assistants_body.html,Assistants,template,heading,Assistants,,,web/templates/_partials/areas/_assistants_body.html,4,
-assistants,_partials/areas/_assistants_body.html,Assistants,template,link,Admin → Providers & Credentials,/admin#providers-credentials,,web/templates/_partials/areas/_assistants_body.html,22,inline-html
-assistants,_partials/chat_empty.html,,template,empty_state,Start a conversation by typing a message below.,,,web/templates/_partials/chat_empty.html,9,
-assistants,_partials/chat_history.html,,template,button,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label
-assistants,_partials/chat_history.html,,template,htmx,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label|verb:GET
-assistants,_partials/chat_pin_chart_dialog.html,,template,htmx,"Pin this chart to a case {{ error }} {{ unavailable_message }} Close There are no open cases to pin into. Open a case first, then return here to pin this chart. Cancel Go to Cases Case {{ case.label }} Chart {{ caption or 'Untitled chart' }} Why pin this? {{ comment or '' }} Cancel Pin to case",{{ pin_url }},#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,30,dynamic|verb:POST
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,heading,Pin this chart to a case,,,web/templates/_partials/chat_pin_chart_dialog.html,37,
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,empty_state,{{ unavailable_message }},,,web/templates/_partials/chat_pin_chart_dialog.html,45,dynamic
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,47,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,47,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,empty_state,"There are no open cases to pin into. Open a case first, then return here to pin this chart.",,,web/templates/_partials/chat_pin_chart_dialog.html,54,
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,59,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,59,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_chart_dialog.html,63,
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,link,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_chart_dialog.html,63,
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,form_label,Case {{ case.label }},,,web/templates/_partials/chat_pin_chart_dialog.html,66,dynamic
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,select,{{ case.label }},case_id,,web/templates/_partials/chat_pin_chart_dialog.html,68,dynamic|options:1
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,form_label,Why pin this? {{ comment or '' }},,,web/templates/_partials/chat_pin_chart_dialog.html,83,dynamic
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,placeholder,The curation comment — why this belongs on the case record.,comment,,web/templates/_partials/chat_pin_chart_dialog.html,85,synonym-candidate
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,92,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,92,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Pin to case,,,web/templates/_partials/chat_pin_chart_dialog.html,96,
-assistants,_partials/chat_pin_confirm.html,,template,link,{{ case_badge }},{{ case_href }},,web/templates/_partials/chat_pin_confirm.html,13,dynamic
-assistants,_partials/chat_pin_confirm.html,,template,button,Dismiss,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_confirm.html,15,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_confirm.html,,template,htmx,Dismiss,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_confirm.html,15,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_dialog.html,,template,htmx,"Pin this answer to a case {{ error }} That message is no longer available to pin — it has scrolled out of this session's memory. Ask again, then pin the fresh answer. Close There are no open cases to pin into. Open a case first, then return here to pin this answer. Cancel Go to Cases Case {{ case.label }} Excerpt — Shirley's words, trimmed to what belongs on the record {{ excerpt }} Why pin this? {{ comment or '' }} Cancel Pin to case",{{ pin_url }},#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,28,dynamic|verb:POST
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,heading,Pin this answer to a case,,,web/templates/_partials/chat_pin_dialog.html,35,
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,empty_state,"That message is no longer available to pin — it has scrolled out of this session's memory. Ask again, then pin the fresh answer.",,,web/templates/_partials/chat_pin_dialog.html,43,
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,48,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,48,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,empty_state,"There are no open cases to pin into. Open a case first, then return here to pin this answer.",,,web/templates/_partials/chat_pin_dialog.html,55,
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,60,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,60,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_dialog.html,64,
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,link,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_dialog.html,64,
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,Case {{ case.label }},,,web/templates/_partials/chat_pin_dialog.html,67,dynamic
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,select,{{ case.label }},case_id,,web/templates/_partials/chat_pin_dialog.html,69,dynamic|options:1
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,"Excerpt — Shirley's words, trimmed to what belongs on the record {{ excerpt }}",,,web/templates/_partials/chat_pin_dialog.html,78,dynamic
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,Why pin this? {{ comment or '' }},,,web/templates/_partials/chat_pin_dialog.html,84,dynamic
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,placeholder,The curation comment — why this belongs on the case record.,comment,,web/templates/_partials/chat_pin_dialog.html,86,synonym-candidate
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate|verb:GET
-assistants,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Pin to case,,,web/templates/_partials/chat_pin_dialog.html,97,
+assistants,_partials/areas/_assistants_body.html,Assistants,template,link,Admin → Providers & Credentials,/admin#providers-credentials,,web/templates/_partials/areas/_assistants_body.html,29,inline-html
 assistants,_partials/scraper_progress.html,,template,button,Cancel,,,web/templates/_partials/scraper_progress.html,30,duplicate-label
 assistants,_partials/scraper_results.html,{{ extraction.filename }},template,heading,{{ extraction.filename }},,,web/templates/_partials/scraper_results.html,18,dynamic
 assistants,_partials/scraper_results.html,{{ extraction.filename }},template,pill,{{ finding.confidence.value }},,,web/templates/_partials/scraper_results.html,55,dynamic
@@ -229,31 +226,9 @@ assistants,_partials/scraper_section.html,,template,tooltip,Remove keyword,,,web
 assistants,_partials/scraper_section.html,,template,button,+ Add keyword,,,web/templates/_partials/scraper_section.html,72,
 assistants,_partials/scraper_section.html,,template,button,Extract,,,web/templates/_partials/scraper_section.html,93,
 assistants,_partials/scraper_section_lazy.html,,template,htmx,Loading scraper…,/scraper/section,this,web/templates/_partials/scraper_section_lazy.html,8,verb:GET
-assistants,_partials/shirley_section.html,,template,link,{{ brief_banner.badge }},{{ brief_banner.href }},,web/templates/_partials/shirley_section.html,36,dynamic
-assistants,_partials/shirley_section.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_section.html,38,duplicate-label|synonym-candidate
-assistants,_partials/shirley_section.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_section.html,38,duplicate-label|synonym-candidate|verb:POST
-assistants,_partials/shirley_section.html,,template,tooltip,Stop consulting for this case,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_section.html,38,from:aria-label|synonym-candidate
-assistants,_partials/shirley_section.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_section.html,54,icon-only|verb:GET
-assistants,_partials/shirley_section.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_section.html,54,from:aria-label|icon-only
-assistants,_partials/shirley_section.html,,template,button,New chat,/chat/new,#chat-history,web/templates/_partials/shirley_section.html,73,
-assistants,_partials/shirley_section.html,,template,htmx,New chat,/chat/new,#chat-history,web/templates/_partials/shirley_section.html,73,verb:POST
-assistants,_partials/shirley_section.html,,template,htmx,Send 🎤 ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it,/chat/messages,#chat-history,web/templates/_partials/shirley_section.html,84,verb:POST
-assistants,_partials/shirley_section.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_section.html,96,internal-name
-assistants,_partials/shirley_section.html,,template,tooltip,Message,,,web/templates/_partials/shirley_section.html,96,from:aria-label|icon-only
-assistants,_partials/shirley_section.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_section.html,101,from:aria-label|icon-only
-assistants,_partials/shirley_section.html,,template,button,Send,,,web/templates/_partials/shirley_section.html,106,
-assistants,_partials/shirley_section.html,,template,button,🎤,,,web/templates/_partials/shirley_section.html,113,
-assistants,_partials/shirley_section.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_section.html,113,from:title
-assistants,_partials/shirley_section.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_section.html,113,from:aria-label
-assistants,_partials/shirley_section.html,,template,button,● Record,,,web/templates/_partials/shirley_section.html,124,
-assistants,_partials/shirley_section.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_section.html,124,from:aria-label
-assistants,_partials/shirley_section.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_section.html,126,hidden
-assistants,_partials/shirley_section.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_section.html,126,from:aria-label|hidden
-assistants,_partials/shirley_section.html,,template,button,Cancel,,,web/templates/_partials/shirley_section.html,128,duplicate-label|hidden
-assistants,_partials/shirley_section.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_section.html,128,from:aria-label|hidden
-assistants,_partials/shirley_section.html,,template,pill,,,,web/templates/_partials/shirley_section.html,130,
-assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+assistants,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 back_office,,benchmarks_attribution,python,python_label,Mapping Coverage,,,web/routes/benchmarks_attribution.py,233,
 back_office,,benchmarks_attribution,python,python_label,Median Excess p.a.,,,web/routes/benchmarks_attribution.py,240,
 back_office,,benchmarks_attribution,python,python_label,Hit Rate,,,web/routes/benchmarks_attribution.py,247,
@@ -360,8 +335,9 @@ back_office,_partials/saa_section.html,New SAA Configuration,template,form_label
 back_office,_partials/saa_section.html,New SAA Configuration,template,button,Cancel,,,web/templates/_partials/saa_section.html,97,duplicate-label
 back_office,_partials/saa_section.html,New SAA Configuration,template,button,Create,,,web/templates/_partials/saa_section.html,100,
 back_office,_partials/saa_section_lazy.html,,template,htmx,Loading strategic asset allocation…,/api/saa/section,this,web/templates/_partials/saa_section_lazy.html,10,verb:GET
-back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+back_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 cases,_partials/areas/_cases_body.html,,template,area_header,"Cases Open questions about the portfolio, worked to a documented close — your to-do list in front, your decision log behind. New case",,,web/templates/_partials/areas/_cases_body.html,14,identifier-leak-loose
 cases,_partials/areas/_cases_body.html,Cases,template,heading,Cases,,,web/templates/_partials/areas/_cases_body.html,16,
 cases,_partials/areas/_cases_body.html,Cases,template,button,New case,/api/cases/new,#cases-new-case-slot,web/templates/_partials/areas/_cases_body.html,22,
@@ -427,8 +403,9 @@ cases,_partials/cases_open_lazy.html,,template,htmx,Loading open cases…,/api/c
 cases,_partials/cases_recently_closed.html,,template,link,"{{ case.badge }} {{ case.title }} closed {{ case.closed_date }} · “{{ case.closing_note | truncate(90, True, '…') }}” Closed",{{ case.href }},,web/templates/_partials/cases_recently_closed.html,23,dynamic
 cases,_partials/cases_recently_closed.html,,template,empty_state,No cases closed yet — closed cases land here as you work the open ones to a documented close.,,,web/templates/_partials/cases_recently_closed.html,44,
 cases,_partials/cases_recently_closed_lazy.html,,template,htmx,Loading recently closed cases…,/api/cases/recently-closed,this,web/templates/_partials/cases_recently_closed_lazy.html,3,verb:GET
-cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+cases,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 cases,cases_detail.html,content,template,link,← Cases,/cases,,web/templates/cases_detail.html,25,
 cases,cases_detail.html,content,template,heading,{{ head.title }},,,web/templates/cases_detail.html,31,dynamic
 cases,cases_detail.html,content,template,button,Add note,/api/cases/{{ case_id }}/composer/note,#case-composer-slot,web/templates/cases_detail.html,145,
@@ -541,8 +518,9 @@ front_office,_partials/statistics_section.html,Details,template,tooltip,Risk met
 front_office,_partials/statistics_section.html,Details,template,tooltip,Risk / Return metrics table,,,web/templates/_partials/statistics_section.html,149,from:aria-label|icon-only
 front_office,_partials/statistics_section.html,Details,template,tooltip,Autocorrelation table,,,web/templates/_partials/statistics_section.html,160,from:aria-label|icon-only
 front_office,_partials/statistics_section_lazy.html,,template,htmx,Loading statistics…,/api/statistics/section,this,web/templates/_partials/statistics_section_lazy.html,10,verb:GET
-front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+front_office,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 investments,investments/_cashflow_form.html,Add Cashflow,template,heading,Add Cashflow,,,web/templates/investments/_cashflow_form.html,13,
 investments,investments/_cashflow_form.html,Add Cashflow,template,form_label,Date,,,web/templates/investments/_cashflow_form.html,16,
 investments,investments/_cashflow_form.html,Add Cashflow,template,form_label,Kind {{ k }},,,web/templates/investments/_cashflow_form.html,20,dynamic
@@ -693,8 +671,9 @@ investor_communication,_partials/portfolio_review_section.html,Per-investment re
 investor_communication,_partials/portfolio_review_section.html,Per-investment reviews,template,link,Data Import,/admin#data-import,,web/templates/_partials/portfolio_review_section.html,136,
 investor_communication,_partials/portfolio_review_section.html,Per-investment reviews,template,link,Investments,/investments,,web/templates/_partials/portfolio_review_section.html,138,synonym-candidate
 investor_communication,_partials/portfolio_review_section_lazy.html,,template,htmx,Loading portfolio review…,/api/portfolio-review/section,this,web/templates/_partials/portfolio_review_section_lazy.html,9,synonym-candidate|verb:GET
-investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+investor_communication,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 planning_desk,,planning_desk,python,python_title,Market shock,,,web/routes/planning_desk.py,1562,
 planning_desk,,planning_desk,python,python_title,FX shock,,,web/routes/planning_desk.py,1576,abbrev
 planning_desk,_partials/areas/_planning_desk_body.html,,template,area_header,"Planning Desk Projection and simulation over the plan world — where the Watch Desk watches what has changed, the Planning Desk asks what a change would do. Nothing entered here ever touches the book.",,,web/templates/_partials/areas/_planning_desk_body.html,14,internal-name
@@ -801,8 +780,9 @@ planning_desk,_partials/planning_desk_shock_card.html,,template,select,{{ card.t
 planning_desk,_partials/planning_desk_shock_card.html,,template,tooltip,Timing (fixed in v1),,,web/templates/_partials/planning_desk_shock_card.html,57,from:aria-label
 planning_desk,_partials/planning_desk_shock_card.html,,template,button,Add shock,,,web/templates/_partials/planning_desk_shock_card.html,63,
 planning_desk,_partials/planning_desk_shock_card.html,,template,empty_state,{{ card.scope_empty }},,,web/templates/_partials/planning_desk_shock_card.html,67,dynamic
-planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+planning_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,form_label,Name,tenant-name,,web/templates/super_admin/_partials/_create_tenant_form.html,11,duplicate-label
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,placeholder,Versorgungswerk Beispielland,name,,web/templates/super_admin/_partials/_create_tenant_form.html,12,
 super_admin,super_admin/_partials/_create_tenant_form.html,,template,form_label,Subdomain,tenant-subdomain,,web/templates/super_admin/_partials/_create_tenant_form.html,18,
@@ -831,11 +811,11 @@ super_admin,super_admin/_partials/_users_table.html,,template,empty_state,—,,,
 super_admin,super_admin/_partials/_users_table.html,,template,button,Deactivate,/super-admin/users/{{ u.id }}/deactivate,,web/templates/super_admin/_partials/_users_table.html,41,duplicate-label
 super_admin,super_admin/_partials/_users_table.html,,template,empty_state,(deactivated),,,web/templates/super_admin/_partials/_users_table.html,46,
 super_admin,super_admin/_partials/_users_table.html,,template,empty_state,No super-admins. Create one with the form above.,,,web/templates/super_admin/_partials/_users_table.html,54,identifier-leak-loose
-super_admin,super_admin/base.html,content,template,heading,Platform Administration,,,web/templates/super_admin/base.html,24,
-super_admin,super_admin/base.html,content,template,tooltip,{{ user_email }},,,web/templates/super_admin/base.html,26,dynamic|from:title
-super_admin,super_admin/base.html,content,template,tooltip,Super-admin sections,,,web/templates/super_admin/base.html,38,from:aria-label
-super_admin,super_admin/base.html,content,template,link,Tenants,/super-admin/tenants,,web/templates/super_admin/base.html,39,internal-name|synonym-candidate
-super_admin,super_admin/base.html,content,template,link,Super-Admins,/super-admin/users,,web/templates/super_admin/base.html,43,synonym-candidate
+super_admin,super_admin/base.html,content,template,heading,Platform Administration,,,web/templates/super_admin/base.html,34,
+super_admin,super_admin/base.html,content,template,tooltip,{{ user_email }},,,web/templates/super_admin/base.html,36,dynamic|from:title
+super_admin,super_admin/base.html,content,template,tooltip,Super-admin sections,,,web/templates/super_admin/base.html,48,from:aria-label
+super_admin,super_admin/base.html,content,template,link,Tenants,/super-admin/tenants,,web/templates/super_admin/base.html,49,internal-name|synonym-candidate
+super_admin,super_admin/base.html,content,template,link,Super-Admins,/super-admin/users,,web/templates/super_admin/base.html,53,synonym-candidate
 super_admin,super_admin/tenants.html,sa_content,template,heading,Platform,,,web/templates/super_admin/tenants.html,7,
 super_admin,super_admin/tenants.html,sa_content,template,heading,Create Tenant,,,web/templates/super_admin/tenants.html,12,internal-name
 super_admin,super_admin/tenants.html,sa_content,template,heading,Existing Tenants,,,web/templates/super_admin/tenants.html,17,internal-name
@@ -1050,8 +1030,49 @@ transactions,_partials/transactions/_wizard_outcome.html,,template,button,Propos
 transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,73,verb:POST
 transactions,_partials/transactions/_wizard_outcome.html,,template,button,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,
 transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,verb:POST
-transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
+unassigned,_partials/chat_history.html,,template,button,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label
+unassigned,_partials/chat_history.html,,template,htmx,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label|verb:GET
+unassigned,_partials/chat_pin_chart_dialog.html,,template,htmx,"Pin this chart to a case {{ error }} {{ unavailable_message }} Close There are no open cases to pin into. Open a case first, then return here to pin this chart. Cancel Go to Cases Case {{ case.label }} Chart {{ caption or 'Untitled chart' }} Why pin this? {{ comment or '' }} Cancel Pin to case",{{ pin_url }},#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,30,dynamic|verb:POST
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,heading,Pin this chart to a case,,,web/templates/_partials/chat_pin_chart_dialog.html,37,
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,empty_state,{{ unavailable_message }},,,web/templates/_partials/chat_pin_chart_dialog.html,45,dynamic
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,47,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,47,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,empty_state,"There are no open cases to pin into. Open a case first, then return here to pin this chart.",,,web/templates/_partials/chat_pin_chart_dialog.html,54,
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,59,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,59,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_chart_dialog.html,63,
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,link,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_chart_dialog.html,63,
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,form_label,Case {{ case.label }},,,web/templates/_partials/chat_pin_chart_dialog.html,66,dynamic
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,select,{{ case.label }},case_id,,web/templates/_partials/chat_pin_chart_dialog.html,68,dynamic|options:1
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,form_label,Why pin this? {{ comment or '' }},,,web/templates/_partials/chat_pin_chart_dialog.html,83,dynamic
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,placeholder,The curation comment — why this belongs on the case record.,comment,,web/templates/_partials/chat_pin_chart_dialog.html,85,synonym-candidate
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,92,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,92,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,button,Pin to case,,,web/templates/_partials/chat_pin_chart_dialog.html,96,
+unassigned,_partials/chat_pin_confirm.html,,template,link,{{ case_badge }},{{ case_href }},,web/templates/_partials/chat_pin_confirm.html,13,dynamic
+unassigned,_partials/chat_pin_confirm.html,,template,button,Dismiss,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_confirm.html,15,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_confirm.html,,template,htmx,Dismiss,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_confirm.html,15,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_dialog.html,,template,htmx,"Pin this answer to a case {{ error }} That message is no longer available to pin — it has scrolled out of this session's memory. Ask again, then pin the fresh answer. Close There are no open cases to pin into. Open a case first, then return here to pin this answer. Cancel Go to Cases Case {{ case.label }} Excerpt — Shirley's words, trimmed to what belongs on the record {{ excerpt }} Why pin this? {{ comment or '' }} Cancel Pin to case",{{ pin_url }},#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,28,dynamic|verb:POST
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,heading,Pin this answer to a case,,,web/templates/_partials/chat_pin_dialog.html,35,
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,empty_state,"That message is no longer available to pin — it has scrolled out of this session's memory. Ask again, then pin the fresh answer.",,,web/templates/_partials/chat_pin_dialog.html,43,
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,48,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Close,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,48,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,empty_state,"There are no open cases to pin into. Open a case first, then return here to pin this answer.",,,web/templates/_partials/chat_pin_dialog.html,55,
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,60,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,60,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_dialog.html,64,
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,link,Go to Cases,{{ cases_area_url }},,web/templates/_partials/chat_pin_dialog.html,64,
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,Case {{ case.label }},,,web/templates/_partials/chat_pin_dialog.html,67,dynamic
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,select,{{ case.label }},case_id,,web/templates/_partials/chat_pin_dialog.html,69,dynamic|options:1
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,"Excerpt — Shirley's words, trimmed to what belongs on the record {{ excerpt }}",,,web/templates/_partials/chat_pin_dialog.html,78,dynamic
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,form_label,Why pin this? {{ comment or '' }},,,web/templates/_partials/chat_pin_dialog.html,84,dynamic
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,placeholder,The curation comment — why this belongs on the case record.,comment,,web/templates/_partials/chat_pin_dialog.html,86,synonym-candidate
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate|verb:GET
+unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Pin to case,,,web/templates/_partials/chat_pin_dialog.html,97,
 watch_desk,,watch_desk,python,python_label,Informational top,,,web/routes/watch_desk.py,2610,
 watch_desk,,watch_desk,python,python_label,Noteworthy top,,,web/routes/watch_desk.py,2618,
 watch_desk,,watch_desk,python,python_label,Decline threshold,,,web/routes/watch_desk.py,3299,
@@ -1178,16 +1199,11 @@ watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,R
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,empty_state,No watchpoints yet. Add one from the monitor beneath the Briefing.,,,web/templates/_partials/watch_desk_watchpoint_list.html,96,
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,
 watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,verb:GET
-watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,25,dynamic
-watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,29,dynamic
+watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,44,dynamic
+watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,45,dynamic
+watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,49,dynamic
 admin,_partials/data_import_preview.html,,js,js_call,,/api/data-uploads/{param}/import-as-investments,,web/static/js/data_import_section.js,35,linked|verb:POST
 admin,_partials/data_import_preview.html,,js,js_call,,/investments,,web/static/js/data_import_section.js,66,linked|navigation|verb:GET
-assistants,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,104,unlinked|verb:GET|via:appendPinButton
-assistants,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,118,unlinked|verb:GET|via:appendPinButton
-assistants,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,133,dynamic-url|linked|verb:GET
-assistants,_partials/turn_started.html,,js,js_call,,/chat/stream/{param},,web/static/js/chat.js,170,event:keydown|linked|sse|url-from-attribute|verb:GET
-assistants,,,js,js_call,,/chat/tts,,web/static/js/chat.js,353,unlinked|verb:POST
-assistants,,,js,js_call,,/chat/voice,,web/static/js/chat.js,507,unlinked|verb:POST
 assistants,_partials/scraper_run_mount.html,,js,js_call,,/scraper/runs/{param}/stream,,web/static/js/scraper.js,153,event:click|linked|sse|url-from-attribute|verb:GET
 assistants,_partials/scraper_progress.html,,js,js_call,Cancel,/scraper/runs/{param}/cancel,,web/static/js/scraper.js,201,event:click|linked|multi-trigger|url-from-attribute|verb:POST
 back_office,_partials/saa_section.html,,js,js_call,,/back-office,,web/static/js/saa_section.js,94,linked|navigation|verb:GET
@@ -1220,7 +1236,13 @@ investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templa
 investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,79,event:submit|linked|navigation|verb:GET
 investments,investments/list.html,,js,js_call,,/investments/{param},,web/templates/investments/list.html,79,unlinked|verb:DELETE
 investments,investments/list.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/list.html,95,unlinked|verb:PATCH
+unassigned,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,104,unlinked|verb:GET|via:appendPinButton
+unassigned,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,118,unlinked|verb:GET|via:appendPinButton
+unassigned,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,133,dynamic-url|linked|verb:GET
+unassigned,_partials/turn_started.html,,js,js_call,,/chat/stream/{param},,web/static/js/chat.js,170,event:keydown|linked|sse|url-from-attribute|verb:GET
+unassigned,,,js,js_call,,/chat/tts,,web/static/js/chat.js,353,unlinked|verb:POST
+unassigned,,,js,js_call,,/chat/voice,,web/static/js/chat.js,507,unlinked|verb:POST
 unassigned,,,js,js_call,,<dynamic>,,web/static/js/saa_section.js,62,dynamic-url|unlinked|verb:GET
-unassigned,,,js,js_call,,/api/cmd-search,,web/static/js/section_nav.js,172,unlinked|verb:GET
-unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,210,dynamic-url|unlinked|verb:GET
-unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,216,dynamic-url|navigation|unlinked|verb:GET
+unassigned,,,js,js_call,,/api/cmd-search,,web/static/js/section_nav.js,115,unlinked|verb:GET
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,153,dynamic-url|unlinked|verb:GET
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,159,dynamic-url|navigation|unlinked|verb:GET

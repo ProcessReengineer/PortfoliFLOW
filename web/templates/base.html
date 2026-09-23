@@ -86,6 +86,12 @@
             {% block content %}{% endblock %}
         </main>
 
+        {# Shirley as a shell element (P-UX-A0e) — the stage and the
+           rail/dock column, wrapped in one block so a surface that must
+           not offer her can switch both off in one override. The
+           super-admin surface does exactly that (ADR-0064 §1); every
+           tenant surface inherits the block as written. #}
+        {% block shirley %}
         {# Shirley's stage (P-UX-A0e). Shares the ``main`` grid cell with
            ``#shell-main``: the state rule hides the view rather than
            unmounting it, so "Back to dock" returns to exactly the view
@@ -128,6 +134,7 @@
             <div class="pf-dockhost" id="dock-chat-host"
                  hx-get="/chat/dock" hx-trigger="pf:shirley-open once" hx-swap="innerHTML"></div>
         </aside>
+        {% endblock %}
 
         {% include "_partials/statusbar.html" %}
     </div>

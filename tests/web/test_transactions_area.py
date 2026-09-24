@@ -12,6 +12,9 @@ renders and that its three Sections carry stable anchors:
   partial.
 * Registry — the three Modules register into the Area and construct, which
   is the ``VALID_AREAS`` guard in ``core/base_module.py``.
+* The as-of slot — every section head carries the R9 landing place
+  ``areas/_section.html`` renders since P-UX-A1a, so a lazy body can fill its
+  own head out of band.
 
 **The no-controls pin is retired.** It guarded the sections still waiting on
 a strand, and S5 filled the last two of them — so there is no placeholder
@@ -232,6 +235,33 @@ async def test_the_transactions_area_carries_no_section_pills(
     body = (await web_client.get("/transactions", follow_redirects=False)).text
 
     assert body.count('class="pf-section__pill"') == 0
+
+
+async def test_every_section_head_carries_an_as_of_slot(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The R9 stamp has a landing place in every head, filled or not.
+
+    ``areas/_section.html`` renders the span unconditionally since P-UX-A1a,
+    with ``id="{slug}-asof"``, so a lazily-loaded body can fill its own head
+    out of band — which the Blotter and History bodies do. Empty it shows
+    nothing: the title row is left-aligned and wider than its content, so the
+    trailing flex gap has nothing after it to push.
+
+    The shell pin lives here rather than with either list because it is the
+    section block's shape, not one section's content — every Area gets it.
+    """
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+
+    body = (await web_client.get("/transactions", follow_redirects=False)).text
+
+    for slug, _title in _SECTIONS:
+        assert f'id="{slug}-asof"' in body, f"missing as-of slot for {slug}"
+    # The shell render is no-DB, so all three arrive empty; the two lists
+    # stamp themselves when their lazy body lands.
+    assert body.count("As of ") == 0
 
 
 async def test_transactions_htmx_branch_returns_partial(

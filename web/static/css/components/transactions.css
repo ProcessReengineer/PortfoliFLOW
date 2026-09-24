@@ -1109,85 +1109,25 @@ a.tx-btn {
     font-size: 0.8rem;
 }
 
-/* --- The Blotter list (M-5, S5) -------------------------------------- */
+/* --- The Blotter and History lists (M-5, S5) ------------------------- */
 
-/* M-5's own rules, with its literal colours swapped for the theme variables
- * the rest of this file uses (ADR-0021). The table is the first list surface
- * in this Area; History (P-5b) renders into the same classes, which is why
- * they are named for the shape rather than for the section. */
-.tx-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-}
-
-.tx-table th {
-    text-align: left;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ui-semantic-muted);
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-    font-weight: 600;
-}
-
-.tx-table td {
-    padding: 9px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-    vertical-align: middle;
-}
-
-.tx-table th.tx-num,
-.tx-table td.tx-num {
-    text-align: right;
-}
-
-.tx-table tr.tx-row:hover td {
-    background: var(--ui-background-section);
-}
-
-.tx-row__id {
-    font-family: var(--ui-font-family-mono);
-    color: var(--ui-text-secondary);
-}
-
-/* The instrument a creating flow will make on booking (MD-12). Dimmed
- * because the name is an intention rather than a row that exists; the name
- * itself is not, which is what the `em` recovers. */
-.tx-row__creating {
-    color: var(--ui-text-disabled);
-}
-
-.tx-row__creating em {
-    color: var(--ui-text-secondary);
-    font-style: normal;
-}
-
-.tx-row__sub {
-    display: block;
-    font-size: 0.74rem;
-    color: var(--ui-text-disabled);
-}
-
-.tx-row__actions {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-    white-space: nowrap;
-}
-
-.tx-detail-row td {
+/* Retired by P-UX-A1a. Both lists render into the `pf-table` family in
+ * pf_components.css, so the M-5 transcription of the table, the row, the
+ * row's sub-lines and its action group has no user left; so has the A-18
+ * hint line, now a `pf-more` disclosure, and `.tx-filters`, now `pf-filters`.
+ * `.tx-state` and `.tx-num` stay: seven other partials in this Area still
+ * use them, and they migrate with their own surfaces.
+ *
+ * What the family does not carry is the *occupant's* ground. `.pf-table__slot
+ * > td` collapses to nothing, which is right for an empty slot and wrong for
+ * a filled one — the four panels are still `tx-`-classed and take their
+ * padding and background from the cell around them, as `.tx-detail-row td`
+ * gave it to them. This one scoped rule stands in until A1e puts the panels
+ * on `pf-panel`, whose own padding it already matches; it is scoped to the
+ * Area so no other surface inherits a temporary. */
+.pf-transactions .pf-table__slot > td:not(:empty) {
+    padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5);
     background: var(--ui-background-secondary);
-    padding: 14px 18px 18px 18px;
-}
-
-/* The cancel panel's slot. Always in the markup, so nothing has to remember
- * whether a panel is open: the row simply has no box while the cell is
- * empty, and the borders of the list close over it. */
-.tx-detail-row > td:empty {
-    padding: 0;
-    border-bottom: 0;
 }
 
 /* --- The inline reason step (A-13) ----------------------------------- */
@@ -1284,42 +1224,6 @@ a.tx-btn {
  * had already happened. */
 .tx-state--reversed::before {
     background: var(--ui-semantic-error);
-}
-
-/* The v1 filter set (A-19). A row of small labelled controls rather than a
- * form with a submit: every control fires the same GET on change, so there
- * is nothing to submit and nothing to reset. */
-.tx-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-
-.tx-filters__field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.tx-filters__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ui-semantic-muted);
-    font-weight: 600;
-}
-
-.tx-filters select,
-.tx-filters input[type="date"] {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-primary);
-    padding: 5px 8px;
-    font-size: 0.82rem;
-    font-family: inherit;
 }
 
 /* The detail's facts, above the effects it lists. A two-column list rather
@@ -1464,19 +1368,12 @@ a.tx-btn {
     margin-top: 12px;
 }
 
-/* The A-18 hint above the blotter table — the same voice and weight as the
- * hint inside the indicator, since it is the same sentence. */
-.tx-blotter__hint {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin: 0 0 10px;
-}
-
 /* --- The pre-trade impact panel (S6 P-6a) ---------------------------- *
  *
  * The M-6 block, unchanged. It lands in the blotter row's detail cell —
  * the same slot the cancel panel uses — so it needs no positioning of its
- * own; `.tx-detail-row td` already gives it a ground and padding.
+ * own; the scoped `.pf-transactions .pf-table__slot > td:not(:empty)` rule
+ * above already gives it a ground and padding.
  */
 
 .tx-impact {

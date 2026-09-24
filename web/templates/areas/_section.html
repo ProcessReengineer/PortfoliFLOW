@@ -18,9 +18,16 @@
       overridden per call site.)
      section_pill          — short status pill (e.g. "in progress",
                               "polish in 6F-3"); optional.
-     section_as_of         — as-of date for the section's data, rendered
+     section_as_of         — as-of stamp for the section's data, rendered
                               into the view header beside the title;
-                              optional.
+                              optional. The span is *always* rendered, and
+                              carries ``id="{section_slug}-asof"``, so a
+                              lazily-loaded body can fill it out of band
+                              (P-UX-A1a; see
+                              ``_partials/transactions/_blotter.html``).
+                              Empty it adds nothing visible: the title row
+                              is left-aligned and wider than its content,
+                              so the trailing flex gap has nothing after it.
      section_primary_template — optional path to a Jinja partial holding
                               the section's primary action control(s),
                               rendered into the view header's action
@@ -43,7 +50,7 @@
         <div class="pf-view__title-row">
             <h2 class="pf-view__title" id="{{ section_slug }}-title">{{ pf_section_title(active_area, section_slug) }}</h2>
             {% if section_pill %}<span class="pf-section__pill">{{ section_pill }}</span>{% endif %}
-            {% if section_as_of %}<span class="pf-view__asof">As of {{ section_as_of }}</span>{% endif %}
+            <span class="pf-view__asof" id="{{ section_slug }}-asof">{% if section_as_of %}As of {{ section_as_of }}{% endif %}</span>
         </div>
         <div class="pf-view__tools">
             <button type="button" class="pf-view__search" data-pf-palette-open aria-keyshortcuts="Control+K">

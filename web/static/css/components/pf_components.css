@@ -117,8 +117,13 @@
 .pf-table td { padding: var(--ui-control-row-pad) var(--ui-space-3); border-bottom: 1px solid var(--ui-border-soft); color: var(--ui-text-primary); vertical-align: top; }
 .pf-table .pf-num { text-align: right; white-space: nowrap; }
 .pf-table__row { cursor: pointer; }
-.pf-table__row:hover td, .pf-table__row.is-open td { background: var(--ui-background-secondary); }
-.pf-table__row.is-open td { border-bottom-color: transparent; }
+/* `is-open` has no script writer: the slot's own cell is the state. A
+   filled `.pf-table__slot > td` is an open panel, so `:has()` carries the
+   same declarations the class does, and the two stay interchangeable —
+   a future JS writer that sets the class changes nothing here. History
+   gives a row two slots, hence the second relative selector. */
+.pf-table__row:hover td, .pf-table__row.is-open td, .pf-table__row:has(+ .pf-table__slot > td:not(:empty), + .pf-table__slot + .pf-table__slot > td:not(:empty)) td { background: var(--ui-background-secondary); }
+.pf-table__row.is-open td, .pf-table__row:has(+ .pf-table__slot > td:not(:empty), + .pf-table__slot + .pf-table__slot > td:not(:empty)) td { border-bottom-color: transparent; }
 .pf-table__id { color: var(--ui-text-secondary); white-space: nowrap; }
 .pf-table__id button { border: 0; padding: 0; background: none; color: inherit; cursor: pointer; }
 .pf-table__sub { display: block; margin-top: 1px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
@@ -126,7 +131,7 @@
 .pf-table__unit { color: var(--ui-text-tertiary); margin-left: 4px; }
 .pf-table__actions { display: flex; justify-content: flex-end; align-items: center; gap: 2px; margin: -4px -6px -4px 0; }
 .pf-table__slot > td { padding: 0; border-bottom: 0; }
-.pf-table__slot.is-open > td { border-bottom: 1px solid var(--ui-border-soft); }
+.pf-table__slot.is-open > td, .pf-table__slot:has(> td:not(:empty)) > td { border-bottom: 1px solid var(--ui-border-soft); }
 
 /* ---- Menu: <details>, no script needed */
 .pf-menu { position: relative; }
@@ -355,7 +360,7 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
 .pf-table th[aria-sort="descending"]::after { border-top: 5px solid currentColor; }
 .pf-table td.pf-pos { color: var(--ui-semantic-positive); }
 .pf-table__chev { display: inline-block; width: 12px; margin-right: 4px; color: var(--ui-text-tertiary); transition: transform var(--ui-motion-duration); }
-.pf-table__row.is-open .pf-table__chev { transform: rotate(90deg); }
+.pf-table__row.is-open .pf-table__chev, .pf-table__row:has(+ .pf-table__slot > td:not(:empty), + .pf-table__slot + .pf-table__slot > td:not(:empty)) .pf-table__chev { transform: rotate(90deg); }
 .pf-scroll-x { overflow-x: auto; }
 
 /* ---- Reading width: administrative lists and forms; figure tables keep the full column */

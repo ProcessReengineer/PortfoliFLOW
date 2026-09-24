@@ -11,6 +11,7 @@ required.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
@@ -211,3 +212,41 @@ async def web_client_no_db() -> AsyncGenerator[AsyncClient, None]:
         app.router.lifespan_context(app),
     ):
         yield client
+
+
+def chooser_markup(section: str) -> str:
+    """Slice the MD-1 flow chooser out of a rendered Transactions Section.
+
+    A rendered Section is the *shell's*, not the composer's: every Area
+    body includes ``web/templates/areas/_section.html``, whose sticky view
+    header P-UX-A0b gave a command-palette button. A control count taken
+    over the whole Section therefore counts shell chrome alongside the flow
+    tiles, and moves again the next time the shell gains or loses a
+    control. Tests that mean "the chooser's controls" slice with this
+    first, so that what they pin stays the Transactions composer's markup.
+
+    Shared by ``test_transactions_composer.py`` and
+    ``test_transactions_wizard.py``, which both state the tile count —
+    deliberately, per ``_chooser.html``'s header comment — and so must
+    move together.
+
+    Args:
+        section: Rendered markup of the New-transaction Section.
+
+    Returns:
+        The ``<div class="tx-flows">`` element, its own tags included and
+        everything the shell wraps around it excluded.
+
+    Raises:
+        ValueError: If the Section carries no chooser, or the chooser's
+            ``<div>`` nesting is unbalanced.
+    """
+    start = section.find('<div class="tx-flows">')
+    if start == -1:
+        raise ValueError("the Section carries no flow chooser")
+    depth = 0
+    for match in re.finditer(r"<div\b|</div\s*>", section[start:]):
+        depth += 1 if match.group().startswith("<div") else -1
+        if depth == 0:
+            return section[start : start + match.end()]
+    raise ValueError("the flow chooser's <div> is unbalanced")

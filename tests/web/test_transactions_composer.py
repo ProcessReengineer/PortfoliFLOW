@@ -70,6 +70,8 @@ from services.password_hashing import hash_password
 from web.main import create_app
 from web.settings import WebSettings
 
+from tests.web.conftest import chooser_markup
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -402,6 +404,11 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
     count, and P-4b is where it stops moving: MD-1 defines five flows and all
     five are shipped.
 
+    The control assertions count the chooser, not the Section: the rendered
+    Section is the shell's and carries the view header P-UX-A0b gave a
+    command-palette button, so a Section-wide count pins shell chrome that
+    later strands are free to move. ``chooser_markup`` excludes the head.
+
     Everything the test was *for* is kept: the mockup's copy on all five,
     exactly one control per flow, and no stray form or link anywhere in the
     chooser. Each armed tile's own coverage lives with its surface —
@@ -432,12 +439,13 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
     assert section.count('hx-get="/api/transactions/secondary-sale-form"') == 1
     assert section.count('hx-get="/api/transactions/commitment-form"') == 1
     assert section.count('hx-get="/api/transactions/secondary-buy-form"') == 1
-    assert section.count("<button") == 5, "MD-1's five flows are the only controls"
+    chooser = chooser_markup(section)
+    assert chooser.count("<button") == 5, "MD-1's five flows are the only controls"
     assert "Arrives with S4b" not in section, "S4b shipped; the U-NEW tile is live"
     assert "Arrives with S4c" not in section, "P-4b armed the last two; no flow is pending"
     assert "tx-flow--pending" not in section, "no tile is inert any more"
     for token in ("<form", "<input", "<a "):
-        assert token not in section, f"the chooser carries an unexpected control: {token!r}"
+        assert token not in chooser, f"the chooser carries an unexpected control: {token!r}"
 
 
 # ---------------------------------------------------------------------------

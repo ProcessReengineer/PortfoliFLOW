@@ -75,6 +75,8 @@ from services.password_hashing import hash_password
 from web.main import create_app
 from web.settings import WebSettings
 
+from tests.web.conftest import chooser_markup
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -437,6 +439,10 @@ async def test_chooser_arms_the_new_instrument_tile(
     are stated; ``test_transactions_composer.py``'s chooser test owns the
     copy on all five. What this test is *for* is unchanged: the tile S4b
     armed is a control and points at the wizard.
+
+    The count is taken over the chooser, not the rendered Section: the
+    Section's view header is the shell's (P-UX-A0b put the command-palette
+    button there), and counting it would pin chrome this test does not own.
     """
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
@@ -444,7 +450,7 @@ async def test_chooser_arms_the_new_instrument_tile(
     section = _new_section((await web_client.get("/transactions")).text)
 
     assert 'hx-get="/api/transactions/wizard"' in section
-    assert section.count("<button") == 5, "MD-1's five tiles are the only controls"
+    assert chooser_markup(section).count("<button") == 5, "MD-1's five tiles are the only controls"
     assert "Arrives with S4b" not in section
     assert "Arrives with S4c" not in section
     assert "Create the investment, then buy it." in section

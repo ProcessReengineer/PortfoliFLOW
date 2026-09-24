@@ -17,6 +17,10 @@ adds and nothing the blotter or the composers already pin:
   behaves as unset, and the investment select offers exactly what can match.
 * **The detail and the reversal** — the effects grouped by type, and the
   reversal's three outcomes: the report, the retained shell, and the block.
+* **The component vocabulary** (P-UX-A1a) — ``pf-table`` for the list and
+  ``pf-filters`` for the bar, the leading chevron that R6 reads as "expands
+  in place", a ``pf-menu`` on the reversible rows *only*, and the body's own
+  out-of-band as-of stamp (R9), restamped on every filter change.
 
 Unlike the blotter's, most of these tickets are **booked through the
 service** rather than seeded through the repository: History's subject is
@@ -27,6 +31,7 @@ show, undo or refuse to undo.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncGenerator
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal
@@ -516,9 +521,9 @@ async def test_history_labels_both_endings_apart_and_states_the_outcome_line(
 
     body = (await web_client.get("/api/transactions/history")).text
 
-    assert 'class="tx-state tx-state--booked">Booked' in body
-    assert 'class="tx-state tx-state--reversed">Reversed' in body
-    assert 'class="tx-state tx-state--cancelled">Cancelled' in body
+    assert 'class="pf-state pf-state--booked">Booked' in body
+    assert 'class="pf-state pf-state--reversed">Reversed' in body
+    assert 'class="pf-state pf-state--cancelled">Cancelled' in body
 
     # A booked row names its booker; a terminal ending names nobody (A-16),
     # because there is no `cancelled_by` column to name them from.
@@ -548,6 +553,100 @@ async def test_empty_history_says_nothing_terminal_yet(
     assert "Nothing booked or cancelled yet." in body
     assert "Nothing matches these filters." not in body
     assert "<table" not in body
+    # §2.9.1 R2: History's primary is not here either — nothing booked yet is
+    # a calm state, and the way to make one is the New section's.
+    assert 'class="pf-empty"' in body
+    assert "pf-btn--primary" not in body
+
+
+# ---------------------------------------------------------------------------
+# The component vocabulary (P-UX-A1a)
+# ---------------------------------------------------------------------------
+
+
+async def test_history_renders_the_table_and_filter_families(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.4.1 and §2.5.1: `pf-table` for the list, `pf-filters` for the bar.
+
+    R1 rides along: a filter bar fires on change and has no submit, so there
+    is no primary here to be the view's one accent either.
+    """
+    user_id, email, password = seeded_user
+    world = await _seed_world(user_id)
+    await _order(user_id, world)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get("/api/transactions/history")).text
+
+    assert 'class="pf-table"' in body
+    assert 'class="pf-table__row"' in body
+    assert body.count('class="pf-table__slot"') == 2, "one detail slot and one reversal slot"
+    assert 'class="pf-filters"' in body
+    assert body.count('class="pf-filters__field"') == 5
+    assert 'class="pf-label"' in body
+    assert "pf-btn--primary" not in body
+    for legacy in ("tx-table", "tx-row ", "tx-row__", "tx-state", "tx-filters", "tx-btn"):
+        assert legacy not in body, f"{legacy!r} survives on History"
+
+
+async def test_only_a_reversible_row_carries_a_menu(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.3.5: the one destructive act is in a menu, and absent rows have none.
+
+    A cancelled ticket wrote nothing that is still standing and the reverse
+    endpoint 404s for one, so its row offers no gesture at all — an empty
+    `pf-menu` would promise one. The leading chevron is on both rows: Details
+    opens in place, which is what R6 reads a leading chevron as.
+    """
+    user_id, email, password = seeded_user
+    world = await _seed_world(user_id)
+    booked = await _order(user_id, world)
+    cancelled = await _seed_ticket(
+        user_id, investment_id=world.instrument_id, status=STATUS_CANCELLED
+    )
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get("/api/transactions/history")).text
+
+    def _row(ticket: TradeTicketDTO) -> str:
+        start = body.index(f'id="tx-history-row-{ticket.id}"')
+        return body[start : body.index(f'id="tx-detail-{ticket.id}"', start)]
+
+    booked_row, cancelled_row = _row(booked), _row(cancelled)
+
+    assert 'class="pf-menu"' in booked_row
+    assert "Reverse booking" in booked_row
+    assert "pf-menu" not in cancelled_row
+    assert "Reverse booking" not in cancelled_row
+    for row in (booked_row, cancelled_row):
+        assert 'class="pf-table__chev"' in row
+    # R6's other half: nothing on this list navigates, so no trailing chevron.
+    assert body.count('class="pf-table__chev"') == 2
+
+
+async def test_history_body_stamps_the_section_head_out_of_band(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R9 (§2.6.6), and a filter change restamps.
+
+    The filter GET re-renders this whole body, so the out-of-band span comes
+    with it — the head cannot go stale behind a filtered list.
+    """
+    user_id, email, password = seeded_user
+    world = await _seed_world(user_id)
+    await _order(user_id, world)
+
+    await _login_and_csrf(web_client, email, password)
+
+    for url in ("/api/transactions/history", "/api/transactions/history?status=booked"):
+        body = (await web_client.get(url)).text
+        assert 'hx-swap-oob="outerHTML"' in body, url
+        assert re.search(r'id="history-asof"[^>]*>As of \d{4}-\d{2}-\d{2} \d{2}:\d{2}<', body), url
 
 
 # ---------------------------------------------------------------------------
@@ -952,7 +1051,7 @@ async def test_reverse_with_a_reason_reports_and_refreshes_the_list(
     # the same response and already reads Reversed.
     assert 'id="tx-history"' in body
     assert f"tx-history-row-{booked.id}" in body
-    assert 'class="tx-state tx-state--reversed">Reversed' in body
+    assert 'class="pf-state pf-state--reversed">Reversed' in body
     # No consequence block: an order creates no shell to retain.
     assert "Investment retained, inactive" not in body
 

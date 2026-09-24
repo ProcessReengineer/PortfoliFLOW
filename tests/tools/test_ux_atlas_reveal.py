@@ -547,12 +547,28 @@ class TestShippedScenesFile:
     """The scenes file the repository ships."""
 
     def test_every_transactions_scene_names_its_section(self) -> None:
-        # The three Transactions Sections are the worked example of the
-        # ``section`` key; a scene that lost it would silently photograph the
-        # landing Section three times.
+        """Every shipped Transactions scene names one of the Area's Sections.
+
+        The three Transactions Sections are the worked example of the
+        ``section`` key: it is what points a scene at a Section of the
+        long-scroll page, and a scene that lost it would silently photograph
+        the landing Section instead. That contract is what this test pins.
+
+        The expected names are read from ``docs/ux/atlas-scenes.json`` rather
+        than restated here. Restating them made the test a census as well as
+        a contract, and the census went stale the first time scenes were
+        added (P-UX-A0s shipped four composer scenes); a scene added by a
+        later strand no longer breaks it, while a scene that drops its
+        ``section`` or names a slug that is not a Section still does.
+        """
         scenes = load_scenes(DEFAULT_SCENES, ["transactions"])
-        assert {scene["name"]: scene["section"] for scene in scenes} == {
-            "transactions-flow-chooser": "new",
-            "transactions-blotter": "blotter",
-            "transactions-history": "history",
-        }
+        sections = {scene["name"]: scene.get("section") for scene in scenes}
+
+        assert sections, "the shipped scenes file carries Transactions scenes"
+        unsectioned = sorted(name for name, section in sections.items() if not section)
+        assert not unsectioned, f"Transactions scenes naming no Section: {unsectioned}"
+        assert set(sections.values()) == {"new", "blotter", "history"}, (
+            "the three Transactions Sections are covered, and none names a fourth"
+        )
+        assert sections["transactions-blotter"] == "blotter"
+        assert sections["transactions-history"] == "history"

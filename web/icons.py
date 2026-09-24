@@ -55,7 +55,7 @@ ICONS: dict[str, str] = {
     "warn": "triangle-alert",
     "block": "octagon-alert",
     "info": "info",
-    "menu": "ellipsis",
+    "more": "ellipsis",
     "refresh": "refresh-cw",
     "external": "external-link",
     "filter": "filter",

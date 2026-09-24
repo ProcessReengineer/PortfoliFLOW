@@ -8,23 +8,38 @@
    lazy shell, so ``#tx-blotter`` is on the wrapper rather than on the table:
    a cancellation replaces the list *and* the empty state it may have become.
 
-   P-5c placed the A-18 hint line above the table, the second of the two
-   places the sentence appears (the other is the negative-cash indicator).
+   P-UX-A1a put the list on ``pf-table`` — the first of the two surfaces onto
+   the component vocabulary (ui-standards §2.4). Three things moved with it:
+   the A-18 sentence went behind a ``pf-more`` disclosure (§2.6.4), the empty
+   case became a ``pf-empty`` block (§2.9.1) with no action — the view's one
+   primary lives in the New section, and R1 allows no accent inside a list —
+   and the as-of stamp below fills the section head out of band.
 
-   Context: rows — see _blotter_row.html for the per-row keys. #}
-<div class="tx-blotter" id="tx-blotter">
-    <p class="tx-blotter__hint">
-        A booking's cash effect is in the book at once; the cash position's
-        balance shows it from the next price date on.
-    </p>
+   The as-of span is the view head's ``#blotter-asof``, swapped out of band on
+   the ``#tx-ticket-title`` idiom: the head is rendered by ``areas/_section.html``
+   and no contiguous swap from here can reach it. Because the lazy shell and
+   the cancel POST both re-render this whole body, every refresh restamps.
+   R9 (§2.6.6): this list is figure-bearing and live, so its as-of is the
+   moment it was rendered.
+
+   Context: rows, as_of — see _blotter_row.html for the per-row keys. #}
+<span class="pf-view__asof" id="blotter-asof" hx-swap-oob="outerHTML">As of {{ as_of }}</span>
+<div id="tx-blotter">
+    <details class="pf-more">
+        <summary>When the cash effect shows</summary>
+        <p>
+            A booking's cash effect is in the book at once; the cash position's
+            balance shows it from the next price date on.
+        </p>
+    </details>
     {% if rows %}
-        <table class="tx-table">
+        <table class="pf-table">
             <thead>
                 <tr>
                     <th>Ticket</th>
                     <th>Flow</th>
                     <th>Investment</th>
-                    <th class="tx-num">Amount</th>
+                    <th class="pf-num">Amount</th>
                     <th>Trade date</th>
                     <th>Status</th>
                     <th></th>
@@ -37,6 +52,8 @@
             </tbody>
         </table>
     {% else %}
-        <p class="pf-section__placeholder">Nothing in flight.</p>
+        <div class="pf-empty">
+            <p class="pf-empty__lead">Nothing in flight.</p>
+        </div>
     {% endif %}
 </div>

@@ -4216,6 +4216,11 @@ async def get_blotter(
     stays a projection and the list can be re-fetched after any of them
     without re-deciding anything.
 
+    ``as_of`` is the render moment, not a property of the data (R9,
+    ui-standards §2.6.6): what this list states is which tickets were in
+    flight when it was drawn. The body carries it into the section head out
+    of band, so every re-fetch — the lazy reveal, a cancellation — restamps.
+
     Returns:
         The blotter table, newest ticket number first.
     """
@@ -4262,7 +4267,7 @@ async def get_blotter(
                     "reason_required": ticket.status in CANCEL_REASON_REQUIRED_STATUSES,
                 }
             )
-        return _render(request, "_blotter.html", {"rows": rows})
+        return _render(request, "_blotter.html", {"rows": rows, "as_of": _stamp(_now())})
 
 
 async def _in_flight(db: AsyncSession, ticket_id: str) -> TradeTicketDTO:
@@ -4623,7 +4628,9 @@ async def _history_context(
 
     Returns:
         The template context: ``filters``, ``investment_options``, ``rows``,
-        ``filtered`` and ``report``.
+        ``filtered``, ``report`` and ``as_of`` — the last the render moment
+        rather than a property of the data (R9, ui-standards §2.6.6), which
+        the body stamps into the section head out of band.
     """
     statuses, booked = _HISTORY_STATUS_FILTERS.get(status_filter, (_TERMINAL_STATUSES, None))
     wanted_kind = kind if kind in KINDS else None
@@ -4698,6 +4705,7 @@ async def _history_context(
             filters[key] for key in ("kind", "investment_id", "trade_date_from", "trade_date_to")
         ),
         "report": report,
+        "as_of": _stamp(_now()),
     }
 
 

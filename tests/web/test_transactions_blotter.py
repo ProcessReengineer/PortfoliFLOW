@@ -19,6 +19,10 @@ P-5a adds and nothing the composers already pin:
   for a ticket that is still in flight.
 * **Cancel** — the reason rule is the service's, the refusal is the service's
   sentence (A-7), and success is answered with the whole list.
+* **The component vocabulary** (P-UX-A1a) — the list renders into
+  ``pf-table`` with no primary anywhere in it (R1), the row's gestures sit on
+  the ui-standards §2.3.5 shape (one quiet secondary, the destructive act in
+  a ``pf-menu``), and the body stamps its own section head out of band (R9).
 
 Tickets are seeded through the repository rather than through the composer
 gestures: the blotter's subject is a ticket in a *status*, and
@@ -29,6 +33,7 @@ to be able to reach it (an ``approved`` ticket has no gesture in v1).
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncGenerator
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal
@@ -446,8 +451,11 @@ async def test_blotter_row_details_amount_units_and_station(
     await _login_and_csrf(web_client, email, password)
     body = (await web_client.get("/api/transactions/blotter")).text
 
-    assert "118,080.00 EUR" in body
-    assert "5,000,000.00 EUR" in body
+    # §2.4.1: the figure is the cell, the currency is a `pf-table__unit`
+    # beside it — so the two can be styled apart and the column still reads
+    # as one right-aligned number.
+    assert '118,080.00<span class="pf-table__unit">EUR</span>' in body
+    assert '5,000,000.00<span class="pf-table__unit">EUR</span>' in body
     assert "1,200.0000 units @ 98.4000" in body
     assert "&mdash;" in body
     # A-16: the station line resolves the actor to a display name.
@@ -468,6 +476,99 @@ async def test_empty_blotter_says_nothing_in_flight(
 
     assert "Nothing in flight." in body
     assert "<table" not in body
+    # §2.9.1 R2: a calm state is an empty state without an action, and the
+    # view's one primary lives in the New section either way.
+    assert 'class="pf-empty"' in body
+    assert "pf-btn--primary" not in body
+
+
+# ---------------------------------------------------------------------------
+# The component vocabulary (P-UX-A1a)
+# ---------------------------------------------------------------------------
+
+
+async def test_blotter_renders_the_table_family_and_no_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.4.1 puts the list on `pf-table`; R1 allows no accent inside it.
+
+    The two halves belong together: the family is what the list is built
+    from, and the "no primary" half is the rule that keeps a repeated row
+    from carrying the accent. A `pf-btn--primary` appearing here would be a
+    per-row accent however it got in.
+    """
+    user_id, email, password = seeded_user
+    investment_id = await _seed_investment(user_id, name="iShares Core MSCI World")
+    await _seed_ticket(user_id, investment_id=investment_id, status=STATUS_PROPOSED)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get("/api/transactions/blotter")).text
+
+    assert 'class="pf-table"' in body
+    assert 'class="pf-table__row"' in body
+    assert 'class="pf-table__slot"' in body
+    assert "pf-btn--primary" not in body
+    # The M-5 transcription is gone from this surface; the ids are not.
+    for legacy in ("tx-table", "tx-row ", "tx-row__", "tx-state", "tx-btn"):
+        assert legacy not in body, f"{legacy!r} survives on the blotter"
+
+
+async def test_blotter_draft_row_has_no_impact_and_discards_from_its_menu(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.3.5: one quiet secondary, the destructive act in a menu — D-6f intact.
+
+    Impact is still absent on a draft, and the wording of the menu's one item
+    still turns on the status: a draft is *discarded*, a proposal is
+    *cancelled*. Both pins survived the move off A-13's flat button row.
+    """
+    user_id, email, password = seeded_user
+    investment_id = await _seed_investment(user_id, name="Alpine PE Fund II")
+    draft = await _seed_ticket(user_id, investment_id=investment_id)
+    proposed = await _seed_ticket(user_id, investment_id=investment_id, status=STATUS_PROPOSED)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get("/api/transactions/blotter")).text
+
+    def _row(ticket: TradeTicketDTO) -> str:
+        start = body.index(f'id="tx-row-{ticket.id}"')
+        return body[start : body.index(f'id="tx-detail-{ticket.id}"', start)]
+
+    draft_row, proposed_row = _row(draft), _row(proposed)
+
+    assert ">Impact<" not in draft_row
+    assert ">Impact<" in proposed_row
+    for row in (draft_row, proposed_row):
+        assert 'class="pf-menu"' in row
+        assert "pf-menu__item--danger" in row
+    assert "Discard draft" in draft_row
+    assert "Cancel ticket" not in draft_row
+    assert "Cancel ticket" in proposed_row
+    assert "Discard draft" not in proposed_row
+
+
+async def test_blotter_body_stamps_the_section_head_out_of_band(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R9 (§2.6.6): a figure-bearing live view carries an as-of in its head.
+
+    The head is `areas/_section.html`'s and no contiguous swap from the body
+    can reach it, so the stamp rides out of band on the `#tx-ticket-title`
+    idiom. It is the *render* moment: what the list states is which tickets
+    were in flight when it was drawn.
+    """
+    user_id, email, password = seeded_user
+    await _seed_ticket(user_id)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get("/api/transactions/blotter")).text
+
+    assert 'id="blotter-asof"' in body
+    assert 'hx-swap-oob="outerHTML"' in body
+    assert re.search(r'id="blotter-asof"[^>]*>As of \d{4}-\d{2}-\d{2} \d{2}:\d{2}<', body)
 
 
 # ---------------------------------------------------------------------------

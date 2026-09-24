@@ -10,29 +10,30 @@
  * flows onto the same shapes, retiring the derived-amount, scope and no-cash
  * families with them, and P-UX-A1c moved the M-2 wizard's frame, stepper and
  * first two steps, retiring the ticket-card, stepper and Identify families
- * and the three orphans A1b and A1b2 left behind. What is left is the
- * wizard's Order and Confirm steps and its outcome (A1c2), the four S5
- * panels' and the History detail's (A1e), plus `_effect_leg.html`, which the
- * detail and the wizard's Confirm card share.
+ * and the three orphans A1b and A1b2 left behind. P-UX-A1c2 finished the
+ * wizard — its Order and Confirm steps and its outcome bar — and retired the
+ * block, grid, field, context, summary-card, outcome and action families with
+ * it, along with `.tx-wizard-body` and `.tx-btn--primary`. What is left is
+ * the four S5 panels' and the History detail's (A1e), plus `_effect_leg.html`,
+ * which the detail and the Confirm step's own `pf-leg` rows no longer share:
+ * the detail is its last user.
  *
  * Scoping. Every rule carries the `tx-` prefix and no rule reaches outside
  * it. That is stricter than the `.pf-cases`-root convention next door and is
  * deliberate: the composer's markup is HTMX-swapped into an area section and
  * into out-of-band hosts scattered through it, so a single scoping root would
- * have to ride on four separate fragments. Two consequences worth naming:
- *   - form-field classes are `tx-field*` rather than base.css's shared
- *     `.field*`. The shared class carries `margin-bottom: 14px`, which
- *     double-spaces M-1's grid (the grid's own `gap` is the spacing), and
- *     `.field__hint` lives in components/investments.css — a sibling
- *     component this one must not depend on;
- *   - buttons are `tx-btn*` rather than the mock's `.pf-btn`. Both statements
- *     hold only for the surfaces still to migrate: `pf-btn` is declared in
- *     full in pf_components.css since A0d, and `pf-field` since A1b has the
- *     six-column `pf-grid` its spans are counted against.
- * Three rules break the prefix rule on purpose and are scoped to
- * `.pf-transactions` instead — the `pf-table` row rule A1a needed and the
- * three P-UX-A1b2 re-homes below, each painting a shared family in a state
- * the record does not name.
+ * have to ride on four separate fragments. One consequence is left worth
+ * naming: buttons are `tx-btn*` rather than the mock's `.pf-btn`, and that
+ * holds only for the surfaces still to migrate — the four S5 panels — since
+ * `pf-btn` has been declared in full in pf_components.css since A0d. The
+ * sibling statement about `tx-field*` went with the family itself in
+ * P-UX-A1c2: form fields on this surface are `pf-field` and `pf-grid` now,
+ * everywhere.
+ * Seven rule groups break the prefix rule on purpose and are scoped to
+ * `.pf-transactions` instead — the `pf-table` row rule A1a needed, the two
+ * A1c leftovers (the mono ids and the field holding a control), the three
+ * P-UX-A1b2 re-homes and the one P-UX-A1c2 re-home below — each painting a
+ * shared family in a state the record does not name.
  *
  * Tokens. Colours and fonts come from `--ui-*`, per MD-7's vocabulary:
  * blocks red (`--ui-semantic-error`), warnings amber
@@ -104,11 +105,10 @@
 
 /* --- Blocks, grid and fields ---------------------------------------- */
 
-.tx-block {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
+/* `.tx-block` retired by P-UX-A1c2. Both wizard steps drew it and both are
+ * `<section>` in `pf-form__main` now, whose own `gap` is the spacing the flex
+ * column supplied. `.tx-block__title` stays: the History detail still heads
+ * its ledger-effect block with it, and that surface is A1e's. */
 
 .tx-block__title {
     font-size: 0.72rem;
@@ -119,92 +119,30 @@
     font-weight: 600;
 }
 
-.tx-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 12px 18px;
-}
-
-.tx-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.tx-field--wide {
-    grid-column: span 2;
-}
-
-.tx-field__label {
-    color: var(--ui-text-secondary);
-    font-size: 0.8rem;
-    font-weight: 500;
-}
-
-.tx-field__optional {
-    color: var(--ui-text-disabled);
-    font-weight: 400;
-}
-
-.tx-field input[type="text"],
-.tx-field input[type="number"],
-.tx-field input[type="date"],
-.tx-field select {
-    width: 100%;
-    padding: 6px 9px;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    background-color: var(--ui-background-primary);
-    color: var(--ui-text-secondary);
-    font-size: 0.9rem;
-}
-
-.tx-field input:focus,
-.tx-field select:focus {
-    outline: none;
-    border-color: var(--ui-accent-primary);
-}
-
-.tx-field__hint {
-    color: var(--ui-text-disabled);
-    font-size: 0.74rem;
-}
-
-.tx-field--numeric input {
-    font-family: var(--ui-font-family-mono);
-    text-align: right;
-}
+/* Retired by P-UX-A1c2, with the last surface that drew them: the wizard's
+ * Order step. `.tx-grid`, `.tx-field`, `.tx-field--wide`, `.tx-field__label`,
+ * `.tx-field__optional`, `.tx-field__hint`, `.tx-field--numeric input` and the
+ * typed-input selectors under them are `pf-grid`, `pf-field`,
+ * `pf-field--wide`, `pf-label`, `pf-optional`, `pf-hint` and `pf-input--num` —
+ * the record's own, their spans counted against `pf-grid`'s six tracks rather
+ * than this file's `auto-fit` minimum. The header's first bullet goes with
+ * them: there is no longer a `tx-field*` family to explain.
+ *
+ * One shape changed in the move and is worth naming where the old rule was:
+ * `.tx-field--numeric input` set the mono stack as well as the right
+ * alignment. `pf-input--num` aligns only, so the four numeric inputs on the
+ * Order step are no longer mono. The record names no `pf-mono` family (the
+ * A1c note below says the same of the three id fields), so this is the
+ * record's shape rather than a loss, and the question travels with the other
+ * mono holdouts. */
 
 /* --- Instrument context strip --------------------------------------- */
 
-.tx-context {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 10px 14px;
-}
-
-.tx-context__item {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-}
-
-.tx-context__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ui-semantic-muted);
-}
-
-.tx-context__value {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.86rem;
-    color: var(--ui-text-secondary);
-}
+/* Retired by P-UX-A1c2. `.tx-context`, `.tx-context__item`,
+ * `.tx-context__label` and `.tx-context__value` were the wizard's strip; it is
+ * `pf-context` now, the definition list of facts `_order_context.html` already
+ * took in P-UX-A1b, so both surfaces state their four facts in one shape. The
+ * Confirm step's two summary cards joined the same family in the same commit. */
 
 /* --- Ledger effect (MD-6) ------------------------------------------- */
 
@@ -214,11 +152,9 @@
     padding: 12px 14px;
 }
 
-.tx-legs__lead {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin: 0 0 8px;
-}
+/* `.tx-legs__lead` retired by P-UX-A1c2 with its one user, the Confirm step's
+ * "On booking, in one step:" — a `pf-hint` now. `.tx-legs` and
+ * `.tx-legs__pending` stay for the History detail (A1e). */
 
 /* D-3: what stands in for the legs until the emission is determined. */
 .tx-legs__pending {
@@ -316,11 +252,11 @@
 
 /* --- Messages (MD-7 vocabulary) ------------------------------------- */
 
-.tx-outcome {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
+/* `.tx-outcome` retired by P-UX-A1c2. The wizard's outcome is a bare host
+ * with an id and no class: `.pf-note + .pf-note` spaces the notes and
+ * `pf-actionbar`'s own `margin-top` spaces the bar, so the gap this rule
+ * supplied is the record's already. `.tx-messages` stays — the reversal
+ * report still groups its two messages with it (A1e). */
 
 .tx-messages {
     display: flex;
@@ -383,25 +319,16 @@
 
 /* --- Actions -------------------------------------------------------- */
 
-.tx-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    border-top: 1px solid var(--ui-border-default);
-    padding-top: 16px;
-}
-
-.tx-actions__spacer {
-    flex: 1 1 auto;
-}
-
-.tx-actions__hint {
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-    flex-basis: 100%;
-    margin: 0;
-}
+/* `.tx-actions`, `.tx-actions__spacer` and `.tx-actions__hint` retired by
+ * P-UX-A1c2 with the wizard's outcome bar, the last of the three to draw
+ * them. The family is `pf-actionbar` and `pf-actionbar__hint`, whose `flex: 1`
+ * hint *is* the spacer the middle rule stood in for — R3's leading slot and
+ * R1's one primary per bar come with it.
+ *
+ * `.tx-btn--primary` and its hover went at the same time and for the same
+ * reason: the wizard's Continue and Book now were the last two primaries in
+ * this Area, and the four S5 panels offer none. The base `.tx-btn` and the
+ * three modifiers under it stay for those panels (A1e). */
 
 .tx-btn {
     background: var(--ui-background-secondary);
@@ -421,17 +348,6 @@
 .tx-btn:disabled {
     cursor: not-allowed;
     opacity: 0.45;
-}
-
-.tx-btn--primary {
-    background: var(--ui-accent-primary);
-    color: var(--ui-accent-on-accent);
-    border-color: var(--ui-accent-primary);
-    font-weight: 600;
-}
-
-.tx-btn--primary:hover:not(:disabled) {
-    background: var(--ui-accent-primary-hover);
 }
 
 .tx-btn--ghost {
@@ -466,14 +382,12 @@ a.tx-btn {
  * the theme-aware `--ui-*` family.
  */
 
-/* The last of the wizard's own frame. P-UX-A1c put steps 1 and 2 directly into
- * `pf-form__main`, whose own `gap` replaces this one; steps 3 and 4 still draw
- * it inside that column for one commit, and P-UX-A1c2 retires it with them. */
-.tx-wizard-body {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
+/* The last of the wizard's own frame, retired by P-UX-A1c2 as A1c flag 1 said
+ * it would be. All four steps put their blocks directly into `pf-form__main`
+ * now and take that column's `gap`. Step 3 kept this wrapper one commit longer
+ * than the others because it carried the recalculation trigger; the trigger
+ * moved up to the form, where the rail's settlement controls can still reach
+ * it. */
 
 /* --- Stepper ------------------------------------------------------- */
 
@@ -516,77 +430,26 @@ a.tx-btn {
 
 /* --- Confirm step summary ------------------------------------------- */
 
-.tx-summary {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-}
+/* Retired by P-UX-A1c2. `.tx-summary` with its 860px breakpoint, `.tx-sumcard`
+ * and the four rules under it are `pf-context` inside two `<section>`s with a
+ * `pf-block__title` each: the same definition list of facts the instrument
+ * strip takes, so a card that restates the ticket and a strip that states the
+ * instrument are one family rather than two. The two-column grid goes with
+ * them — `pf-context` wraps its pairs, so the narrow case needs no query.
+ *
+ * `.tx-msg__link` and its hover go too: the AnlV gate's jump back to step 2 is
+ * a `pf-btn--quiet pf-btn--sm` in the third grid column of its `pf-note` —
+ * the slot `_messages.html` fills with an empty `<span>` and names as the one
+ * an inline action would take. So the record had a slot for it after all.
+ *
+ * One state rule is re-homed rather than retired. */
 
-@media (max-width: 860px) {
-    .tx-summary {
-        grid-template-columns: 1fr;
-    }
-}
-
-.tx-sumcard {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-    padding: 13px 16px;
-}
-
-.tx-sumcard h4 {
-    font-size: 0.72rem;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ui-semantic-muted);
-    margin: 0 0 9px;
-    font-weight: 600;
-}
-
-.tx-sumcard dl {
-    margin: 0;
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 16px;
-    font-size: 0.85rem;
-}
-
-.tx-sumcard dt {
-    color: var(--ui-text-disabled);
-}
-
-.tx-sumcard dd {
-    margin: 0;
-    color: var(--ui-text-secondary);
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.83rem;
-    text-align: right;
-}
-
-.tx-sumcard dd.is-missing {
-    color: var(--ui-semantic-warning);
-    font-family: inherit;
-}
-
-/* The AnlV gate's jump-back is a control among prose, not a navigation link:
- * it swaps a step in rather than changing the address, so it is a button
- * wearing a link's clothes. */
-.tx-msg__link {
-    display: inline-block;
-    margin-top: 6px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--ui-accent-primary);
-    font: inherit;
-    font-size: 0.82rem;
-    text-decoration: underline;
-    cursor: pointer;
-}
-
-.tx-msg__link:hover {
-    color: var(--ui-text-on-sidebar);
+/* A fact the ticket is missing, on the step that exists to notice. It was
+ * `.tx-sumcard dd.is-missing`; the family beneath it changed, the state did
+ * not. Scoped to the Area because `is-missing` is this surface's word for it
+ * and the record names no such state on `pf-context`. */
+.pf-transactions .pf-context dd.is-missing {
+    color: var(--ui-semantic-warn);
 }
 
 /* --- MD-19: the flow that moves no cash ------------------------------ */

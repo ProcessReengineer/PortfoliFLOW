@@ -209,5 +209,24 @@
       {"wait": ".pf-stepper .pf-stepper__step.is-active"}
     ],
     "shot": "wizard-step-1"
+  },
+  {
+    "name": "transactions-wizard-step-3",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".pf-flow:has-text(\"Buy a new instrument\")"},
+      {"wait": "#tx-wizard-form"},
+      {"fill": {"selector": "#tx-currency", "value": "EUR"}},
+      {"click": "#tx-wizard-form .pf-btn--primary"},
+      {"wait": "#tx-md-manager"},
+      {"click": "#tx-wizard-form .pf-btn--primary"},
+      {"wait": "#tx-derived"},
+      {"wait": "#tx-wizard-context"}
+    ],
+    "shot": "wizard-step-3"
   }
 ]

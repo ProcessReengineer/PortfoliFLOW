@@ -363,6 +363,20 @@ def _step(markup: str) -> int:
     return int(match.group(1))
 
 
+def _depth_between(markup: str, opener: str, marker: str) -> int:
+    """How many `<div>`s are still open at ``marker``, counting from ``opener``.
+
+    ``0`` means the element carrying ``marker`` is a *sibling* of the one
+    ``opener`` names — the block it opened has closed again. ``1`` means it is
+    inside it. Crude by design: the fragments here nest divs and nothing else
+    that could confuse the count, and the alternative is an HTML parser for one
+    structural question.
+    """
+    start = markup.index(opener)
+    segment = markup[start : markup.index(marker, start)]
+    return segment.count("<div") - segment.count("</div>")
+
+
 def _identify_form(**overrides: str) -> dict[str, str]:
     """Step 1's body: the resolve path, filled in as M-2 shows it."""
     form = {
@@ -1288,3 +1302,254 @@ async def test_the_second_identify_card_is_a_disclosure(
     assert "For instruments without a listed identifier — a Spezial-AIF share class" in body
     assert "Leave the fields beside this card empty and continue." in body
     assert "tx-idcard" not in body
+
+
+# ---------------------------------------------------------------------------
+# The shared form vocabulary (P-UX-A1c2) — the rail, the fact lists, the bar
+# ---------------------------------------------------------------------------
+
+
+async def test_the_rail_is_the_forms_second_child_on_the_figure_step_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R4: one stable column, filled beside it on the one step with figures.
+
+    ``_order_derived.html`` is the M-1 composer's rail and moves here whole —
+    the form's second child, placed in column 2 by `pf-form`'s own grid, so
+    not one field shifts when it appears. Steps 1, 2 and 4 declare the column
+    and leave it empty, which is what makes the four steps one surface.
+
+    Being *inside* the form is load-bearing: the rail holds the settlement
+    radios and the cash mini-form, and they post with everything else.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    step_three = (
+        await web_client.post(
+            "/api/transactions/draft", data=_classify_form(asset_class_id, csrf_token=csrf)
+        )
+    ).text
+    assert _step(step_three) == 3
+
+    form_start = step_three.index('<form class="pf-form" id="tx-wizard-form"')
+    form = step_three[form_start : step_three.index("</form>", form_start)]
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in form
+    # A sibling of the column, not a block inside it: counted structurally,
+    # because "after the column" and "at the end of the column" read alike.
+    assert _depth_between(form, '<div class="pf-form__main">', 'id="tx-derived"') == 0
+    # The facts strip is the main column's, ahead of the rail (A1b deviation 3).
+    assert form.index('id="tx-wizard-context"') < form.index('id="tx-derived"')
+    assert _depth_between(form, '<div class="pf-form__main">', 'id="tx-wizard-context"') == 1
+    # Everything the rail holds still posts with the form.
+    assert 'name="cash_investment_id"' in form and 'name="settle_confirm"' in form
+
+    # The other three steps declare the column and leave it empty.
+    step_one = (await web_client.get("/api/transactions/wizard")).text
+    step_two = (
+        await web_client.post(
+            "/api/transactions/draft", data={**_identify_form(), "csrf_token": csrf}
+        )
+    ).text
+    step_four = (
+        await web_client.post(
+            "/api/transactions/draft",
+            data=_order_form(
+                asset_class_id, await _seed_cash(user_id, currency="USD"), csrf_token=csrf
+            ),
+        )
+    ).text
+    for step, body in ((1, step_one), (2, step_two), (4, step_four)):
+        assert _step(body) == step
+        assert 'id="tx-derived"' not in body, f"step {step} has no figures to put beside it"
+        assert '<div class="pf-form__main">' in body, f"step {step} still declares the column"
+
+
+async def test_the_recalculation_still_answers_in_three_parts(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The rail moved; the recalc response did not.
+
+    ``_wizard_recalc.html``'s three includes address their hosts by id, and
+    all three ids survived P-UX-A1c2 — the rail is swapped in place wherever
+    the form puts it, and the strip and the outcome still travel out of band.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_order_form(asset_class_id, cash_id, step="3", csrf_token=csrf),
+        )
+    ).text
+
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in body
+    assert '<dl class="pf-context" id="tx-wizard-context"' in body
+    assert '<div id="tx-wizard-outcome"' in body
+    assert body.count('hx-swap-oob="outerHTML"') == 2, "the rail is the target, not an OOB"
+
+
+async def test_the_last_two_steps_each_offer_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R1, on the two steps that finish: Continue, then Book now.
+
+    Step 4 offers three gestures and only one of them is the step's answer.
+    Keep as draft and Propose are default weight — MD-11 makes the first a
+    safety net rather than a conclusion, and the second is the cautious half
+    of the same decision Book now makes.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    step_three = (
+        await web_client.post(
+            "/api/transactions/draft", data=_classify_form(asset_class_id, csrf_token=csrf)
+        )
+    ).text
+    step_four = (
+        await web_client.post(
+            "/api/transactions/draft", data=_order_form(asset_class_id, cash_id, csrf_token=csrf)
+        )
+    ).text
+
+    for step, body, label in ((3, step_three, "Continue"), (4, step_four, "Book now")):
+        assert _step(body) == step
+        assert body.count("pf-btn--primary") == 1, f"step {step} has more than one primary"
+        primary = body[body.index("pf-btn--primary") :]
+        assert primary[: primary.index("</button>")].endswith(label)
+        assert "tx-btn" not in body
+    # R3: the way back leads the bar on both.
+    for body in (step_three, step_four):
+        bar = _flat(body[body.index('<div class="pf-actionbar">') :])
+        assert bar.startswith('<div class="pf-actionbar"> <button class="pf-btn pf-btn--quiet"')
+        assert ">Back</button>" in bar
+
+
+async def test_the_anlv_gate_is_a_note_carrying_its_way_back(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.6.2: the refusal is a `pf-note--block`, its remedy in the note's slot.
+
+    The family's third grid column is the slot an inline action takes — the
+    one ``_messages.html`` fills with an empty ``<span>``. The jump back to
+    step 2 is the first control to use it, quiet and small, because the
+    step's one primary is Book now and a remedy is not the step's answer.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    gated = _flat(
+        (
+            await web_client.post(
+                "/api/transactions/draft",
+                data=_order_form(asset_class_id, cash_id, md_anlv_code="", csrf_token=csrf),
+            )
+        ).text
+    )
+    assert '<div class="pf-note pf-note--block">' in gated
+    assert (
+        '<p class="pf-note__lead">This wizard cannot finish without an AnlV category.</p>' in gated
+    )
+    note = gated[gated.index('<div class="pf-note pf-note--block">') :]
+    note = note[: note.index("</div>")]
+    assert '<button class="pf-btn pf-btn--quiet pf-btn--sm"' in note
+    assert ">Set the category in step 2</button>" in note
+    assert "/api/transactions/wizard?step=2" in note
+    assert "tx-msg" not in gated
+
+    # Armed, the note is gone and nothing took its place.
+    armed = _flat(
+        (
+            await web_client.post(
+                "/api/transactions/draft",
+                data=_order_form(asset_class_id, cash_id, csrf_token=csrf),
+            )
+        ).text
+    )
+    assert "pf-note--block" not in armed
+
+
+async def test_confirm_states_the_ticket_as_two_fact_lists_and_the_legs(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The review step's summary is content, so it stays in the main column.
+
+    Two titled `<section>`s over `pf-context` — the same definition list of
+    facts the instrument strip takes — and the emission below them as
+    `pf-leg` rows, the shape the M-3 rails draw. A `pf-rail-sum` would be
+    wrong here: a rail is the companion to inputs, and this step has none.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/draft", data=_order_form(asset_class_id, cash_id, csrf_token=csrf)
+        )
+    ).text
+    flat = _flat(body)
+    assert _step(body) == 4
+
+    assert '<h3 class="pf-block__title">New investment</h3>' in flat
+    assert '<h3 class="pf-block__title">Order</h3>' in flat
+    assert flat.count('<dl class="pf-context">') == 2
+    assert 'id="tx-derived"' not in body, "the summary is the content, not a rail"
+    # The copy is M-2's, unchanged.
+    assert "<dt>Settles against</dt>" in flat
+    assert "<dd>buy (first purchase)</dd>" in flat
+
+    # The emission, creation first (MD-12), on the record's leg rows.
+    legs = flat[flat.index('<p class="pf-hint">On booking, in one step:</p>') :]
+    assert legs.count('<div class="pf-leg">') == 3, "the creation and both ledger legs"
+    assert '<span class="pf-leg__type">create</span>' in legs
+    assert '<span class="pf-leg__amount">+950.0000 units</span>' in legs
+    assert "tx-leg" not in body and "tx-sumcard" not in body
+
+
+async def test_no_step_draws_a_body_wrapper_of_its_own(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """A1c flag 1, closed: all four steps put their blocks in the one column."""
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    bodies = [(await web_client.get("/api/transactions/wizard")).text]
+    for data in (
+        {**_identify_form(), "csrf_token": csrf},
+        _classify_form(asset_class_id, csrf_token=csrf),
+        _order_form(asset_class_id, cash_id, csrf_token=csrf),
+    ):
+        bodies.append((await web_client.post("/api/transactions/draft", data=data)).text)
+
+    for step, body in enumerate(bodies, start=1):
+        assert _step(body) == step
+        assert "tx-wizard-body" not in body, f"step {step} still draws the retired wrapper"
+        for retired in (
+            "tx-block ",
+            "tx-grid",
+            "tx-field",
+            "tx-context",
+            "tx-outcome",
+            "tx-actions",
+        ):
+            assert retired not in body, f"step {step} still draws {retired!r}"

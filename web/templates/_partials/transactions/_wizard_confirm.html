@@ -1,5 +1,5 @@
-{# Step 4 · Confirm — the whole ticket in two cards, and the three finishing
-   gestures.
+{# Step 4 · Confirm — the whole ticket in two fact lists, and the three
+   finishing gestures.
 
    Nothing on this step is a control except the buttons: it restates what the
    ticket says so the operator reads it once more before it becomes a fact.
@@ -8,100 +8,126 @@
    projection — so the summary cannot state a different number from the step
    it summarises.
 
+   The summary stays in the **main column** and does not become the rail
+   step 3 now has (P-UX-A1c2, registered deviation). A `pf-rail-sum` is the
+   record's companion to a form: derived figures beside the inputs they come
+   from. A review step has no inputs, so there is nothing for a companion to
+   sit beside — here the figures *are* the content, and putting them in a
+   360px column would leave the main column empty on the one step whose whole
+   job is to be read. Both lists are therefore `pf-context`, the same
+   definition-list-of-facts family the composers' instrument strip uses; the
+   pairs and their copy are M-2's, unchanged.
+
    The ledger-effect block leads with the creation, because that is the thing
    about this flow: booking writes an `investments` row *and* both legs, in
-   one transaction, or writes nothing (ADR-0128 §2, MD-12).
+   one transaction, or writes nothing (ADR-0128 §2, MD-12). The rows are
+   `pf-leg`, drawn exactly as the M-3 rails draw them.
 
    Context: entered, currency, legs, gross, fees, taxes, net, net_label,
    trade_date, instrument_name, candidates, asset_classes, anlv_categories,
    plus the gating `_derived_context` returns. #}
-<div class="tx-wizard-body">
-    <div class="tx-summary">
-        <div class="tx-sumcard">
-            <h4>New investment</h4>
-            <dl>
-                <dt>Name</dt>
-                <dd{% if not entered.md_name %} class="is-missing"{% endif %}>
-                    {{ entered.md_name or "not set" }}
-                </dd>
-                <dt>Type</dt><dd>{{ entered.md_investment_type or "not set" }}</dd>
-                <dt>Asset class</dt>
-                <dd{% if not entered.md_asset_class_id %} class="is-missing"{% endif %}>
-                    {%- for option in asset_classes if option.id | string == entered.md_asset_class_id -%}
-                        {{ option.display_name }}
-                    {%- else -%}
-                        not set
-                    {%- endfor -%}
-                </dd>
-                <dt>Currency</dt><dd>{{ currency or "not set" }}</dd>
-                <dt>Valuation</dt><dd>unitised</dd>
-                <dt>Identifiers</dt>
-                <dd>
-                    {%- if entered.md_identifier_value and entered.md_figi -%}
-                        {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }} · figi {{ entered.md_figi }}
-                    {%- elif entered.md_identifier_value -%}
-                        {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }}
-                    {%- else -%}
-                        — none —
-                    {%- endif -%}
-                </dd>
-                <dt>AnlV</dt>
-                <dd{% if anlv_gate %} class="is-missing"{% endif %}>
-                    {%- for option in anlv_categories if option.code == entered.md_anlv_code -%}
-                        {{ option.code }} · {{ option.display_name }}
-                    {%- else -%}
-                        not set
-                    {%- endfor -%}
-                </dd>
-            </dl>
+<section>
+    <h3 class="pf-block__title">New investment</h3>
+    <dl class="pf-context">
+        <div>
+            <dt>Name</dt>
+            <dd{% if not entered.md_name %} class="is-missing"{% endif %}>
+                {{ entered.md_name or "not set" }}
+            </dd>
         </div>
-        <div class="tx-sumcard">
-            <h4>Order</h4>
-            <dl>
-                <dt>Direction</dt><dd>buy (first purchase)</dd>
-                <dt>Trade date</dt><dd>{{ trade_date }}</dd>
-                <dt>Units</dt><dd>{{ entered.units or "not set" }}</dd>
-                <dt>Price</dt>
-                <dd>{% if entered.price_per_unit %}{{ entered.price_per_unit }} {{ currency }}{% else %}not set{% endif %}</dd>
-                <dt>Fees / taxes</dt>
-                <dd>{{ fees or "0.00" }} / {{ taxes or "0.00" }} {{ currency }}</dd>
-                <dt>{{ net_label }}</dt><dd>{{ net or "—" }} {{ currency }}</dd>
-                <dt>Settles against</dt>
-                <dd>
-                    {%- for candidate in candidates if candidate.selected -%}
-                        {{ candidate.name }}
-                    {%- else -%}
-                        not confirmed
-                    {%- endfor -%}
-                </dd>
-            </dl>
+        <div><dt>Type</dt><dd>{{ entered.md_investment_type or "not set" }}</dd></div>
+        <div>
+            <dt>Asset class</dt>
+            <dd{% if not entered.md_asset_class_id %} class="is-missing"{% endif %}>
+                {%- for option in asset_classes if option.id | string == entered.md_asset_class_id -%}
+                    {{ option.display_name }}
+                {%- else -%}
+                    not set
+                {%- endfor -%}
+            </dd>
         </div>
+        <div><dt>Currency</dt><dd>{{ currency or "not set" }}</dd></div>
+        <div><dt>Valuation</dt><dd>unitised</dd></div>
+        <div>
+            <dt>Identifiers</dt>
+            <dd>
+                {%- if entered.md_identifier_value and entered.md_figi -%}
+                    {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }} · figi {{ entered.md_figi }}
+                {%- elif entered.md_identifier_value -%}
+                    {{ entered.md_identifier_scheme }} {{ entered.md_identifier_value }}
+                {%- else -%}
+                    — none —
+                {%- endif -%}
+            </dd>
+        </div>
+        <div>
+            <dt>AnlV</dt>
+            <dd{% if anlv_gate %} class="is-missing"{% endif %}>
+                {%- for option in anlv_categories if option.code == entered.md_anlv_code -%}
+                    {{ option.code }} · {{ option.display_name }}
+                {%- else -%}
+                    not set
+                {%- endfor -%}
+            </dd>
+        </div>
+    </dl>
+</section>
+
+<section>
+    <h3 class="pf-block__title">Order</h3>
+    <dl class="pf-context">
+        <div><dt>Direction</dt><dd>buy (first purchase)</dd></div>
+        <div><dt>Trade date</dt><dd>{{ trade_date }}</dd></div>
+        <div><dt>Units</dt><dd>{{ entered.units or "not set" }}</dd></div>
+        <div>
+            <dt>Price</dt>
+            <dd>{% if entered.price_per_unit %}{{ entered.price_per_unit }} {{ currency }}{% else %}not set{% endif %}</dd>
+        </div>
+        <div>
+            <dt>Fees / taxes</dt>
+            <dd>{{ fees or "0.00" }} / {{ taxes or "0.00" }} {{ currency }}</dd>
+        </div>
+        <div><dt>{{ net_label }}</dt><dd>{{ net or "—" }} {{ currency }}</dd></div>
+        <div>
+            <dt>Settles against</dt>
+            <dd>
+                {%- for candidate in candidates if candidate.selected -%}
+                    {{ candidate.name }}
+                {%- else -%}
+                    not confirmed
+                {%- endfor -%}
+            </dd>
+        </div>
+    </dl>
+</section>
+
+<div>
+    {# The lead-in stays visible rather than going behind a `pf-more`, the
+       shape `_secondary_sale_derived.html` already gives the same sentence:
+       a disclosure is for prose that *explains* rows already on screen, and
+       this one introduces the rows that follow. #}
+    <p class="pf-hint">On booking, in one step:</p>
+    <div class="pf-leg">
+        <span class="pf-leg__type">create</span>
+        <span>Investment · {{ instrument_name or "— not named yet —" }}</span>
+        <span class="pf-leg__amount"></span>
     </div>
-
-    <div class="tx-legs">
-        <p class="tx-legs__lead">On booking, in one step:</p>
-        <div class="tx-leg">
-            <span class="tx-leg__type">create</span>
-            <span class="tx-leg__what">Investment · {{ instrument_name or "— not named yet —" }}</span>
-            <span class="tx-leg__amount"></span>
+    {% for leg in legs %}
+        <div class="pf-leg">
+            <span class="pf-leg__type">{{ leg.txn_type }}</span>
+            <span>{{ leg.name }} <em>@ {{ leg.price }}</em></span>
+            <span class="pf-leg__amount">{{ leg.units }} units</span>
         </div>
-        {% for leg in legs %}
-            <div class="tx-leg">
-                <span class="tx-leg__type tx-leg__type--{{ leg.txn_type }}">{{ leg.txn_type }}</span>
-                <span class="tx-leg__what">{{ leg.name }} <em>@ {{ leg.price }}</em></span>
-                <span class="tx-leg__amount">{{ leg.units }} units</span>
-            </div>
-        {% else %}
-            <p class="tx-legs__pending">
-                Both legs appear here once the units, price and settlement position
-                are set.
-            </p>
-        {% endfor %}
-    </div>
-
-    {% with visible = [] %}
-        {% include "_partials/transactions/_wizard_hidden.html" %}
-    {% endwith %}
-
-    {% include "_partials/transactions/_wizard_outcome.html" %}
+    {% else %}
+        <p class="pf-hint">
+            Both legs appear here once the units, price and settlement position
+            are set.
+        </p>
+    {% endfor %}
 </div>
+
+{% with visible = [] %}
+    {% include "_partials/transactions/_wizard_hidden.html" %}
+{% endwith %}
+
+{% include "_partials/transactions/_wizard_outcome.html" %}

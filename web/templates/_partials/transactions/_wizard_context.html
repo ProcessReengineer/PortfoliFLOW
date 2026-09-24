@@ -15,27 +15,33 @@
      "not derivable yet"; M-2 says something stronger here, and it is true:
      there will be no price until the first booking writes one.
 
-   Out of band, like M-1's, because M-2 puts it above the static Execution
-   inputs that the recalculation must not disturb.
+   The shape is `pf-context` since P-UX-A1c2, the same definition list of
+   facts `_order_context.html` takes — one family for the one thing both
+   surfaces do here, rather than a second strip that happens to look alike.
+
+   It stays in the main column, above the Execution inputs, and never joins
+   the rail: the rail is the recalculation's own swap target, and an element
+   carrying `hx-swap-oob` inside that target is lifted out of the fragment by
+   htmx before the fragment lands (A1b deviation 3). Out of band for the same
+   reason M-1's is — the recalculation must not disturb the static inputs
+   below it.
 
    Context: instrument_name, holding, currency, oob. #}
-<div class="tx-context" id="tx-wizard-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Instrument</span>
-        <span class="tx-context__value">{{ instrument_name or "— not named yet —" }}</span>
+<dl class="pf-context" id="tx-wizard-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div>
+        <dt>Instrument</dt>
+        <dd>{{ instrument_name or "— not named yet —" }}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Holding on trade date</span>
-        <span class="tx-context__value">
-            {% if holding is not none %}{{ holding }} units{% else %}—{% endif %}
-        </span>
+    <div>
+        <dt>Holding on trade date</dt>
+        <dd>{% if holding is not none %}{{ holding }} units{% else %}—{% endif %}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Currency</span>
-        <span class="tx-context__value">{{ currency or "—" }}</span>
+    <div>
+        <dt>Currency</dt>
+        <dd>{{ currency or "—" }}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Last known price</span>
-        <span class="tx-context__value">— none yet —</span>
+    <div>
+        <dt>Last known price</dt>
+        <dd>— none yet —</dd>
     </div>
-</div>
+</dl>

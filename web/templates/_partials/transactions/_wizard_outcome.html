@@ -9,6 +9,11 @@
    differ: M-1 offers three gestures at once, M-2 offers a Continue on step 3
    and the three finishing gestures on step 4.
 
+   Since P-UX-A1c2 the region is a bare host with no class of its own: the
+   notes space themselves (`.pf-note + .pf-note`) and `pf-actionbar` carries
+   its own top margin, so the wrapper that used to supply a `gap` supplies
+   nothing the record does not.
+
    The finish gate is one expression's answer, computed in the route
    (`anlv_gate`) and rendered here — never re-derived in Jinja. MD-11 keeps
    Keep as draft out of it: the draft may dangle, and it is the control that
@@ -16,76 +21,51 @@
 
    Context: step, messages, error, anlv_gate, hint_key, draft_enabled,
    propose_enabled, book_enabled, ticket_id, oob. #}
-<div class="tx-outcome" id="tx-wizard-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="tx-messages">
-        {% include "_partials/transactions/_messages.html" %}
-        {% if step == 4 and anlv_gate %}
-            <div class="tx-msg tx-msg--block">
-                <span class="tx-msg__glyph">✕</span>
-                <div>
-                    <strong>This wizard cannot finish without an AnlV category.</strong>
-                    <span class="tx-msg__sub">
-                        The regulatory classification is required for booking and for
-                        proposing. The ticket keeps everything you entered as a draft.
-                    </span>
-                    <button class="tx-msg__link" type="button"
-                            hx-get="/api/transactions/wizard?step=2{% if ticket_id %}&ticket_id={{ ticket_id }}{% endif %}"
-                            hx-target="#tx-composer-host"
-                            hx-swap="innerHTML">Set the category in step 2</button>
-                </div>
-            </div>
-        {% elif step == 4 and hint_key in ("no_position", "unconfirmed") %}
-            <div class="tx-msg">
-                <span class="tx-msg__glyph">!</span>
-                <div>
-                    <strong>The settlement position is not confirmed.</strong>
-                    <span class="tx-msg__sub">
-                        Go back to the order step and confirm the position this
-                        trade settles on.
-                    </span>
-                </div>
-            </div>
-        {% endif %}
-    </div>
+<div id="tx-wizard-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    {% include "_partials/transactions/_messages.html" %}
+    {% if step == 4 and anlv_gate %}
+        {# The jump back to step 2 sits in the family's third grid column —
+           the slot `_messages.html` fills with an empty `<span>` and names
+           as "the slot an inline action would take". So the record does have
+           one, and this is the first note to use it. Quiet and small,
+           because the step's one primary is Book now. #}
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">This wizard cannot finish without an AnlV category.</p>
+            <button class="pf-btn pf-btn--quiet pf-btn--sm" type="button"
+                    hx-get="/api/transactions/wizard?step=2{% if ticket_id %}&ticket_id={{ ticket_id }}{% endif %}"
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Set the category in step 2</button>
+            <p class="pf-note__sub">
+                The regulatory classification is required for booking and for
+                proposing. The ticket keeps everything you entered as a draft.
+            </p>
+        </div>
+    {% elif step == 4 and hint_key in ("no_position", "unconfirmed") %}
+        <div class="pf-note pf-note--warn">
+            {{ pf_icon("warn") }}
+            <p class="pf-note__lead">The settlement position is not confirmed.</p>
+            <span></span>
+            <p class="pf-note__sub">
+                Go back to the order step and confirm the position this
+                trade settles on.
+            </p>
+        </div>
+    {% endif %}
 
-    <div class="tx-actions">
+    {# The outcome bar (§2.3.4), the composer's own since P-UX-A1c2. The way
+       back takes the leading slot (R3), the hint sentence carries the middle
+       as the bar's `flex: 1` spacer, and each step has exactly one primary
+       (R1): Continue on step 3, Book now on step 4. Close is the way *out*
+       of the wizard rather than a step move, so it stays with them at the
+       trailing end.
+
+       `disabled` states, `hx-vals` and endpoints are unchanged: each button
+       carries its state from this very render, and each is re-checked at the
+       endpoint — a disabled button is a courtesy, never a permission. #}
+    <div class="pf-actionbar">
         {% include "_partials/transactions/_wizard_back.html" %}
-        <span class="tx-actions__spacer"></span>
-        {% include "_partials/transactions/_wizard_close.html" %}
-        {% if step == 3 %}
-            <button class="tx-btn tx-btn--primary" type="button"
-                    hx-post="/api/transactions/draft"
-                    hx-include="closest form"
-                    hx-vals='{"step": "4"}'
-                    hx-target="#tx-composer-host"
-                    hx-swap="innerHTML">Continue</button>
-        {% else %}
-            {# Keep as draft is the same gesture Continue is — one endpoint,
-               one MD-2 rule — asking to stay on this step rather than to
-               advance. MD-11 leaves it ungated by the AnlV finish gate. #}
-            <button class="tx-btn" type="button"
-                    hx-post="/api/transactions/draft"
-                    hx-include="closest form"
-                    hx-vals='{"step": "4"}'
-                    hx-target="#tx-composer-host"
-                    hx-swap="innerHTML"
-                    {% if not draft_enabled %}disabled{% endif %}>Keep as draft</button>
-            <button class="tx-btn" type="button"
-                    hx-post="/api/transactions/propose"
-                    hx-include="closest form"
-                    hx-vals='{"step": "4"}'
-                    hx-target="#tx-composer-host"
-                    hx-swap="innerHTML"
-                    {% if not propose_enabled %}disabled{% endif %}>Propose</button>
-            <button class="tx-btn tx-btn--primary" type="button"
-                    hx-post="/api/transactions/book"
-                    hx-include="closest form"
-                    hx-vals='{"step": "4"}'
-                    hx-target="#tx-composer-host"
-                    hx-swap="innerHTML"
-                    {% if not book_enabled %}disabled{% endif %}>Book now</button>
-        {% endif %}
-        <p class="tx-actions__hint">
+        <p class="pf-actionbar__hint">
             {%- if step == 3 -%}
                 {%- if hint_key == "incomplete" -%}
                     Fill in the units and price before continuing.
@@ -107,5 +87,39 @@
                 Booking creates the investment and both ledger legs in one step.
             {%- endif -%}
         </p>
+        {% include "_partials/transactions/_wizard_close.html" %}
+        {% if step == 3 %}
+            <button class="pf-btn pf-btn--primary" type="button"
+                    hx-post="/api/transactions/draft"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Continue</button>
+        {% else %}
+            {# Keep as draft is the same gesture Continue is — one endpoint,
+               one MD-2 rule — asking to stay on this step rather than to
+               advance. MD-11 leaves it ungated by the AnlV finish gate. #}
+            <button class="pf-btn" type="button"
+                    hx-post="/api/transactions/draft"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not draft_enabled %}disabled{% endif %}>Keep as draft</button>
+            <button class="pf-btn" type="button"
+                    hx-post="/api/transactions/propose"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+            <button class="pf-btn pf-btn--primary" type="button"
+                    hx-post="/api/transactions/book"
+                    hx-include="closest form"
+                    hx-vals='{"step": "4"}'
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML"
+                    {% if not book_enabled %}disabled{% endif %}>Book now</button>
+        {% endif %}
     </div>
 </div>

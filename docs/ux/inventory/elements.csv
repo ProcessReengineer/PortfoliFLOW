@@ -1025,6 +1025,7 @@ transactions,_partials/transactions/_settlement.html,,template,button,Create pos
 transactions,_partials/transactions/_settlement.html,,template,htmx,Create position,/api/transactions/cash-position,#tx-composer-host,web/templates/_partials/transactions/_settlement.html,99,verb:POST
 transactions,_partials/transactions/_settlement.html,,template,form_label,{{ candidate.name }} {{ candidate.balance }} {{ candidate.currency }} → {{ candidate.after }},,,web/templates/_partials/transactions/_settlement.html,129,dynamic
 transactions,_partials/transactions/_settlement.html,,template,form_label,Settle against this position.,,,web/templates/_partials/transactions/_settlement.html,146,
+transactions,_partials/transactions/_wizard.html,,template,htmx,,/api/transactions/recalc,#tx-derived,web/templates/_partials/transactions/_wizard.html,58,icon-only|no-accessible-name|verb:POST
 transactions,_partials/transactions/_wizard_back.html,,template,button,Back,/api/transactions/wizard?step={{ step - 1 }} &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_back.html,17,
 transactions,_partials/transactions/_wizard_back.html,,template,htmx,Back,/api/transactions/wizard?step={{ step - 1 }} &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_back.html,17,verb:GET
 transactions,_partials/transactions/_wizard_classify.html,Master data,template,heading,Master data,,,web/templates/_partials/transactions/_wizard_classify.html,37,
@@ -1034,8 +1035,8 @@ transactions,_partials/transactions/_wizard_classify.html,Master data,template,b
 transactions,_partials/transactions/_wizard_classify.html,Master data,template,htmx,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_classify.html,89,synonym-candidate|verb:POST
 transactions,_partials/transactions/_wizard_close.html,,template,button,Close,/api/transactions/chooser,#tx-composer-host,web/templates/_partials/transactions/_wizard_close.html,16,duplicate-label|synonym-candidate
 transactions,_partials/transactions/_wizard_close.html,,template,htmx,Close,/api/transactions/chooser,#tx-composer-host,web/templates/_partials/transactions/_wizard_close.html,16,duplicate-label|synonym-candidate|verb:GET
-transactions,_partials/transactions/_wizard_confirm.html,New investment,template,heading,New investment,,,web/templates/_partials/transactions/_wizard_confirm.html,21,
-transactions,_partials/transactions/_wizard_confirm.html,Order,template,heading,Order,,,web/templates/_partials/transactions/_wizard_confirm.html,59,
+transactions,_partials/transactions/_wizard_confirm.html,New investment,template,heading,New investment,,,web/templates/_partials/transactions/_wizard_confirm.html,30,
+transactions,_partials/transactions/_wizard_confirm.html,Order,template,heading,Order,,,web/templates/_partials/transactions/_wizard_confirm.html,77,
 transactions,_partials/transactions/_wizard_identify.html,Public identifier,template,heading,Public identifier,,,web/templates/_partials/transactions/_wizard_identify.html,42,
 transactions,_partials/transactions/_wizard_identify.html,Public identifier,template,form_label,Scheme,tx-id-scheme,,web/templates/_partials/transactions/_wizard_identify.html,49,
 transactions,_partials/transactions/_wizard_identify.html,Public identifier,template,select,{{ scheme }},md_identifier_scheme,,web/templates/_partials/transactions/_wizard_identify.html,50,dynamic|options:1
@@ -1048,29 +1049,30 @@ transactions,_partials/transactions/_wizard_identify.html,Resolved,template,form
 transactions,_partials/transactions/_wizard_identify.html,Resolved,template,form_label,Currency,tx-currency,,web/templates/_partials/transactions/_wizard_identify.html,129,duplicate-label
 transactions,_partials/transactions/_wizard_identify.html,Resolved,template,button,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_identify.html,154,synonym-candidate
 transactions,_partials/transactions/_wizard_identify.html,Resolved,template,htmx,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_identify.html,154,synonym-candidate|verb:POST
-transactions,_partials/transactions/_wizard_order.html,,template,htmx,Execution Trade date Both legs book on this date. Units Price per unit ({{ currency }}) Fees (optional) Taxes (optional) Settlement date (optional) Recorded only. Cash books on the trade date. Provenance Linked case (optional) No case Case #{{ case.case_number }} — {{ case.title }} Source (optional) Note (optional),/api/transactions/recalc,#tx-derived,web/templates/_partials/transactions/_wizard_order.html,19,dynamic|verb:POST
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Trade date,tx-trade-date,,web/templates/_partials/transactions/_wizard_order.html,32,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Units,tx-units,,web/templates/_partials/transactions/_wizard_order.html,37,
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Price per unit ({{ currency }}),tx-price,,web/templates/_partials/transactions/_wizard_order.html,42,dynamic
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Fees (optional),tx-fees,,web/templates/_partials/transactions/_wizard_order.html,47,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Taxes (optional),tx-taxes,,web/templates/_partials/transactions/_wizard_order.html,51,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Settlement date (optional),tx-settlement-date,,web/templates/_partials/transactions/_wizard_order.html,55,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Linked case (optional),tx-case,,web/templates/_partials/transactions/_wizard_order.html,72,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,select,No case Case #{{ case.case_number }} — {{ case.title }},case_id,,web/templates/_partials/transactions/_wizard_order.html,73,dynamic|options:2
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Source (optional),tx-source,,web/templates/_partials/transactions/_wizard_order.html,84,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,placeholder,"Broker note, statement reference…",source,,web/templates/_partials/transactions/_wizard_order.html,85,synonym-candidate
-transactions,_partials/transactions/_wizard_order.html,,template,form_label,Note (optional),tx-note,,web/templates/_partials/transactions/_wizard_order.html,89,duplicate-label
-transactions,_partials/transactions/_wizard_order.html,,template,placeholder,Why this trade was made.,note,,web/templates/_partials/transactions/_wizard_order.html,90,synonym-candidate
-transactions,_partials/transactions/_wizard_outcome.html,,template,button,Set the category in step 2,/api/transactions/wizard?step=2 &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,31,
-transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Set the category in step 2,/api/transactions/wizard?step=2 &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,31,verb:GET
-transactions,_partials/transactions/_wizard_outcome.html,,template,button,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,56,synonym-candidate
-transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,56,synonym-candidate|verb:POST
-transactions,_partials/transactions/_wizard_outcome.html,,template,button,Keep as draft,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,66,synonym-candidate
-transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Keep as draft,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,66,synonym-candidate|verb:POST
-transactions,_partials/transactions/_wizard_outcome.html,,template,button,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,73,
-transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,73,verb:POST
-transactions,_partials/transactions/_wizard_outcome.html,,template,button,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,
-transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,80,verb:POST
+transactions,_partials/transactions/_wizard_order.html,Execution,template,heading,Execution,,,web/templates/_partials/transactions/_wizard_order.html,29,
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Trade date,tx-trade-date,,web/templates/_partials/transactions/_wizard_order.html,32,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Units,tx-units,,web/templates/_partials/transactions/_wizard_order.html,38,
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Price per unit ({{ currency }}),tx-price,,web/templates/_partials/transactions/_wizard_order.html,43,dynamic
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Fees (optional),tx-fees,,web/templates/_partials/transactions/_wizard_order.html,48,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Taxes (optional),tx-taxes,,web/templates/_partials/transactions/_wizard_order.html,53,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Execution,template,form_label,Settlement date (optional),tx-settlement-date,,web/templates/_partials/transactions/_wizard_order.html,58,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,heading,Provenance,,,web/templates/_partials/transactions/_wizard_order.html,71,
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,form_label,Linked case (optional),tx-case,,web/templates/_partials/transactions/_wizard_order.html,74,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,select,No case Case #{{ case.case_number }} — {{ case.title }},case_id,,web/templates/_partials/transactions/_wizard_order.html,75,dynamic|options:2
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,form_label,Source (optional),tx-source,,web/templates/_partials/transactions/_wizard_order.html,86,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,placeholder,"Broker note, statement reference…",source,,web/templates/_partials/transactions/_wizard_order.html,87,synonym-candidate
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,form_label,Note (optional),tx-note,,web/templates/_partials/transactions/_wizard_order.html,92,duplicate-label
+transactions,_partials/transactions/_wizard_order.html,Provenance,template,placeholder,Why this trade was made.,note,,web/templates/_partials/transactions/_wizard_order.html,93,synonym-candidate
+transactions,_partials/transactions/_wizard_outcome.html,,template,button,Set the category in step 2,/api/transactions/wizard?step=2 &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,35,
+transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Set the category in step 2,/api/transactions/wizard?step=2 &ticket_id={{ ticket_id }},#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,35,verb:GET
+transactions,_partials/transactions/_wizard_outcome.html,,template,button,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,92,synonym-candidate
+transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Continue,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,92,synonym-candidate|verb:POST
+transactions,_partials/transactions/_wizard_outcome.html,,template,button,Keep as draft,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,102,synonym-candidate
+transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Keep as draft,/api/transactions/draft,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,102,synonym-candidate|verb:POST
+transactions,_partials/transactions/_wizard_outcome.html,,template,button,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,109,
+transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Propose,/api/transactions/propose,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,109,verb:POST
+transactions,_partials/transactions/_wizard_outcome.html,,template,button,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,116,
+transactions,_partials/transactions/_wizard_outcome.html,,template,htmx,Book now,/api/transactions/book,#tx-composer-host,web/templates/_partials/transactions/_wizard_outcome.html,116,verb:POST
 transactions,_partials/transactions/_wizard_stepper.html,,template,tooltip,Steps,,,web/templates/_partials/transactions/_wizard_stepper.html,23,from:aria-label
 transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,51,dynamic
 transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,52,dynamic

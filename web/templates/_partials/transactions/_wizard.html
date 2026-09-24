@@ -20,9 +20,10 @@
    took in P-UX-A1b: `pf-form` is `minmax(0, 1fr) 360px` on every step, and
    `pf-form__main` is the one stable form column R4 asks for. Steps 1, 2 and
    4 have no derived figures, so the second column stands empty and the main
-   column keeps its width; step 3 puts `_order_derived.html` there in
-   P-UX-A1c2 without a field moving. A column that is always declared and
-   sometimes empty is what makes the four steps one surface rather than four.
+   column keeps its width; step 3 fills it with `_order_derived.html` — the
+   form's second child, exactly where the M-1 composer puts the same rail —
+   and not one field moves. A column that is always declared and sometimes
+   empty is what makes the four steps one surface rather than four.
 
    The step is navigation, not state. It is posted by the button that asks
    for it — as `hx-vals`, never as a hidden input, so exactly one value for
@@ -30,10 +31,17 @@
    step from its own content (`_resume_step`), which is why MD-10's "reopens
    where it stopped" needs no column and no migration.
 
-   Recalculation is the Order step's alone. The form itself posts nothing on
-   input; step 3's body carries the `recalc` trigger, because it is the only
-   step with a derived region to refresh and a keystroke on any other would
-   ask htmx to swap a target that is not on the page.
+   Recalculation is the Order step's alone, and since P-UX-A1c2 the *form*
+   carries its trigger, guarded to step 3, where the step body carried it
+   before. The guard is what keeps the other three steps silent — a
+   keystroke on any of them would ask htmx to swap a target that is not on
+   the page — and the move is what keeps step 3 whole: the rail is now the
+   form's second child rather than a block inside the body, so its
+   settlement radios and its cash mini-form are no longer inside the step
+   body and their `change` events no longer reach it. They do reach the
+   form. This is M-1's own arrangement (`_order_composer.html` puts the same
+   attributes on the same element), so the two surfaces now recalculate
+   through one shape instead of two.
 
    MD-2 as everywhere on this surface — and by construction since P-UX-A1c,
    because the head is now `_composer_head.html`, shared with the four
@@ -47,7 +55,15 @@
    Context: csrf_token, flow, step, steps, ticket_id, ticket_number,
    ticket_status, title, plus each step body's own. #}
 {% include "_partials/transactions/_composer_head.html" %}
-<form class="pf-form" id="tx-wizard-form">
+<form class="pf-form" id="tx-wizard-form"
+      {%- if step == 3 %}
+      hx-post="/api/transactions/recalc"
+      hx-trigger="input delay:300ms, change delay:300ms"
+      hx-include="closest form"
+      hx-vals='{"step": "3"}'
+      hx-target="#tx-derived"
+      hx-swap="outerHTML"
+      {%- endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="flow" value="{{ flow }}">
     {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
@@ -65,4 +81,15 @@
             {% include "_partials/transactions/_wizard_confirm.html" %}
         {% endif %}
     </div>
+
+    {# The one rail, on the one step that has figures to put in it. It is the
+       form's second child, so the `pf-form` grid places it in column 2
+       without a rule of this Area's own — the shape `_order_composer.html`
+       gave it in P-UX-A1b, reached here unchanged. Being inside the form is
+       load-bearing twice over: `hx-include="closest form"` on its Create
+       position button still resolves to this form, and its settlement
+       controls still post with everything else. #}
+    {% if step == 3 %}
+        {% include "_partials/transactions/_order_derived.html" %}
+    {% endif %}
 </form>

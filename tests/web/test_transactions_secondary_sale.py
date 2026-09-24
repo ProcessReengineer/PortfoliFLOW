@@ -1060,3 +1060,42 @@ async def test_the_scope_is_two_choices_and_the_consequence_one_note(
     assert "This closes the stake completely." in _flat(consequence)
     assert "pf-note__lead" in consequence and "pf-note__sub" in consequence
     assert "<input" not in consequence, "MD-17 states a definition; it offers no choice"
+
+
+async def test_the_stated_proceeds_read_the_same_in_either_notation(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R10 on R-SEC-SELL's one stated figure (P-UX-A1d).
+
+    The strongest form of the claim: the whole derived rail — proceeds, the
+    four emission rows, the settlement projection — is **byte-identical**
+    whichever notation the proceeds arrived in. Only the echo differs, which
+    is the one thing that is supposed to.
+    """
+    user_id, email, password = seeded_user
+    stake_id, cash_id = await _standard_book(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    async def _rail(gross: str) -> tuple[str, str]:
+        body = (
+            await web_client.post(
+                "/api/transactions/recalc",
+                data=_confirmed(
+                    gross_amount=gross,
+                    investment_id=str(stake_id),
+                    cash_investment_id=str(cash_id),
+                    csrf_token=csrf,
+                ),
+            )
+        ).text
+        return body[body.index('<aside class="pf-rail-sum"') : body.index("</aside>")], body
+
+    plain, _ = await _rail(str(_GROSS))
+    german, body = await _rail("1.850.000,00")
+
+    assert german == plain, "the notation is the operator's; the derivation is the book's"
+    assert (
+        '<span class="pf-read" id="tx-read-gross_amount" hx-swap-oob="outerHTML">'
+        "Read as <b>1,850,000.00</b></span>"
+    ) in body

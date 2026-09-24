@@ -1393,7 +1393,14 @@ async def test_the_recalculation_still_answers_in_three_parts(
     assert '<aside class="pf-rail-sum" id="tx-derived"' in body
     assert '<dl class="pf-context" id="tx-wizard-context"' in body
     assert '<div id="tx-wizard-outcome"' in body
-    assert body.count('hx-swap-oob="outerHTML"') == 2, "the rail is the target, not an OOB"
+    # The rail is the swap target and must not carry an OOB marker of its own;
+    # the strip and the outcome must. P-UX-A1d added a fourth kind of fragment
+    # to this response — the R10 reading slots — so the claim is made per
+    # element rather than by counting the whole document.
+    rail = body[body.index('<aside class="pf-rail-sum"') : body.index("</aside>")]
+    assert "hx-swap-oob" not in rail, "the rail is the target, not an OOB"
+    for host in ('id="tx-wizard-context"', 'id="tx-wizard-outcome"'):
+        assert f'{host} hx-swap-oob="outerHTML"' in body, host
 
 
 async def test_the_last_two_steps_each_offer_exactly_one_primary(
@@ -1553,3 +1560,44 @@ async def test_no_step_draws_a_body_wrapper_of_its_own(
             "tx-actions",
         ):
             assert retired not in body, f"step {step} still draws {retired!r}"
+
+
+async def test_the_wizard_order_step_reads_both_notations_and_says_which(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R10 on M-2's Order step, on the same four fields as M-1's composer.
+
+    The wizard and the order composer give their inputs the same ids and the
+    same slot ids, which is safe because they never co-exist: one composer at
+    a time lives in ``#tx-composer-host``, and the chooser replaces it whole.
+    """
+    user_id, email, password = seeded_user
+    asset_class_id = await _seed_asset_class(user_id)
+    cash_id = await _seed_cash(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_order_form(
+                asset_class_id,
+                cash_id,
+                step="3",
+                units="1.234,56",
+                price_per_unit="10,5",
+                fees="",
+                taxes="",
+                csrf_token=csrf,
+            ),
+        )
+    ).text
+
+    assert "<dd>12,962.88 EUR</dd>" in body, "the German notation reaches the derivation"
+    assert (
+        '<span class="pf-read" id="tx-read-units" hx-swap-oob="outerHTML">'
+        "Read as <b>1,234.5600</b></span>"
+    ) in body
+    assert ('<span class="pf-read" id="tx-read-taxes" hx-swap-oob="outerHTML"></span>') in body, (
+        "a field that says nothing still renders its slot, so the last reading is cleared"
+    )

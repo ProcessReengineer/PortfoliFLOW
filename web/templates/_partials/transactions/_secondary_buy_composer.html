@@ -70,7 +70,8 @@
                 {% endwith %}
                 <div class="pf-field">
                     <label class="pf-label" for="tx-secbuy-vintage">Vintage year</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-vintage"
+                    <input class="pf-input pf-input--num" type="text" inputmode="numeric"
+                           autocomplete="off" id="tx-secbuy-vintage"
                            name="md_vintage_year" value="{{ entered.md_vintage_year }}">
                 </div>
                 <div class="pf-field">
@@ -86,19 +87,25 @@
             <div class="pf-grid">
                 <div class="pf-field">
                     <label class="pf-label" for="tx-secbuy-price">Purchase price, net cash out{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-price"
-                           name="gross_amount" step="any" value="{{ entered.gross_amount }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-secbuy-price" name="gross_amount"
+                           value="{{ entered.gross_amount }}">
+                    <span class="pf-read" id="tx-read-gross_amount"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-secbuy-nav">Acquired NAV at transfer{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-nav"
-                           name="md_acquired_nav" step="any" value="{{ entered.md_acquired_nav }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-secbuy-nav" name="md_acquired_nav"
+                           value="{{ entered.md_acquired_nav }}">
+                    <span class="pf-read" id="tx-read-md_acquired_nav"></span>
                     <span class="pf-hint">Books as the stake's opening NAV.</span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-secbuy-unfunded">Assumed unfunded commitment{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-unfunded"
-                           name="md_assumed_unfunded" step="any" value="{{ entered.md_assumed_unfunded }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-secbuy-unfunded" name="md_assumed_unfunded"
+                           value="{{ entered.md_assumed_unfunded }}">
+                    <span class="pf-read" id="tx-read-md_assumed_unfunded"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-secbuy-settlement-date">Settlement date <span class="pf-optional">(optional)</span></label>

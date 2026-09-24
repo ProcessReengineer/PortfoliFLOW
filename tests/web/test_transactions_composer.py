@@ -1770,3 +1770,132 @@ async def test_the_derived_region_is_the_summary_rail_inside_the_form(
     assert "pf-sum__total" in form
     assert '<div class="pf-actionbar">' in form
     assert "tx-derived-host" not in form, "the bespoke derived host is retired here"
+
+
+# ---------------------------------------------------------------------------
+# Number entry (P-UX-A1d, R10)
+# ---------------------------------------------------------------------------
+
+
+def _slot(markup: str, name: str) -> str:
+    """The `pf-read` slot for one field, contents and all."""
+    start = markup.index(f'id="tx-read-{name}"')
+    return markup[markup.rindex("<span", 0, start) : markup.index("</span>", start) + 7]
+
+
+async def test_the_order_recalc_reads_both_notations_and_says_which(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R10: `1.234,56` and `10,5` are numbers, and the surface says so.
+
+    The German notation reaches the *derivation*, not just the echo — the
+    rail's gross is 1234.56 × 10.5 through ``derive_cash_effect``, which is
+    the whole point of parsing server-side: before P-UX-A1d this body left
+    every figure blank and said nothing about why (D-2's sparse contract
+    turning a misread value into silence).
+
+    The echo is stated in the product's own notation, through the formatters
+    the rail already uses — four decimals for a quantity and a price, two for
+    money — so it never disagrees with the figure beside it.
+    """
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_recalc_form(
+                units="1.234,56",
+                price_per_unit="10,5",
+                fees="",
+                taxes="",
+                csrf_token=csrf,
+            ),
+        )
+    ).text
+
+    assert "<dd>12,962.88</dd>" in body, "1234.56 × 10.5, derived from the German notation"
+    assert "1,234.5600 units × 10.5000" in _flat(body)
+    assert _slot(body, "units") == (
+        '<span class="pf-read" id="tx-read-units" hx-swap-oob="outerHTML">'
+        "Read as <b>1,234.5600</b></span>"
+    )
+    assert _slot(body, "price_per_unit") == (
+        '<span class="pf-read" id="tx-read-price_per_unit" hx-swap-oob="outerHTML">'
+        "Read as <b>10.5000</b></span>"
+    )
+
+
+async def test_the_english_notation_reads_to_the_same_number(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The other notation, same ticket: R10's promise is that it does not matter."""
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_recalc_form(
+                units="1,234.56", price_per_unit="10.5", fees="", taxes="", csrf_token=csrf
+            ),
+        )
+    ).text
+
+    assert "<dd>12,962.88</dd>" in body
+    assert "Read as <b>1,234.5600</b>" in body
+
+
+async def test_a_plain_number_leaves_every_slot_present_and_empty(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Decision 6: `1200` reads the same either way, so the surface stays quiet.
+
+    Every slot the flow draws is rendered on every keystroke, filled or
+    empty — which is what *clears* a reading when the operator deletes the
+    comma out of `1,234`. A partial keyed on the readings would leave the
+    last sentence standing under a field that no longer says it.
+    """
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_recalc_form(units="1200", price_per_unit="", fees="", taxes="", csrf_token=csrf),
+        )
+    ).text
+
+    for name in ("units", "price_per_unit", "fees", "taxes"):
+        assert _slot(body, name) == (
+            f'<span class="pf-read" id="tx-read-{name}" hx-swap-oob="outerHTML"></span>'
+        ), name
+    assert "Read as" not in body
+
+
+async def test_text_that_carries_no_number_says_so(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The endpoint still refuses nothing (D-2) — it simply states the reading.
+
+    The rail derives nothing from `abc`, exactly as before; what is new is
+    that the operator is told why rather than left looking at a blank gross.
+    """
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    response = await web_client.post(
+        "/api/transactions/recalc",
+        data=_recalc_form(units="abc", price_per_unit="", fees="", taxes="", csrf_token=csrf),
+    )
+
+    assert response.status_code == 200
+    assert _slot(response.text, "units") == (
+        '<span class="pf-read" id="tx-read-units" hx-swap-oob="outerHTML">'
+        "not read as a number</span>"
+    )
+    assert "<dd>—</dd>" in response.text, "an unreadable field derives nothing, as it always did"

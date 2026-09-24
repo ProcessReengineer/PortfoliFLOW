@@ -10,8 +10,14 @@
    region. The head is deliberately not among them — a keystroke must not
    move the ticket number or the state pill.
 
+   Since P-UX-A1d the response ends with `_readings.html`: R10's echo, one
+   `pf-read` slot per amount field, filled or cleared on every keystroke. It
+   is last because it is the only fragment that says something about an input
+   rather than about a derivation.
+
    Context: everything `_derived_context` returns, plus oob, step, flow,
-   entered, csrf_token. #}
+   entered, csrf_token, readings and readings_fields. #}
 {% include "_partials/transactions/_order_derived.html" %}
 {% include "_partials/transactions/_wizard_context.html" %}
 {% include "_partials/transactions/_wizard_outcome.html" %}
+{% include "_partials/transactions/_readings.html" %}

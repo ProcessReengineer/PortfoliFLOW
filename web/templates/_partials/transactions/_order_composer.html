@@ -103,23 +103,31 @@
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-units">Units</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-units" name="units"
-                           step="any" value="{{ entered.units }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-units" name="units"
+                           value="{{ entered.units }}">
+                    <span class="pf-read" id="tx-read-units"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-price">Price per unit</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-price"
-                           name="price_per_unit" step="any" value="{{ entered.price_per_unit }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-price" name="price_per_unit"
+                           value="{{ entered.price_per_unit }}">
+                    <span class="pf-read" id="tx-read-price_per_unit"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-fees">Fees <span class="pf-optional">(optional)</span></label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-fees" name="fees"
-                           step="any" value="{{ entered.fees }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-fees" name="fees"
+                           value="{{ entered.fees }}">
+                    <span class="pf-read" id="tx-read-fees"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-taxes">Taxes <span class="pf-optional">(optional)</span></label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-taxes" name="taxes"
-                           step="any" value="{{ entered.taxes }}">
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-taxes" name="taxes"
+                           value="{{ entered.taxes }}">
+                    <span class="pf-read" id="tx-read-taxes"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-settlement-date">Settlement date <span class="pf-optional">(optional)</span></label>

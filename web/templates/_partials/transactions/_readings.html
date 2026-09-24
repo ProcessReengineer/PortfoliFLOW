@@ -1,0 +1,34 @@
+{# R10's echo: what the server read out of each amount field, out of band.
+
+   `ui-standards.md` §2.5 R10 makes the number fields `type="text"
+   inputmode="decimal"` and parses them server-side
+   (`core.decimal_input.parse_decimal`), which means one field accepts two
+   notations. The other half of that rule is this partial: a surface that
+   takes `1.234,56` and `1,234.56` alike has to say which number it read, or
+   the D-2 sparse contract turns a misread value into a rail that silently
+   derives nothing.
+
+   **Every slot is rendered on every keystroke, filled or empty**, from
+   `readings_fields` — the flow's own fixed list (`_Flow.readings_fields`) and
+   deliberately not the keys of `readings`. Deleting the comma out of `1,234`
+   takes the key away, and a loop over the dict would leave the last sentence
+   standing under a field that no longer says it.
+
+   `cash_opening_balance` is **not** in any flow's list. Its input lives in
+   `_settlement.html`, inside the summary rail the recalculation replaces
+   wholesale, so its slot is refilled there rather than reached out of band —
+   an OOB swap of an element the same response is about to overwrite would
+   race its own answer.
+
+   The caret rule holds (see `_order_recalc.html`): the inputs themselves are
+   never re-rendered. The slot is a sibling of the input, not its content.
+
+   Context: readings (name → reading), readings_fields (the flow's slots). #}
+{% macro sentence(text) -%}
+    {%- if text %}Read as <b>{{ text }}</b>{% else %}not read as a number{% endif -%}
+{%- endmacro %}
+{# `default([])` is for the macro's importers: `{% from %}` executes this body
+   with a fresh context, where `readings_fields` is not bound. #}
+{% for name in readings_fields | default([]) -%}
+<span class="pf-read" id="tx-read-{{ name }}" hx-swap-oob="outerHTML">{% if name in readings %}{{ sentence(readings[name]) }}{% endif %}</span>
+{% endfor -%}

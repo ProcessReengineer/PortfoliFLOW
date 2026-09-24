@@ -577,5 +577,11 @@ git add web/templates/_partials/transactions/_wizard.html \
         docs/ux/inventory/summary.md \
         docs/reports/P-UX-A1c2-report.md
 
-git commit -m "feat(transactions): wizard steps Order and Confirm on the form vocabulary — rail as the form's second child on the figure step only, Confirm's summary as fact lists and pf-leg rows, outcome on pf-note and pf-actionbar with one primary per step; tx-wizard-body retired (UX A-1, P-UX-A1c2)"
+git commit -m "feat(transactions): wizard steps Order and Confirm on the form vocabulary — rail as the form's second child on the figure step only, recalc trigger onto the form so the rail's settlement controls still reach it, Confirm's summary as fact lists and pf-leg rows, outcome on pf-note and pf-actionbar with one primary per step; tx-wizard-body and tx-btn--primary retired, wizard-step-3 atlas scene added (UX A-1, P-UX-A1c2)"
 ```
+
+The message amends the prompt's in one place: it names the trigger move
+(Deliberate deviations 1), without which the rail clause reads as though the
+rail moved and nothing else did. `tx-btn--primary` is named beside
+`tx-wizard-body` because it was not on §4.4's list and its going leaves the
+Area with no bespoke primary at all; the scene is named as A1c named its own.

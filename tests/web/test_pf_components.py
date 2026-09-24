@@ -21,7 +21,11 @@ What they pin:
 * the accessible-mode remap and its collapsed-sidebar guard;
 * the statusbar shortcut hint is gone from ``layout.css`` (P-UX-A0d §6);
 * no container query survives the transcription — ``.pf-main`` declares
-  no container yet, so one would be inert.
+  no container yet, so one would be inert;
+* **R10's number entry** in the one Area that has swept itself (P-UX-A1d):
+  no ``type="number"`` left under ``_partials/transactions/``, and every
+  ``inputmode="decimal"`` input paired with the ``pf-read`` slot the
+  recalculation fills. Template source, same regex posture as the rest.
 """
 
 from __future__ import annotations
@@ -362,4 +366,80 @@ def test_layout_css_has_no_statusbar_shortcut_rules() -> None:
     layout = _LAYOUT.read_text(encoding="utf-8")
     assert "pf-statusbar__shortcut" not in layout, (
         "layout.css still styles the retired statusbar shortcut hint."
+    )
+
+
+# ---------------------------------------------------------------------------
+# R10 number entry, in the Area that has swept itself (P-UX-A1d)
+# ---------------------------------------------------------------------------
+
+_TX_PARTIALS = _REPO_ROOT / "web" / "templates" / "_partials" / "transactions"
+
+#: How many `inputmode="decimal"` inputs each template draws. Written out so
+#: a field silently losing its slot — or a new amount field arriving without
+#: one — fails here rather than in a browser.
+_DECIMAL_INPUTS: dict[str, int] = {
+    "_order_composer.html": 4,
+    "_wizard_order.html": 4,
+    "_secondary_buy_composer.html": 3,
+    "_secondary_sale_composer.html": 3,
+    "_commitment_composer.html": 1,
+    "_settlement.html": 1,
+}
+
+_INPUT = re.compile(r"<input\b[^>]*>", re.DOTALL)
+_ATTR = re.compile(r'(\w[\w-]*)="([^"]*)"')
+
+
+def test_the_transactions_partials_draw_no_native_number_field() -> None:
+    """R10: the Area's 18 `type="number"` fields are gone, all of them.
+
+    Two notations cannot both reach a `type="number"` input — the browser
+    decides which one it accepts, by locale, and silently discards the other.
+    The whole rule rests on the control being plain text.
+    """
+    offenders = sorted(
+        path.name for path in _TX_PARTIALS.glob("*.html") if 'type="number"' in path.read_text()
+    )
+    assert not offenders, f"R10 is not held in {offenders}"
+
+
+@pytest.mark.parametrize(("name", "expected"), sorted(_DECIMAL_INPUTS.items()))
+def test_every_amount_input_has_its_reading_slot(name: str, expected: int) -> None:
+    """Each `inputmode="decimal"` input is followed by its own `pf-read` slot.
+
+    The slot is a **sibling** of the input and never its content: the
+    recalculation refreshes the reading on every keystroke, and re-rendering
+    the input itself would move the caret (see `_order_recalc.html`). The id
+    is `tx-read-{name}` — keyed on the posted name, not on the input's own id,
+    so the route can address the slot without knowing the template.
+    """
+    source = (_TX_PARTIALS / name).read_text(encoding="utf-8")
+    fields = [
+        dict(_ATTR.findall(tag)) for tag in _INPUT.findall(source) if 'inputmode="decimal"' in tag
+    ]
+
+    assert len(fields) == expected, f"{name} draws {len(fields)} amount inputs, expected {expected}"
+    for field in fields:
+        assert field.get("type") == "text", field
+        assert "step" not in field, f"{field.get('name')} still carries a number-field step"
+        assert f'id="tx-read-{field["name"]}"' in source, f"{field['name']} has no reading slot"
+
+
+def test_the_vintage_year_is_a_count_and_not_an_amount() -> None:
+    """Two `inputmode="numeric"` fields, and neither of them echoes.
+
+    A year takes no grouping rule and no decimal separator, so `_int_or_none`
+    still reads it and there is nothing to state back.
+    """
+    numeric = {
+        path.name: path.read_text(encoding="utf-8").count('inputmode="numeric"')
+        for path in _TX_PARTIALS.glob("*.html")
+    }
+    assert {name: count for name, count in numeric.items() if count} == {
+        "_secondary_buy_composer.html": 1,
+        "_commitment_composer.html": 1,
+    }
+    assert 'id="tx-read-md_vintage_year"' not in "".join(
+        path.read_text(encoding="utf-8") for path in _TX_PARTIALS.glob("*.html")
     )

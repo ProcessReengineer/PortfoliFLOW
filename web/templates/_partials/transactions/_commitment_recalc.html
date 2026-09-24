@@ -14,8 +14,14 @@
    it is being typed into would move the caret; the server owns what is
    *derived*, the browser keeps what is *entered*.
 
+   Since P-UX-A1d the response ends with `_readings.html`: R10's echo, one
+   `pf-read` slot per amount field, filled or cleared on every keystroke. It
+   is last because it is the only fragment that says something about an input
+   rather than about a derivation.
+
    Context: `oob` is true throughout, plus everything `_derived_context`
-   returns. #}
+   returns, plus readings and readings_fields. #}
 {% include "_partials/transactions/_commitment_derived.html" %}
 {% include "_partials/transactions/_order_title.html" %}
 {% include "_partials/transactions/_commitment_outcome.html" %}
+{% include "_partials/transactions/_readings.html" %}

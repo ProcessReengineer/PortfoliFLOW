@@ -75,13 +75,15 @@
             <div class="pf-grid">
                 <div class="pf-field">
                     <label class="pf-label" for="tx-commit-amount">Commitment amount{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-commit-amount"
-                           name="commitment_amount" step="any"
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-commit-amount" name="commitment_amount"
                            value="{{ entered.commitment_amount }}">
+                    <span class="pf-read" id="tx-read-commitment_amount"></span>
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-commit-vintage">Vintage year</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-commit-vintage"
+                    <input class="pf-input pf-input--num" type="text" inputmode="numeric"
+                           autocomplete="off" id="tx-commit-vintage"
                            name="md_vintage_year" value="{{ entered.md_vintage_year }}">
                 </div>
                 <div class="pf-field">

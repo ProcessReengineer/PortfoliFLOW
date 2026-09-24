@@ -205,7 +205,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date as _date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
 
@@ -215,6 +215,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from core.decimal_input import parse_decimal, was_interpreted
 from core.exceptions import (
     CurrencyMismatchError,
     DuplicateCashPositionError,
@@ -437,6 +438,14 @@ class _Flow:
             and history would each have to be kept in step with. The order
             flow's label is completed with its direction at render, which
             is :func:`_flow_label`'s whole job.
+        readings_fields: The amount inputs this flow's *main column* draws,
+            in form order — the fields whose ``pf-read`` slot the R10 echo
+            refreshes out of band (P-UX-A1d §4). A fixed list rather than the
+            posted readings' keys, because a slot has to be *cleared* when a
+            reading goes away and an absent key would leave the last one
+            standing. ``cash_opening_balance`` is deliberately not here: it
+            renders inside the summary rail, which the recalculation replaces
+            wholesale, so its slot is refilled by the rail itself.
     """
 
     kind: str
@@ -446,6 +455,7 @@ class _Flow:
     composer: str | None
     recalc: str
     label: str
+    readings_fields: tuple[str, ...]
 
 
 #: Every flow this Area composes, keyed by the ``flow`` field's value.
@@ -463,6 +473,7 @@ _FLOWS: dict[str, _Flow] = {
         composer="_order_composer.html",
         recalc="_order_recalc.html",
         label="Order",
+        readings_fields=("units", "price_per_unit", "fees", "taxes"),
     ),
     FLOW_NEW_INSTRUMENT: _Flow(
         kind=KIND_ORDER,
@@ -472,6 +483,7 @@ _FLOWS: dict[str, _Flow] = {
         composer=None,
         recalc="_wizard_recalc.html",
         label="New instrument",
+        readings_fields=("units", "price_per_unit", "fees", "taxes"),
     ),
     FLOW_SECONDARY_SALE: _Flow(
         kind=KIND_SECONDARY,
@@ -481,6 +493,7 @@ _FLOWS: dict[str, _Flow] = {
         composer="_secondary_sale_composer.html",
         recalc="_secondary_sale_recalc.html",
         label="Secondary sale",
+        readings_fields=("gross_amount", "fees", "taxes"),
     ),
     FLOW_COMMITMENT: _Flow(
         kind=KIND_COMMITMENT,
@@ -490,6 +503,7 @@ _FLOWS: dict[str, _Flow] = {
         composer="_commitment_composer.html",
         recalc="_commitment_recalc.html",
         label="Commitment",
+        readings_fields=("commitment_amount",),
     ),
     FLOW_SECONDARY_BUY: _Flow(
         kind=KIND_SECONDARY,
@@ -499,6 +513,7 @@ _FLOWS: dict[str, _Flow] = {
         composer="_secondary_buy_composer.html",
         recalc="_secondary_buy_recalc.html",
         label="Secondary purchase",
+        readings_fields=("gross_amount", "md_acquired_nav", "md_assumed_unfunded"),
     ),
 }
 
@@ -770,16 +785,14 @@ def _decimal_or_none(raw: str | None) -> Decimal | None:
     endpoint fires on every keystroke, where a half-typed number is the
     normal case and not an error: the surface simply derives less until the
     value is complete (operator decision D-2's sparse contract).
+
+    The reading itself is :func:`~core.decimal_input.parse_decimal`'s, which
+    takes both the German and the English notation (R10) — this function is
+    the seam that puts every one of this Area's amount fields on it, and
+    :func:`_reading` is the other half of the rule: a field that accepts two
+    notations has to say which one it was read in.
     """
-    if raw is None:
-        return None
-    text = raw.strip()
-    if not text:
-        return None
-    try:
-        return Decimal(text)
-    except (InvalidOperation, ValueError):
-        return None
+    return parse_decimal(raw)
 
 
 def _int_or_none(raw: str | None) -> int | None:
@@ -919,9 +932,14 @@ class _ComposerForm:
     Attributes:
         entered: The raw strings, echoed back into the composer's own inputs
             so a re-render after a gesture shows what the user typed rather
-            than an empty form. Deliberately *not* the parsed values: a
-            re-formatted number in a ``type="number"`` input is a number the
-            browser may reject, and the form is the unit of state.
+            than an empty form. Deliberately *not* the parsed values: the
+            form is the unit of state, and normalising ``1.234,56`` to
+            ``1234.56`` under the operator would take away the notation they
+            chose. P-UX-A1d is what makes that safe to keep — the reading is
+            *stated* in a slot beside the field rather than written into it.
+        readings: What :func:`_reading` made of each amount field, keyed by
+            form name. The R10 echo's whole payload; empty on an untouched
+            form, and never a key for a field that said nothing.
     """
 
     def __init__(
@@ -1053,6 +1071,17 @@ class _ComposerForm:
             "md_purchase_price": md_purchase_price,
             "md_acquired_nav": md_acquired_nav,
             "md_assumed_unfunded": md_assumed_unfunded,
+        }
+        # R10's other half, read off the raw strings above: a field that
+        # accepts two notations has to say which one it was read in, or the
+        # D-2 sparse contract turns a misread value into a rail that simply
+        # derives nothing. Only the fields that *said* something are keyed —
+        # see :func:`_reading` — and the slot list the templates clear from
+        # is :attr:`_Flow.readings_fields`, not these keys.
+        self.readings: dict[str, str] = {
+            name: reading
+            for name in _AMOUNT_FIELDS
+            if (reading := _reading(name, self.entered[name])) is not None
         }
 
     def master_data(self, *, currency: str) -> dict[str, Any]:
@@ -1285,6 +1314,59 @@ def _units(value: Decimal) -> str:
 def _signed_units(value: Decimal) -> str:
     """Format a unit quantity with an explicit sign, from ``abs``."""
     return f"{'+' if value >= 0 else _MINUS}{abs(value):,.4f}"
+
+
+#: Every amount field in ``_ComposerForm``'s inventory — the decimal half of
+#: it, which is the half R10 governs. ``md_vintage_year`` is absent because a
+#: year is a count and not an amount: it takes no grouping rule and echoes
+#: nothing. ``md_purchase_price`` has no control anywhere (D-U makes it a
+#: mirror of ``gross_amount``) and is listed so the reading is built from the
+#: whole contract rather than from the fields that happen to have an input.
+_AMOUNT_FIELDS: tuple[str, ...] = (
+    "units",
+    "price_per_unit",
+    "gross_amount",
+    "fees",
+    "taxes",
+    "cash_opening_balance",
+    "commitment_amount",
+    "md_purchase_price",
+    "md_acquired_nav",
+    "md_assumed_unfunded",
+)
+
+#: Which of the two formatters above states each field's echo. The rail
+#: already draws a quantity and a price at four decimals (``formula``, the
+#: last-price row) and every other figure as money, so an echo formatted this
+#: way never disagrees with the number standing beside it.
+_READING_FORMAT: dict[str, Callable[[Decimal], str]] = {
+    "units": _units,
+    "price_per_unit": _units,
+}
+
+
+def _reading(name: str, raw: str) -> str | None:
+    """The R10 echo for one amount field: what was read, or ``None``.
+
+    ``None`` means *say nothing*, and it is the common answer: a blank field
+    has nothing to echo, and a plain ``1200`` reads the same in either
+    notation, so stating it back would put a sentence under every field on
+    every keystroke. The empty string is the other answer — text that carries
+    no number at all — which the slot renders as its own sentence rather than
+    as a figure.
+
+    Args:
+        name: The field's form name, which picks the formatter.
+        raw: The posted text, exactly as typed.
+
+    Returns:
+        The formatted value where a rule was applied, ``""`` where non-blank
+        text yielded no number, and ``None`` where there is nothing to say.
+    """
+    value = parse_decimal(raw)
+    if value is None:
+        return "" if raw.strip() else None
+    return _READING_FORMAT.get(name, _money)(value) if was_interpreted(raw) else None
 
 
 def _is_pickable(investment: InvestmentDTO) -> bool:
@@ -2456,6 +2538,7 @@ async def _composer_context(
         "cases": cases,
         "trade_date": form.trade_date,
         "entered": form.entered,
+        "readings": form.readings,
         "case_id": form.case_id,
         "ticket_id": str(ticket.id) if ticket is not None else None,
         "ticket_number": ticket.ticket_number if ticket is not None else None,
@@ -2733,6 +2816,7 @@ async def _wizard_context(
         "cases": await CaseRepository(db).list_open(),
         "trade_date": form.trade_date,
         "entered": form.entered,
+        "readings": form.readings,
         "case_id": form.case_id,
         "ticket_id": str(ticket.id) if ticket is not None else None,
         "ticket_number": ticket.ticket_number if ticket is not None else None,
@@ -4092,6 +4176,13 @@ async def post_recalc(
             # does replace.
             "ticket_id": str(ticket.id) if ticket is not None else None,
             "entered": form.entered,
+            # R10's echo, and the fixed list of slots it must fill *or clear*.
+            # The list is the flow's own (`_Flow.readings_fields`) rather than
+            # the readings' keys: deleting the comma out of `1,234` takes the
+            # key away, and a partial keyed on the dict would leave the last
+            # sentence standing under a field that no longer says it.
+            "readings": form.readings,
+            "readings_fields": spec.readings_fields,
             **derived,
         },
     )

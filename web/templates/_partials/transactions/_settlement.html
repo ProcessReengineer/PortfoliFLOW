@@ -25,7 +25,13 @@
    them to be the same template.
 
    Context: currency, candidates, offer_cash_creation, inactive_cash_only,
-   settle_confirmed, entered, currency_from_form. #}
+   settle_confirmed, entered, currency_from_form, readings. #}
+{# The R10 echo's one sentence, shared with `_readings.html` so the copy has a
+   single home. The opening-balance slot is filled here rather than out of
+   band: this block is inside the rail the recalculation replaces wholesale,
+   and an OOB swap of an element the same response overwrites would race its
+   own answer. #}
+{% from "_partials/transactions/_readings.html" import sentence %}
     <div>
         <p class="pf-rail-sum__title">Settlement position</p>
         {% if not currency %}
@@ -90,9 +96,14 @@
                 </div>
                 <div class="pf-field pf-field--half">
                     <label class="pf-label" for="tx-cash-opening">Opening balance</label>
-                    <input class="pf-input pf-input--num" type="number" id="tx-cash-opening"
-                           name="cash_opening_balance" step="any" min="0"
+                    <input class="pf-input pf-input--num" type="text" inputmode="decimal"
+                           autocomplete="off" id="tx-cash-opening" name="cash_opening_balance"
                            value="{{ entered.cash_opening_balance or '0' }}">
+                    <span class="pf-read" id="tx-read-cash_opening_balance">
+                        {%- if "cash_opening_balance" in readings -%}
+                            {{ sentence(readings["cash_opening_balance"]) }}
+                        {%- endif -%}
+                    </span>
                     <span class="pf-hint">Books as an opening row on the new position.</span>
                 </div>
             </div>

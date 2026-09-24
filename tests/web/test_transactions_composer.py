@@ -748,7 +748,7 @@ async def test_buy_short_of_cash_warns_and_marks_the_projection(
     assert "EUR Cash — Commerzbank goes to" in _flat(body)
     assert "−108,900.00 EUR" in _flat(body)
     assert "Booking is allowed — the trade is your call." in _flat(body)
-    assert "tx-num--neg" in body, "the projected balance is marked negative"
+    assert "pf-neg" in body, "the projected balance is marked negative"
     assert _actions(body)["Book now"] is False, "a warning never disables anything (MD-5)"
 
 

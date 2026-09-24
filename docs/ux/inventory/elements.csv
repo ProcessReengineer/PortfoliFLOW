@@ -582,34 +582,34 @@ investments,investments/charts.html,content,template,button,All investments,/inv
 investments,investments/charts.html,content,template,link,All investments,/investments,,web/templates/investments/charts.html,19,synonym-candidate
 investments,investments/charts.html,content,template,tooltip,Investment charts,,,web/templates/investments/charts.html,23,from:aria-label|icon-only
 investments,investments/detail.html,content,template,heading,{{ investment.name }} Active Inactive,,,web/templates/investments/detail.html,14,dynamic
-investments,investments/detail.html,content,template,button,← Back to investments,/investments,,web/templates/investments/detail.html,66,synonym-candidate
-investments,investments/detail.html,content,template,link,← Back to investments,/investments,,web/templates/investments/detail.html,66,synonym-candidate
-investments,investments/detail.html,content,template,button,Charts,/investments/{{ investment.id }}/charts,,web/templates/investments/detail.html,67,
-investments,investments/detail.html,content,template,link,Charts,/investments/{{ investment.id }}/charts,,web/templates/investments/detail.html,67,
-investments,investments/detail.html,content,template,button,Edit,/investments/{{ investment.id }}/edit,,web/templates/investments/detail.html,68,
-investments,investments/detail.html,content,template,link,Edit,/investments/{{ investment.id }}/edit,,web/templates/investments/detail.html,68,
-investments,investments/detail.html,content,template,button,Deactivate,,,web/templates/investments/detail.html,70,duplicate-label
-investments,investments/detail.html,content,template,button,Reactivate,,,web/templates/investments/detail.html,72,
-investments,investments/detail.html,content,template,button,Delete,,,web/templates/investments/detail.html,74,
-investments,investments/detail.html,content,template,heading,NAV Time Series,,,web/templates/investments/detail.html,80,abbrev
-investments,investments/detail.html,content,template,button,+ Add NAV,,,web/templates/investments/detail.html,81,abbrev
-investments,investments/detail.html,content,template,heading,Cashflows,,,web/templates/investments/detail.html,94,
-investments,investments/detail.html,content,template,button,+ Add Cashflow,,,web/templates/investments/detail.html,95,
-investments,investments/detail.html,content,template,tooltip,Cashflows,,,web/templates/investments/detail.html,97,from:aria-label|icon-only
-investments,investments/detail.html,content,template,heading,Security Identifiers,,,web/templates/investments/detail.html,102,
-investments,investments/detail.html,content,template,button,+ Add Identifier,,,web/templates/investments/detail.html,103,
-investments,investments/detail.html,content,template,tooltip,Security identifiers,,,web/templates/investments/detail.html,105,from:aria-label|icon-only
-investments,investments/detail.html,content,template,heading,Positions unitised reported,,,web/templates/investments/detail.html,114,internal-name
-investments,investments/detail.html,content,template,pill,unitised,,,web/templates/investments/detail.html,117,
-investments,investments/detail.html,content,template,pill,reported,,,web/templates/investments/detail.html,119,internal-name
-investments,investments/detail.html,content,template,button,+ Add Transaction,,,web/templates/investments/detail.html,123,
-investments,investments/detail.html,content,template,button,Switch to unitised,,,web/templates/investments/detail.html,125,
-investments,investments/detail.html,content,template,pill,basis: {{ n.basis }},,,web/templates/investments/detail.html,177,dynamic
-investments,investments/detail.html,content,template,tooltip,Position transactions,,,web/templates/investments/detail.html,186,from:aria-label|icon-only
-investments,investments/detail.html,content,template,heading,Region Allocation,,,web/templates/investments/detail.html,192,
-investments,investments/detail.html,content,template,empty_state,No region allocation recorded.,,,web/templates/investments/detail.html,214,
-investments,investments/detail.html,content,template,heading,Sector Allocation,,,web/templates/investments/detail.html,220,
-investments,investments/detail.html,content,template,empty_state,No sector allocation recorded.,,,web/templates/investments/detail.html,242,
+investments,investments/detail.html,content,template,button,← Back to investments,/investments,,web/templates/investments/detail.html,74,synonym-candidate
+investments,investments/detail.html,content,template,link,← Back to investments,/investments,,web/templates/investments/detail.html,74,synonym-candidate
+investments,investments/detail.html,content,template,button,Charts,/investments/{{ investment.id }}/charts,,web/templates/investments/detail.html,75,
+investments,investments/detail.html,content,template,link,Charts,/investments/{{ investment.id }}/charts,,web/templates/investments/detail.html,75,
+investments,investments/detail.html,content,template,button,Edit,/investments/{{ investment.id }}/edit,,web/templates/investments/detail.html,76,
+investments,investments/detail.html,content,template,link,Edit,/investments/{{ investment.id }}/edit,,web/templates/investments/detail.html,76,
+investments,investments/detail.html,content,template,button,Deactivate,,,web/templates/investments/detail.html,78,duplicate-label
+investments,investments/detail.html,content,template,button,Reactivate,,,web/templates/investments/detail.html,80,
+investments,investments/detail.html,content,template,button,Delete,,,web/templates/investments/detail.html,82,
+investments,investments/detail.html,content,template,heading,NAV Time Series,,,web/templates/investments/detail.html,88,abbrev
+investments,investments/detail.html,content,template,button,+ Add NAV,,,web/templates/investments/detail.html,89,abbrev
+investments,investments/detail.html,content,template,heading,Cashflows,,,web/templates/investments/detail.html,102,
+investments,investments/detail.html,content,template,button,+ Add Cashflow,,,web/templates/investments/detail.html,103,
+investments,investments/detail.html,content,template,tooltip,Cashflows,,,web/templates/investments/detail.html,105,from:aria-label|icon-only
+investments,investments/detail.html,content,template,heading,Security Identifiers,,,web/templates/investments/detail.html,110,
+investments,investments/detail.html,content,template,button,+ Add Identifier,,,web/templates/investments/detail.html,111,
+investments,investments/detail.html,content,template,tooltip,Security identifiers,,,web/templates/investments/detail.html,113,from:aria-label|icon-only
+investments,investments/detail.html,content,template,heading,Positions unitised reported,,,web/templates/investments/detail.html,122,internal-name
+investments,investments/detail.html,content,template,pill,unitised,,,web/templates/investments/detail.html,125,
+investments,investments/detail.html,content,template,pill,reported,,,web/templates/investments/detail.html,127,internal-name
+investments,investments/detail.html,content,template,button,+ Add Transaction,,,web/templates/investments/detail.html,131,
+investments,investments/detail.html,content,template,button,Switch to unitised,,,web/templates/investments/detail.html,133,
+investments,investments/detail.html,content,template,pill,basis: {{ n.basis }},,,web/templates/investments/detail.html,185,dynamic
+investments,investments/detail.html,content,template,tooltip,Position transactions,,,web/templates/investments/detail.html,194,from:aria-label|icon-only
+investments,investments/detail.html,content,template,heading,Region Allocation,,,web/templates/investments/detail.html,200,
+investments,investments/detail.html,content,template,empty_state,No region allocation recorded.,,,web/templates/investments/detail.html,222,
+investments,investments/detail.html,content,template,heading,Sector Allocation,,,web/templates/investments/detail.html,228,
+investments,investments/detail.html,content,template,empty_state,No sector allocation recorded.,,,web/templates/investments/detail.html,250,
 investments,investments/edit.html,content,template,heading,Edit: {{ investment.name }},,,web/templates/investments/edit.html,14,dynamic
 investments,investments/list.html,content,template,heading,Investments,,,web/templates/investments/list.html,14,
 investments,investments/list.html,content,template,form_label,Type All types {{ t }},,,web/templates/investments/list.html,24,dynamic
@@ -900,15 +900,7 @@ transactions,_partials/transactions/_history_row.html,,template,tooltip,Details 
 transactions,_partials/transactions/_history_row.html,,template,button,"{{ pf_icon(""more"", ""More actions for ticket #"" ~ row.ticket_number) }}",,,web/templates/_partials/transactions/_history_row.html,59,dynamic
 transactions,_partials/transactions/_history_row.html,,template,button,Reverse booking…,/api/transactions/ticket/{{ row.id }}/reverse,#tx-reverse-{{ row.id }},web/templates/_partials/transactions/_history_row.html,61,
 transactions,_partials/transactions/_history_row.html,,template,htmx,Reverse booking…,/api/transactions/ticket/{{ row.id }}/reverse,#tx-reverse-{{ row.id }},web/templates/_partials/transactions/_history_row.html,61,verb:GET
-transactions,_partials/transactions/_impact_panel.html,,template,button,Close,,,web/templates/_partials/transactions/_impact_panel.html,50,duplicate-label
-transactions,_partials/transactions/_impact_panel.html,,template,button,Close,,,web/templates/_partials/transactions/_impact_panel.html,74,duplicate-label
-transactions,_partials/transactions/_impact_panel.html,,template,pill,{{ row.badge }},,,web/templates/_partials/transactions/_impact_panel.html,126,dynamic
-transactions,_partials/transactions/_impact_panel.html,,template,pill,{{ row.badge }},,,web/templates/_partials/transactions/_impact_panel.html,149,dynamic
-transactions,_partials/transactions/_impact_panel.html,,template,pill,< 0,,,web/templates/_partials/transactions/_impact_panel.html,159,
-transactions,_partials/transactions/_impact_panel.html,,template,pill,< 0,,,web/templates/_partials/transactions/_impact_panel.html,184,
-transactions,_partials/transactions/_impact_panel.html,,template,pill,< 0,,,web/templates/_partials/transactions/_impact_panel.html,192,
-transactions,_partials/transactions/_impact_panel.html,,template,pill,unchanged,,,web/templates/_partials/transactions/_impact_panel.html,201,
-transactions,_partials/transactions/_impact_panel.html,,template,button,Close,,,web/templates/_partials/transactions/_impact_panel.html,228,duplicate-label
+transactions,_partials/transactions/_impact_panel.html,,template,button,"{{ pf_icon(""close"", ""Close"") }}",,,web/templates/_partials/transactions/_impact_panel.html,39,dynamic
 transactions,_partials/transactions/_master_data_fields.html,,template,form_label,Name,tx-md-name,,web/templates/_partials/transactions/_master_data_fields.html,36,duplicate-label
 transactions,_partials/transactions/_master_data_fields.html,,template,form_label,Investment type,tx-md-type,,web/templates/_partials/transactions/_master_data_fields.html,41,
 transactions,_partials/transactions/_master_data_fields.html,,template,select,{{ option }},md_investment_type,,web/templates/_partials/transactions/_master_data_fields.html,42,dynamic|options:1
@@ -917,8 +909,8 @@ transactions,_partials/transactions/_master_data_fields.html,,template,select,Pi
 transactions,_partials/transactions/_master_data_fields.html,,template,form_label,Currency,tx-md-currency,,web/templates/_partials/transactions/_master_data_fields.html,65,duplicate-label
 transactions,_partials/transactions/_master_data_fields.html,,template,form_label,AnlV category,tx-md-anlv,,web/templates/_partials/transactions/_master_data_fields.html,79,abbrev
 transactions,_partials/transactions/_master_data_fields.html,,template,select,— not set — {{ option.paragraph_label }} — {{ option.display_name }},md_anlv_code,,web/templates/_partials/transactions/_master_data_fields.html,80,dynamic|options:2
-transactions,_partials/transactions/_negative_cash.html,,template,htmx,! A cash position is below zero. Two cash positions are below zero. {{ count }} cash positions are below zero. {{ position.name }} · inactive stands at {{ position.balance }} {{ position.currency }} since {{ position.since }} The position stays flagged until the balance is back at zero or above. A booking's cash effect is in the book at once; the cash position's balance shows it from the next price date on.,/api/transactions/negative-cash,this,web/templates/_partials/transactions/_negative_cash.html,37,dynamic|verb:GET
-transactions,_partials/transactions/_negative_cash.html,,template,link,{{ position.name }},/investments/{{ position.id }},,web/templates/_partials/transactions/_negative_cash.html,58,dynamic
+transactions,_partials/transactions/_negative_cash.html,,template,link,{{ position.name }},/investments/{{ position.id }},,web/templates/_partials/transactions/_negative_cash.html,54,dynamic
+transactions,_partials/transactions/_negative_cash.html,,template,htmx,"{{ pf_icon(""warn"") }} A cash position is below zero. Two cash positions are below zero. {{ count }} cash positions are below zero. {{ cash_line(positions[0]) }} {{ cash_line(position) }} Why this is flagged The position stays flagged until the balance is back at zero or above. A booking's cash effect is in the book at once; the cash position's balance shows it from the next price date on.",/api/transactions/negative-cash,this,web/templates/_partials/transactions/_negative_cash.html,59,dynamic|verb:GET
 transactions,_partials/transactions/_order_composer.html,,template,htmx,What happened Direction Buy Sell Investment Pick an investment… {{ option.name }} — {{ option.currency }} Unitised and active investments only. Execution Trade date Both legs book on this date. Units Price per unit Fees (optional) Taxes (optional) Settlement date (optional) Recorded only. Cash books on the trade date. Provenance Linked case (optional) No case Case #{{ case.case_number }} — {{ case.title }} Source (optional) Note (optional),/api/transactions/recalc,#tx-derived,web/templates/_partials/transactions/_order_composer.html,45,dynamic|verb:POST
 transactions,_partials/transactions/_order_composer.html,What happened,template,heading,What happened,,,web/templates/_partials/transactions/_order_composer.html,57,
 transactions,_partials/transactions/_order_composer.html,What happened,template,form_label,Buy,tx-direction-buy,,web/templates/_partials/transactions/_order_composer.html,69,
@@ -1263,20 +1255,20 @@ back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_sect
 back_office,,,js,js_call,,/api/saa/asset-classes/{param},,web/static/js/saa_section.js,738,unlinked|verb:DELETE|via:fetchJson
 back_office,_partials/saa_asset_classes_modal.html,,js,js_call,,/api/saa/asset-classes,,web/static/js/saa_section.js,847,event:submit|linked|verb:POST|via:fetchJson
 back_office,_partials/benchmarks_attribution_stage_a.html,,js,js_call,,/api/back-office/benchmarks-attribution/stage-a/investment-detail,,web/templates/_partials/benchmarks_attribution_stage_a.html,186,unlinked|verb:GET
-investments,investments/detail.html,,js,js_call,,/investments/{param}/navs/{param},,web/templates/investments/detail.html,374,unlinked|verb:DELETE
-investments,investments/detail.html,,js,js_call,,/investments/{param}/cashflows/{param},,web/templates/investments/detail.html,447,unlinked|verb:DELETE
-investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param}/primary,,web/templates/investments/detail.html,501,unlinked|verb:POST
-investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param},,web/templates/investments/detail.html,528,unlinked|verb:DELETE
-investments,investments/_nav_form.html,,js,js_call,,/investments/{param}/navs,,web/templates/investments/detail.html,599,event:submit|linked|verb:POST
-investments,investments/_cashflow_form.html,,js,js_call,,/investments/{param}/cashflows,,web/templates/investments/detail.html,633,event:submit|linked|verb:POST
-investments,investments/_identifier_form.html,,js,js_call,,/investments/{param}/identifiers,,web/templates/investments/detail.html,660,event:submit|linked|verb:POST
-investments,investments/detail.html,,js,js_call,,/investments/{param}/positions/{param},,web/templates/investments/detail.html,774,unlinked|verb:DELETE
-investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions,,web/templates/investments/detail.html,873,event:submit|linked|verb:POST
-investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions/{param},,web/templates/investments/detail.html,873,event:submit|linked|verb:PUT
-investments,investments/_mode_flip_confirm.html,,js,js_call,,/investments/{param}/valuation-mode/unitised,,web/templates/investments/detail.html,909,event:submit|linked|verb:POST
-investments,investments/detail.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/detail.html,938,unlinked|verb:PATCH
-investments,investments/detail.html,,js,js_call,Delete,/investments/{param},,web/templates/investments/detail.html,964,event:click|linked|verb:DELETE
-investments,investments/detail.html,,js,js_call,Delete,/investments,,web/templates/investments/detail.html,968,event:click|linked|navigation|verb:GET
+investments,investments/detail.html,,js,js_call,,/investments/{param}/navs/{param},,web/templates/investments/detail.html,382,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,,/investments/{param}/cashflows/{param},,web/templates/investments/detail.html,455,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param}/primary,,web/templates/investments/detail.html,509,unlinked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/identifiers/{param},,web/templates/investments/detail.html,536,unlinked|verb:DELETE
+investments,investments/_nav_form.html,,js,js_call,,/investments/{param}/navs,,web/templates/investments/detail.html,607,event:submit|linked|verb:POST
+investments,investments/_cashflow_form.html,,js,js_call,,/investments/{param}/cashflows,,web/templates/investments/detail.html,641,event:submit|linked|verb:POST
+investments,investments/_identifier_form.html,,js,js_call,,/investments/{param}/identifiers,,web/templates/investments/detail.html,668,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/positions/{param},,web/templates/investments/detail.html,782,unlinked|verb:DELETE
+investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions,,web/templates/investments/detail.html,881,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,+ Add Transaction,/investments/{param}/positions/{param},,web/templates/investments/detail.html,881,event:submit|linked|verb:PUT
+investments,investments/_mode_flip_confirm.html,,js,js_call,,/investments/{param}/valuation-mode/unitised,,web/templates/investments/detail.html,917,event:submit|linked|verb:POST
+investments,investments/detail.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/detail.html,946,unlinked|verb:PATCH
+investments,investments/detail.html,,js,js_call,Delete,/investments/{param},,web/templates/investments/detail.html,972,event:click|linked|verb:DELETE
+investments,investments/detail.html,,js,js_call,Delete,/investments,,web/templates/investments/detail.html,976,event:click|linked|navigation|verb:GET
 investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,67,event:submit|linked|verb:PUT
 investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,79,event:submit|linked|navigation|verb:GET
 investments,investments/list.html,,js,js_call,,/investments/{param},,web/templates/investments/list.html,79,unlinked|verb:DELETE

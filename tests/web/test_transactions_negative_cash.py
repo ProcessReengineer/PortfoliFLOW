@@ -73,6 +73,18 @@ _HINT = (
 
 _MD9 = "The position stays flagged until the balance is back at zero or above."
 
+#: The block class the indicator renders on both surfaces since P-UX-A1e2 —
+#: the record's `pf-note--warn` (mock01 `notice()`), in place of the bespoke
+#: indicator family. ``tests/web/test_investments_routes.py`` pins the same
+#: string on the investment detail page; that they are one string is the
+#: point.
+_BLOCK = 'class="pf-note pf-note--warn"'
+
+#: One per position line: the record states a negative figure as `pf-neg`,
+#: so counting it counts the lines without depending on their wrapper (which
+#: is `pf-note__inline` for one position and `pf-note__sub` for several).
+_LINE = 'class="pf-neg"'
+
 
 def _url(value: str | None) -> str:
     assert value is not None
@@ -395,7 +407,7 @@ async def test_indicator_clears_itself_when_the_balance_is_restored(
         "/api/transactions/book",
         data=_overdrawing_form(investment_id, cash_id, csrf),
     )
-    assert "tx-indicator" in (await web_client.get(_INDICATOR_URL)).text
+    assert _BLOCK in (await web_client.get(_INDICATOR_URL)).text
 
     # An inflow that restores the balance, dated today so it counts today.
     await _seed_ledger(user_id, cash_id, (("transfer", _date.today(), "108900"),))
@@ -403,7 +415,7 @@ async def test_indicator_clears_itself_when_the_balance_is_restored(
     response = await web_client.get(_INDICATOR_URL)
     assert response.status_code == 200
     body = response.text
-    assert "tx-indicator" not in body
+    assert _BLOCK not in body
     assert "EUR Cash — Commerzbank" not in body
     assert _MD9 not in _flat(body)
     # The wrapper survives, with its refresh contract intact.
@@ -444,7 +456,7 @@ async def test_two_currencies_render_two_lines_and_no_total(
     flat = _flat(body)
 
     assert "Two cash positions are below zero." in flat
-    assert body.count('class="tx-indicator__line"') == 2
+    assert body.count(_LINE) == 2
     assert "−42,310.00 EUR" in flat
     assert "−1,250.00 USD" in flat
     assert f'href="/investments/{eur_id}"' in body
@@ -483,7 +495,7 @@ async def test_a_standing_overdraft_blocks_no_gesture(
         data=_overdrawing_form(investment_id, cash_id, csrf),
     )
     assert first.status_code == 200
-    assert "tx-indicator" in (await web_client.get(_INDICATOR_URL)).text
+    assert _BLOCK in (await web_client.get(_INDICATOR_URL)).text
 
     form = {
         "direction": "buy",
@@ -545,7 +557,7 @@ async def test_area_shell_carries_the_empty_self_fetching_wrapper(
     assert f'hx-trigger="{_TRIGGER}"' in body
     assert 'hx-swap="outerHTML"' in body
     # Empty: nothing has been derived, because nothing was read.
-    assert "tx-indicator" not in body
+    assert _BLOCK not in body
 
     header_end = body.index("</header>")
     wrapper = body.index('id="tx-negative-cash"')
@@ -672,8 +684,67 @@ async def test_more_than_two_positions_are_counted_and_inactive_ones_labelled(
     flat = _flat(body)
 
     assert "4 cash positions are below zero." in flat
-    assert body.count('class="tx-indicator__line"') == 4
+    assert body.count(_LINE) == 4
     assert "Cash EUR · Retired</a> · inactive stands at" in flat
     # Only the retired one is labelled.
     assert flat.count("· inactive stands at") == 1
     _assert_offers_nothing(body)
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary (UX A-1, P-UX-A1e2)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_indicator_is_the_record_s_warn_note(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """mock01 ``notice()``: a warn note, a `pf-neg` figure, a disclosure.
+
+    The two standing sentences moved behind "Why this is flagged" — the
+    record's own placement, and the third time the A-18 sentence sits behind
+    a `pf-more` in this Area. Nothing about the indicator's contract changed:
+    it still offers no gesture, and a `<details>` is not one.
+    """
+    user_id, email, password = seeded_user
+    investment_id, cash_id = await _standard_book(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+    await web_client.post(
+        "/api/transactions/book",
+        data=_overdrawing_form(investment_id, cash_id, csrf),
+    )
+
+    body = (await web_client.get(_INDICATOR_URL)).text
+    flat = _flat(body)
+
+    assert _BLOCK in body
+    assert body.count(_LINE) == 1
+    # One position: the record inlines its detail into the lead.
+    assert 'class="pf-note__inline"' in body
+    assert 'class="pf-more pf-note__sub"' in body
+    assert "<summary>Why this is flagged</summary>" in body
+    assert _MD9 in flat
+    assert _HINT in flat
+    for retired in ("tx-indicator", "tx-num", "tx-negative-cash"):
+        assert f'class="{retired}' not in body, retired
+    _assert_offers_nothing(body)
+
+
+async def test_the_empty_wrapper_really_is_empty(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """`:empty` counts whitespace, so the wrapper must close on its own tag.
+
+    The rule that collapses a clean book's banner to nothing is
+    `.pf-transactions #tx-negative-cash:empty`. A newline between the opening
+    and closing tags is a text node, and the rule would match nothing — the
+    element would hold its margin open on every clean render.
+    """
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get(_INDICATOR_URL)).text
+
+    assert body.strip().endswith('hx-swap="outerHTML"></div>'), body

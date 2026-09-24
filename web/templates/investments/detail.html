@@ -39,27 +39,35 @@
                 </div>
             {% endif %}
         </dl>
-        {# The negative-cash indicator, compact form (A-11, S5 P-5c). Under
-           the header, above Positions. Derived live from the ledger on every
-           render, so it is absent — not struck through — the moment the
-           balance is back at zero or above. Informational: no gesture lives
-           on it and it blocks nothing (ADR-0130). The `tx-*` classes come
-           from components/transactions.css, which base.html links globally. #}
+        {# The negative-cash indicator, this page's one position (A-11, S5
+           P-5c). Under the header, above Positions. Derived live from the
+           ledger on every render, so it is absent — not struck through — the
+           moment the balance is back at zero or above. Informational: no
+           gesture lives on it and it blocks nothing (ADR-0130).
+
+           The same block the Transactions Area draws
+           (`_partials/transactions/_negative_cash.html`), on the record's
+           `pf-note--warn` since P-UX-A1e2: one indicator, two surfaces. The
+           lead differs because the sentence does — there is one position
+           here and it is the page's subject, so it is named by "This
+           position" rather than counted. The classes come from
+           components/pf_components.css, which base.html links globally. #}
         {% if negative_cash %}
-            <div class="tx-indicator tx-indicator--compact" id="inv-negative-cash">
-                <span class="tx-indicator__glyph" aria-hidden="true">!</span>
-                <div class="tx-indicator__lines">
-                    <span>
-                        This position stands at
-                        <span class="tx-num tx-num--neg">{{ negative_cash.balance }} {{ negative_cash.currency }}</span>
-                        since {{ negative_cash.since }}.
-                    </span>
-                    <span>The position stays flagged until the balance is back at zero or above.</span>
-                    <span class="tx-indicator__hint">
-                        A booking's cash effect is in the book at once; the cash
-                        position's balance shows it from the next price date on.
-                    </span>
-                </div>
+            <div class="pf-note pf-note--warn" role="status" id="inv-negative-cash">
+                {{ pf_icon("warn") }}
+                <p class="pf-note__lead">This position stands at
+                    <span class="pf-neg">{{ negative_cash.balance }} {{ negative_cash.currency }}</span>
+                    since {{ negative_cash.since }}.</p>
+                <span></span>
+                <details class="pf-more pf-note__sub">
+                    <summary>Why this is flagged</summary>
+                    <p>
+                        The position stays flagged until the balance is back at
+                        zero or above. A booking's cash effect is in the book at
+                        once; the cash position's balance shows it from the next
+                        price date on.
+                    </p>
+                </details>
             </div>
         {% endif %}
         <div class="inv-header__actions">

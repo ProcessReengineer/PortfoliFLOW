@@ -19,8 +19,15 @@
    holds fires no `hashchange` at all, so re-reading it would be a no-op on
    exactly the second ticket opened.
 
+   The host carries no class since P-UX-A1e2. `.tx-new` set a flex column
+   with a gap, and the host holds exactly one visible child — the chooser,
+   a composer's `pf-form`, or a confirmation's `pf-form__main`, each of
+   which brings its own column — so the rule had nothing to space. The id
+   stays: it is what the composer targets and what the negative-cash
+   indicator listens to.
+
    Context: none (the chooser is static). #}
-<div class="tx-new" id="tx-composer-host"
+<div id="tx-composer-host"
      hx-on::after-swap="if (event.detail.target === this && location.hash !== '#new') location.hash = 'new'">
     {% include "_partials/transactions/_chooser.html" %}
 </div>

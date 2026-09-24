@@ -58,7 +58,7 @@
             <span></span>
             <p class="pf-note__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</p>
         {% elif message.identifier == "negative_cash" %}
-            <p class="pf-note__lead">{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</p>
+            <p class="pf-note__lead">{{ v.position }} goes to <span class="pf-neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</p>
             <span></span>
             <p class="pf-note__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</p>
         {% elif message.identifier == "net_non_positive" %}

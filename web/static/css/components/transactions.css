@@ -1,552 +1,129 @@
-/* Transactions area (ADR-0128, #061).
+/* Transactions area (ADR-0128, #061) — the residue.
  *
- * Translates docs/handover/transactions-order-form-mockup-m1.html — the
- * binding visual spec (MD-9) — for what strands S4 and S5 shipped. What is
- * left here is shrinking: P-UX-A1a moved the blotter and history onto
- * `pf-table`, P-UX-A1b moved the chooser and the order composer onto
- * `pf-form`, `pf-rail-sum`, `pf-actionbar`, `pf-note`, `pf-seg` and
- * `pf-choice`, retiring the flow-chooser, direction, settlement and
- * inline-create families outright, and P-UX-A1b2 moved the three M-3 reported
- * flows onto the same shapes, retiring the derived-amount, scope and no-cash
- * families with them, and P-UX-A1c moved the M-2 wizard's frame, stepper and
- * first two steps, retiring the ticket-card, stepper and Identify families
- * and the three orphans A1b and A1b2 left behind. P-UX-A1c2 finished the
- * wizard — its Order and Confirm steps and its outcome bar — and retired the
- * block, grid, field, context, summary-card, outcome and action families with
- * it, along with `.tx-wizard-body` and `.tx-btn--primary`. P-UX-A1e moved
- * what opens *under* a row — the two reason panels, the History detail with
- * `_effect_leg.html`, and the reversal report — onto `pf-panel`, `pf-facts`,
- * `pf-leg` and `pf-note`, retiring the reason, kv, legs, leg and messages
- * families, `.tx-block__title`, `.tx-btn--danger` and the A1a slot-padding
- * transition rule with them. What is left is the impact panel's and the
- * negative-cash indicator's (A1e2), plus `.tx-num` and `.tx-state`, which
- * migrate with the surfaces that draw them.
+ * This sheet once translated docs/handover/transactions-order-form-mockup-m1.html
+ * and its four siblings for what strands S4, S5 and S6 shipped. The UX A-1
+ * strand moved every one of those surfaces onto the component vocabulary in
+ * pf_components.css, and what is left here is only what that vocabulary does
+ * not name.
  *
- * Scoping. Every rule carries the `tx-` prefix and no rule reaches outside
- * it. That is stricter than the `.pf-cases`-root convention next door and is
- * deliberate: the composer's markup is HTMX-swapped into an area section and
- * into out-of-band hosts scattered through it, so a single scoping root would
- * have to ride on four separate fragments. One consequence is left worth
- * naming: buttons are `tx-btn*` rather than the mock's `.pf-btn`, and that
- * holds only for the one surface still to migrate — the impact panel — since
- * `pf-btn` has been declared in full in pf_components.css since A0d. The
- * sibling statement about `tx-field*` went with the family itself in
- * P-UX-A1c2: form fields on this surface are `pf-field` and `pf-grid` now,
- * everywhere.
- * Nine rule groups break the prefix rule on purpose and are scoped to
- * `.pf-transactions` instead — the `pf-table` slot rule A1a needed, now
- * narrowed to the one occupant that is not a `pf-panel`, the two A1c
- * leftovers (the mono ids and the field holding a control), the three
- * P-UX-A1b2 re-homes, the one P-UX-A1c2 re-home and the two P-UX-A1e re-homes
- * (the leg's type track, and the gap between the reversal report and the
- * filter bar) — each painting a shared family in a state the record does not
- * name.
+ * How it emptied, in order:
+ *   - P-UX-A1a: the blotter and history onto `pf-table`, `pf-filters` and
+ *     `pf-more`.
+ *   - P-UX-A1b / A1b2: the chooser, the order composer and the three M-3
+ *     reported flows onto `pf-form`, `pf-rail-sum`, `pf-actionbar`,
+ *     `pf-note`, `pf-seg` and `pf-choice`, retiring the flow-chooser,
+ *     direction, settlement, inline-create, derived-amount, scope and
+ *     no-cash families.
+ *   - P-UX-A1c / A1c2: the M-2 wizard's frame, stepper and four steps,
+ *     retiring the ticket-card, stepper, Identify, block, grid, field,
+ *     context, summary-card, outcome and action families, `.tx-wizard-body`
+ *     and `.tx-btn--primary`.
+ *   - P-UX-A1e: what opens *under* a row — the two reason panels, the
+ *     History detail and the reversal report — onto `pf-panel`, `pf-facts`,
+ *     `pf-leg` and `pf-note`, retiring the reason, kv, legs, leg and
+ *     messages families, `.tx-block__title`, `.tx-btn--danger` and the A1a
+ *     slot-padding transition rule.
+ *   - P-UX-A1e2: the last three. The **impact panel** is `pf-panel`,
+ *     `pf-facts` and the record's projection family (`pf-lenses`,
+ *     `pf-lens__title`, `pf-delta`, transcribed into pf_components.css by
+ *     that prompt); the **negative-cash indicator** is `pf-note--warn` on
+ *     both the Area and the investment detail page; and `.tx-num--neg` is
+ *     `pf-neg`. With them went `.tx-impact*`, `.tx-lens*`, `.tx-delta*`,
+ *     `.tx-indicator*`, `.tx-msg*` and `.tx-msg__code`, `.tx-state*`,
+ *     `.tx-num*`, `.tx-new`, `.tx-btn` with `--sm`, `--ghost`, its two
+ *     pseudo-classes and `a.tx-btn`, and the `:has(> .tx-impact)` rule that
+ *     gave the last non-`pf-panel` slot occupant its ground.
  *
- * Tokens. Colours and fonts come from `--ui-*`, per MD-7's vocabulary:
- * blocks red (`--ui-semantic-error`), warnings amber
- * (`--ui-semantic-warning`), consequences blue (`--ui-semantic-info`).
- * Three notes on the translation from the self-contained mock:
- *   - the mock's `--pf-bg-elevated` is replaced by `--ui-background-section`,
- *     which holds the identical value in the default theme and, unlike the
- *     `--pf-*` family, is redefined per theme;
- *   - mono text uses the app stack `var(--ui-font-family-mono)`, the
- *     components/cases.css idiom;
- *   - `--ui-text-primary` is the accent colour in this theme, so the mock's
- *     own use of it for emphasis carries over unchanged.
+ * So there is no `tx-`-prefixed *class* rule left, and the prefix rule the
+ * old header stated has nothing to scope. What remains is nine rule groups,
+ * every one of them scoped to `.pf-transactions` and every one of them
+ * painting a **shared** family in a state, or with a measurement, that the
+ * record does not name. Each carries the prompt that put it here and the
+ * record answer that would retire it. Four are id selectors rather than
+ * class selectors — the mono holdouts — and those keep the `tx-` prefix
+ * because it is the element's id, not a component name.
  *
- * Not here. The shared shell (`.pf-area*`, `.pf-section*`) is layout.css's.
+ * Tokens. Colours come from `--ui-*` (ADR-0021); no literal appears here.
+ *
+ * Not here. The shared shell (`.pf-area*`, `.pf-section*`) is layout.css's;
+ * every component this Area draws is pf_components.css's.
  */
 
-/* --- Composer frame ------------------------------------------------- */
-
-.tx-new {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-/* Retired by P-UX-A1c. The wizard was the last `.tx-ticket` user: its head is
- * now `_composer_head.html` — the Section's own `<h2>` renamed out of band to
- * a `pf-crumb`, with the MD-2 stamp in `#new-asof` beside it, exactly as the
- * four composers do — and its body is `pf-form` / `pf-form__main`. So the
- * framed card, its head, its ident pair and its padded body have no user, and
- * MD-2 is one anatomy on this surface instead of two. `.tx-state` below stays:
- * seven partials still use it. */
-
-.tx-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 999px;
-    padding: 2px 10px;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-secondary);
-}
-
-.tx-state::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--ui-semantic-muted);
-}
-
-.tx-state--unsaved::before,
-.tx-state--draft::before {
-    background: var(--ui-semantic-muted);
-}
-
-/* A proposed ticket is complete and validated (ADR-0128 §3) but not yet a
-   fact; a booked one is. The pill is the only place that distinction is
-   visible once the composer has given way to the confirmation panel. */
-.tx-state--proposed::before {
-    background: var(--ui-semantic-info);
-}
-
-.tx-state--booked::before {
-    background: var(--ui-semantic-success);
-}
-
-/* --- Blocks, grid and fields ---------------------------------------- */
-
-/* `.tx-block` retired by P-UX-A1c2, `.tx-block__title` by P-UX-A1e with its
- * last user, the History detail's "What this booking wrote". Both wizard
- * steps were `<section>` in `pf-form__main` already; the detail's heading is
- * `pf-block__title` now, the family `_order_confirmation.html` heads the
- * identical list with. The record's own drawing of the detail panel borrows
- * `pf-rail-sum__title` there; the two surfaces `_effect_leg.html` exists to
- * keep identical should not head their one list two ways, so the Area's
- * declared block title wins and A1e's report registers the difference. */
-
-/* Retired by P-UX-A1c2, with the last surface that drew them: the wizard's
- * Order step. `.tx-grid`, `.tx-field`, `.tx-field--wide`, `.tx-field__label`,
- * `.tx-field__optional`, `.tx-field__hint`, `.tx-field--numeric input` and the
- * typed-input selectors under them are `pf-grid`, `pf-field`,
- * `pf-field--wide`, `pf-label`, `pf-optional`, `pf-hint` and `pf-input--num` —
- * the record's own, their spans counted against `pf-grid`'s six tracks rather
- * than this file's `auto-fit` minimum. The header's first bullet goes with
- * them: there is no longer a `tx-field*` family to explain.
+/* --- 1. The mono holdouts (P-UX-A1b2, A1c, A1e) ---------------------- *
  *
- * One shape changed in the move and is worth naming where the old rule was:
- * `.tx-field--numeric input` set the mono stack as well as the right
- * alignment. `pf-input--num` aligns only, so the four numeric inputs on the
- * Order step are no longer mono. The record names no `pf-mono` family (the
- * A1c note below says the same of the three id fields), so this is the
- * record's shape rather than a loss, and the question travels with the other
- * mono holdouts. */
-
-/* --- Instrument context strip --------------------------------------- */
-
-/* Retired by P-UX-A1c2. `.tx-context`, `.tx-context__item`,
- * `.tx-context__label` and `.tx-context__value` were the wizard's strip; it is
- * `pf-context` now, the definition list of facts `_order_context.html` already
- * took in P-UX-A1b, so both surfaces state their four facts in one shape. The
- * Confirm step's two summary cards joined the same family in the same commit. */
-
-/* --- Ledger effect (MD-6) ------------------------------------------- */
-
-/* Retired by P-UX-A1e, the whole family. `.tx-legs__lead` had gone in
- * P-UX-A1c2; `.tx-legs`, `.tx-legs__pending`, `.tx-legs__group` and its
- * `:first-child` go with the History detail, the last surface to draw them.
- * The dashed box around the effects is gone — `pf-panel` is the box, and
- * §2.2.7's "no card inside a card" says a second frame inside it is one too
- * many. The group headings are `pf-hint` lines (the record's leg list has no
- * headings to take a family from) and the never-booked sentence is a
- * `pf-hint` as well, the precedent P-UX-A1b2 deviation 4 set for a visible
- * sentence with nothing of its own to say. */
-
-/* `.tx-leg`, `.tx-leg__type` and its five tone modifiers, `.tx-leg__sub`,
- * `.tx-leg__what` with its `em`, and `.tx-leg__amount` retired by P-UX-A1e
- * with `_effect_leg.html`, their last user. The legs are `pf-leg` now, the
- * shape the four M-3 rails and the Confirm step already draw, so every leg
- * list in this Area is one family.
- *
- * Two things the family does not carry are registered in A1e's report rather
- * than kept alive here: the buy/sell/info ink on the type (the Confirm step
- * lost it in P-UX-A1c2, deviation 4), and the commitment line's own block —
- * `pf-leg` declares no `__sub`, so the line rides inside the middle span at
- * `pf-hint` weight. One `pf-leg` question for the record, not two. */
-
-/* --- Settlement position (MD-3) ------------------------------------- */
-
-/* Retired by P-UX-A1c. Both rules lost their user in P-UX-A1b, when the
- * settlement block became `pf-choice` and its unconfirmed state
- * `.pf-choice.is-refused`; they were left standing one commit too long and
- * A1b flag 6 recorded it. */
-
-/* --- Messages (MD-7 vocabulary) ------------------------------------- */
-
-/* `.tx-outcome` retired by P-UX-A1c2 and `.tx-messages` by P-UX-A1e, both
- * for the same reason: a group of notes needs no wrapper, because
- * `.pf-note + .pf-note` is the gap. The reversal report was the last thing
- * to carry one.
- *
- * `.tx-msg` and what is left under it stay for `_impact_panel.html`, the one
- * surface in this Area still on the bespoke message family (A1e2). */
-
-.tx-msg {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    gap: 10px;
-    border-left: 3px solid var(--ui-semantic-warning);
-    background: var(--ui-background-section);
-    padding: 9px 13px;
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
-}
-
-.tx-msg__glyph {
-    font-weight: 700;
-    color: var(--ui-semantic-warning);
-    text-align: center;
-}
-
-.tx-msg--block {
-    border-left-color: var(--ui-semantic-error);
-}
-
-.tx-msg--block .tx-msg__glyph {
-    color: var(--ui-semantic-error);
-}
-
-.tx-msg--consequence {
-    border-left-color: var(--ui-semantic-info);
-}
-
-.tx-msg--consequence .tx-msg__glyph {
-    color: var(--ui-semantic-info);
-}
-
-.tx-msg strong {
-    color: var(--ui-text-on-sidebar);
-    font-weight: 600;
-}
-
-/* `.tx-msg__sub` retired by P-UX-A1e with the reversal report, its only
- * user; the impact panel states its sentences inline. */
-
-.tx-num {
-    font-family: var(--ui-font-family-mono);
-}
-
-.tx-num--neg {
-    color: var(--ui-semantic-error);
-}
-
-/* --- Actions -------------------------------------------------------- */
-
-/* `.tx-actions`, `.tx-actions__spacer` and `.tx-actions__hint` retired by
- * P-UX-A1c2 with the wizard's outcome bar, the last of the three to draw
- * them. The family is `pf-actionbar` and `pf-actionbar__hint`, whose `flex: 1`
- * hint *is* the spacer the middle rule stood in for — R3's leading slot and
- * R1's one primary per bar come with it.
- *
- * `.tx-btn--primary` and its hover went at the same time and for the same
- * reason: the wizard's Continue and Book now were the last two primaries in
- * this Area, and the four S5 panels offer none. The base `.tx-btn` and the
- * three modifiers under it stay for those panels (A1e). */
-
-.tx-btn {
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 7px 14px;
-    font: inherit;
-    font-size: 0.84rem;
-    cursor: pointer;
-}
-
-.tx-btn:hover:not(:disabled) {
-    border-color: var(--ui-accent-primary);
-}
-
-.tx-btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-}
-
-.tx-btn--ghost {
-    background: transparent;
-}
-
-/* --- MD-3 inline cash-position mini-form ---------------------------- */
-
-/* Retired by P-UX-A1c. `.tx-inline-create .tx-grid` needed both classes to
- * match and P-UX-A1b retired the first of them; A1b2 flag 2 recorded the
- * remainder. */
-
-/* --- Confirmation panel (MD-16) ------------------------------------- */
-
-/* The panel's one link is a control among buttons, so it takes their box
-   and loses the underline the app gives ordinary links. */
-a.tx-btn {
-    text-decoration: none;
-    display: inline-block;
-}
-
-/* --- M-2 wizard (S4b) ------------------------------------------------ */
-
-/* Translates docs/handover/transactions-new-instrument-wizard-mockup-m2.html
- * for what strand S4b ships. Only the classes M-2 introduces are here; every
- * block, field, message and settlement rule above is reused unchanged, which
- * is what keeps the wizard's Order step visually identical to M-1's composer
- * rather than merely similar.
- *
- * The mock's `.field*` and `.pf-btn` become this file's `tx-`-prefixed
- * equivalents for the reasons the header states; its `--pf-*` tokens become
- * the theme-aware `--ui-*` family.
- */
-
-/* The last of the wizard's own frame, retired by P-UX-A1c2 as A1c flag 1 said
- * it would be. All four steps put their blocks directly into `pf-form__main`
- * now and take that column's `gap`. Step 3 kept this wrapper one commit longer
- * than the others because it carried the recalculation trigger; the trigger
- * moved up to the form, where the rail's settlement controls can still reach
- * it. */
-
-/* --- Stepper ------------------------------------------------------- */
-
-/* Retired by P-UX-A1c. The family is `pf-stepper` in pf_components.css now —
- * R4's own component, authored there from the record's specification (the
- * record names the family and its three states but ships no rules for it).
- * Two shapes changed with the move and are worth naming here, where the old
- * ones were: the item is an `<li>`, so the connector is the later step's
- * `::before` rather than a `.tx-stepper__bar` sibling; and the done tick is
- * `pf_icon("done")` rather than a typed ✓. */
-
-/* --- Identify step -------------------------------------------------- */
-
-/* Retired by P-UX-A1c. The step is `pf-block__title`, `pf-grid` and `pf-field`
- * like every other form block in this Area; the Resolved frame is a second
- * titled grid rather than a green-bordered card, its refusal is a `pf-note
- * --block`, and D-AK's second card — explanation and never a control — is the
- * `pf-more` disclosure §2.6.4 asks for. The two-column `.tx-identify` grid and
- * its 860px breakpoint go with them: `pf-grid`'s six tracks carry the same
- * shape without a media query of this file's own.
- *
- * `.tx-mono` goes too. The record still names no `pf-mono` family, so the mono
- * stack rides on the ids of the three fields that want it, joining the
- * currency field P-UX-A1b2 put on the same footing. All four go when the
- * record grows the family.
- *
- * P-UX-A1e adds the fifth and first non-field: the reversal refusal's
- * machine-readable cause, which `.tx-msg__code` used to set in mono and
- * which is a `pf-note__sub` now. Its id carries no ticket, because `cause`
- * is set only on the refusal render and that render replaces `#tx-history`
- * whole — one cause line per page, so one id. */
+ * The record still names no `pf-mono` family, so the mono stack rides on the
+ * ids of the five elements that want it: the wizard's Identify fields, the
+ * composer's currency field, and — the one non-field — the machine-readable
+ * cause beneath a reversal refusal, which is for the operator who is going
+ * to quote it. All five go when the record grows the family. P-UX-A1e2 adds
+ * no sixth: the impact panel's engine line lost its mono in the move and is
+ * a `pf-hint` now. */
 .pf-transactions #tx-id-value,
 .pf-transactions #tx-id-figi,
 .pf-transactions #tx-currency,
+.pf-transactions #tx-md-currency,
 .pf-transactions #tx-reverse-cause {
     font-family: var(--ui-font-family-mono);
 }
 
-/* A `pf-field` holding a control rather than an input: the field stretches to
- * the grid row's height, so its button must be pushed to the baseline the
- * inputs beside it sit on. M-2 puts Scheme, Value and Resolve in one row, and
- * this is what keeps them in one. Scoped to the Area and retired when the
- * record answers what an action inside a field row looks like. */
+/* --- 2. A field holding a control (P-UX-A1c) -------------------------- *
+ *
+ * A `pf-field` holding a control rather than an input: the field stretches
+ * to the grid row's height, so its button must be pushed to the baseline the
+ * inputs beside it sit on. M-2 puts Scheme, Value and Resolve in one row,
+ * and this is what keeps them in one. Retired when the record answers what
+ * an action inside a field row looks like. */
 .pf-transactions .pf-grid > .pf-field:has(> .pf-btn) {
     justify-content: flex-end;
 }
 
-/* --- Confirm step summary ------------------------------------------- */
-
-/* Retired by P-UX-A1c2. `.tx-summary` with its 860px breakpoint, `.tx-sumcard`
- * and the four rules under it are `pf-context` inside two `<section>`s with a
- * `pf-block__title` each: the same definition list of facts the instrument
- * strip takes, so a card that restates the ticket and a strip that states the
- * instrument are one family rather than two. The two-column grid goes with
- * them — `pf-context` wraps its pairs, so the narrow case needs no query.
+/* --- 3. A fact the ticket is missing (P-UX-A1c2) ---------------------- *
  *
- * `.tx-msg__link` and its hover go too: the AnlV gate's jump back to step 2 is
- * a `pf-btn--quiet pf-btn--sm` in the third grid column of its `pf-note` —
- * the slot `_messages.html` fills with an empty `<span>` and names as the one
- * an inline action would take. So the record had a slot for it after all.
- *
- * One state rule is re-homed rather than retired. */
-
-/* A fact the ticket is missing, on the step that exists to notice. It was
- * `.tx-sumcard dd.is-missing`; the family beneath it changed, the state did
- * not. Scoped to the Area because `is-missing` is this surface's word for it
- * and the record names no such state on `pf-context`. */
+ * On the Confirm step, which exists to notice. It was `.tx-sumcard
+ * dd.is-missing`; the family beneath it changed, the state did not. Scoped
+ * because `is-missing` is this surface's word for it and the record names no
+ * such state on `pf-context`. */
 .pf-transactions .pf-context dd.is-missing {
     color: var(--ui-semantic-warn);
 }
 
-/* --- MD-19: the flow that moves no cash ------------------------------ */
-
-/* R-COMMIT's standing panel, where every other composer has a settlement
- * block. It is *informational* rather than a warning — nothing is wrong with
- * a commitment that moves no money, it is what a commitment is — so it takes
- * the info tone rather than the amber one, and its border is the only place
- * in this stylesheet that draws a full block in that colour.
+/* --- 4. A choice that refuses (P-UX-A1b2) ---------------------------- *
  *
- * M-3's own rule, with its literal rgba() swapped for the theme variables the
- * rest of this file uses (ADR-0021). */
-/* --- Re-homed onto the shared families (P-UX-A1b2) ------------------- */
-
-/* Three rules whose markup moved to `pf-*` in P-UX-A1b2 and whose states the
- * record does not name. Each is scoped to this Area, the exception the sheet's
- * head describes, because each paints a shared family and must not reach the
- * rest of the app.
- *
- * `is-refused` (MD-18): a choice that is offered and refuses. No mock has one,
- * so there is no `pf-choice` variant to take; the state class stays and
- * borrows the error colour the red note uses, so the control and the note that
- * explains it read as one answer. */
+ * `is-refused` (MD-18). No mock has a refusing choice, so there is no
+ * `pf-choice` variant to take; the state class borrows the error colour the
+ * red note uses, so the control and the note that explains it read as one
+ * answer. */
 .pf-transactions .pf-choice.is-refused {
     border-color: var(--ui-semantic-error);
 }
 
-/* `is-missing` (MD-21): the AnlV field while the finish gate is open. */
+/* --- 5. The AnlV field while the finish gate is open (P-UX-A1b2) ----- *
+ *
+ * `is-missing` (MD-21), the input form of rule 3. */
 .pf-transactions .pf-field.is-missing input,
 .pf-transactions .pf-field.is-missing select {
     border-color: var(--ui-semantic-warning);
 }
 
-/* The currency field's mono stack. The record names no `pf-mono` family and
- * P-UX-A1b2 does not invent one, so it rides on the id of the one field that
- * wants it (`_master_data_fields.html`). It goes when the record grows the
- * family. P-UX-A1c retired `.tx-mono` and put the wizard's three mono fields
- * on the same footing — see the Identify-step note above, where the four ids
- * are declared together. */
-.pf-transactions #tx-md-currency {
-    font-family: var(--ui-font-family-mono);
-}
-
-/* --- The Blotter and History lists (M-5, S5) ------------------------- */
-
-/* Retired by P-UX-A1a. Both lists render into the `pf-table` family in
- * pf_components.css, so the M-5 transcription of the table, the row, the
- * row's sub-lines and its action group has no user left; so has the A-18
- * hint line, now a `pf-more` disclosure, and `.tx-filters`, now `pf-filters`.
- * `.tx-state` and `.tx-num` stay: seven other partials in this Area still
- * use them, and they migrate with their own surfaces.
+/* --- 6. The reversal report's gap (P-UX-A1e) ------------------------- *
  *
- * What the family does not carry is the *occupant's* ground. `.pf-table__slot
- * > td` collapses to nothing, which is right for an empty slot and wrong for
- * a filled one, and A1a's transition rule gave every filled slot the padding
- * and background `.tx-detail-row td` used to.
- *
- * P-UX-A1e retired it *as a general rule*: three of the four occupants are
- * `pf-panel` now, and `pf-panel`'s own padding and ground are the ones A1a
- * matched by hand — a second copy underneath would double the padding. The
- * fourth, `_impact_panel.html`, is A1e2's and still draws its own box, so
- * the body survives behind a `:has()` that names it. The declarations are
- * A1a's unchanged, so the impact panel is pixel-identical across this
- * commit; the rule goes when that panel reaches `pf-panel` too. */
-.pf-transactions .pf-table__slot > td:has(> .tx-impact) {
-    padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5);
-    background: var(--ui-background-secondary);
-}
-
-/* --- The inline reason step (A-13) ----------------------------------- */
-
-/* Retired by P-UX-A1e. `.tx-reason`, `.tx-reason--reverse`, `__lead`,
- * `__sub`, `__form`, `.tx-reason textarea` and `__actions` drew a bordered
- * amber-railed box with a lead, a sub, a textarea and a button row — which
- * is `pf-panel` with `pf-panel__title` / `__sub`, a `pf-grid` holding one
- * labelled `pf-field` / `pf-textarea`, and `pf-panel__foot`. That is not an
- * inference: the record draws this panel, with this copy, in mock01's
- * `cancelPanel()`, and both panels are transcribed from it.
- *
- * Two shapes changed in the move and are named where the old rules were.
- * The reason is a `pf-label` now rather than a placeholder — the record's,
- * and a placeholder was never a label. And the panel's own amber rail is
- * gone: `pf-panel` has no tone. R7 asks for the danger *button*, and the
- * question in `pf-panel__title` carries the rest; a warning note above a
- * question the panel is already asking would state it twice. */
-
-/* --- Button sizes and the destructive tone --------------------------- */
-
-/* A list row's gestures sit inside a table cell, so they take a smaller
- * box than the composer's action row. */
-.tx-btn--sm {
-    padding: 4px 10px;
-    font-size: 0.78rem;
-}
-
-/* `.tx-btn--danger` and its hover retired by P-UX-A1e with the two reason
- * panels, the only surfaces that ever drew them. Cancelling and reversing
- * take `pf-btn--danger` now — declared since A0d, R7's own button, and
- * outlined rather than filled, which keeps the point the old rule's comment
- * made: nothing on this surface reads as the obvious next step. The base
- * `.tx-btn`, `.tx-btn--sm` and `.tx-btn--ghost` stay for the impact panel's
- * three Closes (A1e2). */
-
-/* --- The two states the composer never showed ------------------------ */
-
-/* `approved` is a station the composer cannot reach — it renders on list
- * surfaces only — and `cancelled` is History's (P-5b). Both are defined here
- * because the chip is one component with one vocabulary. */
-.tx-state--approved::before {
-    background: var(--ui-semantic-warning);
-}
-
-.tx-state--cancelled::before {
-    background: var(--ui-text-disabled);
-}
-
-/* --- History (S5, P-5b) ---------------------------------------------- */
-
-/* The fourth terminal tone. `reversed` is the one outcome that is not a
- * status (A-17) — it is `cancelled` with a booking behind it — and it takes
- * the error token because it is the only ending that undid something that
- * had already happened. */
-.tx-state--reversed::before {
-    background: var(--ui-semantic-error);
-}
-
-/* Retired by P-UX-A1e with the History detail and the reversal report.
- *
- * `.tx-kv`, `.tx-kv__pair` and its `dt` / `dd` are `pf-facts` — the record's
- * own family, and the one mock01's `detailPanel()` states these four facts
- * in. It wraps rather than gridding at 130px, so the four sit on one line
- * where the panel is wide and reflow where it is not; the uppercase label
- * treatment goes with the old rule, because `pf-facts dt` is the record's
- * answer for a label and it is not uppercase.
- *
- * `.tx-legs__group` and its `:first-child` go with the legs box they sat in:
- * the group headings are `pf-hint` lines now (see the Ledger-effect note
- * above).
- *
- * `.tx-msg--done` and its glyph go with the reversal report. The record
- * names three note tones and none of them is a "done", so the report's two
- * notes both take `--info` and the check glyph carries the completion.
- * Registered as a flag: the success token is now unused in this Area. */
-
-/* The machine-readable cause beneath a reversal refusal (A-14). Stated in
- * mono and dimmed: it is for the operator who is going to quote it, not for
- * the one reading the sentence above it. */
-.tx-msg__code {
-    display: block;
-    margin-top: 4px;
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.76rem;
-    color: var(--ui-text-disabled);
-}
-
-/* `.tx-messages--report` retired by P-UX-A1e with the wrapper it modified.
- * The gap it kept between the report and the filter bar below it is the one
- * rule that had to survive the wrapper, and it is re-homed onto the two
- * shared families it now sits between. */
+ * `.tx-messages--report` retired with the wrapper it modified; the gap it
+ * kept between the report and the filter bar below it is the one rule that
+ * had to survive, re-homed onto the two shared families it now sits
+ * between. */
 .pf-transactions .pf-note + .pf-filters {
     margin-top: var(--ui-space-5);
 }
 
-/* The effect list's type column (P-UX-A1e). `pf-leg` is drawn 34px wide in
- * the first track, which is what `buy` and `sell` need — the four M-3 rails
- * and the Confirm step say nothing longer, and they keep the record's width
- * untouched. `_effect_leg.html` names rows by what they are, so its
- * vocabulary runs to `distribution`, `investor_flow` and, on the missing-row
- * branch, `investment_update`; in a 34px track those overrun the name beside
- * them. Each `pf-leg` is its own grid, so a content-sized track would give
- * every line a different one — the column has to be fixed to stay a column.
+/* --- 7. The effect list's type column (P-UX-A1e) --------------------- *
+ *
+ * `pf-leg` is drawn 34px wide in the first track, which is what `buy` and
+ * `sell` need — the four M-3 rails and the Confirm step say nothing longer.
+ * `_effect_leg.html` names rows by what they are, so its vocabulary runs to
+ * `distribution`, `investor_flow` and, on the missing-row branch,
+ * `investment_update`; in a 34px track those overrun the name beside them.
+ * Each `pf-leg` is its own grid, so a content-sized track would give every
+ * line a different one — the column has to be fixed to stay a column.
  * Scoped to the two surfaces that render effect legs, and retired when the
  * record answers how wide a leg's type may be. */
 .pf-transactions .pf-panel .pf-leg,
@@ -554,269 +131,20 @@ a.tx-btn {
     grid-template-columns: 124px minmax(0, 1fr) auto;
 }
 
-/* --- The negative-cash indicator (A-11, ADR-0130) — P-5c ------------- */
-
-/* The wrapper is always present, because it is the element that re-fetches
- * itself: a clean book renders it empty rather than not at all, and `:empty`
- * is what makes "empty" mean "not there" visually. */
-.tx-negative-cash:empty {
-    display: none;
-}
-
-.tx-negative-cash {
-    display: block;
-    margin-bottom: 18px;
-}
-
-/* Bordered like `tx-msg--block` and carrying the error token on its left
- * edge — but with no glyph column reserved for a gesture, because there is
- * none: the indicator states a fact and offers nothing to press. */
-.tx-indicator {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    gap: 12px;
-    align-items: start;
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-semantic-error);
-    background: var(--ui-background-section);
-    border-radius: 4px;
-    padding: 10px 14px;
-    font-size: 0.85rem;
-}
-
-.tx-indicator__glyph {
-    font-weight: 700;
-    color: var(--ui-semantic-error);
-    text-align: center;
-}
-
-.tx-indicator strong {
-    color: var(--ui-text-on-sidebar);
-}
-
-.tx-indicator__lines {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.tx-indicator__line a {
-    color: var(--ui-text-on-sidebar);
-}
-
-/* "since <date>" trails its line rather than starting one: it qualifies the
- * balance beside it, and a reader scanning names should pass over it. */
-.tx-indicator__since {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin-left: 8px;
-}
-
-.tx-indicator__hint {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-}
-
-/* The detail page's form: one position, so no lead line counting them. */
-.tx-indicator--compact {
-    padding: 8px 12px;
-    margin-top: 12px;
-}
-
-/* --- The pre-trade impact panel (S6 P-6a) ---------------------------- *
+/* --- 8 and 9. The negative-cash wrapper (P-5c, re-homed P-UX-A1e2) ---- *
  *
- * The M-6 block, unchanged. It lands in the blotter row's detail cell —
- * the same slot the cancel panel uses — so it needs no positioning of its
- * own; the scoped `.pf-transactions .pf-table__slot > td:has(> .tx-impact)`
- * rule above still gives it a ground and padding. P-UX-A1e narrowed that
- * rule to this panel: the other three occupants are `pf-panel` now and bring
- * their own.
- */
-
-.tx-impact {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-semantic-info);
-    border-radius: 4px;
-    padding: 14px 16px;
-    background: var(--ui-background-section);
+ * The wrapper is always present, because it is the element that re-fetches
+ * itself: a clean book renders it empty rather than not at all, and `:empty`
+ * is what makes "empty" mean "not there" visually. The note inside it is
+ * `pf-note--warn` now, so the wrapper is pure furniture and carries no class
+ * of its own; the two rules ride on its id, the way the mono holdouts above
+ * do, and they are the Area's own spacing rather than anything the record
+ * names. They retire when `.pf-main`'s section flow spaces a banner for
+ * itself. */
+.pf-transactions #tx-negative-cash {
+    margin-bottom: var(--ui-space-5);
 }
 
-/* A state with nothing to lens: scoped out, or refused. The blue rail
- * would promise a panel that is not there. */
-.tx-impact--none {
-    border-left-color: var(--ui-semantic-muted);
-}
-
-.tx-impact__head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.tx-impact__lead {
-    margin: 0;
-    color: var(--ui-text-on-sidebar);
-    font-weight: 600;
-    font-size: 0.9rem;
-}
-
-.tx-impact__sub {
-    margin: 0;
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
-}
-
-/* What was fed to the overlay: a run-on definition list, so the four facts
- * read as one sentence rather than as a table nobody asked for. */
-.tx-impact__basis {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 22px;
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--ui-text-disabled);
-}
-
-.tx-impact__basis div {
-    display: inline;
-}
-
-.tx-impact__basis dt {
-    display: inline;
-    color: var(--ui-semantic-muted);
-}
-
-.tx-impact__basis dd {
-    display: inline;
-    margin: 0 0 0 4px;
-    font-family: var(--ui-font-family-mono);
-    color: var(--ui-text-secondary);
-}
-
-.tx-lenses {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: 12px;
-}
-
-.tx-lens {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--ui-background-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 10px 12px;
-    min-width: 0;
-}
-
-.tx-lens__title {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-size: 0.7rem;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ui-semantic-muted);
-    margin: 0;
-    font-weight: 600;
-}
-
-.tx-lens__foot {
-    margin: 0;
-    font-size: 0.74rem;
-    color: var(--ui-text-disabled);
-    border-top: 1px solid var(--ui-border-default);
-    padding-top: 6px;
-}
-
-/* The before → after pair, the ADR-0067 idiom: baseline struck through,
- * scenario bold. Label left, pair right. */
-.tx-delta {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 2px 10px;
-    font-size: 0.83rem;
-}
-
-.tx-delta__label {
-    color: var(--ui-text-secondary);
-}
-
-.tx-delta__label small {
-    color: var(--ui-text-disabled);
-    font-size: 0.74rem;
-}
-
-.tx-delta__pair {
-    font-family: var(--ui-font-family-mono);
-    text-align: right;
-    white-space: nowrap;
-}
-
-.tx-delta__before {
-    color: var(--ui-text-disabled);
-    text-decoration: line-through;
-    margin-right: 6px;
-}
-
-.tx-delta__after {
-    color: var(--ui-text-on-sidebar);
-    font-weight: 600;
-}
-
-.tx-delta__badge {
-    display: inline-block;
-    margin-left: 6px;
-    font-size: 0.7rem;
-    padding: 0 5px;
-    border-radius: 3px;
-    border: 1px solid var(--ui-border-default);
-    color: var(--ui-text-secondary);
-}
-
-.tx-delta__badge--ok {
-    color: var(--ui-semantic-success);
-    border-color: var(--ui-semantic-success);
-}
-
-.tx-delta__badge--warn {
-    color: var(--ui-semantic-warning);
-    border-color: var(--ui-semantic-warning);
-}
-
-.tx-delta__badge--breach {
-    color: var(--ui-semantic-error);
-    border-color: var(--ui-semantic-error);
-    background: color-mix(in srgb, var(--ui-semantic-error) 8%, transparent);
-}
-
-/* Only the rows the trade moved carry a tone — the eye goes to the
- * consequence, not to the arithmetic. */
-.tx-delta__row--warn .tx-delta__after {
-    color: var(--ui-semantic-warning);
-}
-
-.tx-delta__row--breach .tx-delta__after {
-    color: var(--ui-semantic-error);
-}
-
-.tx-impact__foot {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    font-size: 0.76rem;
-    color: var(--ui-text-disabled);
-    border-top: 1px solid var(--ui-border-default);
-    padding-top: 10px;
-}
-
-.tx-impact__foot .tx-btn {
-    margin-left: auto;
+.pf-transactions #tx-negative-cash:empty {
+    display: none;
 }

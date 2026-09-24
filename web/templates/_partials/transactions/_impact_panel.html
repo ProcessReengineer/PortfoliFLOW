@@ -1,14 +1,33 @@
 {# The pre-trade impact panel (S6 P-6a, ADR-0128 Q-3, ADR-0104 §2/§5).
 
-   Structure and copy from the M-6 mockup
-   (`docs/handover/transactions-impact-panel-mockup-m6.html`). Four states in
-   one partial, because they land in one slot and differ only in what there
-   is to say: `scoped` (no insert_transaction for this ticket), `book_error`
-   (no plan world at all), `notice` (the assembly declined), `impact`.
+   Structure and copy from the record: mock01's `impactPanel()`, which draws
+   this panel with this content. Four states in one partial, because they
+   land in one slot and differ only in what there is to say: `scoped` (no
+   insert_transaction for this ticket), `book_error` (no plan world at all),
+   `notice` (the assembly declined), `impact`.
 
    The panel is **the impact panel**, never "preview" unqualified — the
    composer's `TicketService.preview` is a different thing and is not what
    produced any of this.
+
+   The vocabulary since P-UX-A1e2: `pf-panel` with the head the other three
+   slot occupants take (titles, the state chip, an icon Close), `pf-facts`
+   for the basis, and the record's projection family — `pf-lenses`,
+   `pf-lens__title`, `pf-delta` — for the three lenses. Two things follow
+   from the family and are easy to get wrong:
+
+   * `pf-delta` is one grid per **lens**. Every row emits five cells —
+     label, before, arrow, after, flag — so a row with nothing to flag still
+     emits an empty `pf-delta__flag`, or the columns below it shift.
+   * The flag carries the tone, and the record names two of them (warn,
+     breach). A calm row keeps the base ink and states `OK` in words; the
+     old `tx-delta__row--*` ink on the scenario value has no successor,
+     because a moved row is now told apart by what its flag says.
+
+   The three lens footnotes and the FX sentence are the record's one
+   "How to read this" disclosure at the foot. Only the headroom sentence
+   stays beside its lens: it is a fact about *this* trade rather than
+   standing prose, and a disclosure would bury it.
 
    Every figure arrives pre-formatted (A-7 register, no arithmetic here).
    Close empties the slot the way the cancel panel's Keep does; nothing is
@@ -16,46 +35,55 @@
 
    Context: state, id, ticket_number, status, ident — plus, per state,
    scope / error / the impact payload. #}
+{% macro close_button() -%}
+    <button class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon" type="button"
+            hx-on:click="this.closest('td').innerHTML = ''">{{ pf_icon("close", "Close") }}</button>
+{%- endmacro %}
+{#- One delta row, the record's `delta()`: five cells, always five. `tone` is
+    emitted only for the two the record draws — an `ok` badge rides on the
+    base flag, where the word is the whole signal. -#}
+{% macro delta(label, before, after, flag="", tone=None) -%}
+    <div class="pf-delta__label">{{ label }}</div>
+    <span class="pf-delta__before">{{ before }}</span>
+    <span class="pf-delta__arrow">→</span>
+    <span class="pf-delta__after">{{ after }}</span>
+    <span class="pf-delta__flag{% if tone in ('warn', 'breach') %} pf-delta__flag--{{ tone }}{% endif %}">{{ flag }}</span>
+{%- endmacro %}
 {% if state == "scoped" %}
-    <div class="tx-impact tx-impact--none">
-        <div class="tx-impact__head">
-            <div><p class="tx-impact__lead">No impact panel for {{ ident }} · #{{ ticket_number }}</p></div>
-            <span class="tx-state tx-state--{{ status }}">{{ status|capitalize }}</span>
-        </div>
-        <div class="tx-msg tx-msg--muted">
-            <span class="tx-msg__glyph">–</span>
-            {% if scope == "draft" %}
-                <div>
-                    <strong>A draft is private workspace.</strong> Propose the
-                    ticket to see its impact on the plan world; the composer
-                    already states the cash consequence while you type.
-                </div>
-            {% elif scope == "reported_kind" %}
-                <div>
-                    <strong>Impact covers order tickets in v1.</strong> A
-                    reported flow — secondary sale, commitment, secondary
-                    purchase — restates NAV and cash rather than inserting a
-                    trade, and its panel is a named fast-follow.
-                </div>
-            {% else %}
-                <div>
-                    <strong>This ticket creates its investment at booking.</strong>
-                    Until then the plan world does not contain it, so there is
-                    nothing to insert the trade into. Impact for creating flows
-                    is a named fast-follow.
-                </div>
-            {% endif %}
-        </div>
-        <div class="tx-impact__foot">
-            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
-                    hx-on:click="this.closest('td').innerHTML = ''">Close</button>
+    <div class="pf-panel">
+        <div class="pf-panel__head">
+            <div class="pf-panel__titles">
+                <p class="pf-panel__title">No impact panel for {{ ident }} · #{{ ticket_number }}</p>
+                {# The head's sub is where the explanation goes: the panel has
+                   a title to explain, so this is not an empty state with a way
+                   forward but a titled answer with a reason under it. #}
+                <p class="pf-panel__sub">
+                    {% if scope == "draft" %}
+                        <strong>A draft is private workspace.</strong> Propose the
+                        ticket to see its impact on the plan world; the composer
+                        already states the cash consequence while you type.
+                    {% elif scope == "reported_kind" %}
+                        <strong>Impact covers order tickets in v1.</strong> A
+                        reported flow — secondary sale, commitment, secondary
+                        purchase — restates NAV and cash rather than inserting a
+                        trade, and its panel is a named fast-follow.
+                    {% else %}
+                        <strong>This ticket creates its investment at booking.</strong>
+                        Until then the plan world does not contain it, so there is
+                        nothing to insert the trade into. Impact for creating flows
+                        is a named fast-follow.
+                    {% endif %}
+                </p>
+            </div>
+            <span class="pf-state pf-state--{{ status }}">{{ status|capitalize }}</span>
+            {{ close_button() }}
         </div>
     </div>
 {% elif state == "book_error" or state == "notice" %}
-    <div class="tx-impact tx-impact--none">
-        <div class="tx-impact__head">
-            <div>
-                <p class="tx-impact__lead">
+    <div class="pf-panel">
+        <div class="pf-panel__head">
+            <div class="pf-panel__titles">
+                <p class="pf-panel__title">
                     {%- if state == "book_error" -%}
                         Impact unavailable — the book has no plan world
                     {%- else -%}
@@ -63,170 +91,157 @@
                     {%- endif -%}
                 </p>
             </div>
-            <span class="tx-state tx-state--{{ status }}">{{ status|capitalize }}</span>
+            <span class="pf-state pf-state--{{ status }}">{{ status|capitalize }}</span>
+            {{ close_button() }}
         </div>
-        {# The service sentence, verbatim (A-7). The route invents no wording. #}
-        <div class="tx-msg tx-msg--block">
-            <span class="tx-msg__glyph">✕</span>
-            <div><strong>{{ error }}</strong></div>
-        </div>
-        <div class="tx-impact__foot">
-            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
-                    hx-on:click="this.closest('td').innerHTML = ''">Close</button>
+        {# The service sentence, verbatim (A-7). The route invents no wording,
+           and a refusal the service raised is stated in the note family this
+           Area states every other refusal in. #}
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ error }}</p>
         </div>
     </div>
 {% else %}
-    <div class="tx-impact">
-        <div class="tx-impact__head">
-            <div>
-                <p class="tx-impact__lead">Impact of {{ ident }} on the plan world</p>
-                <p class="tx-impact__sub">
+    <div class="pf-panel">
+        <div class="pf-panel__head">
+            <div class="pf-panel__titles">
+                <p class="pf-panel__title">Impact of {{ ident }} on the plan world</p>
+                <p class="pf-panel__sub">
                     Before → after, evaluated on the plan horizon
                     ({{ horizon_label }}). Read-only; computed from the book and
                     this ticket, held nowhere.
                 </p>
             </div>
-            <span class="tx-state tx-state--{{ status }}">{{ status|capitalize }}</span>
+            <span class="pf-state pf-state--{{ status }}">{{ status|capitalize }}</span>
+            {{ close_button() }}
         </div>
 
-        {# OP-07 (a). Only when the date actually moved — the block is the
+        {# OP-07 (a). Only when the date actually moved — the note is the
            label the shift is allowed to happen behind. #}
         {% if shifted %}
-            <div class="tx-msg tx-msg--consequence">
-                <span class="tx-msg__glyph">i</span>
-                <div>
-                    <strong>Previewed as if traded on {{ effective_date }}.</strong>
+            <div class="pf-note pf-note--info">
+                {{ pf_icon("info") }}
+                <p class="pf-note__lead">Previewed as if traded on {{ effective_date }}.</p>
+                <span></span>
+                <p class="pf-note__sub">
                     The ticket is dated {{ trade_date }}, at or before the book's
                     last statement ({{ seam_date }}). The plan world begins the
                     day after; realised history is identical in every scenario
                     and no preview alters it. Book, and the ticket lands on its
                     own date.
-                </div>
+                </p>
             </div>
         {% endif %}
 
-        <dl class="tx-impact__basis">
+        <dl class="pf-facts">
             <div><dt>Fed to the overlay</dt><dd>{{ fed_line }}</dd></div>
             <div><dt>Value leg</dt><dd>+{{ consideration }} {{ ccy }}</dd></div>
             <div><dt>Cash leg ({{ ccy }})</dt><dd>&minus;{{ consideration }} {{ ccy }}</dd></div>
             <div><dt>Costs</dt><dd>{{ costs_line }}</dd></div>
         </dl>
 
-        <div class="tx-lenses">
-            <div class="tx-lens">
-                <p class="tx-lens__title"><span>{{ saa_label }}</span><span>at horizon</span></p>
+        <div class="pf-lenses">
+            <div>
+                <p class="pf-lens__title"><span>{{ saa_label }}</span><span>at horizon</span></p>
                 {% if saa_rows %}
-                    <div class="tx-delta">
+                    <div class="pf-delta">
                         {% for row in saa_rows %}
-                            <div class="tx-delta__label">{{ row.label }}</div>
-                            <div class="tx-delta__pair{% if row.row_tone %} tx-delta__row--{{ row.row_tone }}{% endif %}">
-                                <span class="tx-delta__before">{{ row.before }}</span>
-                                <span class="tx-delta__after">{{ row.after }}</span>
-                                {% if row.badge %}
-                                    <span class="tx-delta__badge tx-delta__badge--{{ row.badge_tone }}">{{ row.badge }}</span>
-                                {% endif %}
-                            </div>
+                            {{ delta(row.label, row.before, row.after, row.badge or "", row.badge_tone) }}
                         {% endfor %}
                     </div>
-                    <p class="tx-lens__foot">
-                        {{ saa_foot }} Rows unchanged by the trade shown for
-                        context; only the moved rows carry a status change.
-                    </p>
+                    {# This trade's headroom, not standing prose: it names the
+                       classes the trade moved and belongs beside them. #}
+                    <p class="pf-hint">{{ saa_foot }}</p>
                 {% else %}
-                    <p class="tx-lens__foot">No SAA limit set is in force over this horizon.</p>
+                    <p class="pf-hint">No SAA limit set is in force over this horizon.</p>
                 {% endif %}
             </div>
 
-            <div class="tx-lens">
-                <p class="tx-lens__title"><span>{{ anlv_label }}</span><span>at horizon</span></p>
-                <div class="tx-delta">
+            <div>
+                <p class="pf-lens__title"><span>{{ anlv_label }}</span><span>at horizon</span></p>
+                <div class="pf-delta">
                     {% for row in anlv_rows %}
-                        <div class="tx-delta__label">{{ row.label }}</div>
-                        <div class="tx-delta__pair{% if row.row_tone %} tx-delta__row--{{ row.row_tone }}{% endif %}">
-                            <span class="tx-delta__before">{{ row.before }}</span>
-                            <span class="tx-delta__after">{{ row.after }}</span>
-                            {% if row.badge %}
-                                <span class="tx-delta__badge tx-delta__badge--{{ row.badge_tone }}">{{ row.badge }}</span>
-                            {% endif %}
-                        </div>
+                        {{ delta(row.label, row.before, row.after, row.badge or "", row.badge_tone) }}
                     {% endfor %}
                     {% set tightest = kpis.get("tightest_anlv_headroom") %}
                     {% if tightest %}
-                        <div class="tx-delta__label">Tightest headroom <small>{{ currency }}</small></div>
-                        <div class="tx-delta__pair">
-                            <span class="tx-delta__before">{{ tightest.before }}</span>
-                            <span class="tx-delta__after">{{ tightest.after }}</span>
-                            {% if tightest.negative %}<span class="tx-delta__badge tx-delta__badge--breach">&lt; 0</span>{% endif %}
-                        </div>
+                        {{ delta(
+                            ("Tightest headroom <small>" ~ currency ~ "</small>")|safe,
+                            tightest.before,
+                            tightest.after,
+                            "< 0" if tightest.negative else "",
+                            "breach" if tightest.negative else None,
+                        ) }}
                     {% endif %}
                     {% set breaches = kpis.get("limit_breaches") %}
                     {% if breaches %}
-                        <div class="tx-delta__label">Breaches on horizon</div>
-                        <div class="tx-delta__pair{% if not breaches.unchanged %} tx-delta__row--breach{% endif %}">
-                            <span class="tx-delta__before">{{ breaches.before }}</span>
-                            <span class="tx-delta__after">{{ breaches.after }}</span>
-                        </div>
+                        {# No flag: the count is the statement, and the classes
+                           above already carry a BREACH flag each. #}
+                        {{ delta("Breaches on horizon", breaches.before, breaches.after) }}
                     {% endif %}
                 </div>
-                <p class="tx-lens__foot">
-                    The booking is never refused for a breach (D-2 / MD-5): this
-                    is the consequence, stated before the trade.
-                </p>
             </div>
 
-            <div class="tx-lens">
-                <p class="tx-lens__title"><span>Liquidity · {{ ccy }} cash</span><span>plan path</span></p>
-                <div class="tx-delta">
-                    <div class="tx-delta__label">On trade date <small>{{ effective_date }}</small></div>
-                    <div class="tx-delta__pair{% if cash_after_negative %} tx-delta__row--breach{% endif %}">
-                        <span class="tx-delta__before">{{ cash_before }}</span>
-                        <span class="tx-delta__after">{{ cash_after }}</span>
-                        {% if cash_after_negative %}<span class="tx-delta__badge tx-delta__badge--breach">&lt; 0</span>{% endif %}
-                    </div>
+            <div>
+                <p class="pf-lens__title"><span>Liquidity · {{ ccy }} cash</span><span>plan path</span></p>
+                <div class="pf-delta">
+                    {{ delta(
+                        ("On trade date <small>" ~ effective_date ~ "</small>")|safe,
+                        cash_before,
+                        cash_after,
+                        "< 0" if cash_after_negative else "",
+                        "breach" if cash_after_negative else None,
+                    ) }}
                     {% set cash4q = kpis.get("functional_cash_t0_plus_4q") %}
                     {% if cash4q %}
-                        <div class="tx-delta__label">At t&#8320; + 4 Q <small>{{ currency }}</small></div>
-                        <div class="tx-delta__pair{% if cash4q.negative %} tx-delta__row--breach{% endif %}">
-                            <span class="tx-delta__before">{{ cash4q.before }}</span>
-                            <span class="tx-delta__after">{{ cash4q.after }}</span>
-                            {% if cash4q.negative %}<span class="tx-delta__badge tx-delta__badge--breach">&lt; 0</span>{% endif %}
-                        </div>
+                        {{ delta(
+                            ("At t&#8320; + 4 Q <small>" ~ currency ~ "</small>")|safe,
+                            cash4q.before,
+                            cash4q.after,
+                            "< 0" if cash4q.negative else "",
+                            "breach" if cash4q.negative else None,
+                        ) }}
                     {% endif %}
                     {% set aum = kpis.get("aum") %}
                     {% if aum %}
-                        <div class="tx-delta__label">AUM <small>Σ NAV incl. cash</small></div>
-                        <div class="tx-delta__pair">
-                            <span class="tx-delta__before">{{ aum.before }}</span>
-                            <span class="tx-delta__after">{{ aum.after }}</span>
-                            {% if aum.unchanged %}<span class="tx-delta__badge">unchanged</span>{% endif %}
-                        </div>
+                        {{ delta(
+                            "AUM <small>Σ NAV incl. cash</small>"|safe,
+                            aum.before,
+                            aum.after,
+                            "unchanged" if aum.unchanged else "",
+                        ) }}
                     {% endif %}
                 </div>
-                <p class="tx-lens__foot">
-                    A hypothetical trade re-allocates; it does not fund. The
-                    negative balance is the same fact the composer's
-                    negative-cash warning states at proposal, now placed in time.
-                </p>
             </div>
         </div>
 
-        {# D-6d. A block of zeros is a lens that never lenses. #}
-        <div class="tx-msg tx-msg--muted">
-            <span class="tx-msg__glyph">=</span>
-            <div>
+        {# The record's own foot: the three lens footnotes and the D-6d FX
+           sentence, which is a block of zeros — a lens that never lenses —
+           said once rather than drawn. #}
+        <details class="pf-more">
+            <summary>How to read this</summary>
+            <p>
+                Rows unchanged by the trade are shown for context; only the
+                moved rows carry a status change. The booking is never refused
+                for a breach (D-2 / MD-5): this is the consequence, stated
+                before the trade.
+            </p>
+            <p>
+                A hypothetical trade re-allocates; it does not fund. The
+                negative balance is the same fact the composer's negative-cash
+                warning states at proposal, now placed in time.
+            </p>
+            <p>
                 <strong>FX exposure unchanged.</strong> An order settles in the
                 investment's own currency, so value and cash move in one
-                currency and the exposure mix cannot shift. There is nothing to
-                draw.
-            </div>
-        </div>
-
-        <div class="tx-impact__foot">
-            <span>Engine: <span class="tx-msg__code">insert_transaction → plan frames → coverage · ADR-0104 §2/§5</span></span>
-            <span>·</span>
-            <span>Same figures the Planning Desk would show for this trade as a hypothetical.</span>
-            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
-                    hx-on:click="this.closest('td').innerHTML = ''">Close</button>
-        </div>
+                currency and the exposure mix cannot shift. Same figures the
+                Planning Desk would show for this trade as a hypothetical.
+            </p>
+            <p class="pf-hint">
+                Engine: insert_transaction → plan frames → coverage
+                · ADR-0104 §2/§5
+            </p>
+        </details>
     </div>
 {% endif %}

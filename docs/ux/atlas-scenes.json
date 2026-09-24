@@ -20,6 +20,19 @@
     "shot": "blotter"
   },
   {
+    "name": "transactions-blotter-impact-open",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "blotter",
+    "steps": [
+      {"wait": ".pf-table__row"},
+      {"click": ".pf-table__actions .pf-btn--quiet:not(.pf-btn--icon)"},
+      {"wait": ".pf-table__slot .pf-panel"}
+    ],
+    "shot": "blotter-impact-open"
+  },
+  {
     "name": "transactions-history",
     "area": "transactions",
     "start": "/transactions",

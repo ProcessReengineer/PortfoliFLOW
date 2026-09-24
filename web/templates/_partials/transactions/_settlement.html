@@ -143,11 +143,11 @@
                            {% if candidate.selected %}checked{% endif %}>
                     <span>{{ candidate.name }}</span>
                     <span class="pf-choice__figure">
-                        <span{% if candidate.balance_negative %} class="tx-num--neg"{% endif %}>{{ candidate.balance }}</span>
+                        <span{% if candidate.balance_negative %} class="pf-neg"{% endif %}>{{ candidate.balance }}</span>
                         {{ candidate.currency }}
                         {% if candidate.selected and candidate.after %}
                             →
-                            <span{% if candidate.after_negative %} class="tx-num--neg"{% endif %}>{{ candidate.after }}</span>
+                            <span{% if candidate.after_negative %} class="pf-neg"{% endif %}>{{ candidate.after }}</span>
                         {% endif %}
                     </span>
                 </label>

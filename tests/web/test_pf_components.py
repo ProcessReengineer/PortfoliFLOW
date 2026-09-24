@@ -112,6 +112,17 @@ _EXPECTED_CLASSES = (
     "pf-panel__foot",
     "pf-panel__chart",
     "pf-facts",
+    # Projection: before → after across several lenses (P-UX-A1e2)
+    "pf-lenses",
+    "pf-lens__title",
+    "pf-delta",
+    "pf-delta__label",
+    "pf-delta__before",
+    "pf-delta__arrow",
+    "pf-delta__after",
+    "pf-delta__flag",
+    "pf-delta__flag--warn",
+    "pf-delta__flag--breach",
     # Form
     "pf-form",
     "pf-form__main",
@@ -443,3 +454,56 @@ def test_the_vintage_year_is_a_count_and_not_an_amount() -> None:
     assert 'id="tx-read-md_vintage_year"' not in "".join(
         path.read_text(encoding="utf-8") for path in _TX_PARTIALS.glob("*.html")
     )
+
+
+# ---------------------------------------------------------------------------
+# The Area that has swept itself (UX A-1, P-UX-A1e2)
+# ---------------------------------------------------------------------------
+
+
+_TX_CLASS = re.compile(r'class="[^"]*\btx-[a-z]')
+
+
+def test_the_transactions_partials_carry_no_bespoke_class() -> None:
+    """Strand UX A-1 ends with every surface in this Area on the vocabulary.
+
+    P-UX-A1a through P-UX-A1e2 moved the blotter, history, chooser, the four
+    composers, the wizard, the four slot panels, the reversal report, the
+    impact panel and the negative-cash indicator onto `pf-*`. What is left in
+    `components/transactions.css` is nine scoped rules over *shared*
+    families, so a `tx-` class appearing here again would be a rule with no
+    stylesheet behind it — invisible rather than merely off-vocabulary.
+
+    Ids are a separate question and deliberately excluded: five elements
+    still carry `#tx-…` because the record names no `pf-mono` family, and
+    `#tx-negative-cash` and `#tx-composer-host` are HTMX targets rather than
+    components.
+    """
+    offenders = {
+        path.name: sorted(set(_TX_CLASS.findall(path.read_text(encoding="utf-8"))))
+        for path in sorted(_TX_PARTIALS.glob("*.html"))
+        if _TX_CLASS.search(path.read_text(encoding="utf-8"))
+    }
+    assert offenders == {}, offenders
+
+
+def test_the_transactions_stylesheet_declares_no_tx_class() -> None:
+    """Its residue is scoped rules over shared families, and nothing else.
+
+    A `.tx-…` selector here would either be dead (no template draws one) or
+    would mean a partial had drifted back off the vocabulary. Comments are
+    stripped first: the sheet's header names the retired families at length,
+    and that prose is the record of the sweep rather than a violation of it.
+    """
+    source = _CSS_DIR / "components" / "transactions.css"
+    stripped = re.sub(r"/\*.*?\*/", "", source.read_text(encoding="utf-8"), flags=re.S)
+    assert ".tx-" not in stripped, [line for line in stripped.splitlines() if ".tx-" in line]
+    # Every rule that is left is scoped to the Area root.
+    selectors = [
+        line.strip().rstrip(",{").strip()
+        for line in stripped.splitlines()
+        if line.strip() and not line.startswith((" ", "\t")) and "}" not in line
+    ]
+    assert selectors, "the sheet declares nothing at all"
+    for selector in selectors:
+        assert selector.startswith(".pf-transactions"), selector

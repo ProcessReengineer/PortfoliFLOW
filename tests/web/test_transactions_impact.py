@@ -425,15 +425,14 @@ async def _row_counts() -> dict[str, int]:
 
 
 def _after_value(body: str, *, label: str) -> str:
-    """Return the ``tx-delta__after`` figure of the delta row carrying ``label``.
+    """Return the ``pf-delta__after`` figure of the delta row carrying ``label``.
 
-    The panel states each figure as a struck-through baseline followed by the
-    scenario value, so a test that only asserted a number's presence could not
-    tell the two apart — which is exactly the mistake the sign anchor exists
-    to catch.
+    The panel states each figure as a baseline, an arrow and the scenario
+    value, so a test that only asserted a number's presence could not tell the
+    two apart — which is exactly the mistake the sign anchor exists to catch.
     """
     start = body.index(label)
-    marker = '<span class="tx-delta__after">'
+    marker = '<span class="pf-delta__after">'
     at = body.index(marker, start) + len(marker)
     return body[at : body.index("</span>", at)].strip()
 
@@ -748,7 +747,7 @@ async def test_a_book_with_two_eur_cash_positions_states_the_service_sentence(
     response = await web_client.get(_impact_url(ticket))
 
     assert response.status_code == 200
-    assert "tx-msg tx-msg--block" in response.text
+    assert "pf-note pf-note--block" in response.text
     assert "two active cash positions" in response.text
 
 
@@ -803,3 +802,111 @@ async def test_the_panel_needs_a_session(
     response = await web_client.get(_impact_url(ticket))
 
     assert response.status_code in (302, 303, 401, 403)
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary (UX A-1, P-UX-A1e2)
+# ---------------------------------------------------------------------------
+
+
+def _delta_rows(body: str) -> list[str]:
+    """Split the rendered panel into its delta rows, one string each.
+
+    A row is five cells — label, before, arrow, after, flag — laid into one
+    grid per lens, so the row boundary is the next ``pf-delta__label`` rather
+    than any wrapper element. Anything that broke the five-cell contract
+    would show up here as a row missing its flag.
+    """
+    marker = '<div class="pf-delta__label">'
+    parts = body.split(marker)[1:]
+    return [marker + part for part in parts]
+
+
+async def test_the_panel_is_a_pf_panel_on_the_projection_family(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The record's shape (mock01 ``impactPanel()``), not the bespoke one.
+
+    The panel head, the basis, the three lenses and the foot disclosure are
+    all the shared vocabulary now; the five-cell delta row is the one shape
+    worth pinning cell by cell, because a row that dropped its empty flag
+    would still render and would silently shift every column below it.
+    """
+    actor_id, email, password = seeded_user
+    equity_id, cash_id = await _seed_plan_world(actor_id)
+    ticket = await _seed_order(actor_id, investment_id=equity_id, cash_investment_id=cash_id)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(_impact_url(ticket))).text
+
+    assert '<div class="pf-panel">' in body
+    assert 'class="pf-panel__head"' in body
+    assert 'class="pf-panel__title"' in body
+    assert 'class="pf-facts"' in body
+    assert 'class="pf-lenses"' in body
+    assert body.count('class="pf-lens__title"') == 3
+    assert body.count('<div class="pf-delta">') == 3
+
+    rows = _delta_rows(body)
+    assert rows, "the panel rendered no delta row at all"
+    for row in rows:
+        assert 'class="pf-delta__before"' in row
+        assert 'class="pf-delta__arrow"' in row
+        assert 'class="pf-delta__after"' in row
+        assert 'class="pf-delta__flag' in row
+
+    # The families this panel was the last user of.
+    for retired in ("tx-impact", "tx-lens", "tx-delta", "tx-state", "tx-msg", "tx-btn"):
+        assert retired not in body, retired
+
+
+async def test_the_head_closes_the_panel_with_an_icon_button(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Close moved into the head (the record's placement) and lost its label.
+
+    The gesture is unchanged — it empties the slot the way the cancel panel's
+    Keep does, and asks the server nothing — so the icon carries the
+    accessible name the visible word used to.
+    """
+    actor_id, email, password = seeded_user
+    equity_id, cash_id = await _seed_plan_world(actor_id)
+    ticket = await _seed_order(actor_id, investment_id=equity_id, cash_investment_id=cash_id)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(_impact_url(ticket))).text
+
+    head = body[body.index('class="pf-panel__head"') : body.index('class="pf-facts"')]
+    assert "pf-btn--icon" in head
+    assert 'aria-label="Close"' in head
+    assert "this.closest('td').innerHTML = ''" in head
+    # One button in the whole panel: the panel states, it does not ask.
+    assert body.count("<button") == 1
+
+
+async def test_a_breached_class_says_so_in_words_on_its_flag(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Never colour alone (§2.11.1): the tone rides on a flag that has a word.
+
+    The seeded book is 5,000 of listed equity against 1,000 of cash, and the
+    AnlV set caps listed equity at 35 % — so the quota is breached in both
+    worlds and the row carries the flag whether or not the trade moved it.
+    """
+    actor_id, email, password = seeded_user
+    equity_id, cash_id = await _seed_plan_world(actor_id)
+    ticket = await _seed_order(actor_id, investment_id=equity_id, cash_investment_id=cash_id)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(_impact_url(ticket))).text
+
+    flagged = [row for row in _delta_rows(body) if "pf-delta__flag--breach" in row]
+    assert flagged, "no row carried the breach tone"
+    for row in flagged:
+        tail = row[row.index('class="pf-delta__flag') :]
+        word = tail[tail.index(">") + 1 : tail.index("</span>")].strip()
+        assert word, "a breach flag with no word is colour alone"
+    assert "BREACH" in body

@@ -4,6 +4,16 @@
    detail page. Never a sum across currencies: a EUR overdraft and a USD one
    are two facts, not one.
 
+   The shape is the record's own (mock01 `notice()`, P-UX-A1e2): a
+   `pf-note--warn` whose lead counts the positions, whose figures are
+   `pf-neg`, and whose two standing sentences sit behind a "Why this is
+   flagged" disclosure — the third placement of the A-18 sentence, after the
+   Blotter's (A1a) and the impact panel's. The record draws the one-position
+   case with its detail inline in the lead (`pf-note__inline`); several
+   positions cannot all ride there, so they stack as `pf-note__sub` lines
+   instead. `investments/detail.html` draws the same block for its one
+   position, which is what makes this one indicator rather than two.
+
    No button, no dismiss, no gesture. The indicator is informational on every
    surface and blocks nothing (ADR-0130), and there is nothing to acknowledge
    because there is no flag to clear — the state is re-derived on every
@@ -18,8 +28,14 @@
    template with an empty count rather than restating the markup.
 
    Which is also why "no negative cash" is an **empty wrapper** rather than
-   no wrapper: the element is the thing that asks. `.tx-negative-cash:empty`
-   collapses it to nothing visible.
+   no wrapper: the element is the thing that asks. The wrapper carries no
+   class since P-UX-A1e2 — it is furniture, not a component — so the
+   `:empty` rule that collapses it to nothing visible rides on its id,
+   scoped to the Area, the way the mono holdouts do. The `{% if %}` opens
+   flush against the `>` and closes flush against the `</div>` for that
+   rule's sake: `:empty` counts a whitespace text node as content, so an
+   indented body would have left the rule matching nothing and the empty
+   wrapper holding its margin open.
 
    The refresh contract (T-5 D-X): `load` covers the first render;
    `htmx:afterRequest` from the composer host and from the History section
@@ -34,42 +50,45 @@
    #history is the Area section: present in the shell, and never swapped.
 
    Context: positions (id, name, currency, balance, since, is_active), count. #}
-<div class="tx-negative-cash"
-     id="tx-negative-cash"
+{% macro cash_line(position) -%}
+    <a href="/investments/{{ position.id }}">{{ position.name }}</a>
+    {%- if not position.is_active %} · inactive{% endif %} stands at
+    <span class="pf-neg">{{ position.balance }} {{ position.currency }}</span>
+    since {{ position.since }}.
+{%- endmacro %}
+<div id="tx-negative-cash"
      hx-get="/api/transactions/negative-cash"
      hx-trigger="load, htmx:afterRequest from:#tx-composer-host, htmx:afterRequest from:#history"
      hx-target="this"
-     hx-swap="outerHTML">
-    {% if count %}
-        <div class="tx-indicator">
-            <span class="tx-indicator__glyph" aria-hidden="true">!</span>
-            <div class="tx-indicator__lines">
-                <strong>
-                    {%- if count == 1 -%}
-                        A cash position is below zero.
-                    {%- elif count == 2 -%}
-                        Two cash positions are below zero.
-                    {%- else -%}
-                        {{ count }} cash positions are below zero.
-                    {%- endif -%}
-                </strong>
+     hx-swap="outerHTML">{% if count %}
+        <div class="pf-note pf-note--warn" role="status">
+            {{ pf_icon("warn") }}
+            <p class="pf-note__lead">
+                {%- if count == 1 -%}
+                    A cash position is below zero.
+                {%- elif count == 2 -%}
+                    Two cash positions are below zero.
+                {%- else -%}
+                    {{ count }} cash positions are below zero.
+                {%- endif %}
+                {%- if count == 1 %} <span class="pf-note__inline">{{ cash_line(positions[0]) }}</span>{% endif %}
+            </p>
+            {# The family's third grid column — the slot an inline action
+               would take. This indicator offers none. #}
+            <span></span>
+            {% if count != 1 %}
                 {% for position in positions %}
-                    <span class="tx-indicator__line">
-                        <a href="/investments/{{ position.id }}">{{ position.name }}</a>
-                        {%- if not position.is_active %} · inactive{% endif %} stands at
-                        <span class="tx-num tx-num--neg">{{ position.balance }} {{ position.currency }}</span>
-                        {#- the "since" abuts the balance; `.tx-indicator__since`
-                            carries its own left margin, so a space here would
-                            double it -#}
-                        <span class="tx-indicator__since">since {{ position.since }}</span>
-                    </span>
+                    <p class="pf-note__sub">{{ cash_line(position) }}</p>
                 {% endfor %}
-                <span>The position stays flagged until the balance is back at zero or above.</span>
-                <span class="tx-indicator__hint">
-                    A booking's cash effect is in the book at once; the cash
-                    position's balance shows it from the next price date on.
-                </span>
-            </div>
+            {% endif %}
+            <details class="pf-more pf-note__sub">
+                <summary>Why this is flagged</summary>
+                <p>
+                    The position stays flagged until the balance is back at
+                    zero or above. A booking's cash effect is in the book at
+                    once; the cash position's balance shows it from the next
+                    price date on.
+                </p>
+            </details>
         </div>
-    {% endif %}
-</div>
+    {% endif %}</div>

@@ -160,6 +160,37 @@
 .pf-context dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
 .pf-context dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); }
 
+/* ---- Projection: before → after, across several lenses at once.
+ * The record's own family (shared.css:309–321), drawn in mock01's
+ * `impactPanel()`. Two shapes are worth naming because they are easy to
+ * misread from the markup:
+ *   - `.pf-delta` is one grid per **lens**, not per row. Each row
+ *     contributes five cells — label, before, arrow, after, flag — and the
+ *     6 px row gap is what separates them. A grid per row would give every
+ *     line its own tracks and lose the column alignment the family exists
+ *     for, so a row that has no flag still emits an empty fifth cell.
+ *   - `.pf-lens` carries no rule: a lens is a bare <div> whose only
+ *     furniture is its rule-off title. The record draws no card around it.
+ * The container query at shared.css:310 is omitted with every other one in
+ * this file (see the header): `.pf-main` declares no container, so the
+ * three-track grid does not collapse on a narrow view yet.
+ * The flag's tone is the record's, and the record names two: warn and
+ * breach. A calm row keeps the base ink and says so in words (§2.11.1 —
+ * never colour alone), which is also why an unchanged row's flag reads
+ * `unchanged` rather than going blank. */
+.pf-lenses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ui-space-6); }
+.pf-lens__title { display: flex; justify-content: space-between; gap: var(--ui-space-3); margin: 0 0 var(--ui-space-2); padding-bottom: var(--ui-space-2); border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); }
+.pf-lens__title span:last-child { color: var(--ui-text-tertiary); font-weight: var(--ui-font-weight-regular); }
+.pf-delta { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px auto minmax(52px, auto); gap: 6px var(--ui-space-2); align-items: baseline; font-size: var(--ui-font-scale-sm); }
+.pf-delta__label { color: var(--ui-text-secondary); }
+.pf-delta__label small { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
+.pf-delta__before { color: var(--ui-text-tertiary); text-align: right; }
+.pf-delta__arrow { color: var(--ui-text-tertiary); text-align: center; }
+.pf-delta__after { color: var(--ui-text-primary); text-align: right; font-weight: var(--ui-font-weight-medium); }
+.pf-delta__flag { font-size: var(--ui-font-scale-xs); color: var(--ui-text-tertiary); }
+.pf-delta__flag--warn { color: var(--ui-semantic-warn); }
+.pf-delta__flag--breach { color: var(--ui-semantic-error); }
+
 /* ---- Stepper (R4): where a stepped surface is, and where it is not.
  * Authored rather than transcribed. The record specifies the family — done /
  * active / pending, "deliberately **not** interactive (the code is explicit

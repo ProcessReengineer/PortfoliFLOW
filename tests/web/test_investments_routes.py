@@ -495,7 +495,11 @@ async def test_detail_renders_the_negative_cash_block_for_an_overdrawn_position(
     flat = _flat(body)
 
     assert 'id="inv-negative-cash"' in body
-    assert "tx-indicator--compact" in body
+    # The same block the Transactions Area's banner renders (P-UX-A1e2): one
+    # indicator on two surfaces, so the class string is the contract between
+    # them. ``tests/web/test_transactions_negative_cash.py`` pins it there.
+    assert 'class="pf-note pf-note--warn"' in body
+    assert 'class="pf-neg"' in body
     # The balance carries its own markup, so the sentence is asserted either
     # side of it — the composer suite's own shape for this pin.
     assert "This position stands at" in flat

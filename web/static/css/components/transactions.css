@@ -8,7 +8,10 @@
  * `pf-choice`, retiring the flow-chooser, direction, settlement and
  * inline-create families outright, and P-UX-A1b2 moved the three M-3 reported
  * flows onto the same shapes, retiring the derived-amount, scope and no-cash
- * families with them. What is left is the M-2 wizard's (A1c), the four S5
+ * families with them, and P-UX-A1c moved the M-2 wizard's frame, stepper and
+ * first two steps, retiring the ticket-card, stepper and Identify families
+ * and the three orphans A1b and A1b2 left behind. What is left is the
+ * wizard's Order and Confirm steps and its outcome (A1c2), the four S5
  * panels' and the History detail's (A1e), plus `_effect_leg.html`, which the
  * detail and the wizard's Confirm card share.
  *
@@ -54,48 +57,13 @@
     gap: 14px;
 }
 
-.tx-ticket {
-    background: var(--ui-background-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 6px;
-}
-
-.tx-ticket__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 13px 20px;
-    border-bottom: 1px solid var(--ui-border-default);
-    background: var(--ui-background-section);
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-}
-
-.tx-ticket__ident {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-}
-
-.tx-ticket__id {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-}
-
-.tx-ticket__title {
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    font-size: 0.95rem;
-}
-
-.tx-ticket__body {
-    padding: 18px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
+/* Retired by P-UX-A1c. The wizard was the last `.tx-ticket` user: its head is
+ * now `_composer_head.html` — the Section's own `<h2>` renamed out of band to
+ * a `pf-crumb`, with the MD-2 stamp in `#new-asof` beside it, exactly as the
+ * four composers do — and its body is `pf-form` / `pf-form__main`. So the
+ * framed card, its head, its ident pair and its padded body have no user, and
+ * MD-2 is one anatomy on this surface instead of two. `.tx-state` below stays:
+ * seven partials still use it. */
 
 .tx-state {
     display: inline-flex;
@@ -341,14 +309,10 @@
 
 /* --- Settlement position (MD-3) ------------------------------------- */
 
-.tx-settle.is-unconfirmed {
-    border-color: var(--ui-semantic-warning);
-}
-
-.tx-settle__option.is-selected {
-    border-color: var(--ui-accent-primary);
-    background: var(--pf-accent-soft);
-}
+/* Retired by P-UX-A1c. Both rules lost their user in P-UX-A1b, when the
+ * settlement block became `pf-choice` and its unconfirmed state
+ * `.pf-choice.is-refused`; they were left standing one commit too long and
+ * A1b flag 6 recorded it. */
 
 /* --- Messages (MD-7 vocabulary) ------------------------------------- */
 
@@ -476,9 +440,9 @@
 
 /* --- MD-3 inline cash-position mini-form ---------------------------- */
 
-.tx-inline-create .tx-grid {
-    width: 100%;
-}
+/* Retired by P-UX-A1c. `.tx-inline-create .tx-grid` needed both classes to
+ * match and P-UX-A1b retired the first of them; A1b2 flag 2 recorded the
+ * remainder. */
 
 /* --- Confirmation panel (MD-16) ------------------------------------- */
 
@@ -502,161 +466,52 @@ a.tx-btn {
  * the theme-aware `--ui-*` family.
  */
 
+/* The last of the wizard's own frame. P-UX-A1c put steps 1 and 2 directly into
+ * `pf-form__main`, whose own `gap` replaces this one; steps 3 and 4 still draw
+ * it inside that column for one commit, and P-UX-A1c2 retires it with them. */
 .tx-wizard-body {
     display: flex;
     flex-direction: column;
     gap: 16px;
 }
 
-/* --- Stepper -------------------------------------------------------- */
+/* --- Stepper ------------------------------------------------------- */
 
-.tx-stepper {
-    display: flex;
-    align-items: center;
-    gap: 0;
-}
-
-.tx-step {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-}
-
-.tx-step__dot {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 1px solid var(--ui-border-default);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--ui-text-disabled);
-    background: var(--ui-background-primary);
-    flex: 0 0 auto;
-}
-
-.tx-step__label {
-    font-size: 0.82rem;
-    color: var(--ui-text-disabled);
-    white-space: nowrap;
-}
-
-.tx-step.is-done .tx-step__dot {
-    border-color: var(--ui-semantic-success);
-    color: var(--ui-semantic-success);
-}
-
-.tx-step.is-done .tx-step__label {
-    color: var(--ui-text-secondary);
-}
-
-.tx-step.is-active .tx-step__dot {
-    border-color: var(--ui-accent-primary);
-    background: var(--ui-accent-primary);
-    color: var(--ui-accent-on-accent);
-}
-
-.tx-step.is-active .tx-step__label {
-    color: var(--ui-accent-primary);
-    font-weight: 600;
-}
-
-.tx-stepper__bar {
-    flex: 1 1 auto;
-    height: 1px;
-    background: var(--ui-border-default);
-    margin: 0 12px;
-    min-width: 18px;
-}
+/* Retired by P-UX-A1c. The family is `pf-stepper` in pf_components.css now —
+ * R4's own component, authored there from the record's specification (the
+ * record names the family and its three states but ships no rules for it).
+ * Two shapes changed with the move and are worth naming here, where the old
+ * ones were: the item is an `<li>`, so the connector is the later step's
+ * `::before` rather than a `.tx-stepper__bar` sibling; and the done tick is
+ * `pf_icon("done")` rather than a typed ✓. */
 
 /* --- Identify step -------------------------------------------------- */
 
-/* Both cards stand open (no radio, no script), so neither takes the mock's
- * pointer cursor: nothing here is clickable but the Resolve button. */
-.tx-identify {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-}
-
-@media (max-width: 860px) {
-    .tx-identify {
-        grid-template-columns: 1fr;
-    }
-}
-
-.tx-idcard {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 11px;
-}
-
-.tx-idcard.is-active {
-    border-color: var(--ui-accent-primary);
-}
-
-.tx-idcard__title {
-    font-weight: 600;
-    font-size: 0.92rem;
-    color: var(--ui-text-secondary);
-}
-
-.tx-idcard__hint {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin: 0;
-}
-
-.tx-idrow {
-    display: grid;
-    grid-template-columns: 130px 1fr auto;
-    gap: 10px;
-    align-items: end;
-}
-
-/* The resolved values are inputs rather than text (operator decision W-4′),
- * so the card is a form row inside a success frame. */
-.tx-resolved {
-    border: 1px solid var(--ui-semantic-success);
-    border-radius: 4px;
-    background: var(--ui-background-primary);
-    padding: 10px 13px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.tx-resolved__head {
-    color: var(--ui-semantic-success);
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.tx-resolved__row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-
-@media (max-width: 620px) {
-    .tx-resolved__row {
-        grid-template-columns: 1fr;
-    }
-}
-
-.tx-resolved__note {
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-}
-
-.tx-mono {
+/* Retired by P-UX-A1c. The step is `pf-block__title`, `pf-grid` and `pf-field`
+ * like every other form block in this Area; the Resolved frame is a second
+ * titled grid rather than a green-bordered card, its refusal is a `pf-note
+ * --block`, and D-AK's second card — explanation and never a control — is the
+ * `pf-more` disclosure §2.6.4 asks for. The two-column `.tx-identify` grid and
+ * its 860px breakpoint go with them: `pf-grid`'s six tracks carry the same
+ * shape without a media query of this file's own.
+ *
+ * `.tx-mono` goes too. The record still names no `pf-mono` family, so the mono
+ * stack rides on the ids of the three fields that want it, joining the
+ * currency field P-UX-A1b2 put on the same footing. All four go when the
+ * record grows the family. */
+.pf-transactions #tx-id-value,
+.pf-transactions #tx-id-figi,
+.pf-transactions #tx-currency {
     font-family: var(--ui-font-family-mono);
+}
+
+/* A `pf-field` holding a control rather than an input: the field stretches to
+ * the grid row's height, so its button must be pushed to the baseline the
+ * inputs beside it sit on. M-2 puts Scheme, Value and Resolve in one row, and
+ * this is what keeps them in one. Scoped to the Area and retired when the
+ * record answers what an action inside a field row looks like. */
+.pf-transactions .pf-grid > .pf-field:has(> .pf-btn) {
+    justify-content: flex-end;
 }
 
 /* --- Confirm step summary ------------------------------------------- */
@@ -768,8 +623,9 @@ a.tx-btn {
 /* The currency field's mono stack. The record names no `pf-mono` family and
  * P-UX-A1b2 does not invent one, so it rides on the id of the one field that
  * wants it (`_master_data_fields.html`). It goes when the record grows the
- * family; `.tx-mono` above still serves the wizard's Identify step until
- * P-UX-A1c. */
+ * family. P-UX-A1c retired `.tx-mono` and put the wizard's three mono fields
+ * on the same footing — see the Identify-step note above, where the four ids
+ * are declared together. */
 .pf-transactions #tx-md-currency {
     font-family: var(--ui-font-family-mono);
 }

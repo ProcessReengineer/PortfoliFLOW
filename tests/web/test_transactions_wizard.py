@@ -45,6 +45,7 @@ Not here: the reported flows (S4c), or the blotter and history surfaces
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncGenerator
 from datetime import date as _date
 from decimal import Decimal
@@ -345,14 +346,21 @@ def _disabled(markup: str, label: str) -> bool:
     return "disabled" in markup[markup.rindex("<button", 0, idx) : idx]
 
 
+#: The active step's item and the number in its dot. Since P-UX-A1c the
+#: stepper is `pf-stepper`, an <ol> whose items are <li>, and the active one
+#: is the one carrying `aria-current="step"`.
+_ACTIVE_STEP = re.compile(
+    r'<li class="pf-stepper__step is-active" aria-current="step">'
+    r'\s*<span class="pf-stepper__dot">\s*(\d)\s*</span>'
+)
+
+
 def _step(markup: str) -> int:
     """Which step the rendered wizard is on, read from the stepper."""
-    for number in (1, 2, 3, 4):
-        marker = f'<span class="tx-step__dot">{number}</span>'
-        active = f'<div class="tx-step is-active">\n            {marker}'
-        if _flat(active) in _flat(markup):
-            return number
-    raise AssertionError("no active step in the rendered stepper")
+    match = _ACTIVE_STEP.search(_flat(markup))
+    if match is None:
+        raise AssertionError("no active step in the rendered stepper")
+    return int(match.group(1))
 
 
 def _identify_form(**overrides: str) -> dict[str, str]:
@@ -550,7 +558,7 @@ async def test_resolve_without_a_currency_leaves_the_field_empty(
 
     assert "Resolved" in body
     assert _FIGI in body
-    assert 'name="currency" class="tx-mono" maxlength="3" value=""' in _flat(body)
+    assert 'id="tx-currency" name="currency" maxlength="3" value=""' in _flat(body)
     assert "pf-note--block" not in body, "an absent currency is not a refusal"
 
 
@@ -1131,3 +1139,152 @@ async def test_the_wizard_endpoints_require_a_session_and_a_csrf_token(
         data={"flow": routes.FLOW_NEW_INSTRUMENT, "md_identifier_scheme": "isin"},
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# The shared form vocabulary (P-UX-A1c) — the frame, the stepper, the bars
+# ---------------------------------------------------------------------------
+
+
+async def test_the_wizard_renames_the_section_head_out_of_band(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The wizard draws no head of its own; it renames the Section's.
+
+    P-UX-A1c puts the wizard on `_composer_head.html`, so MD-2's ident pair
+    stops being a card of the wizard's own and becomes the same crumb and
+    stamp the four composers fill. Both land out of band, because the wizard
+    is swapped into ``#tx-composer-host`` and neither host is inside it.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/wizard")).text
+
+    assert '<h2 class="pf-view__title pf-crumb" id="new-title" hx-swap-oob="outerHTML">' in body
+    assert '<span class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML">' in body
+    # The crumb's own trail, and the flow name in the slot the recalc partials
+    # keep addressing.
+    assert "New transaction" in body
+    assert '<span class="pf-crumb__here" id="tx-ticket-title"' in body
+    assert "Buy a new instrument" in body
+    # MD-2 before the first Continue.
+    assert "New ticket" in _flat(body)
+    assert 'class="pf-state pf-state--unsaved"' in body
+    # And the card it replaces is gone.
+    assert "tx-ticket__" not in body
+
+
+async def test_the_stepper_is_an_indicator_and_never_a_control(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R4: a stepped surface runs on a non-interactive `pf-stepper`.
+
+    The way between steps is Back and Continue — the only two controls that
+    know whether the draft has been written — so the stepper offers no
+    navigation at all. Pinned structurally rather than visually: no control
+    and no htmx attribute may appear between the list's tags.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/wizard")).text
+
+    assert '<ol class="pf-stepper" aria-label="Steps">' in body
+    stepper = body[body.index('<ol class="pf-stepper"') : body.index("</ol>")]
+    assert stepper.count("<li ") == len(routes._WIZARD_STEPS)
+    assert stepper.count('aria-current="step"') == 1, "exactly one step is current"
+    assert "hx-" not in stepper, "the stepper offers no navigation (R4)"
+    assert "<button" not in stepper and "<a " not in stepper
+    # State is never colour alone (§2.11.1): step 1 is active and carries its
+    # number; nothing is done yet, so no tick has been drawn.
+    assert '<span class="pf-stepper__dot">1</span>' in _flat(stepper)
+    assert "is-done" not in stepper
+    assert "tx-stepper" not in body and "tx-step" not in body
+
+
+async def test_the_first_two_steps_each_offer_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.3.3: one primary per bar, and on both steps it is Continue.
+
+    Step 1's Resolve is a read and step 2 has no second gesture, so the
+    question each bar answers is the same one — what the step is for.
+    """
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    step_one = (await web_client.get("/api/transactions/wizard")).text
+    step_two = (
+        await web_client.post(
+            "/api/transactions/draft",
+            data={**_identify_form(), "csrf_token": csrf},
+        )
+    ).text
+
+    for step, body in ((1, step_one), (2, step_two)):
+        assert _step(body) == step
+        assert body.count("pf-btn--primary") == 1, f"step {step} has more than one primary"
+        primary = body[body.index("pf-btn--primary") :]
+        assert primary[: primary.index("</button>")].endswith("Continue")
+    # Step 1's Resolve is a default button, never the step's answer.
+    assert '<button class="pf-btn" type="button"' in step_one
+    assert "tx-btn" not in step_one and "tx-btn" not in step_two
+
+
+async def test_the_action_bar_leads_with_the_way_back(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R3: the leading slot is the way back — and step 1 has none.
+
+    Close is the way *out* of the wizard rather than a step move, so it stays
+    with Continue at the trailing end on every step. On step 1 the bar
+    therefore opens with its hint, whose `flex: 1` is the spacer.
+    """
+    _id, email, password = seeded_user
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    step_one = (await web_client.get("/api/transactions/wizard")).text
+    step_two = (
+        await web_client.post(
+            "/api/transactions/draft",
+            data={**_identify_form(), "csrf_token": csrf},
+        )
+    ).text
+
+    bar_one = _flat(step_one[step_one.index('<div class="pf-actionbar">') :])
+    assert bar_one.startswith('<div class="pf-actionbar"> <p class="pf-actionbar__hint">')
+    assert ">Back</button>" not in bar_one, "there is no step before the first"
+    assert "Continue creates the draft ticket." in bar_one
+
+    bar_two = _flat(step_two[step_two.index('<div class="pf-actionbar">') :])
+    assert bar_two.startswith('<div class="pf-actionbar"> <button class="pf-btn pf-btn--quiet"')
+    assert ">Back</button>" in bar_two
+    # The hint element stays as the spacer, and stays empty (no copy invented).
+    assert '<p class="pf-actionbar__hint"></p>' in bar_two
+
+
+async def test_the_second_identify_card_is_a_disclosure(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """D-AK's card is explanation, so §2.6.4 makes it a `pf-more`.
+
+    M-2 draws two boxes and switches between them with a radio. The second
+    never was a control — leaving the fields empty *is* the second path — and
+    a box that looks like the one above it says otherwise. Its copy is M-2's,
+    verbatim.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = _flat((await web_client.get("/api/transactions/wizard")).text)
+
+    assert '<details class="pf-more"> <summary>No public identifier?</summary>' in body
+    assert "For instruments without a listed identifier — a Spezial-AIF share class" in body
+    assert "Leave the fields beside this card empty and continue." in body
+    assert "tx-idcard" not in body

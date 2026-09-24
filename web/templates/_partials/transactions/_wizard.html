@@ -16,6 +16,14 @@
    whole master-data inventory and the draft's payload is a full replacement
    rather than a merge.
 
+   Anatomy is §2.5's since P-UX-A1c, and the same one the four composers
+   took in P-UX-A1b: `pf-form` is `minmax(0, 1fr) 360px` on every step, and
+   `pf-form__main` is the one stable form column R4 asks for. Steps 1, 2 and
+   4 have no derived figures, so the second column stands empty and the main
+   column keeps its width; step 3 puts `_order_derived.html` there in
+   P-UX-A1c2 without a field moving. A column that is always declared and
+   sometimes empty is what makes the four steps one surface rather than four.
+
    The step is navigation, not state. It is posted by the button that asks
    for it — as `hx-vals`, never as a hidden input, so exactly one value for
    it leaves this form — and stored nowhere: a resumed ticket derives its
@@ -27,32 +35,24 @@
    step with a derived region to refresh and a keystroke on any other would
    ask htmx to swap a target that is not on the page.
 
-   MD-2 as everywhere on this surface: the head reads "New ticket · Unsaved"
-   until the first Continue, and from then on "Ticket #n" with its status
-   pill. MD-14: there is no direction control anywhere here — U-NEW is a
-   purchase by definition, and the server fixes `buy` regardless of what
-   arrives.
+   MD-2 as everywhere on this surface — and by construction since P-UX-A1c,
+   because the head is now `_composer_head.html`, shared with the four
+   composers: the Section's own `<h2>` is renamed out of band to the crumb
+   "‹ New transaction › Buy a new instrument", and the stamp beside it reads
+   "New ticket · Unsaved" until the first Continue and "Ticket #n" with its
+   status pill from then on. MD-14: there is no direction control anywhere
+   here — U-NEW is a purchase by definition, and the server fixes `buy`
+   regardless of what arrives.
 
    Context: csrf_token, flow, step, steps, ticket_id, ticket_number,
-   ticket_status, plus each step body's own. #}
-<form class="tx-ticket" id="tx-wizard-form">
+   ticket_status, title, plus each step body's own. #}
+{% include "_partials/transactions/_composer_head.html" %}
+<form class="pf-form" id="tx-wizard-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="flow" value="{{ flow }}">
     {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
 
-    <div class="tx-ticket__head">
-        <div class="tx-ticket__ident">
-            <span class="tx-ticket__id">
-                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
-            </span>
-            <span class="tx-ticket__title" id="tx-ticket-title">{{ title }}</span>
-        </div>
-        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
-            {{ ticket_status | default("unsaved", true) | capitalize }}
-        </span>
-    </div>
-
-    <div class="tx-ticket__body">
+    <div class="pf-form__main">
         {% include "_partials/transactions/_wizard_stepper.html" %}
 
         {% if step == 1 %}

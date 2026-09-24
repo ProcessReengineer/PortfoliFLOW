@@ -160,6 +160,32 @@
 .pf-context dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
 .pf-context dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); }
 
+/* ---- Stepper (R4): where a stepped surface is, and where it is not.
+ * Authored rather than transcribed. The record specifies the family — done /
+ * active / pending, "deliberately **not** interactive (the code is explicit
+ * that the dots offer no navigation)", its glyphs drawn from the icon set —
+ * but ships no rules for it: `shared.css`'s `.pf-step` is the setup
+ * checklist's row, already transcribed below. So the item here is
+ * `.pf-stepper__step` and not `.pf-step`: two families that share a name
+ * share a fate, and a stepper item is a dot and a label where a checklist
+ * step is a mark, a name, a sub-line and an action.
+ * Non-interactive by construction: no hover, no focus ring, no pointer —
+ * nothing here is a control, and the way between steps is Back and Continue.
+ * State never rests on colour (§2.11.1): done swaps the number for a tick,
+ * active carries the label's weight. */
+.pf-stepper { display: flex; align-items: center; gap: 0; margin: 0; padding: 0; list-style: none; }
+.pf-stepper__step { display: flex; flex: 0 0 auto; align-items: center; gap: var(--ui-space-3); min-width: 0; }
+/* The connector is the gap between two steps, so it belongs to the later one:
+ * an <ol> admits no sibling <div> to carry it. */
+.pf-stepper__step + .pf-stepper__step { flex: 1 1 auto; }
+.pf-stepper__step + .pf-stepper__step::before { content: ""; flex: 1 1 auto; min-width: 18px; height: 1px; margin: 0 var(--ui-space-5); background: var(--ui-border-default); }
+.pf-stepper__dot { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--ui-border-default); border-radius: 50%; background: var(--ui-background-primary); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-semibold); }
+.pf-stepper__label { min-width: 0; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-stepper__step.is-done .pf-stepper__dot { border-color: var(--ui-semantic-positive); color: var(--ui-semantic-positive); }
+.pf-stepper__step.is-done .pf-stepper__label { color: var(--ui-text-secondary); }
+.pf-stepper__step.is-active .pf-stepper__dot { border-color: var(--ui-accent-primary); background: var(--ui-accent-primary); color: var(--ui-accent-on-accent); }
+.pf-stepper__step.is-active .pf-stepper__label { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-semibold); }
+
 /* ---- Form */
 .pf-form { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--ui-space-6); align-items: start; }
 .pf-form__main { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-space-6); }

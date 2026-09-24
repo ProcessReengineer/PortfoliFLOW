@@ -123,6 +123,13 @@ _EXPECTED_CLASSES = (
     "pf-check",
     "pf-hint",
     "pf-optional",
+    # Stepper (R4). Authored in P-UX-A1c rather than transcribed: the record
+    # specifies the family and its three states but ships no rules for it,
+    # and `pf-step` is the setup checklist's below.
+    "pf-stepper",
+    "pf-stepper__step",
+    "pf-stepper__dot",
+    "pf-stepper__label",
     # Summary rail
     "pf-rail-sum",
     "pf-rail-sum__title",

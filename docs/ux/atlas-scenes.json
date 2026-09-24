@@ -184,6 +184,19 @@
     "shot": "composer-secondary"
   },
   {
+    "name": "transactions-composer-secondary-sale",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "new",
+    "steps": [
+      {"wait": "#tx-composer-host"},
+      {"click": ".pf-flow:has-text(\"Sell a stake (secondary)\")"},
+      {"wait": "#tx-secsell-form"}
+    ],
+    "shot": "composer-secondary-sale"
+  },
+  {
     "name": "transactions-wizard-step-1",
     "area": "transactions",
     "start": "/transactions",
@@ -193,7 +206,7 @@
       {"wait": "#tx-composer-host"},
       {"click": ".pf-flow:has-text(\"Buy a new instrument\")"},
       {"wait": "#tx-wizard-form"},
-      {"wait": ".tx-stepper .tx-step.is-active"}
+      {"wait": ".pf-stepper .pf-stepper__step.is-active"}
     ],
     "shot": "wizard-step-1"
   }

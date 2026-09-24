@@ -11,11 +11,15 @@
    `unitised` (D-R) and a control here would be a control over nothing.
 
    The six controls themselves moved to `_master_data_fields.html` when P-4b
-   gave R-COMMIT and R-SEC-BUY the same block. This step's *rendered output is
-   unchanged* — the S4b suite is the proof — because the fragment holds only
-   the structure and each caller passes its own MD-9 copy in: M-2's hints and
-   its `unitised` mode below, M-3's shorter hints and `reported` next door.
-   Manager and Region stay here, since only the wizard asks for them.
+   gave R-COMMIT and R-SEC-BUY the same block. The fragment took the shared
+   form vocabulary in P-UX-A1b2 and asked its callers for a `pf-grid`; the two
+   M-3 composers had one, and this step drew `tx-grid` for one commit. P-UX-A1c
+   closes that: the grid below is `pf-grid`, so the six render on the same
+   track widths here as next door, and the wizard's fields stop being a second
+   look at one block. Each caller still passes its own MD-9 copy in — M-2's
+   hints and its `unitised` mode below, M-3's shorter hints and `reported`
+   next door. Manager and Region stay here, since only the wizard asks for
+   them.
 
    The AnlV category is the one field that is optional to *save* and required
    to *finish* (MD-11 / MD-21). M-2's amber notice says so on this step and
@@ -29,61 +33,63 @@
 
    Context: entered, investment_types, asset_classes, anlv_categories,
    error, messages, anlv_gate. #}
-<div class="tx-wizard-body">
-    <div class="tx-block">
-        <p class="tx-block__title">Master data</p>
-        <div class="tx-grid">
-            {% with
-                name_hint = "Pre-filled from the resolved identifier. Must be unique in this tenant.",
-                asset_class_hint = "Tenant catalogue.",
-                currency_hint = "Becomes the ticket currency.",
-                valuation_mode = "unitised",
-                valuation_mode_hint = "Fixed for this flow. Reported stakes go through Commitment or Secondary.",
-                anlv_hint = "Required before the wizard can finish. You can continue and set it later; the ticket stays a draft until it is set."
-            %}
-                {% include "_partials/transactions/_master_data_fields.html" %}
-            {% endwith %}
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-md-manager">Manager <span class="tx-field__optional">(optional)</span></label>
-                <input type="text" id="tx-md-manager" name="md_manager" value="{{ entered.md_manager }}">
-            </div>
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-md-region">Region <span class="tx-field__optional">(optional)</span></label>
-                <input type="text" id="tx-md-region" name="md_region" value="{{ entered.md_region }}">
-            </div>
+<section>
+    <h3 class="pf-block__title">Master data</h3>
+    <div class="pf-grid">
+        {% with
+            name_hint = "Pre-filled from the resolved identifier. Must be unique in this tenant.",
+            asset_class_hint = "Tenant catalogue.",
+            currency_hint = "Becomes the ticket currency.",
+            valuation_mode = "unitised",
+            valuation_mode_hint = "Fixed for this flow. Reported stakes go through Commitment or Secondary.",
+            anlv_hint = "Required before the wizard can finish. You can continue and set it later; the ticket stays a draft until it is set."
+        %}
+            {% include "_partials/transactions/_master_data_fields.html" %}
+        {% endwith %}
+        <div class="pf-field">
+            <label class="pf-label" for="tx-md-manager">Manager <span class="pf-optional">(optional)</span></label>
+            <input class="pf-input" type="text" id="tx-md-manager" name="md_manager"
+                   value="{{ entered.md_manager }}">
+        </div>
+        <div class="pf-field">
+            <label class="pf-label" for="tx-md-region">Region <span class="pf-optional">(optional)</span></label>
+            <input class="pf-input" type="text" id="tx-md-region" name="md_region"
+                   value="{{ entered.md_region }}">
         </div>
     </div>
+</section>
 
-    <div class="tx-messages">
-        {% include "_partials/transactions/_messages.html" %}
-        {% if anlv_gate %}
-            <div class="tx-msg">
-                <span class="tx-msg__glyph">!</span>
-                <div>
-                    <strong>The AnlV category is not set.</strong>
-                    <span class="tx-msg__sub">
-                        You can continue — but this ticket cannot be proposed or booked
-                        until the category is set. Regulatory reporting depends on it.
-                    </span>
-                </div>
-            </div>
-        {% endif %}
+{% include "_partials/transactions/_messages.html" %}
+{% if anlv_gate %}
+    <div class="pf-note pf-note--warn">
+        {{ pf_icon("warn") }}
+        <p class="pf-note__lead">The AnlV category is not set.</p>
+        <span></span>
+        <p class="pf-note__sub">
+            You can continue — but this ticket cannot be proposed or booked
+            until the category is set. Regulatory reporting depends on it.
+        </p>
     </div>
+{% endif %}
 
-    {% with visible = ["md_name", "md_investment_type", "md_asset_class_id",
-                       "currency", "md_anlv_code", "md_manager", "md_region"] %}
-        {% include "_partials/transactions/_wizard_hidden.html" %}
-    {% endwith %}
+{% with visible = ["md_name", "md_investment_type", "md_asset_class_id",
+                   "currency", "md_anlv_code", "md_manager", "md_region"] %}
+    {% include "_partials/transactions/_wizard_hidden.html" %}
+{% endwith %}
 
-    <div class="tx-actions">
-        {% include "_partials/transactions/_wizard_back.html" %}
-        <span class="tx-actions__spacer"></span>
-        {% include "_partials/transactions/_wizard_close.html" %}
-        <button class="tx-btn tx-btn--primary" type="button"
-                hx-post="/api/transactions/draft"
-                hx-include="closest form"
-                hx-vals='{"step": "3"}'
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML">Continue</button>
-    </div>
+{# R3: the leading slot is the way back, and from step 2 on there is one. The
+   hint slot stays empty — step 2 states its rule in the AnlV note and the
+   field hint beneath the select, and a bar hint invented here would be a
+   fourth place to keep it true — but the element stays, because its `flex: 1`
+   is the spacer that right-aligns Close and Continue. #}
+<div class="pf-actionbar">
+    {% include "_partials/transactions/_wizard_back.html" %}
+    <p class="pf-actionbar__hint"></p>
+    {% include "_partials/transactions/_wizard_close.html" %}
+    <button class="pf-btn pf-btn--primary" type="button"
+            hx-post="/api/transactions/draft"
+            hx-include="closest form"
+            hx-vals='{"step": "3"}'
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">Continue</button>
 </div>

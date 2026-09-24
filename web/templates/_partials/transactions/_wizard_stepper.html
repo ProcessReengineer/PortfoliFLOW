@@ -4,16 +4,32 @@
    active one is active, the rest are pending. It offers no navigation — M-2
    draws the dots as indicators and puts every move on the Back and Continue
    buttons, which are the only two controls that know whether the draft has
-   been written.
+   been written. Since P-UX-A1c that is enforced by the vocabulary rather than
+   only by this file: `pf-stepper` (R4, §2.3.6) styles no hover and no focus,
+   and there is no `<button>` and no `hx-*` anywhere below.
+
+   An ordered list, because that is what four numbered steps in sequence are;
+   `aria-current="step"` names the position, and the connector between two
+   steps is the later one's `::before` rather than a sibling element, since an
+   `<ol>` admits no `<div>` between its items.
+
+   The tick is `pf_icon("done")` — the record turns its ✓ ✕ ! glyphs into
+   icons from the set — and it is labelled rather than decorative: "done" is
+   state, and the only other place it is stated is the dot's colour, which
+   §2.11.1 does not allow to carry it alone. The active step's second signal
+   is its label's weight.
 
    Context: step, steps. #}
-<div class="tx-stepper">
+<ol class="pf-stepper" aria-label="Steps">
     {% for label in steps %}
         {% set number = loop.index %}
-        {% if not loop.first %}<div class="tx-stepper__bar"></div>{% endif %}
-        <div class="tx-step{% if number < step %} is-done{% elif number == step %} is-active{% endif %}">
-            <span class="tx-step__dot">{% if number < step %}✓{% else %}{{ number }}{% endif %}</span>
-            <span class="tx-step__label">{{ label }}</span>
-        </div>
+        <li class="pf-stepper__step{% if number < step %} is-done{% elif number == step %} is-active{% endif %}"
+            {%- if number == step %} aria-current="step"{% endif -%}
+        >
+            <span class="pf-stepper__dot">
+                {%- if number < step %}{{ pf_icon("done", "Done") }}{% else %}{{ number }}{% endif -%}
+            </span>
+            <span class="pf-stepper__label">{{ label }}</span>
+        </li>
     {% endfor %}
-</div>
+</ol>

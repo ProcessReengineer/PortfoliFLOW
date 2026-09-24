@@ -19,6 +19,15 @@
       it from (MD-12) — and W-4′ makes it editable on both paths, which is
       why it sits under the two cards rather than inside either.
 
+   All three are product decisions and survive P-UX-A1c unchanged; what moved
+   is the vocabulary they are said in. The two "cards" are no longer boxes:
+   §2.6.4 puts explanatory prose behind a `pf-more` disclosure, so deviation 1
+   now reads as what it is — the second card never was a control, and a
+   disclosure is the shape for a paragraph that answers a question. The first
+   is an ordinary `<section>` on `pf-block__title` / `pf-grid` / `pf-field`,
+   the same three the four composers use, so the wizard's fields and the
+   composers' now sit on one track.
+
    A currency the resolver did not state comes back empty, and that is the
    normal case rather than a failure: the recorded OpenFIGI fixtures do not
    evidence the field at all (P-3a flag F-A).
@@ -29,116 +38,123 @@
 
    Context: schemes, entered, resolved, resolve_error, error, messages,
    ticket_id, csrf_token. #}
-<div class="tx-wizard-body">
-    <div class="tx-identify">
-        <div class="tx-idcard is-active">
-            <span class="tx-idcard__title">Public identifier</span>
-            <p class="tx-idcard__hint">
-                ISIN, ticker or CUSIP. PortfoliFLOW resolves it to a FIGI and
-                pre-fills what it learns. Market data attaches automatically later.
-            </p>
-            <div class="tx-idrow">
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-id-scheme">Scheme</label>
-                    <select id="tx-id-scheme" name="md_identifier_scheme">
-                        {% for scheme in schemes %}
-                            <option value="{{ scheme }}"
-                                    {% if entered.md_identifier_scheme == scheme %}selected{% endif %}>
-                                {{ scheme }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-id-value">Value</label>
-                    <input type="text" id="tx-id-value" name="md_identifier_value"
-                           class="tx-mono" value="{{ entered.md_identifier_value }}">
-                </div>
-                {# A read, so it takes the session's CSRF posture and no role
-                   gate — the same posture as recalc. It replaces the whole
-                   wizard because the pre-fill lands on fields in two
-                   different blocks of this step. #}
-                <button class="tx-btn" type="button"
-                        hx-post="/api/transactions/resolve-identifier"
-                        hx-include="closest form"
-                        hx-target="#tx-composer-host"
-                        hx-swap="innerHTML">Resolve</button>
-            </div>
-
-            {% if resolve_error %}
-                <div class="tx-msg tx-msg--block">
-                    <span class="tx-msg__glyph">✕</span>
-                    <div><strong>{{ resolve_error }}</strong></div>
-                </div>
-            {% elif resolved or entered.md_figi %}
-                <div class="tx-resolved">
-                    <span class="tx-resolved__head">Resolved</span>
-                    <div class="tx-resolved__row">
-                        <div class="tx-field">
-                            <label class="tx-field__label" for="tx-id-figi">FIGI</label>
-                            <input type="text" id="tx-id-figi" name="md_figi"
-                                   class="tx-mono" value="{{ entered.md_figi }}">
-                        </div>
-                        <div class="tx-field">
-                            <label class="tx-field__label" for="tx-id-name">Name</label>
-                            <input type="text" id="tx-id-name" name="md_name"
-                                   value="{{ entered.md_name }}">
-                        </div>
-                    </div>
-                    <span class="tx-resolved__note">
-                        Both identifiers ({{ entered.md_identifier_scheme or "scheme" }}, figi)
-                        will be stored on the new investment.
-                    </span>
-                </div>
-            {% endif %}
+<section>
+    <h3 class="pf-block__title">Public identifier</h3>
+    <p class="pf-hint">
+        ISIN, ticker or CUSIP. PortfoliFLOW resolves it to a FIGI and
+        pre-fills what it learns. Market data attaches automatically later.
+    </p>
+    <div class="pf-grid">
+        <div class="pf-field">
+            <label class="pf-label" for="tx-id-scheme">Scheme</label>
+            <select class="pf-select" id="tx-id-scheme" name="md_identifier_scheme">
+                {% for scheme in schemes %}
+                    <option value="{{ scheme }}"
+                            {% if entered.md_identifier_scheme == scheme %}selected{% endif %}>
+                        {{ scheme }}
+                    </option>
+                {% endfor %}
+            </select>
         </div>
-
-        <div class="tx-idcard">
-            <span class="tx-idcard__title">No public identifier</span>
-            <p class="tx-idcard__hint">
-                For instruments without a listed identifier — a Spezial-AIF share
-                class, a club deal, a note. You name and classify it yourself in the
-                next step; an internal identifier can be added later.
-            </p>
-            <p class="tx-idcard__hint">
-                Leave the fields beside this card empty and continue. Nothing is
-                stored as an identifier that you did not state.
-            </p>
+        <div class="pf-field">
+            <label class="pf-label" for="tx-id-value">Value</label>
+            {# Mono rides on the id, not a class: the record names no `pf-mono`
+               family and P-UX-A1b2 did not invent one for the currency field
+               next door. Same rule, same scoped sheet. #}
+            <input class="pf-input" type="text" id="tx-id-value" name="md_identifier_value"
+                   value="{{ entered.md_identifier_value }}">
+        </div>
+        {# A read, so it takes the session's CSRF posture and no role gate —
+           the same posture as recalc. It replaces the whole wizard because the
+           pre-fill lands on fields in two different blocks of this step. Not
+           primary: the step's answer is Continue, and a bar with two primaries
+           has none (§2.3.3). #}
+        <div class="pf-field">
+            <button class="pf-btn" type="button"
+                    hx-post="/api/transactions/resolve-identifier"
+                    hx-include="closest form"
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Resolve</button>
         </div>
     </div>
 
-    <div class="tx-block">
-        <div class="tx-grid">
-            <div class="tx-field">
-                <label class="tx-field__label" for="tx-currency">Currency</label>
-                <input type="text" id="tx-currency" name="currency" class="tx-mono"
-                       maxlength="3" value="{{ entered.currency }}">
-                <span class="tx-field__hint">Becomes the ticket currency.</span>
+    {% if resolve_error %}
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ resolve_error }}</p>
+        </div>
+    {% elif resolved or entered.md_figi %}
+        <h3 class="pf-block__title">Resolved</h3>
+        <div class="pf-grid">
+            <div class="pf-field">
+                <label class="pf-label" for="tx-id-figi">FIGI</label>
+                <input class="pf-input" type="text" id="tx-id-figi" name="md_figi"
+                       value="{{ entered.md_figi }}">
+            </div>
+            <div class="pf-field pf-field--wide">
+                <label class="pf-label" for="tx-id-name">Name</label>
+                <input class="pf-input" type="text" id="tx-id-name" name="md_name"
+                       value="{{ entered.md_name }}">
+            </div>
+            <div class="pf-field pf-field--full">
+                <span class="pf-hint">
+                    Both identifiers ({{ entered.md_identifier_scheme or "scheme" }}, figi)
+                    will be stored on the new investment.
+                </span>
             </div>
         </div>
-    </div>
+    {% endif %}
 
-    <div class="tx-messages">
-        {% include "_partials/transactions/_messages.html" %}
-    </div>
-
-    {% with visible = ["md_identifier_scheme", "md_identifier_value", "md_figi",
-                       "md_name", "currency"] %}
-        {% include "_partials/transactions/_wizard_hidden.html" %}
-    {% endwith %}
-
-    <div class="tx-actions">
-        <span class="tx-actions__spacer"></span>
-        {% include "_partials/transactions/_wizard_close.html" %}
-        <button class="tx-btn tx-btn--primary" type="button"
-                hx-post="/api/transactions/draft"
-                hx-include="closest form"
-                hx-vals='{"step": "2"}'
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML">Continue</button>
-        <p class="tx-actions__hint">
-            Continue creates the draft ticket. It appears in the Blotter and you can
-            come back to it any time.
+    {# D-AK's second card. Explanation, never a control — so §2.6.4's
+       disclosure rather than a box that looks like the one above it. The
+       summary is this prompt's one line of new copy; the two paragraphs are
+       M-2's, verbatim. #}
+    <details class="pf-more">
+        <summary>No public identifier?</summary>
+        <p>
+            For instruments without a listed identifier — a Spezial-AIF share
+            class, a club deal, a note. You name and classify it yourself in the
+            next step; an internal identifier can be added later.
         </p>
+        <p>
+            Leave the fields beside this card empty and continue. Nothing is
+            stored as an identifier that you did not state.
+        </p>
+    </details>
+</section>
+
+<section>
+    <div class="pf-grid">
+        <div class="pf-field">
+            <label class="pf-label" for="tx-currency">Currency</label>
+            <input class="pf-input" type="text" id="tx-currency" name="currency"
+                   maxlength="3" value="{{ entered.currency }}">
+            <span class="pf-hint">Becomes the ticket currency.</span>
+        </div>
     </div>
+</section>
+
+{% include "_partials/transactions/_messages.html" %}
+
+{% with visible = ["md_identifier_scheme", "md_identifier_value", "md_figi",
+                   "md_name", "currency"] %}
+    {% include "_partials/transactions/_wizard_hidden.html" %}
+{% endwith %}
+
+{# R3's leading slot is the way back, and step 1 has none: the way out of the
+   wizard is Close, which is not a step move. So the bar opens with the hint,
+   whose `flex: 1` is what right-aligns the pair — the same spacer the four
+   composers' bars use. #}
+<div class="pf-actionbar">
+    <p class="pf-actionbar__hint">
+        Continue creates the draft ticket. It appears in the Blotter and you can
+        come back to it any time.
+    </p>
+    {% include "_partials/transactions/_wizard_close.html" %}
+    <button class="pf-btn pf-btn--primary" type="button"
+            hx-post="/api/transactions/draft"
+            hx-include="closest form"
+            hx-vals='{"step": "2"}'
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">Continue</button>
 </div>

@@ -14,7 +14,7 @@
    for what the same endpoint answers when no step is named.
 
    Context: step, ticket_id. #}
-<button class="tx-btn" type="button"
+<button class="pf-btn pf-btn--quiet" type="button"
         hx-get="/api/transactions/wizard?step={{ step - 1 }}{% if ticket_id %}&ticket_id={{ ticket_id }}{% endif %}"
         hx-target="#tx-composer-host"
         hx-swap="innerHTML">Back</button>

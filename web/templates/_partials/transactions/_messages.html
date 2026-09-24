@@ -6,6 +6,12 @@
    call, and a second copy of this five-branch chain is how two of them would
    come to word one identifier differently.
 
+   The shape is `pf-note`, the one note pattern (§2.6.2), since P-UX-A1b:
+   `--block` for a refusal, `--warn` for a warning, the `<strong>` as
+   `__lead`, the second sentence as `__sub`, and the glyph as the registry's
+   icon rather than a typed character. The empty `<span>` between them fills
+   the family's third grid column — the slot an inline action would take.
+
    Copy is MD-9's, lifted verbatim from M-1; the route supplies only the
    formatted values each sentence interpolates, exactly as the service
    supplies identifiers rather than prose one layer down.
@@ -24,42 +30,45 @@
 
    Context: error, messages. #}
 {% if error %}
-    <div class="tx-msg tx-msg--block">
-        <span class="tx-msg__glyph">✕</span>
-        <div><strong>{{ error }}</strong></div>
+    <div class="pf-note pf-note--block">
+        {{ pf_icon("block") }}
+        <p class="pf-note__lead">{{ error }}</p>
     </div>
 {% endif %}
 {% for message in messages %}
     {% set v = message.data %}
-    <div class="tx-msg{% if message.kind == 'block' %} tx-msg--block{% endif %}">
-        <span class="tx-msg__glyph">{% if message.kind == "block" %}✕{% else %}!{% endif %}</span>
-        <div>
-            {% if message.identifier == "partial_secondary_sale" %}
-                {# MD-18. The only block on this surface that no service
-                   derived: a partial sale is not representable in the schema,
-                   so `preview` has nothing to refuse and the route supplies
-                   the identifier directly. It renders in the same shape as
-                   the derived blocks because it stops the ticket in the same
-                   way — harder, in fact: it is the one block that also
-                   withholds Save as draft. #}
-                <strong>Partial secondary sales are not supported yet.</strong>
-                <span class="tx-msg__sub">A partial sale must restate NAV and unfunded commitment proportionally, and the unfunded split interacts with planned flows — a design of its own, deliberately deferred. Record a full sale, or wait for the successor.</span>
-            {% elif message.identifier == "oversell" %}
-                <strong>{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</strong>
-                <span class="tx-msg__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</span>
-            {% elif message.identifier == "price_deviation" %}
-                <strong>Execution price is {{ v.percent }} % {{ v.side }} the last known price.</strong>
-                <span class="tx-msg__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</span>
-            {% elif message.identifier == "negative_cash" %}
-                <strong>{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</strong>
-                <span class="tx-msg__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</span>
-            {% elif message.identifier == "net_non_positive" %}
-                <strong>Net proceeds are {{ v.amount }} {{ v.currency }}.</strong>
-                <span class="tx-msg__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</span>
-            {% elif message.identifier == "future_trade_date" %}
-                <strong>Trade date {{ v.trade_date }} is in the future.</strong>
-                <span class="tx-msg__sub">The book records facts. Post-dating is allowed but unusual.</span>
-            {% endif %}
-        </div>
+    <div class="pf-note pf-note--{% if message.kind == 'block' %}block{% else %}warn{% endif %}">
+        {% if message.kind == "block" %}{{ pf_icon("block") }}{% else %}{{ pf_icon("warn") }}{% endif %}
+        {% if message.identifier == "partial_secondary_sale" %}
+            {# MD-18. The only block on this surface that no service derived:
+               a partial sale is not representable in the schema, so `preview`
+               has nothing to refuse and the route supplies the identifier
+               directly. It renders in the same shape as the derived blocks
+               because it stops the ticket in the same way — harder, in fact:
+               it is the one block that also withholds Save as draft. #}
+            <p class="pf-note__lead">Partial secondary sales are not supported yet.</p>
+            <span></span>
+            <p class="pf-note__sub">A partial sale must restate NAV and unfunded commitment proportionally, and the unfunded split interacts with planned flows — a design of its own, deliberately deferred. Record a full sale, or wait for the successor.</p>
+        {% elif message.identifier == "oversell" %}
+            <p class="pf-note__lead">{{ v.units }} units exceed the holding of {{ v.holding }} units on {{ v.trade_date }}.</p>
+            <span></span>
+            <p class="pf-note__sub">The instrument leg cannot go negative. Reduce the units or check the trade date.</p>
+        {% elif message.identifier == "price_deviation" %}
+            <p class="pf-note__lead">Execution price is {{ v.percent }} % {{ v.side }} the last known price.</p>
+            <span></span>
+            <p class="pf-note__sub">Last price {{ v.price }} {{ v.currency }} on {{ v.date }}. The stored price may simply be stale — your execution price is the better fact.</p>
+        {% elif message.identifier == "negative_cash" %}
+            <p class="pf-note__lead">{{ v.position }} goes to <span class="tx-num tx-num--neg">{{ v.balance }} {{ v.currency }}</span> after this ticket.</p>
+            <span></span>
+            <p class="pf-note__sub">Booking is allowed — the trade is your call. The position stays flagged until the balance is back at zero or above.</p>
+        {% elif message.identifier == "net_non_positive" %}
+            <p class="pf-note__lead">Net proceeds are {{ v.amount }} {{ v.currency }}.</p>
+            <span></span>
+            <p class="pf-note__sub">Fees and taxes exceed the gross amount. Check the inputs before booking.</p>
+        {% elif message.identifier == "future_trade_date" %}
+            <p class="pf-note__lead">Trade date {{ v.trade_date }} is in the future.</p>
+            <span></span>
+            <p class="pf-note__sub">The book records facts. Post-dating is allowed but unusual.</p>
+        {% endif %}
     </div>
 {% endfor %}

@@ -7,6 +7,13 @@
    this four-state chain is how two surfaces would come to offer creation in
    one state and refuse it in another.
 
+   Since P-UX-A1b it is a block of the summary rail (§2.5.3) rather than a
+   main-column block: the settlement position is a derived figure, the mock's
+   own composer puts it there, and one swap of the rail then covers the
+   amounts, the legs and this together. The two M-3 composers that also
+   include it have no rail yet — they take one in P-UX-A1b2, and until then
+   the block renders unframed inside their derived host.
+
    The four states are MD-3's three plus operator decision D-F: no currency
    yet, nothing in the currency (offer to create), rows exist but every one
    is retired (do not offer), and candidates to pick from. Which one applies
@@ -19,8 +26,8 @@
 
    Context: currency, candidates, offer_cash_creation, inactive_cash_only,
    settle_confirmed, entered, currency_from_form. #}
-    <div class="tx-block">
-        <p class="tx-block__title">Settlement position</p>
+    <div>
+        <p class="pf-rail-sum__title">Settlement position</p>
         {% if not currency %}
             {# Keyed on the currency rather than on the picked row (S4b). On
                the composers the two say the same thing — MD-8 derives the
@@ -32,15 +39,13 @@
                Which remedy to name is `currency_from_form`, decided in the
                route: the wizard's currency is a field, everyone else's is a
                consequence of the picked row. #}
-            <div class="tx-settle">
-                <p class="tx-settle__lead">
-                    {% if currency_from_form %}
-                        Set the currency first — the settlement position follows it.
-                    {% else %}
-                        Pick an investment first — the settlement position follows its currency.
-                    {% endif %}
-                </p>
-            </div>
+            <p class="pf-hint">
+                {% if currency_from_form %}
+                    Set the currency first — the settlement position follows it.
+                {% else %}
+                    Pick an investment first — the settlement position follows its currency.
+                {% endif %}
+            </p>
         {% elif offer_cash_creation %}
             {# MD-3, third state: nothing in this currency exists at all, so
                the surface offers to open one.
@@ -59,92 +64,89 @@
                them survive a recalculation: this region is the recalc's swap
                target, and htmx restores focus and caret to the element with
                the same id after a swap — with the value the route echoes
-               back through `entered`. #}
-            <div class="tx-settle is-unconfirmed">
-                <div class="tx-settle__empty">
-                    <p><strong>No {{ currency }} cash position exists.</strong></p>
-                    <p>
-                        This ticket moves cash in {{ currency }} and PortfoliFLOW never
-                        converts on your behalf. Create a {{ currency }} cash position to
-                        settle against, or discard the ticket.
-                    </p>
+               back through `entered`.
+
+               The button is a default `pf-btn`, not a primary: the view's one
+               primary is Book now, in the action bar (R1). #}
+            <div class="pf-note pf-note--block">
+                {{ pf_icon("block") }}
+                <p class="pf-note__lead">No {{ currency }} cash position exists.</p>
+                <span></span>
+                <p class="pf-note__sub">
+                    This ticket moves cash in {{ currency }} and PortfoliFLOW never
+                    converts on your behalf. Create a {{ currency }} cash position to
+                    settle against, or discard the ticket.
+                </p>
+            </div>
+            <div class="pf-grid">
+                <div class="pf-field pf-field--full">
+                    <label class="pf-label" for="tx-cash-name">Name</label>
+                    <input class="pf-input" type="text" id="tx-cash-name" name="cash_name"
+                           value="{{ entered.cash_name or currency ~ ' Cash — main account' }}">
                 </div>
-                <div class="tx-inline-create">
-                    <div class="tx-grid">
-                        <div class="tx-field tx-field--wide">
-                            <label class="tx-field__label" for="tx-cash-name">Name</label>
-                            <input type="text" id="tx-cash-name" name="cash_name"
-                                   value="{{ entered.cash_name or currency ~ ' Cash — main account' }}">
-                        </div>
-                        <div class="tx-field">
-                            <span class="tx-field__label">Currency</span>
-                            <input type="text" value="{{ currency }}" readonly>
-                        </div>
-                        <div class="tx-field tx-field--numeric">
-                            <label class="tx-field__label" for="tx-cash-opening">Opening balance</label>
-                            <input type="number" id="tx-cash-opening" name="cash_opening_balance"
-                                   step="any" min="0"
-                                   value="{{ entered.cash_opening_balance or '0' }}">
-                            <span class="tx-field__hint">Books as an opening row on the new position.</span>
-                        </div>
-                    </div>
-                    <button class="tx-btn tx-btn--primary" type="button"
-                            hx-post="/api/transactions/cash-position"
-                            hx-include="closest form"
-                            hx-target="#tx-composer-host"
-                            hx-swap="innerHTML">Create position</button>
+                <div class="pf-field pf-field--half">
+                    <span class="pf-label">Currency</span>
+                    <input class="pf-input" type="text" value="{{ currency }}" readonly>
+                </div>
+                <div class="pf-field pf-field--half">
+                    <label class="pf-label" for="tx-cash-opening">Opening balance</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-cash-opening"
+                           name="cash_opening_balance" step="any" min="0"
+                           value="{{ entered.cash_opening_balance or '0' }}">
+                    <span class="pf-hint">Books as an opening row on the new position.</span>
                 </div>
             </div>
+            <button class="pf-btn" type="button"
+                    hx-post="/api/transactions/cash-position"
+                    hx-include="closest form"
+                    hx-target="#tx-composer-host"
+                    hx-swap="innerHTML">Create position</button>
         {% elif inactive_cash_only %}
             {# Operator decision D-F: rows exist in this currency but every one
                has been retired. No creation offer — a retired position is not
                a missing one, and the remedy is to reactivate it rather than to
                open a second row beside it. #}
-            <div class="tx-settle is-unconfirmed">
-                <div class="tx-settle__empty">
-                    <p><strong>Every {{ currency }} cash position has been deactivated.</strong></p>
-                    <p>
-                        Reactivate the position this trade settles on, or discard the
-                        ticket. A retired position is not a missing one, so nothing new
-                        is offered here.
-                    </p>
-                </div>
+            <div class="pf-note pf-note--block">
+                {{ pf_icon("block") }}
+                <p class="pf-note__lead">Every {{ currency }} cash position has been deactivated.</p>
+                <span></span>
+                <p class="pf-note__sub">
+                    Reactivate the position this trade settles on, or discard the
+                    ticket. A retired position is not a missing one, so nothing new
+                    is offered here.
+                </p>
             </div>
         {% else %}
-            <div class="tx-settle{% if not settle_confirmed %} is-unconfirmed{% endif %}">
-                <p class="tx-settle__lead">
-                    {% if candidates | length == 1 %}
-                        One {{ currency }} cash position on the book. Confirm it or pick another.
-                    {% else %}
-                        {{ candidates | length }} {{ currency }} cash positions on the book.
-                        Pick the one the money actually moved on — there is no default.
-                    {% endif %}
-                </p>
-                <div class="tx-settle__options">
-                    {% for candidate in candidates %}
-                        <label class="tx-settle__option{% if candidate.selected %} is-selected{% endif %}">
-                            <input type="radio" name="cash_investment_id"
-                                   value="{{ candidate.id }}"
-                                   {% if candidate.selected %}checked{% endif %}>
-                            <span class="tx-settle__name">{{ candidate.name }}</span>
-                            <span class="tx-settle__balance">
-                                <span{% if candidate.balance_negative %} class="tx-num--neg"{% endif %}>{{ candidate.balance }}</span>
-                                {{ candidate.currency }}
-                                {% if candidate.selected and candidate.after %}
-                                    <span class="tx-settle__arrow">→</span>
-                                    <span{% if candidate.after_negative %} class="tx-num--neg"{% endif %}>{{ candidate.after }}</span>
-                                {% endif %}
-                            </span>
-                        </label>
-                    {% endfor %}
-                </div>
-                {# MD-3: one deliberate click on every order, in the
-                   several-match state as much as the single-match one. #}
-                <label class="tx-settle__confirm">
-                    <input type="checkbox" name="settle_confirm" value="1"
-                           {% if settle_confirmed %}checked{% endif %}>
-                    <span>Settle against this position.</span>
+            <p class="pf-hint">
+                {% if candidates | length == 1 %}
+                    One {{ currency }} cash position on the book. Confirm it or pick another.
+                {% else %}
+                    {{ candidates | length }} {{ currency }} cash positions on the book.
+                    Pick the one the money actually moved on — there is no default.
+                {% endif %}
+            </p>
+            {% for candidate in candidates %}
+                <label class="pf-choice{% if candidate.selected %} is-selected{% endif %}">
+                    <input type="radio" name="cash_investment_id"
+                           value="{{ candidate.id }}"
+                           {% if candidate.selected %}checked{% endif %}>
+                    <span>{{ candidate.name }}</span>
+                    <span class="pf-choice__figure">
+                        <span{% if candidate.balance_negative %} class="tx-num--neg"{% endif %}>{{ candidate.balance }}</span>
+                        {{ candidate.currency }}
+                        {% if candidate.selected and candidate.after %}
+                            →
+                            <span{% if candidate.after_negative %} class="tx-num--neg"{% endif %}>{{ candidate.after }}</span>
+                        {% endif %}
+                    </span>
                 </label>
-            </div>
+            {% endfor %}
+            {# MD-3: one deliberate click on every order, in the several-match
+               state as much as the single-match one. #}
+            <label class="pf-check">
+                <input type="checkbox" name="settle_confirm" value="1"
+                       {% if settle_confirmed %}checked{% endif %}>
+                <span>Settle against this position.</span>
+            </label>
         {% endif %}
     </div>

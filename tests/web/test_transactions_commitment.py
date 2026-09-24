@@ -10,7 +10,7 @@ the same login-and-CSRF handshake, the same "nothing was written" counting.
 What is pinned here:
 
 * **MD-19, the flow that moves no cash.** No settlement block is rendered, no
-  cash candidate is offered, the ``tx-nocash`` panel says why in M-3's words,
+  cash candidate is offered, the info note says why in M-3's words,
   and a body that posts a ``cash_investment_id`` anyway still writes NULL —
   the surface never offered the choice, so the value is dropped rather than
   forwarded to a service that would refuse it.
@@ -386,12 +386,12 @@ def _new_section(body: str) -> str:
 
 def _actions(markup: str) -> dict[str, bool]:
     """Map each primary action's label to whether it is disabled."""
-    start = markup.index('<div class="tx-actions">')
+    start = markup.index('<div class="pf-actionbar">')
     region = markup[start : markup.index("</div>", markup.index("</p>", start))]
     return {m.group("label"): "disabled" in m.group("attrs") for m in _BUTTON.finditer(region)}
 
 
-_HINT_OPEN = '<p class="tx-actions__hint">'
+_HINT_OPEN = '<p class="pf-actionbar__hint">'
 
 
 def _hint(markup: str) -> str:
@@ -674,7 +674,7 @@ async def test_propose_without_an_anlv_category_is_refused_in_the_services_words
     )
     assert response.status_code == 200
     body = _flat(response.text)
-    assert "tx-msg--block" in body
+    assert "pf-note--block" in body
     # The service's own sentence, which quotes `'draft'` and is therefore
     # autoescaped by Jinja — the assertion reads around the escaped
     # apostrophes rather than pinning the escaping (the S4b precedent).
@@ -811,3 +811,71 @@ async def test_writes_require_the_csrf_token(
     for url in _WRITE_ENDPOINTS:
         assert (await web_client.post(url, data=body)).status_code == 403, url
     assert await _count(superuser_engine, "trade_tickets") == 0
+
+
+# ---------------------------------------------------------------------------
+# 8 · The composer anatomy (P-UX-A1b2)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_commitment_composer_renames_the_section_head_into_a_crumb(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.1.6, through the shared `_composer_head.html`.
+
+    A composer is a sub-surface of the New-transaction Section, so it draws no
+    heading of its own: it renames the Section's `<h2>` out of band and fills
+    the as-of slot beside it. All four composers take the same partial, so the
+    id the Section's ``aria-labelledby`` points at cannot drift between them.
+    """
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/commitment-form")).text
+
+    assert 'id="new-title" hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-view__title pf-crumb"' in body
+    assert 'class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML"' in body
+    # The ticket title keeps its own id and its own swap inside the crumb.
+    assert 'class="pf-crumb__here" id="tx-ticket-title"' in body
+    # MD-2: unsaved until the first gesture.
+    assert "New ticket" in _flat(body)
+
+
+async def test_the_commitment_composer_carries_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R1 (§2.3.2): one primary per view, and it is Book now."""
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/commitment-form")).text
+
+    assert body.count("pf-btn--primary") == 1
+    assert 'class="pf-btn pf-btn--primary" type="button"' in body
+    assert body.index("pf-btn--primary") > body.index('class="pf-actionbar"')
+
+
+async def test_the_commitment_derived_region_is_a_summary_rail(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.5.3, and MD-19: a rail of one block, because no cash moves.
+
+    The rail is the form's second child, so `.pf-form`'s own two-column grid
+    places it with no rule of this Area's own — and the settlement block the
+    other three composers carry is absent here rather than empty.
+    """
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/commitment-form")).text
+    form = body[body.index('<form class="pf-form" id="tx-commit-form"') :]
+
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in form
+    assert "tx-derived-host" not in form, "the bespoke derived host is retired here"
+    assert form.count("pf-rail-sum__title") == 1, "one block: On booking, and no settlement"
+    assert "Settlement position" not in form
+    assert "pf-choice" not in form, "MD-19 leaves nothing to settle against"

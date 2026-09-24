@@ -152,7 +152,7 @@
     "section": "new",
     "steps": [
       {"wait": "#tx-composer-host"},
-      {"click": ".tx-flow:has-text(\"Buy or sell units\")"},
+      {"click": ".pf-flow:has-text(\"Buy or sell units\")"},
       {"wait": "#tx-order-form"}
     ],
     "shot": "composer-order"
@@ -165,7 +165,7 @@
     "section": "new",
     "steps": [
       {"wait": "#tx-composer-host"},
-      {"click": ".tx-flow:has-text(\"New commitment\")"},
+      {"click": ".pf-flow:has-text(\"New commitment\")"},
       {"wait": "#tx-commit-form"}
     ],
     "shot": "composer-commitment"
@@ -178,7 +178,7 @@
     "section": "new",
     "steps": [
       {"wait": "#tx-composer-host"},
-      {"click": ".tx-flow:has-text(\"Buy a stake (secondary)\")"},
+      {"click": ".pf-flow:has-text(\"Buy a stake (secondary)\")"},
       {"wait": "#tx-secbuy-form"}
     ],
     "shot": "composer-secondary"
@@ -191,7 +191,7 @@
     "section": "new",
     "steps": [
       {"wait": "#tx-composer-host"},
-      {"click": ".tx-flow:has-text(\"Buy a new instrument\")"},
+      {"click": ".pf-flow:has-text(\"Buy a new instrument\")"},
       {"wait": "#tx-wizard-form"},
       {"wait": ".tx-stepper .tx-step.is-active"}
     ],

@@ -27,15 +27,23 @@
    MD-21: the AnlV category is the finish gate, exactly as on R-COMMIT and the
    wizard, and Save as draft stays out of it (MD-11).
 
-   MD-2 as everywhere here: the header reads "New ticket · Unsaved" until the
+   Anatomy is §2.5's, since P-UX-A1b2 and identical to `_order_composer.html`'s:
+   one stable form column (`pf-form__main`) of `<section>` groups, the derived
+   figures in a summary rail placed by `.pf-form`'s own grid (§2.5.3) — amounts,
+   the emission preview and the settlement position, one swap over all three —
+   and the outcome in a sticky action bar with one primary (§2.3.4, R1, R3).
+
+   MD-2 as everywhere here: the head reads "New ticket · Unsaved" until the
    first gesture, then "Ticket #n" with its status pill, and `ticket_id` rides
-   in a hidden field so the next gesture updates that row.
+   in a hidden field so the next gesture updates that row. The head itself is
+   `_composer_head.html`, shared with the other three composers.
 
    Context: csrf_token, flow, investment_types, asset_classes,
    anlv_categories, cases, trade_date, entered, case_id, ticket_id,
    ticket_number, ticket_status, error, plus everything `_derived_context`
    returns. #}
-<form class="tx-ticket" id="tx-secbuy-form"
+{% include "_partials/transactions/_composer_head.html" %}
+<form class="pf-form" id="tx-secbuy-form"
       hx-post="/api/transactions/recalc"
       hx-trigger="input delay:300ms, change delay:300ms, submit"
       hx-target="#tx-derived"
@@ -44,24 +52,12 @@
     <input type="hidden" name="flow" value="{{ flow }}">
     {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
 
-    <div class="tx-ticket__head">
-        <div class="tx-ticket__ident">
-            <span class="tx-ticket__id">
-                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
-            </span>
-            {% include "_partials/transactions/_order_title.html" %}
-        </div>
-        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
-            {{ ticket_status | default("unsaved", true) | capitalize }}
-        </span>
-    </div>
-
-    <div class="tx-ticket__body">
+    <div class="pf-form__main">
 
         {# --------------------- New investment (acquired) --------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">New investment (acquired stake)</p>
-            <div class="tx-grid">
+        <section>
+            <h3 class="pf-block__title">New investment (acquired stake)</h3>
+            <div class="pf-grid">
                 {% with
                     name_hint = "",
                     asset_class_hint = "",
@@ -72,61 +68,58 @@
                 %}
                     {% include "_partials/transactions/_master_data_fields.html" %}
                 {% endwith %}
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-secbuy-vintage">Vintage year</label>
-                    <input type="number" id="tx-secbuy-vintage" name="md_vintage_year"
-                           value="{{ entered.md_vintage_year }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-vintage">Vintage year</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-vintage"
+                           name="md_vintage_year" value="{{ entered.md_vintage_year }}">
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-secbuy-date">Trade date</label>
-                    <input type="date" id="tx-secbuy-date" name="trade_date" value="{{ trade_date }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-date">Trade date</label>
+                    <input class="pf-input" type="date" id="tx-secbuy-date" name="trade_date" value="{{ trade_date }}">
                 </div>
             </div>
-        </div>
+        </section>
 
         {# ---------------------------- Transfer terms ------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">Transfer terms</p>
-            <div class="tx-grid">
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-secbuy-price">Purchase price, net cash out{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input type="number" id="tx-secbuy-price" name="gross_amount" step="any"
-                           value="{{ entered.gross_amount }}">
+        <section>
+            <h3 class="pf-block__title">Transfer terms</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-price">Purchase price, net cash out{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-price"
+                           name="gross_amount" step="any" value="{{ entered.gross_amount }}">
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-secbuy-nav">Acquired NAV at transfer{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input type="number" id="tx-secbuy-nav" name="md_acquired_nav" step="any"
-                           value="{{ entered.md_acquired_nav }}">
-                    <span class="tx-field__hint">Books as the stake's opening NAV.</span>
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-nav">Acquired NAV at transfer{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-nav"
+                           name="md_acquired_nav" step="any" value="{{ entered.md_acquired_nav }}">
+                    <span class="pf-hint">Books as the stake's opening NAV.</span>
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-secbuy-unfunded">Assumed unfunded commitment{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input type="number" id="tx-secbuy-unfunded" name="md_assumed_unfunded" step="any"
-                           value="{{ entered.md_assumed_unfunded }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-unfunded">Assumed unfunded commitment{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-secbuy-unfunded"
+                           name="md_assumed_unfunded" step="any" value="{{ entered.md_assumed_unfunded }}">
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-secbuy-settlement-date">Settlement date <span class="tx-field__optional">(optional)</span></label>
-                    <input type="date" id="tx-secbuy-settlement-date" name="settlement_date"
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-settlement-date">Settlement date <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="date" id="tx-secbuy-settlement-date" name="settlement_date"
                            value="{{ entered.settlement_date }}">
-                    <span class="tx-field__hint">Recorded only. Cash books on the trade date.</span>
+                    <span class="pf-hint">Recorded only. Cash books on the trade date.</span>
                 </div>
             </div>
-        </div>
-
-        {# ------------ Derived rows, emission preview and settlement ----- #}
-        {% include "_partials/transactions/_secondary_buy_derived.html" %}
+        </section>
 
         {# ----------------------------- Provenance ---------------------- #}
         {# M-3 draws no Provenance block; M-1's is kept for the reason P-4a
            kept it on the sale — a secondary carries the same Watch Desk →
            Case → ticket lineage every other flow does (ADR-0128 §6).
            Registered as a copy gap for the walk. #}
-        <div class="tx-block">
-            <p class="tx-block__title">Provenance</p>
-            <div class="tx-grid">
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-secbuy-case">Linked case <span class="tx-field__optional">(optional)</span></label>
-                    <select id="tx-secbuy-case" name="case_id">
+        <section>
+            <h3 class="pf-block__title">Provenance</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-case">Linked case <span class="pf-optional">(optional)</span></label>
+                    <select class="pf-select" id="tx-secbuy-case" name="case_id">
                         <option value="">No case</option>
                         {% for case in cases %}
                             <option value="{{ case.id }}"
@@ -136,20 +129,25 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-secbuy-source">Source <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-secbuy-source" name="source" value="{{ entered.source }}"
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-secbuy-source">Source <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-secbuy-source" name="source" value="{{ entered.source }}"
                            placeholder="Transfer agreement, broker note…">
                 </div>
-                <div class="tx-field tx-field--wide">
-                    <label class="tx-field__label" for="tx-secbuy-note">Note <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-secbuy-note" name="note" value="{{ entered.note }}"
+                <div class="pf-field pf-field--wide">
+                    <label class="pf-label" for="tx-secbuy-note">Note <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-secbuy-note" name="note" value="{{ entered.note }}"
                            placeholder="Why this stake was acquired.">
                 </div>
             </div>
-        </div>
+        </section>
 
         {# --------------------- Messages and actions --------------------- #}
         {% include "_partials/transactions/_secondary_buy_outcome.html" %}
     </div>
+
+    {# ------------ Derived rows, emission preview and settlement ----- #}
+    {# The form's second child, so `.pf-form`'s own `minmax(0,1fr) 360px`
+       places it as the rail with no rule of this Area's own. #}
+    {% include "_partials/transactions/_secondary_buy_derived.html" %}
 </form>

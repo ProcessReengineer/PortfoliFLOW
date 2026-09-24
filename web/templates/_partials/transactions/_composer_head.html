@@ -1,0 +1,48 @@
+{# The composer head — one crumb and one stamp for all four composers.
+
+   Extracted from `_order_composer.html` by P-UX-A1b2, when the three M-3
+   reported flows took the same anatomy. Every composer in this Area is a
+   sub-surface of the New-transaction Section, so none of them draws a heading
+   of its own: each renames the Section's own `<h2>` out of band and fills the
+   Section's as-of slot beside it. Written four times, the four would drift in
+   exactly the places that are load-bearing — the id the Section's
+   `aria-labelledby` points at, and the `hx-swap-oob` that makes the rename
+   reach a head no contiguous swap covers.
+
+   The crumb (§2.1.6). `areas/_section.html` gives the element `id="new-title"`,
+   which is also the Section's accessible name, so replacing it in place keeps
+   that name without the shell changing. `_order_title.html` is *included* into
+   the `__here` slot rather than becoming the crumb: it keeps its own id and its
+   own out-of-band swap, which is what lets the three recalculation partials go
+   on addressing `#tx-ticket-title` wherever it lives.
+
+   The stamp (MD-2). Ticket persistence starts at the first explicit gesture, so
+   the slot reads "New ticket · Unsaved" until one of the three fires and flips
+   to "Ticket #n" with the status pill afterwards. It is not derived — a
+   keystroke must not move it — so it rides with the composer render and never
+   with a recalculation. The mock puts the same pair in the view head; P-UX-A1a
+   built the `#{slug}-asof` seam it lands in.
+
+   The way back restores both slots: `_chooser.html` re-renders the plain
+   heading and an empty stamp, and `_order_confirmation.html` its own pair. Both
+   predate this file and now cover all four composers by construction.
+
+   Context: ticket_number, ticket_status, plus `title` for the included
+   `_order_title.html`. #}
+<h2 class="pf-view__title pf-crumb" id="new-title" hx-swap-oob="outerHTML">
+    <button type="button" class="pf-crumb__back"
+            hx-get="/api/transactions/chooser"
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">{{ pf_icon("back") }}New transaction</button>
+    <span class="pf-crumb__sep" aria-hidden="true">›</span>
+    {% include "_partials/transactions/_order_title.html" %}
+</h2>
+{# The ident and the state pill, into the head's stamp slot. Neither is
+   derived — MD-2 keeps the ticket unsaved until a P-2 gesture — so this
+   rides with the composer render and not with the recalculation. #}
+<span class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML">
+    {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif %}
+    <span class="pf-state pf-state--{{ ticket_status or 'unsaved' }}">
+        {{ ticket_status | default("unsaved", true) | capitalize }}
+    </span>
+</span>

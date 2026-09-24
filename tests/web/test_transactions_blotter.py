@@ -778,6 +778,8 @@ async def test_cancelling_a_proposed_ticket_without_a_reason_is_refused(
 
     assert response.status_code == 200
     assert "requires a reason" in response.text
+    # `_cancel_panel.html` writes its own strip and is not among the partials
+    # P-UX-A1b moved — A-7 is the strand that folds it into `_messages.html`.
     assert "tx-msg--block" in response.text
     # The panel came back, not the list.
     assert 'id="tx-blotter"' not in response.text

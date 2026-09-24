@@ -154,9 +154,19 @@
 .pf-facts dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
 .pf-facts dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); }
 
+/* The same strip under a field grid rather than a panel head: the record
+ * keeps them apart because the margin runs the other way (shared.css:347). */
+.pf-context { display: flex; flex-wrap: wrap; gap: var(--ui-space-2) var(--ui-space-6); margin: var(--ui-space-4) 0 0; }
+.pf-context dt { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-context dd { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); }
+
 /* ---- Form */
 .pf-form { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--ui-space-6); align-items: start; }
 .pf-form__main { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-space-6); }
+.pf-block__title { margin: 0 0 var(--ui-space-3); color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
+/* The six columns the .pf-field spans below are counted in. Transcribed in
+ * P-UX-A1b: A0d took the spans without their container (shared.css:328). */
+.pf-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--ui-space-4); }
 .pf-field { grid-column: span 2; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .pf-field--half { grid-column: span 3; }
 .pf-field--wide { grid-column: span 4; }
@@ -170,8 +180,26 @@
 .pf-input--num { text-align: right; }
 .pf-input::placeholder, .pf-textarea::placeholder { color: var(--ui-text-tertiary); }
 .pf-hint { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+
+/* Segmented control for a small exclusive choice (§2.5.2). The radios stay
+ * radios — the value has to reach the server with the rest of the form — and
+ * the labels are the segments, so no script is involved. Checked state is
+ * carried by background *and* weight, never colour alone (§2.11.1). */
+.pf-seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: var(--ui-control-input-height); padding: 2px; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
+.pf-seg input { position: absolute; opacity: 0; pointer-events: none; }
+.pf-seg label { display: flex; align-items: center; justify-content: center; padding: 0 var(--ui-space-4); border-radius: 3px; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); cursor: pointer; }
+.pf-seg input:checked + label { background: var(--ui-border-default); color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-seg input:focus-visible + label { outline: 2px solid var(--ui-accent-primary-hover); outline-offset: 1px; }
 .pf-check { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-3); color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); cursor: pointer; }
 .pf-check input { accent-color: var(--ui-text-primary); margin: 0; }
+
+/* A pickable row carrying its own figure — the settlement candidate, and any
+ * consequence a form offers rather than imposes (shared.css:374). */
+.pf-choice { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: var(--ui-space-2); align-items: center; padding: var(--ui-space-2) var(--ui-space-3); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); font-size: var(--ui-font-scale-sm); color: var(--ui-text-primary); cursor: pointer; }
+.pf-choice + .pf-choice { margin-top: 6px; }
+.pf-choice.is-selected { border-color: var(--ui-text-tertiary); background: var(--ui-background-section); }
+.pf-choice input { accent-color: var(--ui-text-primary); margin: 0; }
+.pf-choice__figure { grid-column: 2; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
 
 /* ---- Summary rail: derived figures, ledger effect, settlement */
 .pf-rail-sum { position: sticky; top: 88px; display: flex; flex-direction: column; gap: var(--ui-space-5); padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5); border-radius: var(--ui-radius-md); background: var(--ui-background-secondary); }

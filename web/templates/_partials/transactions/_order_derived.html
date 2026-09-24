@@ -1,8 +1,13 @@
 {# Amounts, ledger effect and settlement position — the composer's main
    derived region and the recalc endpoint's swap target (#tx-derived).
 
-   The two blocks are contiguous in M-1's order (Amounts, then Settlement
-   position, then the static Provenance block), so one swap covers both.
+   Since P-UX-A1b this *is* the summary rail (§2.5.3): one sticky
+   `pf-rail-sum` in the form's second grid column, holding the three blocks
+   the record's own composer puts there. It is the second child of
+   `#tx-order-form`, so the grid places it without a rule of this Area's own,
+   and every input inside it is still inside the form — the settlement radios
+   and the cash-creation mini-form post with everything else, `hx-include`
+   unchanged.
 
    Every number here was derived in the route, by the service layer: the net
    is `TicketService.preview`'s cash_effect, the gross is the same
@@ -12,80 +17,77 @@
 
    Shared with the M-2 wizard's Order step (S4b) unchanged: M-2 states that
    its settlement states "behave exactly as in M-1", and the way to keep that
-   true is for them to be the same template.
+   true is for them to be the same template. The wizard has no `pf-form` yet,
+   so there the rail renders as a full-width panel until P-UX-A1c gives it
+   one.
 
    The settlement panel moved to `_settlement.html` in S4c, when the
    R-SEC-SELL composer acquired one too. It is included here at the spot it
-   occupied, so this file's markup is unchanged; what changed is that a third
-   surface can now reach the same four states without a copy.
+   occupied — which is now a rail block, the placement the mock gives it.
 
    Context (all pre-formatted): formula, gross, fees, taxes, net, net_label,
    currency, direction, legs, investment, plus everything
    `_settlement.html` reads. #}
-<div class="tx-derived-host" id="tx-derived">
+<aside class="pf-rail-sum" id="tx-derived" aria-label="Amounts and settlement">
 
-    <div class="tx-block">
-        <p class="tx-block__title">Amounts</p>
-        <div class="tx-derived">
-            <div class="tx-derived__row tx-derived__row--formula">
-                <span>{{ formula or "Units × price appear here." }}</span><span></span>
-            </div>
-            <div class="tx-derived__row">
-                <span>Gross</span>
-                <span>{% if gross %}{{ gross }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
-            </div>
-            <div class="tx-derived__row">
-                <span>Fees</span>
-                {# The sign is the direction's: costs are subtracted from a
-                   sale's proceeds and added to a purchase's cost, which is
-                   exactly what `derive_cash_effect` does one layer down. #}
-                <span>
-                    {%- if fees -%}
-                        {% if direction == "sell" %}−{% else %}+{% endif %}{{ fees }}{% if currency %} {{ currency }}{% endif %}
-                    {%- else -%}—{%- endif -%}
-                </span>
-            </div>
-            <div class="tx-derived__row">
-                <span>Taxes</span>
-                <span>
-                    {%- if taxes -%}
-                        {% if direction == "sell" %}−{% else %}+{% endif %}{{ taxes }}{% if currency %} {{ currency }}{% endif %}
-                    {%- else -%}—{%- endif -%}
-                </span>
-            </div>
+    <div>
+        <p class="pf-rail-sum__title">Amounts</p>
+        <dl class="pf-sum">
+            <span class="pf-sum__formula">{{ formula or "Units × price appear here." }}</span>
+            <dt>Gross</dt>
+            <dd>{% if gross %}{{ gross }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</dd>
+            {# The sign is the direction's: costs are subtracted from a sale's
+               proceeds and added to a purchase's cost, which is exactly what
+               `derive_cash_effect` does one layer down. #}
+            <dt>Fees</dt>
+            <dd>
+                {%- if fees -%}
+                    {% if direction == "sell" %}−{% else %}+{% endif %}{{ fees }}{% if currency %} {{ currency }}{% endif %}
+                {%- else -%}—{%- endif -%}
+            </dd>
+            <dt>Taxes</dt>
+            <dd>
+                {%- if taxes -%}
+                    {% if direction == "sell" %}−{% else %}+{% endif %}{{ taxes }}{% if currency %} {{ currency }}{% endif %}
+                {%- else -%}—{%- endif -%}
+            </dd>
             {# D-AI: the magnitude, with the label carrying its direction —
                "Net cost" or "Net proceeds". M-2 draws a leading minus on the
                wizard's Order step and none on its Confirm card; one
                convention across both surfaces beats matching each drawing,
-               and the signed movement is stated in the cash leg above, where
+               and the signed movement is stated in the cash leg below, where
                the ledger will record it. #}
-            <div class="tx-derived__row tx-derived__row--total">
-                <span>{{ net_label }}</span>
-                <span>{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
-            </div>
-        </div>
+            <dt class="pf-sum__total">{{ net_label }}</dt>
+            <dd class="pf-sum__total">{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</dd>
+        </dl>
+    </div>
 
-        <div class="tx-legs">
-            <p class="tx-legs__lead">Ledger effect — two legs, booked together or not at all.</p>
-            {% if legs %}
-                {% for leg in legs %}
-                    <div class="tx-leg">
-                        <span class="tx-leg__type tx-leg__type--{{ leg.txn_type }}">{{ leg.txn_type }}</span>
-                        <span class="tx-leg__what">{{ leg.name }} <em>@ {{ leg.price }}</em></span>
-                        <span class="tx-leg__amount">{{ leg.units }} units</span>
-                    </div>
-                {% endfor %}
-            {% else %}
-                {# Operator decision D-3: a placeholder until the emission is
-                   fully determined. Showing one leg of two would be a
-                   promise the booking does not make. #}
-                <p class="tx-legs__pending">
-                    Both legs appear here once the investment, units, price and
-                    settlement position are set.
-                </p>
-            {% endif %}
-        </div>
+    <div>
+        <p class="pf-rail-sum__title">Ledger effect</p>
+        {% if legs %}
+            {% for leg in legs %}
+                <div class="pf-leg">
+                    <span class="pf-leg__type">{{ leg.txn_type }}</span>
+                    <span>{{ leg.name }} <em>@ {{ leg.price }}</em></span>
+                    <span class="pf-leg__amount">{{ leg.units }} units</span>
+                </div>
+            {% endfor %}
+            {# §2.6.4: the sentence explaining the pair goes behind the one
+               disclosure pattern, as the mock's rail does. Copy verbatim. #}
+            <details class="pf-more">
+                <summary>Two legs</summary>
+                <p>Ledger effect — two legs, booked together or not at all.</p>
+            </details>
+        {% else %}
+            {# Operator decision D-3: a placeholder until the emission is
+               fully determined. Showing one leg of two would be a promise the
+               booking does not make. #}
+            <p class="pf-hint">
+                Both legs appear here once the investment, units, price and
+                settlement position are set.
+            </p>
+        {% endif %}
     </div>
 
     {% include "_partials/transactions/_settlement.html" %}
-</div>
+</aside>

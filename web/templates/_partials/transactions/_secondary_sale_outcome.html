@@ -1,14 +1,15 @@
 {# Messages and primary actions — the R-SEC-SELL composer's fourth derived
    region, refreshed out of band because M-3 puts the static Provenance block
-   between it and the settlement panel.
+   between it and the rail's settlement panel.
 
    The message strip is `_messages.html`, shared with the composer and the
    wizard: all three surfaces show the same blocks and warnings from the same
-   derivation, so there is one renderer for them and not three.
+   derivation, so there is one renderer for them and not three. MD-18's own
+   refusal is one of its branches, so nothing is restated here.
 
    What stays here is the part that is *this flow's*. The consequence is
-   MD-17's — blue, stated, and carrying **no control**, which is the whole
-   point: a secondary sale is a full disposal by definition, so unlike
+   MD-17's — the info tone, stated, and carrying **no control**, which is the
+   whole point: a secondary sale is a full disposal by definition, so unlike
    U-SELL's `set_inactive` there is nothing to decide. The U-SELL consequence
    is not moved here and this one is not moved there; they read alike and mean
    opposite things.
@@ -19,25 +20,26 @@
    for. Folding both into M-1's chain would make that file's copy conditional
    on a flow it does not serve.
 
+   The action bar is `_order_outcome.html`'s (§2.3.4): the way back leads (R3),
+   the hint carries the middle, and Book now is the view's one primary (R1) —
+   the rail's Create position is a default button for that reason.
+
    Context: messages, error, partial_sale, draft_enabled, propose_enabled,
    book_enabled, hint_key, ticket_id, oob. #}
-<div class="tx-outcome" id="tx-secsell-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="tx-messages">
-        {% include "_partials/transactions/_messages.html" %}
+<div id="tx-secsell-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    {% include "_partials/transactions/_messages.html" %}
 
-        {% if not partial_sale %}
-            <div class="tx-msg tx-msg--consequence">
-                <span class="tx-msg__glyph">→</span>
-                <div>
-                    <strong>This closes the stake completely.</strong>
-                    <span class="tx-msg__sub">
-                        NAV goes to zero, the unfunded commitment ends, and the
-                        investment is set inactive — shown above as emission rows.
-                    </span>
-                </div>
-            </div>
-        {% endif %}
-    </div>
+    {% if not partial_sale %}
+        <div class="pf-note pf-note--info">
+            {{ pf_icon("info") }}
+            <p class="pf-note__lead">This closes the stake completely.</p>
+            <span></span>
+            <p class="pf-note__sub">
+                NAV goes to zero, the unfunded commitment ends, and the
+                investment is set inactive — shown above as emission rows.
+            </p>
+        </div>
+    {% endif %}
 
     {# The three gestures are the composer's own, posting the whole enclosing
        form to the same endpoints M-1 uses — this surface adds no write path.
@@ -49,31 +51,12 @@
        (MD-18): a partial-sale ticket cannot exist in v1 even as a draft,
        because the schema cannot represent one. Every other block and every
        warning still leaves it alone, exactly as W-3 says. #}
-    <div class="tx-actions">
-        <button class="tx-btn tx-btn--primary" type="button"
-                hx-post="/api/transactions/book"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not book_enabled %}disabled{% endif %}>Book now</button>
-        <button class="tx-btn" type="button"
-                hx-post="/api/transactions/propose"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
-        <button class="tx-btn" type="button"
-                hx-post="/api/transactions/draft"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
-        <span class="tx-actions__spacer"></span>
-        <button class="tx-btn tx-btn--ghost" type="button"
+    <div class="pf-actionbar">
+        <button class="pf-btn pf-btn--quiet" type="button"
                 hx-get="/api/transactions/chooser"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">{% if ticket_id %}Close{% else %}Discard{% endif %}</button>
-        <p class="tx-actions__hint">
+        <p class="pf-actionbar__hint">
             {%- if hint_key == "partial_sale" -%}
                 A partial-sale ticket cannot be created in v1 — not even as a draft.
             {%- elif hint_key == "incomplete" -%}
@@ -88,5 +71,23 @@
                 Booking emits all four effects in one step.
             {%- endif -%}
         </p>
+        <button class="pf-btn" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
+        <button class="pf-btn" type="button"
+                hx-post="/api/transactions/propose"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+        <button class="pf-btn pf-btn--primary" type="button"
+                hx-post="/api/transactions/book"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not book_enabled %}disabled{% endif %}>Book now</button>
     </div>
 </div>

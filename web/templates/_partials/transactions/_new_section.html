@@ -5,7 +5,22 @@
    ships the chooser as static markup, and the first database read happens
    when a tile is clicked.
 
+   The host also answers Q-UX-A-5. Since P-UX-A0b an area shows one section
+   at a time, so a composer swapped in from the Blotter — the ticket-number
+   button targets this host — would otherwise open out of sight. The handler
+   below moves the fragment to `new`, and `shell.js` does the rest on
+   `hashchange`: the shell stays the only thing that touches `hidden`, and no
+   new script file is needed.
+
+   Two guards, both load-bearing. `event.detail.target === this` is there
+   because `htmx:afterSwap` bubbles and every recalculation swaps `#tx-derived`
+   *inside* this host — only a swap of the host itself is a change of surface.
+   The fragment comparison is there because assigning the hash it already
+   holds fires no `hashchange` at all, so re-reading it would be a no-op on
+   exactly the second ticket opened.
+
    Context: none (the chooser is static). #}
-<div class="tx-new" id="tx-composer-host">
+<div class="tx-new" id="tx-composer-host"
+     hx-on::after-swap="if (event.detail.target === this && location.hash !== '#new') location.hash = 'new'">
     {% include "_partials/transactions/_chooser.html" %}
 </div>

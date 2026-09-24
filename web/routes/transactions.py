@@ -3976,8 +3976,21 @@ async def get_chooser(
     destroy (MD-2), and after one the ticket is a saved draft worth keeping,
     which is why the label changes to "Close": cancelling a draft and
     reversing a booking are S5's surfaces and a different gesture entirely.
+
+    ``oob`` and ``active_area`` are this endpoint's alone (P-UX-A1b): leaving a
+    composer has to put the plain section heading back where the composer left
+    a crumb (§2.1.6), and the same partial rendered as the area's static markup
+    must not carry a second ``id="new-title"``.
     """
-    return _render(request, "_chooser.html", {"csrf_token": session.csrf_token})
+    return _render(
+        request,
+        "_chooser.html",
+        {
+            "csrf_token": session.csrf_token,
+            "oob": True,
+            "active_area": "transactions",
+        },
+    )
 
 
 @router.post("/api/transactions/recalc", response_class=HTMLResponse)

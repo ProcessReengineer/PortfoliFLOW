@@ -7,15 +7,29 @@
    trigger list too, so a stray Enter recalculates rather than navigating
    away — and the response
    re-renders the four derived regions — the ticket title, the context strip,
-   the amounts/settlement panel and the messages/actions panel. The static
+   the amounts/settlement rail and the messages/actions panel. The static
    half (the picker, the Execution inputs, the Provenance fields) is never
    re-rendered, so nothing the user is typing into moves under them.
 
-   MD-2 puts ticket persistence on the first explicit gesture, so the header
-   reads "New ticket · Unsaved" until one of the three fires, and flips to
-   "Ticket #n" plus the status pill afterwards. `ticket_id` then rides in a
+   Anatomy is §2.5's, since P-UX-A1b: one stable form column (`pf-form__main`),
+   the derived figures in a sticky summary rail placed by CSS grid (§2.5.3),
+   and the outcome in a sticky action bar with one primary (§2.3.4, R1, R3).
+
+   The head is a crumb (§2.1.6). A composer is a sub-surface of the New
+   transaction section, so it renames the section's own `<h2>` out of band
+   rather than drawing a second heading of its own: `areas/_section.html`
+   already gives that element `id="new-title"`, which is also what the
+   section's `aria-labelledby` points at, so the crumb inherits the accessible
+   name without the shell changing. `_order_title.html` keeps its id and its
+   own out-of-band swap, and lands here inside the crumb's `__here` slot.
+
+   MD-2 puts ticket persistence on the first explicit gesture, so the head's
+   stamp reads "New ticket · Unsaved" until one of the three fires, and flips
+   to "Ticket #n" plus the status pill afterwards. `ticket_id` then rides in a
    hidden field, which is how the next gesture knows to update this row
-   instead of allocating a second number.
+   instead of allocating a second number. The stamp goes to the head's as-of
+   slot — the mock puts it in the view head, and P-UX-A1a already built that
+   out-of-band seam for the Blotter's stamp.
 
    The gesture buttons post the whole form (`hx-include="closest form"`) and
    replace the composer with the server's answer — a re-render, or, for a
@@ -27,7 +41,8 @@
    trade_date, entered (the raw posted strings), case_id, ticket_id,
    ticket_number, ticket_status, error, plus everything `_derived_context`
    returns. #}
-<form class="tx-ticket" id="tx-order-form"
+{% include "_partials/transactions/_composer_head.html" %}
+<form class="pf-form" id="tx-order-form"
       hx-post="/api/transactions/recalc"
       hx-trigger="input delay:300ms, change delay:300ms, submit"
       hx-target="#tx-derived"
@@ -35,47 +50,32 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
 
-    <div class="tx-ticket__head">
-        <div class="tx-ticket__ident">
-            <span class="tx-ticket__id">
-                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
-            </span>
-            {% include "_partials/transactions/_order_title.html" %}
-        </div>
-        {# M-1 shows the two chrome states this form can be in — "Unsaved" and
-           "Draft"; `proposed` continues the same pattern, and a booked ticket
-           never renders this template (it has become the confirmation
-           panel). #}
-        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
-            {{ ticket_status | default("unsaved", true) | capitalize }}
-        </span>
-    </div>
-
-    <div class="tx-ticket__body">
+    <div class="pf-form__main">
 
         {# ---------------------------- What happened -------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">What happened</p>
-            <div class="tx-grid">
-                <div class="tx-field">
-                    <span class="tx-field__label">Direction</span>
-                    {# Radios rather than M-1's buttons: the direction has to
-                       reach the server with the rest of the form, and a
-                       segmented control built from labels needs no script. #}
-                    <div class="tx-direction">
-                        <input class="tx-direction__radio" type="radio" name="direction"
+        <section>
+            <h3 class="pf-block__title">What happened</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <span class="pf-label">Direction</span>
+                    {# A segmented control built from labels (§2.5.2): the
+                       radios stay radios, because the direction has to reach
+                       the server with the rest of the form, and segments made
+                       of their labels need no script. #}
+                    <div class="pf-seg">
+                        <input type="radio" name="direction"
                                id="tx-direction-buy" value="buy"
                                {% if direction == "buy" %}checked{% endif %}>
-                        <label class="tx-direction__option" for="tx-direction-buy">Buy</label>
-                        <input class="tx-direction__radio" type="radio" name="direction"
+                        <label for="tx-direction-buy">Buy</label>
+                        <input type="radio" name="direction"
                                id="tx-direction-sell" value="sell"
                                {% if direction == "sell" %}checked{% endif %}>
-                        <label class="tx-direction__option" for="tx-direction-sell">Sell</label>
+                        <label for="tx-direction-sell">Sell</label>
                     </div>
                 </div>
-                <div class="tx-field tx-field--wide">
-                    <label class="tx-field__label" for="tx-investment">Investment</label>
-                    <select id="tx-investment" name="investment_id">
+                <div class="pf-field pf-field--wide">
+                    <label class="pf-label" for="tx-investment">Investment</label>
+                    <select class="pf-select" id="tx-investment" name="investment_id">
                         <option value="">Pick an investment…</option>
                         {% for option in investments %}
                             <option value="{{ option.id }}"
@@ -84,61 +84,59 @@
                             </option>
                         {% endfor %}
                     </select>
-                    <span class="tx-field__hint">Unitised and active investments only.</span>
+                    <span class="pf-hint">Unitised and active investments only.</span>
                 </div>
             </div>
 
             {% include "_partials/transactions/_order_context.html" %}
-        </div>
+        </section>
 
         {# ------------------------------ Execution ---------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">Execution</p>
-            <div class="tx-grid">
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-trade-date">Trade date</label>
-                    <input type="date" id="tx-trade-date" name="trade_date" value="{{ trade_date }}">
-                    <span class="tx-field__hint">Both legs book on this date.</span>
+        <section>
+            <h3 class="pf-block__title">Execution</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-trade-date">Trade date</label>
+                    <input class="pf-input" type="date" id="tx-trade-date" name="trade_date"
+                           value="{{ trade_date }}">
+                    <span class="pf-hint">Both legs book on this date.</span>
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-units">Units</label>
-                    <input type="number" id="tx-units" name="units" step="any"
-                           value="{{ entered.units }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-units">Units</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-units" name="units"
+                           step="any" value="{{ entered.units }}">
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-price">Price per unit</label>
-                    <input type="number" id="tx-price" name="price_per_unit" step="any"
-                           value="{{ entered.price_per_unit }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-price">Price per unit</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-price"
+                           name="price_per_unit" step="any" value="{{ entered.price_per_unit }}">
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-fees">Fees <span class="tx-field__optional">(optional)</span></label>
-                    <input type="number" id="tx-fees" name="fees" step="any"
-                           value="{{ entered.fees }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-fees">Fees <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-fees" name="fees"
+                           step="any" value="{{ entered.fees }}">
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-taxes">Taxes <span class="tx-field__optional">(optional)</span></label>
-                    <input type="number" id="tx-taxes" name="taxes" step="any"
-                           value="{{ entered.taxes }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-taxes">Taxes <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-taxes" name="taxes"
+                           step="any" value="{{ entered.taxes }}">
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-settlement-date">Settlement date <span class="tx-field__optional">(optional)</span></label>
-                    <input type="date" id="tx-settlement-date" name="settlement_date"
-                           value="{{ entered.settlement_date }}">
-                    <span class="tx-field__hint">Recorded only. Cash books on the trade date.</span>
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-settlement-date">Settlement date <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="date" id="tx-settlement-date"
+                           name="settlement_date" value="{{ entered.settlement_date }}">
+                    <span class="pf-hint">Recorded only. Cash books on the trade date.</span>
                 </div>
             </div>
-        </div>
-
-        {# ------------------- Amounts, legs and settlement --------------- #}
-        {% include "_partials/transactions/_order_derived.html" %}
+        </section>
 
         {# ----------------------------- Provenance ---------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">Provenance</p>
-            <div class="tx-grid">
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-case">Linked case <span class="tx-field__optional">(optional)</span></label>
-                    <select id="tx-case" name="case_id">
+        <section>
+            <h3 class="pf-block__title">Provenance</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-case">Linked case <span class="pf-optional">(optional)</span></label>
+                    <select class="pf-select" id="tx-case" name="case_id">
                         <option value="">No case</option>
                         {% for case in cases %}
                             <option value="{{ case.id }}"
@@ -148,20 +146,25 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-source">Source <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-source" name="source" value="{{ entered.source }}"
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-source">Source <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-source" name="source"
+                           value="{{ entered.source }}"
                            placeholder="Broker note, statement reference…">
                 </div>
-                <div class="tx-field tx-field--wide">
-                    <label class="tx-field__label" for="tx-note">Note <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-note" name="note" value="{{ entered.note }}"
+                <div class="pf-field pf-field--full">
+                    <label class="pf-label" for="tx-note">Note <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-note" name="note"
+                           value="{{ entered.note }}"
                            placeholder="Why this trade was made.">
                 </div>
             </div>
-        </div>
+        </section>
 
         {# --------------------- Messages and actions --------------------- #}
         {% include "_partials/transactions/_order_outcome.html" %}
     </div>
+
+    {# ------------- Amounts, ledger effect and settlement -------------- #}
+    {% include "_partials/transactions/_order_derived.html" %}
 </form>

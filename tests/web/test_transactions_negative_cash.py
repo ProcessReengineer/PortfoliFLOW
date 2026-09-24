@@ -503,7 +503,7 @@ async def test_a_standing_overdraft_blocks_no_gesture(
     for endpoint in ("draft", "propose", "book"):
         response = await web_client.post(f"/api/transactions/{endpoint}", data=form)
         assert response.status_code == 200, endpoint
-        assert "tx-msg--block" not in response.text, endpoint
+        assert "pf-note--block" not in response.text, endpoint
 
     async with superuser_engine.begin() as conn:
         rows = await conn.execute(text("SELECT status FROM trade_tickets ORDER BY ticket_number"))
@@ -595,7 +595,10 @@ async def test_a18_hint_appears_once_in_the_banner_and_once_on_the_blotter(
     assert flat.count(_HINT) == 1
     # Above the table, not below it.
     assert flat.index(_HINT) < flat.index("<table")
-    assert 'class="tx-blotter__hint"' in blotter.text
+    # P-UX-A1a put the A-18 sentence behind the one disclosure pattern
+    # (§2.6.4) and retired `tx-blotter__hint`; this pin was left behind and is
+    # corrected here rather than in a commit of its own.
+    assert 'class="pf-more"' in blotter.text
 
 
 # ---------------------------------------------------------------------------

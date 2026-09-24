@@ -9,6 +9,20 @@
    it. Each carries the `ticket #n` provenance string the emitted row itself
    was stamped with.
 
+   §2.5.7 keeps the content of an outcome screen as it stands and moves only
+   its vocabulary, which is what P-UX-A1b did: the head is the crumb the
+   composer left in place with the ident and state in the head's stamp slot,
+   the groups are `pf-block__title`, the notice is a `pf-note`, and the two
+   ways onward sit in the same `pf-actionbar` the composer used.
+
+   The column is the composer's own `pf-form__main` without a form around it:
+   the panel is that form's outcome, and reusing its column keeps the two at
+   one measure rather than introducing a second stacking container.
+
+   The legs stay `_effect_leg.html`'s `tx-leg` rows. That partial is shared
+   with the History detail and with the two M-3 derived panels, all outside
+   this prompt's scope, and moving it here would move them; it goes with them.
+
    The mockups carry no panel, so every sentence below is written in M-1's
    voice and registered as a copy gap for the operator's walk — except the
    flag notice's second line, which is MD-9's negative-cash copy verbatim.
@@ -16,64 +30,62 @@
    Nothing here can be undone from this panel. Reversing a booking is a
    different gesture on a different surface (S5, ADR-0128 §6); what this
    offers is a way onward — to the traded investment, or to the next ticket.
+   The next ticket takes the primary: on a fact there is no way back to take
+   the leading slot, and starting the next one is the surface's one forward
+   action, where "Open …" leaves the Area altogether.
 
    Context: ticket_number, ticket_status, trade_date, provenance,
    investment, rows, flag_notice. #}
-<div class="tx-ticket tx-confirm">
+<h2 class="pf-view__title pf-crumb" id="new-title" hx-swap-oob="outerHTML">
+    <button type="button" class="pf-crumb__back"
+            hx-get="/api/transactions/chooser"
+            hx-target="#tx-composer-host"
+            hx-swap="innerHTML">{{ pf_icon("back") }}New transaction</button>
+    <span class="pf-crumb__sep" aria-hidden="true">›</span>
+    <span class="pf-crumb__here">Booked on {{ trade_date }}</span>
+</h2>
+<span class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML">
+    Ticket #{{ ticket_number }}
+    <span class="pf-state pf-state--{{ ticket_status }}">{{ ticket_status | capitalize }}</span>
+</span>
+<div class="pf-form__main">
 
-    <div class="tx-ticket__head">
-        <div class="tx-ticket__ident">
-            <span class="tx-ticket__id">Ticket #{{ ticket_number }}</span>
-            <span class="tx-ticket__title">Booked on {{ trade_date }}</span>
+    <section>
+        <h3 class="pf-block__title">What was written</h3>
+        <p class="pf-hint">
+            Every row below carries <em>{{ provenance }}</em>, and the ticket
+            keeps the list — which is what makes the booking reversible.
+        </p>
+        {% for row in rows %}
+            {% include "_partials/transactions/_effect_leg.html" %}
+        {% endfor %}
+    </section>
+
+    {% if flag_notice %}
+        {# MD-5: the booking was never in doubt — OP-06 is struck — so this
+           states where the position now stands rather than warning about it.
+           The second sentence is M-1's negative-cash copy verbatim; the
+           persistent indicator it promises is S5's. #}
+        <div class="pf-note pf-note--warn">
+            {{ pf_icon("warn") }}
+            <p class="pf-note__lead">{{ flag_notice.data.position }} now stands at
+                <span class="tx-num tx-num--neg">{{ flag_notice.data.balance }} {{ flag_notice.data.currency }}</span>.</p>
+            <span></span>
+            <p class="pf-note__sub">The position stays flagged until the balance is back at zero or above.</p>
         </div>
-        <span class="tx-state tx-state--{{ ticket_status }}">{{ ticket_status | capitalize }}</span>
-    </div>
+    {% endif %}
 
-    <div class="tx-ticket__body">
-
-        <div class="tx-block">
-            <p class="tx-block__title">What was written</p>
-            <p class="tx-confirm__lead">
-                Every row below carries <em>{{ provenance }}</em>, and the ticket
-                keeps the list — which is what makes the booking reversible.
-            </p>
-            <div class="tx-legs">
-                {% for row in rows %}
-                    {% include "_partials/transactions/_effect_leg.html" %}
-                {% endfor %}
-            </div>
-        </div>
-
-        {% if flag_notice %}
-            {# MD-5: the booking was never in doubt — OP-06 is struck — so this
-               states where the position now stands rather than warning about
-               it. The second sentence is M-1's negative-cash copy verbatim;
-               the persistent indicator it promises is S5's. #}
-            <div class="tx-messages">
-                <div class="tx-msg">
-                    <span class="tx-msg__glyph">!</span>
-                    <div>
-                        <strong>{{ flag_notice.data.position }} now stands at
-                            <span class="tx-num tx-num--neg">{{ flag_notice.data.balance }} {{ flag_notice.data.currency }}</span>.</strong>
-                        <span class="tx-msg__sub">The position stays flagged until the balance is back at zero or above.</span>
-                    </div>
-                </div>
-            </div>
+    <div class="pf-actionbar">
+        <p class="pf-actionbar__hint">
+            The ticket is a fact now. Correcting it means reversing it, which
+            is the blotter's gesture, not this one.
+        </p>
+        {% if investment %}
+            <a class="pf-btn" href="/investments/{{ investment.id }}">Open {{ investment.name }}</a>
         {% endif %}
-
-        <div class="tx-actions">
-            {% if investment %}
-                <a class="tx-btn" href="/investments/{{ investment.id }}">Open {{ investment.name }}</a>
-            {% endif %}
-            <span class="tx-actions__spacer"></span>
-            <button class="tx-btn tx-btn--ghost" type="button"
-                    hx-get="/api/transactions/chooser"
-                    hx-target="#tx-composer-host"
-                    hx-swap="innerHTML">New transaction</button>
-            <p class="tx-actions__hint">
-                The ticket is a fact now. Correcting it means reversing it, which
-                is the blotter's gesture, not this one.
-            </p>
-        </div>
+        <button class="pf-btn pf-btn--primary" type="button"
+                hx-get="/api/transactions/chooser"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">New transaction</button>
     </div>
 </div>

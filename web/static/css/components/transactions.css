@@ -1,10 +1,16 @@
 /* Transactions area (ADR-0128, #061).
  *
  * Translates docs/handover/transactions-order-form-mockup-m1.html — the
- * binding visual spec (MD-9) — for what strand S4a has shipped: the MD-1 flow
- * chooser and the U-BUY / U-SELL order composer with its four derived
- * regions. The M-2 wizard (S4b) and the M-3 reported flows (S4c) extend this
- * file; the blotter and history surfaces (S5) follow.
+ * binding visual spec (MD-9) — for what strands S4 and S5 shipped. What is
+ * left here is shrinking: P-UX-A1a moved the blotter and history onto
+ * `pf-table`, P-UX-A1b moved the chooser and the order composer onto
+ * `pf-form`, `pf-rail-sum`, `pf-actionbar`, `pf-note`, `pf-seg` and
+ * `pf-choice`, retiring the flow-chooser, direction, settlement and
+ * inline-create families outright, and P-UX-A1b2 moved the three M-3 reported
+ * flows onto the same shapes, retiring the derived-amount, scope and no-cash
+ * families with them. What is left is the M-2 wizard's (A1c), the four S5
+ * panels' and the History detail's (A1e), plus `_effect_leg.html`, which the
+ * detail and the wizard's Confirm card share.
  *
  * Scoping. Every rule carries the `tx-` prefix and no rule reaches outside
  * it. That is stricter than the `.pf-cases`-root convention next door and is
@@ -16,9 +22,14 @@
  *     double-spaces M-1's grid (the grid's own `gap` is the spacing), and
  *     `.field__hint` lives in components/investments.css — a sibling
  *     component this one must not depend on;
- *   - buttons are `tx-btn*` rather than the mock's `.pf-btn`, which is
- *     unstyled app-wide (components/cases.css restates it under its own
- *     root; this file states it under the prefix instead).
+ *   - buttons are `tx-btn*` rather than the mock's `.pf-btn`. Both statements
+ *     hold only for the surfaces still to migrate: `pf-btn` is declared in
+ *     full in pf_components.css since A0d, and `pf-field` since A1b has the
+ *     six-column `pf-grid` its spans are counted against.
+ * Three rules break the prefix rule on purpose and are scoped to
+ * `.pf-transactions` instead — the `pf-table` row rule A1a needed and the
+ * three P-UX-A1b2 re-homes below, each painting a shared family in a state
+ * the record does not name.
  *
  * Tokens. Colours and fonts come from `--ui-*`, per MD-7's vocabulary:
  * blocks red (`--ui-semantic-error`), warnings amber
@@ -34,73 +45,6 @@
  *
  * Not here. The shared shell (`.pf-area*`, `.pf-section*`) is layout.css's.
  */
-
-/* --- Flow chooser (MD-1) ------------------------------------------- */
-
-.tx-flows {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-    gap: 10px;
-}
-
-.tx-flow {
-    text-align: left;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 11px 13px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    cursor: pointer;
-    font: inherit;
-    color: inherit;
-}
-
-button.tx-flow:hover {
-    border-color: var(--ui-accent-primary);
-}
-
-/* The shape an unarmed tile takes: a plain tile — no link, no form control —
- * so nothing reaches a route that does not exist yet. P-4b armed the last two
- * flows, so this rule and `.tx-flow__pill` beneath it have **no user in the
- * chooser today**; they are kept as the pattern a sixth flow's tile follows
- * between its ADR and its strand. */
-.tx-flow--pending {
-    opacity: 0.55;
-    cursor: default;
-}
-
-.tx-flow__name {
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    font-size: 0.88rem;
-}
-
-.tx-flow__hint {
-    color: var(--ui-text-disabled);
-    font-size: 0.74rem;
-    line-height: 1.35;
-}
-
-.tx-flow__code {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.06em;
-    color: var(--ui-semantic-muted);
-}
-
-.tx-flow__pill {
-    align-self: flex-start;
-    margin-top: 4px;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 999px;
-    padding: 1px 9px;
-    font-size: 0.66rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--ui-semantic-muted);
-}
 
 /* --- Composer frame ------------------------------------------------- */
 
@@ -148,14 +92,6 @@ button.tx-flow:hover {
 
 .tx-ticket__body {
     padding: 18px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
-
-/* The amounts-and-settlement swap target holds two blocks, so it restates
- * the body's own column spacing rather than collapsing it. */
-.tx-derived-host {
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -271,53 +207,6 @@ button.tx-flow:hover {
     text-align: right;
 }
 
-/* --- Direction control ---------------------------------------------- */
-
-/* M-1 draws a two-button segmented control. Here it is two radios with
- * their labels: the direction has to post with the rest of the form, and
- * the labels give the same visual with no script. */
-.tx-direction {
-    display: inline-flex;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.tx-direction__radio {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-}
-
-.tx-direction__option {
-    background: var(--ui-background-primary);
-    color: var(--ui-text-secondary);
-    padding: 6px 22px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.tx-direction__option + .tx-direction__radio + .tx-direction__option {
-    border-left: 1px solid var(--ui-border-default);
-}
-
-.tx-direction__radio:checked + .tx-direction__option {
-    background: var(--ui-accent-primary);
-    color: var(--ui-accent-on-accent);
-}
-
-.tx-direction__radio:focus-visible + .tx-direction__option {
-    outline: 2px solid var(--ui-accent-primary);
-    outline-offset: 2px;
-}
-
 /* --- Instrument context strip --------------------------------------- */
 
 .tx-context {
@@ -347,52 +236,6 @@ button.tx-flow:hover {
     font-family: var(--ui-font-family-mono);
     font-size: 0.86rem;
     color: var(--ui-text-secondary);
-}
-
-/* --- Derived amounts ------------------------------------------------ */
-
-.tx-derived {
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 12px 14px;
-}
-
-.tx-derived__row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 12px;
-    padding: 3px 0;
-    font-size: 0.87rem;
-}
-
-.tx-derived__row span:last-child {
-    font-family: var(--ui-font-family-mono);
-    color: var(--ui-text-secondary);
-}
-
-.tx-derived__row--formula span:first-child {
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
-}
-
-/* MD-20's context row: quieter than a derived amount, because it qualifies
- * one rather than stating one. M-3's own rule, verbatim. */
-.tx-derived__row--info span:first-child {
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
-}
-
-.tx-derived__row--total {
-    border-top: 1px solid var(--ui-border-default);
-    margin-top: 6px;
-    padding-top: 8px;
-    font-weight: 600;
-}
-
-.tx-derived__row--total span:last-child {
-    color: var(--ui-text-on-sidebar);
-    font-size: 1rem;
 }
 
 /* --- Ledger effect (MD-6) ------------------------------------------- */
@@ -498,102 +341,13 @@ button.tx-flow:hover {
 
 /* --- Settlement position (MD-3) ------------------------------------- */
 
-.tx-settle {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-    padding: 13px 15px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
 .tx-settle.is-unconfirmed {
     border-color: var(--ui-semantic-warning);
-}
-
-.tx-settle__lead {
-    font-size: 0.82rem;
-    color: var(--ui-text-disabled);
-    margin: 0;
-}
-
-.tx-settle__options {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.tx-settle__option {
-    display: grid;
-    grid-template-columns: 18px 1fr auto;
-    gap: 10px;
-    align-items: center;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    background: var(--ui-background-primary);
-    padding: 8px 11px;
-    cursor: pointer;
-}
-
-.tx-settle__option:hover {
-    border-color: var(--ui-accent-primary);
 }
 
 .tx-settle__option.is-selected {
     border-color: var(--ui-accent-primary);
     background: var(--pf-accent-soft);
-}
-
-.tx-settle__option input {
-    accent-color: var(--ui-accent-primary);
-}
-
-.tx-settle__name {
-    font-size: 0.88rem;
-    color: var(--ui-text-secondary);
-}
-
-.tx-settle__balance {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
-}
-
-.tx-settle__arrow {
-    color: var(--ui-text-disabled);
-}
-
-.tx-settle__confirm {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    font-size: 0.84rem;
-    color: var(--ui-text-secondary);
-    cursor: pointer;
-}
-
-.tx-settle__confirm input {
-    margin-top: 3px;
-    accent-color: var(--ui-accent-primary);
-}
-
-.tx-settle__empty {
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-    border-left: 3px solid var(--ui-semantic-warning);
-    background: var(--ui-background-primary);
-    padding: 10px 13px;
-}
-
-.tx-settle__empty p {
-    margin: 0;
-    font-size: 0.85rem;
-}
-
-.tx-settle__empty strong {
-    color: var(--ui-text-on-sidebar);
 }
 
 /* --- Messages (MD-7 vocabulary) ------------------------------------- */
@@ -653,19 +407,6 @@ button.tx-flow:hover {
     margin-top: 4px;
     color: var(--ui-text-disabled);
     font-size: 0.8rem;
-}
-
-.tx-msg__choice {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    margin-top: 8px;
-    cursor: pointer;
-}
-
-.tx-msg__choice input {
-    margin-top: 3px;
-    accent-color: var(--ui-accent-primary);
 }
 
 .tx-num {
@@ -735,41 +476,11 @@ button.tx-flow:hover {
 
 /* --- MD-3 inline cash-position mini-form ---------------------------- */
 
-/* Sits inside the settlement block's offer state, indented under the
-   sentence that explains why it is there. Its inputs belong to the
-   composer's own form (HTML has no nested forms), so it needs no form
-   chrome of its own — only the separation that says it is a sub-task. */
-.tx-inline-create {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    align-items: flex-start;
-    border-top: 1px solid var(--ui-border-default);
-    padding-top: 14px;
-}
-
 .tx-inline-create .tx-grid {
     width: 100%;
 }
 
-.tx-inline-create input[readonly] {
-    color: var(--ui-text-disabled);
-    cursor: default;
-}
-
 /* --- Confirmation panel (MD-16) ------------------------------------- */
-
-.tx-confirm__lead {
-    font-size: 0.82rem;
-    color: var(--ui-text-disabled);
-    margin: 0;
-}
-
-.tx-confirm__lead em {
-    font-style: normal;
-    font-family: var(--ui-font-family-mono);
-    color: var(--ui-text-secondary);
-}
 
 /* The panel's one link is a control among buttons, so it takes their box
    and loses the underline the app gives ordinary links. */
@@ -948,13 +659,6 @@ a.tx-btn {
     font-family: var(--ui-font-family-mono);
 }
 
-/* --- Classify step: the AnlV field when the gate is open ------------- */
-
-.tx-field.is-missing input,
-.tx-field.is-missing select {
-    border-color: var(--ui-semantic-warning);
-}
-
 /* --- Confirm step summary ------------------------------------------- */
 
 .tx-summary {
@@ -1030,52 +734,6 @@ a.tx-btn {
     color: var(--ui-text-on-sidebar);
 }
 
-
-/* --- Scope of the sale (MD-18, M-3) --------------------------------- */
-
-/* Two options, and the second one refuses. The refused state borrows the
- * error colour the red message block uses, so the control and the block that
- * explains it read as one answer. */
-.tx-fraction {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.tx-fraction__opt {
-    display: grid;
-    grid-template-columns: 18px 1fr;
-    gap: 10px;
-    align-items: start;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    background: var(--ui-background-primary);
-    padding: 8px 11px;
-    cursor: pointer;
-    font-size: 0.87rem;
-}
-
-.tx-fraction__opt input {
-    accent-color: var(--ui-accent-primary);
-    margin-top: 2px;
-}
-
-.tx-fraction__opt.is-selected {
-    border-color: var(--ui-accent-primary);
-    background: var(--pf-accent-soft);
-}
-
-.tx-fraction__opt.is-refused {
-    border-color: var(--ui-semantic-error);
-}
-
-.tx-fraction__sub {
-    display: block;
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin-top: 2px;
-}
-
 /* --- MD-19: the flow that moves no cash ------------------------------ */
 
 /* R-COMMIT's standing panel, where every other composer has a settlement
@@ -1086,27 +744,34 @@ a.tx-btn {
  *
  * M-3's own rule, with its literal rgba() swapped for the theme variables the
  * rest of this file uses (ADR-0021). */
-.tx-nocash {
-    border: 1px solid var(--ui-semantic-info);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-    padding: 12px 15px;
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
+/* --- Re-homed onto the shared families (P-UX-A1b2) ------------------- */
+
+/* Three rules whose markup moved to `pf-*` in P-UX-A1b2 and whose states the
+ * record does not name. Each is scoped to this Area, the exception the sheet's
+ * head describes, because each paints a shared family and must not reach the
+ * rest of the app.
+ *
+ * `is-refused` (MD-18): a choice that is offered and refuses. No mock has one,
+ * so there is no `pf-choice` variant to take; the state class stays and
+ * borrows the error colour the red note uses, so the control and the note that
+ * explains it read as one answer. */
+.pf-transactions .pf-choice.is-refused {
+    border-color: var(--ui-semantic-error);
 }
 
-.tx-nocash strong {
-    color: var(--ui-semantic-info);
+/* `is-missing` (MD-21): the AnlV field while the finish gate is open. */
+.pf-transactions .pf-field.is-missing input,
+.pf-transactions .pf-field.is-missing select {
+    border-color: var(--ui-semantic-warning);
 }
 
-.tx-nocash p {
-    margin: 0;
-}
-
-.tx-nocash p + p {
-    margin-top: 5px;
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
+/* The currency field's mono stack. The record names no `pf-mono` family and
+ * P-UX-A1b2 does not invent one, so it rides on the id of the one field that
+ * wants it (`_master_data_fields.html`). It goes when the record grows the
+ * family; `.tx-mono` above still serves the wizard's Identify step until
+ * P-UX-A1c. */
+.pf-transactions #tx-md-currency {
+    font-family: var(--ui-font-family-mono);
 }
 
 /* --- The Blotter and History lists (M-5, S5) ------------------------- */

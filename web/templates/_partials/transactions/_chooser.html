@@ -1,63 +1,88 @@
 {# MD-1 flow chooser — the five entry points into the Transactions area.
 
-   Copy is lifted verbatim from the M-1 mockup (MD-9), tile names, hints and
-   flow codes alike.
+   Copy is lifted verbatim from the M-1 mockup (MD-9): tile names and hints
+   alike. The flow codes are no longer among them — `U-BUY / U-SELL` and its
+   four siblings are internal identifiers, and §2.6.4 keeps those out of
+   visible copy. They ride in `data-flow` instead, which is where the tests
+   that pinned them now read them.
 
    All five tiles are live as of P-4b, and there is no pending state left in
    this file: "Buy or sell units" swaps in the U-BUY / U-SELL composer (S4a),
    "Buy a new instrument" the M-2 wizard (S4b), and the three reported flows
-   the M-3 composers R-COMMIT, R-SEC-BUY and R-SEC-SELL (S4c). The
-   `tx-flow--pending` class and the `tx-flow__pill` it carried have no
-   remaining user in this Area; they stay in the stylesheet as the shape a
-   future flow's tile takes before it is armed.
+   the M-3 composers R-COMMIT, R-SEC-BUY and R-SEC-SELL (S4c).
 
    The tile count is asserted in three test modules — the composer's chooser
    test owns the copy on all five, and the wizard's and secondary-sale's each
    pin the tile they armed. Arming a flow moves those counts, deliberately:
    a live tile is another button where the tests counted them.
 
-   Context: none. The chooser is static markup, which is what keeps
+   The plain head rides back out of band (P-UX-A1b). A composer replaces the
+   head's `<h2>` with the `‹ New transaction › <ticket>` crumb (§2.1.6) and
+   fills the stamp slot beside it with the ticket's ident and state, so leaving
+   one has to put both back: the heading, whose string comes from the shell
+   catalogue rather than being typed a second time here, and an empty stamp,
+   which is what `areas/_section.html` renders for a section with no
+   `section_as_of`. Only the endpoint render carries them — included as the
+   area's static markup, a second `id="new-title"` would collide with the
+   head's own.
+
+   Context: oob, active_area (both set by the chooser endpoint only). The
+   chooser is otherwise static markup, which is what keeps
    web/routes/areas.py a no-DB shell render — everything needing the
    database sits behind the HTMX endpoints below. #}
-<div class="tx-flows">
-    <button class="tx-flow" type="button"
-            hx-get="/api/transactions/order-form"
-            hx-target="#tx-composer-host"
-            hx-swap="innerHTML">
-        <span class="tx-flow__name">Buy or sell units</span>
-        <span class="tx-flow__hint">An instrument already on the book.</span>
-        <span class="tx-flow__code">U-BUY / U-SELL</span>
-    </button>
-    <button class="tx-flow" type="button"
-            hx-get="/api/transactions/wizard"
-            hx-target="#tx-composer-host"
-            hx-swap="innerHTML">
-        <span class="tx-flow__name">Buy a new instrument</span>
-        <span class="tx-flow__hint">Create the investment, then buy it.</span>
-        <span class="tx-flow__code">U-NEW</span>
-    </button>
-    <button class="tx-flow" type="button"
-            hx-get="/api/transactions/commitment-form"
-            hx-target="#tx-composer-host"
-            hx-swap="innerHTML">
-        <span class="tx-flow__name">New commitment</span>
-        <span class="tx-flow__hint">Private markets. No cash moves yet.</span>
-        <span class="tx-flow__code">R-COMMIT</span>
-    </button>
-    <button class="tx-flow" type="button"
-            hx-get="/api/transactions/secondary-buy-form"
-            hx-target="#tx-composer-host"
-            hx-swap="innerHTML">
-        <span class="tx-flow__name">Buy a stake (secondary)</span>
-        <span class="tx-flow__hint">Acquire an existing fund interest.</span>
-        <span class="tx-flow__code">R-SEC-BUY</span>
-    </button>
-    <button class="tx-flow" type="button"
-            hx-get="/api/transactions/secondary-sale-form"
-            hx-target="#tx-composer-host"
-            hx-swap="innerHTML">
-        <span class="tx-flow__name">Sell a stake (secondary)</span>
-        <span class="tx-flow__hint">Exit a fund interest in full.</span>
-        <span class="tx-flow__code">R-SEC-SELL</span>
-    </button>
-</div>
+{% if oob %}
+    <h2 class="pf-view__title" id="new-title" hx-swap-oob="outerHTML">{{ pf_section_title(active_area, "new") }}</h2>
+    <span class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML"></span>
+{% endif %}
+<ul class="pf-flows">
+    <li>
+        <button class="pf-flow" type="button" data-flow="U-BUY / U-SELL"
+                hx-get="/api/transactions/order-form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">
+            <span class="pf-flow__name">Buy or sell units</span>
+            <span class="pf-flow__hint">An instrument already on the book.</span>
+            {{ pf_icon("forward") }}
+        </button>
+    </li>
+    <li>
+        <button class="pf-flow" type="button" data-flow="U-NEW"
+                hx-get="/api/transactions/wizard"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">
+            <span class="pf-flow__name">Buy a new instrument</span>
+            <span class="pf-flow__hint">Create the investment, then buy it.</span>
+            {{ pf_icon("forward") }}
+        </button>
+    </li>
+    <li>
+        <button class="pf-flow" type="button" data-flow="R-COMMIT"
+                hx-get="/api/transactions/commitment-form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">
+            <span class="pf-flow__name">New commitment</span>
+            <span class="pf-flow__hint">Private markets. No cash moves yet.</span>
+            {{ pf_icon("forward") }}
+        </button>
+    </li>
+    <li>
+        <button class="pf-flow" type="button" data-flow="R-SEC-BUY"
+                hx-get="/api/transactions/secondary-buy-form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">
+            <span class="pf-flow__name">Buy a stake (secondary)</span>
+            <span class="pf-flow__hint">Acquire an existing fund interest.</span>
+            {{ pf_icon("forward") }}
+        </button>
+    </li>
+    <li>
+        <button class="pf-flow" type="button" data-flow="R-SEC-SELL"
+                hx-get="/api/transactions/secondary-sale-form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML">
+            <span class="pf-flow__name">Sell a stake (secondary)</span>
+            <span class="pf-flow__hint">Exit a fund interest in full.</span>
+            {{ pf_icon("forward") }}
+        </button>
+    </li>
+</ul>

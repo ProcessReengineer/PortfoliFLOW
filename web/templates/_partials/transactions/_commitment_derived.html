@@ -1,11 +1,17 @@
 {# What booking a commitment will emit — the R-COMMIT composer's one derived
    region and the recalculation endpoint's swap target (#tx-derived).
 
-   The smallest derived region in the Area, because R-COMMIT is the smallest
-   emission in the system (`emit_commitment`): one `investments` row, and
-   nothing else. There is no settlement panel beneath it and no cash leg
-   inside it — MD-19 — so what would be three blocks on any other flow is one
-   here, and that is the honest shape rather than an omission.
+   Since P-UX-A1b2 this *is* the summary rail (§2.5.3), the shape
+   `_order_derived.html` took in P-UX-A1b: one `pf-rail-sum` aside, the second
+   child of `#tx-commit-form`, so `.pf-form`'s own `minmax(0,1fr) 360px` places
+   it without a rule of this Area's own.
+
+   The smallest rail in the Area, because R-COMMIT is the smallest emission in
+   the system (`emit_commitment`): one `investments` row, and nothing else.
+   There is no settlement block beneath it and no cash leg inside it — MD-19 —
+   and no amounts block above it, because a commitment nets nothing. What is
+   three blocks on the other three composers is one here, and that is the
+   honest shape rather than an omission.
 
    Both rows are **stated facts of the flow**, not arithmetic (the D-AF
    reasoning P-4a used for the creating path's instrument leg): the row is
@@ -14,27 +20,28 @@
    The one formatted number is `_money`'s, in the route.
 
    Context (all pre-formatted): effect_rows, oob. #}
-<div class="tx-derived-host" id="tx-derived">
-    <div class="tx-block">
-        <p class="tx-block__title">On booking</p>
-        <div class="tx-legs">
-            <p class="tx-legs__lead">Emitted together, or not at all:</p>
-            {% if effect_rows %}
-                {% for row in effect_rows %}
-                    <div class="tx-leg">
-                        <span class="tx-leg__type tx-leg__type--{{ row.type }}">{{ row.type }}</span>
-                        <span class="tx-leg__what">{{ row.what }} <em>{{ row.detail }}</em></span>
-                        <span class="tx-leg__amount">{{ row.amount or "" }}</span>
-                    </div>
-                {% endfor %}
-            {% else %}
-                {# Operator decision D-3's rule again: showing one of two rows
-                   would be a promise the booking does not make. #}
-                <p class="tx-legs__pending">
-                    Both rows appear here once the investment is named and the
-                    commitment amount is set.
-                </p>
-            {% endif %}
-        </div>
+<aside class="pf-rail-sum" id="tx-derived" aria-label="What booking will emit">
+    <div>
+        <p class="pf-rail-sum__title">On booking</p>
+        {# M-3's lead-in, verbatim. It stays visible where the order rail puts
+           its sentence behind `pf-more`: that one *explains* a pair already on
+           screen, this one introduces the rows that follow. #}
+        <p class="pf-hint">Emitted together, or not at all:</p>
+        {% if effect_rows %}
+            {% for row in effect_rows %}
+                <div class="pf-leg">
+                    <span class="pf-leg__type">{{ row.type }}</span>
+                    <span>{{ row.what }} <em>{{ row.detail }}</em></span>
+                    <span class="pf-leg__amount">{{ row.amount or "" }}</span>
+                </div>
+            {% endfor %}
+        {% else %}
+            {# Operator decision D-3's rule again: showing one of two rows
+               would be a promise the booking does not make. #}
+            <p class="pf-hint">
+                Both rows appear here once the investment is named and the
+                commitment amount is set.
+            </p>
+        {% endif %}
     </div>
-</div>
+</aside>

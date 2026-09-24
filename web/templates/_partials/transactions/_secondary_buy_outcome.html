@@ -1,6 +1,6 @@
 {# Messages and primary actions — the R-SEC-BUY composer's fourth derived
    region, refreshed out of band because M-3 puts the static Provenance block
-   between it and the settlement panel.
+   between it and the rail's settlement panel.
 
    The message strip is `_messages.html`, shared with every other surface in
    the Area. Two of its warnings can fire here: `negative_cash`, when the
@@ -11,61 +11,45 @@
 
    The AnlV block is this flow's own, in M-3's words, for the reason
    `_commitment_outcome.html` states: each mockup words the same gate for its
-   own surface, and one shared branch would have to pick a wording.
+   own surface, and one shared branch would have to pick a wording. It takes
+   `_messages.html`'s own `pf-note--block` shape, because it is the same kind
+   of answer: a refusal that stops the ticket.
 
    A sibling of `_commitment_outcome.html` rather than a branch inside it: the
    hints differ (this flow has a settlement position to confirm and four
    effects to name, where a commitment has neither), and the ready sentences
    are the two mockups' own.
 
+   The action bar is `_order_outcome.html`'s (§2.3.4): the way back leads (R3),
+   the hint carries the middle, and Book now is the view's one primary (R1) —
+   the rail's Create position is a default button for that reason.
+
    Context: messages, error, anlv_gate, draft_enabled, propose_enabled,
    book_enabled, hint_key, ticket_id, oob. #}
-<div class="tx-outcome" id="tx-secbuy-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="tx-messages">
-        {% include "_partials/transactions/_messages.html" %}
+<div id="tx-secbuy-outcome" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    {% include "_partials/transactions/_messages.html" %}
 
-        {% if anlv_gate %}
-            <div class="tx-msg tx-msg--block">
-                <span class="tx-msg__glyph">✕</span>
-                <div>
-                    <strong>This ticket cannot be proposed or booked without an AnlV category.</strong>
-                    <span class="tx-msg__sub">
-                        The regulatory classification is required. Everything you
-                        entered stays in the draft.
-                    </span>
-                </div>
-            </div>
-        {% endif %}
-    </div>
+    {% if anlv_gate %}
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">This ticket cannot be proposed or booked without an AnlV category.</p>
+            <span></span>
+            <p class="pf-note__sub">
+                The regulatory classification is required. Everything you
+                entered stays in the draft.
+            </p>
+        </div>
+    {% endif %}
 
     {# The three gestures are the composer's own, posting the whole enclosing
        form to the same endpoints M-1 uses — this surface adds no write path.
        Save as draft is ungated by the AnlV gate (MD-11). #}
-    <div class="tx-actions">
-        <button class="tx-btn tx-btn--primary" type="button"
-                hx-post="/api/transactions/book"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not book_enabled %}disabled{% endif %}>Book now</button>
-        <button class="tx-btn" type="button"
-                hx-post="/api/transactions/propose"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
-        <button class="tx-btn" type="button"
-                hx-post="/api/transactions/draft"
-                hx-include="closest form"
-                hx-target="#tx-composer-host"
-                hx-swap="innerHTML"
-                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
-        <span class="tx-actions__spacer"></span>
-        <button class="tx-btn tx-btn--ghost" type="button"
+    <div class="pf-actionbar">
+        <button class="pf-btn pf-btn--quiet" type="button"
                 hx-get="/api/transactions/chooser"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">{% if ticket_id %}Close{% else %}Discard{% endif %}</button>
-        <p class="tx-actions__hint">
+        <p class="pf-actionbar__hint">
             {%- if hint_key == "incomplete" -%}
                 State the purchase price and the acquired NAV before booking.
             {%- elif hint_key == "anlv" -%}
@@ -80,5 +64,23 @@
                 Booking creates the investment, opening NAV, commitment and cash leg in one step.
             {%- endif -%}
         </p>
+        <button class="pf-btn" type="button"
+                hx-post="/api/transactions/draft"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not draft_enabled %}disabled{% endif %}>Save as draft</button>
+        <button class="pf-btn" type="button"
+                hx-post="/api/transactions/propose"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not propose_enabled %}disabled{% endif %}>Propose</button>
+        <button class="pf-btn pf-btn--primary" type="button"
+                hx-post="/api/transactions/book"
+                hx-include="closest form"
+                hx-target="#tx-composer-host"
+                hx-swap="innerHTML"
+                {% if not book_enabled %}disabled{% endif %}>Book now</button>
     </div>
 </div>

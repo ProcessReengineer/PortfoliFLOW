@@ -366,7 +366,7 @@ def _new_section(body: str) -> str:
 
 def _actions(markup: str) -> dict[str, bool]:
     """Map each primary action's label to whether it is disabled."""
-    start = markup.index('<div class="tx-actions">')
+    start = markup.index('<div class="pf-actionbar">')
     region = markup[start : markup.index("</div>", markup.index("</p>", start))]
     return {m.group("label"): "disabled" in m.group("attrs") for m in _BUTTON.finditer(region)}
 
@@ -422,6 +422,7 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
 
     response = await web_client.get("/transactions", follow_redirects=False)
     section = _new_section(response.text)
+    chooser = chooser_markup(section)
 
     for name, hint, code in (
         ("Buy or sell units", "An instrument already on the book.", "U-BUY / U-SELL"),
@@ -432,18 +433,22 @@ async def test_chooser_renders_five_tiles_with_the_shipped_ones_live(
     ):
         assert name in section
         assert hint in section
-        assert code in section
+        # §2.6.4: an internal identifier leaves visible copy. The flow code is
+        # still on the tile, and still the thing a route is keyed on, but it
+        # rides in `data-flow` where only the markup can read it.
+        assert f'data-flow="{code}"' in chooser
+        assert f">{code}<" not in chooser, f"{code!r} is back in visible copy"
 
     assert section.count('hx-get="/api/transactions/order-form"') == 1
     assert section.count('hx-get="/api/transactions/wizard"') == 1
     assert section.count('hx-get="/api/transactions/secondary-sale-form"') == 1
     assert section.count('hx-get="/api/transactions/commitment-form"') == 1
     assert section.count('hx-get="/api/transactions/secondary-buy-form"') == 1
-    chooser = chooser_markup(section)
     assert chooser.count("<button") == 5, "MD-1's five flows are the only controls"
+    assert chooser.count('class="pf-flow"') == 5, "§2.2.6: every tile is the one flow shape"
     assert "Arrives with S4b" not in section, "S4b shipped; the U-NEW tile is live"
     assert "Arrives with S4c" not in section, "P-4b armed the last two; no flow is pending"
-    assert "tx-flow--pending" not in section, "no tile is inert any more"
+    assert "disabled" not in chooser, "no tile is inert any more"
     for token in ("<form", "<input", "<a "):
         assert token not in chooser, f"the chooser carries an unexpected control: {token!r}"
 
@@ -588,7 +593,7 @@ async def test_sparse_recalc_derives_little_and_gates_everything(
     assert "Both legs appear here once the investment, units, price and" in body, (
         "the ledger block must not show half an emission"
     )
-    assert "tx-leg__type" not in body
+    assert "pf-leg__type" not in body
     assert "Fill in the investment, units and price before booking." in _flat(body)
     actions = _actions(body)
     assert actions["Book now"] and actions["Propose"] and actions["Save as draft"]
@@ -669,7 +674,7 @@ async def test_full_disposal_offers_the_inactivation_choice(
             ),
         )
     ).text
-    assert "tx-msg--consequence" in body
+    assert "pf-note--info" in body
     assert "This sells the entire holding." in _flat(body)
     assert "The position closes at zero units." in _flat(body)
     assert "Set Alpha Global Equity Fund inactive after booking." in _flat(body)
@@ -702,7 +707,7 @@ async def test_oversell_blocks_with_the_holding_and_the_date(
             ),
         )
     ).text
-    assert "tx-msg--block" in body
+    assert "pf-note--block" in body
     assert f"1,400.0000 units exceed the holding of 1,250.0000 units on {_TRADE_DATE}." in body
     assert "The instrument leg cannot go negative." in body
     assert _actions(body)["Book now"] is True
@@ -852,9 +857,11 @@ async def test_settlement_several_matches_offer_no_default(
         "there is no default." in _flat(body)
     )
     assert body.count('name="cash_investment_id"') == 2
-    # The projection is shown on the selected row only.
-    assert body.count("tx-settle__arrow") == 1
-    assert "453,915.00" in body, "412,500.00 + 41,415.00 on the picked row"
+    # The projection is shown on the selected row only. Pinned on the figure
+    # rather than on an arrow's class: the `pf-choice` candidate states the
+    # projection as text (§2.5.1), so the number is what carries the rule.
+    assert body.count('class="pf-choice is-selected"') == 1
+    assert body.count("453,915.00") == 1, "412,500.00 + 41,415.00 on the picked row"
 
 
 async def test_settlement_none_offers_creation(
@@ -924,7 +931,7 @@ async def test_cross_tenant_investment_id_reads_as_absent(
     assert response.status_code == 200
     body = response.text
     assert "Foreign Fund" not in body
-    assert "tx-leg__type" not in body
+    assert "pf-leg__type" not in body
     assert (
         "Both legs appear here once the investment, units, price and settlement position are set."
         in _flat(body)
@@ -1106,7 +1113,7 @@ async def test_draft_saves_under_a_block_that_stops_propose(
         data={**oversold, "ticket_id": str(rows[0][0])},
     )
     assert refused.status_code == 200
-    assert "tx-msg--block" in refused.text
+    assert "pf-note--block" in refused.text
     # Nothing moved: the same one ticket, still a draft.
     assert await _tickets(superuser_engine) == [(rows[0][0], rows[0][1], "draft")]
 
@@ -1146,7 +1153,7 @@ async def test_propose_flips_the_status_and_shows_its_warnings(
     # The amber strip is the service's own answer, rendered by the one
     # projection the preview uses.
     assert f"Trade date {future} is in the future." in _flat(body)
-    assert "tx-msg--block" not in body
+    assert "pf-note--block" not in body
     # A record is not a form: the two editing gestures retire, Book does not.
     actions = _actions(body)
     assert actions["Save as draft"] is True
@@ -1269,7 +1276,7 @@ async def test_tampered_propose_renders_the_service_sentence(
     )
     assert response.status_code == 200
     assert "An order ticket needs a unit quantity." in _flat(response.text)
-    assert "tx-msg--block" in response.text
+    assert "pf-note--block" in response.text
     # The draft the gesture created on its way is kept — the user's work is
     # in it — and nothing beyond it was written.
     assert [row[2] for row in await _tickets(superuser_engine)] == ["draft"]
@@ -1566,7 +1573,200 @@ async def test_proposing_twice_keeps_the_ticket_on_the_composer(
         "/api/transactions/propose", data={**form, "ticket_id": str(rows[0][0])}
     )
     assert second.status_code == 200
-    assert "tx-msg--block" in second.text
+    assert "pf-note--block" in second.text
     assert f"Ticket #{rows[0][1]}" in second.text
     assert f'name="ticket_id" value="{rows[0][0]}"' in second.text
     assert await _tickets(superuser_engine) == [(rows[0][0], rows[0][1], "proposed")]
+
+
+# ---------------------------------------------------------------------------
+# Component vocabulary (P-UX-A1b) — the anatomy, not the arithmetic
+# ---------------------------------------------------------------------------
+
+
+async def test_the_composer_renames_the_section_head_into_a_crumb(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.1.6: a sub-surface replaces the view and renders ``‹ Parent › Sub``.
+
+    The crumb is the *section's* own ``<h2>``, swapped out of band, so the
+    heading ``aria-labelledby="new-title"`` points at is the one that renames
+    — no second heading, and nothing in ``areas/_section.html`` to change.
+    """
+    user_id, email, password = seeded_user
+    await _seed_investment(user_id, name="Alpha Global Equity Fund")
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/order-form")).text
+
+    assert 'id="new-title"' in body
+    assert 'hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-view__title pf-crumb"' in body
+    assert 'class="pf-crumb__back"' in body
+    assert ">New transaction</button>" in _flat(body), "the crumb names its parent surface"
+    assert 'class="pf-crumb__here" id="tx-ticket-title"' in body, (
+        "the recalculation's title region is the crumb's own leaf"
+    )
+
+
+async def test_leaving_the_composer_puts_the_plain_section_title_back(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The chooser restores the head it found, from the shell catalogue.
+
+    The area page's own render of the same partial must *not* carry the swap:
+    a second ``id="new-title"`` in one document is a collision, and the
+    section head already owns that id.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    chooser = (await web_client.get("/api/transactions/chooser")).text
+    assert '<h2 class="pf-view__title" id="new-title" hx-swap-oob="outerHTML">' in chooser
+    assert "New transaction" in chooser
+    assert "pf-crumb" not in chooser, "the chooser is the parent surface, not a sub-surface"
+    # The stamp slot goes back to empty too — a composer filled it with the
+    # ticket's ident and state, and the chooser has no ticket.
+    assert '<span class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML"></span>' in chooser, (
+        "a discarded ticket must not leave its state pill in the section head"
+    )
+
+    section = _new_section((await web_client.get("/transactions", follow_redirects=False)).text)
+    assert section.count('id="new-title"') == 1, "the head's own h2 and no second one"
+    assert "hx-swap-oob" not in chooser_markup(section)
+
+
+async def test_the_composer_carries_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R1 (§2.3.2): at most one primary per view, and it is Book now.
+
+    The settlement block's Create position button is the one that would most
+    plausibly take the accent, and does not: the rail is not the view.
+    """
+    user_id, email, password = seeded_user
+    investment_id, _cash_id = await _standard_book(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_recalc_form(investment_id=str(investment_id), csrf_token=csrf),
+        )
+    ).text
+
+    assert body.count("pf-btn--primary") == 1
+    start = body.index("pf-btn--primary")
+    assert "Book now" in body[start : start + 400]
+
+
+async def test_the_composer_host_switches_the_shell_to_the_new_section(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Q-UX-A-5: a composer swapped in from the Blotter has to come into view.
+
+    Both guards are pinned. Without the target test every recalculation —
+    which swaps ``#tx-derived`` *inside* the host — would move the fragment,
+    and without the fragment test the second ticket opened would fire no
+    ``hashchange`` at all and never switch.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    section = _new_section((await web_client.get("/transactions", follow_redirects=False)).text)
+
+    assert "hx-on::after-swap" in section
+    assert "event.detail.target === this" in section
+    assert "location.hash !== '#new'" in section
+    assert "location.hash = 'new'" in section
+
+
+async def test_the_direction_is_a_segmented_control_of_two_radios(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.5.2: a small exclusive choice is a segmented control.
+
+    Radios, not buttons: the direction has to reach the server with the rest
+    of the form, and the record's checked state is a background *and* a weight
+    change, so §2.11.1 is met without a rule of this Area's own.
+    """
+    _id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/order-form")).text
+
+    assert '<div class="pf-seg">' in body
+    assert body.count('type="radio" name="direction"') == 2
+    assert '<label for="tx-direction-buy">Buy</label>' in body
+    assert '<label for="tx-direction-sell">Sell</label>' in body
+    assert "tx-direction__option" not in body, "the bespoke direction family is retired"
+
+
+async def test_the_message_strip_is_one_note_pattern_in_two_tones(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.6.2: one note pattern, three tones — here a block and a warning.
+
+    Both arrive from one recalculation: an oversell stops the ticket, and the
+    price deviation beside it never stops anything (MD-5). One surface, two
+    tones, one renderer.
+    """
+    user_id, email, password = seeded_user
+    investment_id, cash_id = await _standard_book(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (
+        await web_client.post(
+            "/api/transactions/recalc",
+            data=_recalc_form(
+                units="9000",
+                price_per_unit="180.00",
+                investment_id=str(investment_id),
+                cash_investment_id=str(cash_id),
+                csrf_token=csrf,
+            ),
+        )
+    ).text
+
+    assert "pf-note--block" in body, "the oversell stops the ticket"
+    assert "pf-note--warn" in body, "the price deviation does not"
+    assert "pf-note__lead" in body and "pf-note__sub" in body
+    assert "tx-msg" not in body, "the bespoke message family is retired here"
+
+
+async def test_the_derived_region_is_the_summary_rail_inside_the_form(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.5.3: derived figures in a sticky rail placed by grid, `hx-include` intact.
+
+    The rail is the form's second child, so every control it holds — the
+    settlement radios, the confirmation checkbox — still posts with the rest.
+    ``#tx-context`` stays in the main column, because an element carrying
+    ``hx-swap-oob`` inside the swap target would be lifted out of the fragment
+    before it landed.
+    """
+    user_id, email, password = seeded_user
+    await _standard_book(user_id)
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/order-form")).text
+
+    form_start = body.index('<form class="pf-form" id="tx-order-form"')
+    form_end = body.index("</form>", form_start)
+    form = body[form_start:form_end]
+
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in form
+    assert 'id="tx-context"' in form, "the facts strip posts nothing but must stay in the form"
+    assert form.index('id="tx-context"') < form.index('id="tx-derived"'), (
+        "the strip is a main-column element; the rail comes after the column"
+    )
+    assert "pf-sum__total" in form
+    assert '<div class="pf-actionbar">' in form
+    assert "tx-derived-host" not in form, "the bespoke derived host is retired here"

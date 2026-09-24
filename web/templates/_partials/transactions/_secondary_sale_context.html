@@ -10,6 +10,12 @@
    Refreshed out of band on every recalculation, like M-1's, because M-3 puts
    it inside the "What happened" block above the static Proceeds inputs.
 
+   It stays in the main column rather than joining the summary rail, for the
+   mechanical reason `_order_context.html` states: on a recalculation `oob` is
+   true throughout, and htmx lifts every element carrying `hx-swap-oob` out of
+   the fragment before the fragment lands — so a copy inside `#tx-derived`
+   would leave the rail without its facts. M-3 keeps the strip here too.
+
    Every value is `None`-safe. M-3 draws all four filled in, so the dash is
    this file's own decision (D-4a): a fund whose first statement has not
    arrived, or one the book states no commitment for, shows "—" rather than a
@@ -17,25 +23,21 @@
 
    Context: last_nav, last_nav_currency, last_nav_date, unfunded, currency,
    vintage_year, valuation_mode, oob. #}
-<div class="tx-context" id="tx-secsell-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Last reported NAV</span>
-        <span class="tx-context__value">
-            {% if last_nav %}{{ last_nav }} {{ last_nav_currency }} · {{ last_nav_date }}{% else %}—{% endif %}
-        </span>
+<dl class="pf-context" id="tx-secsell-context" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
+    <div>
+        <dt>Last reported NAV</dt>
+        <dd>{% if last_nav %}{{ last_nav }} {{ last_nav_currency }} · {{ last_nav_date }}{% else %}—{% endif %}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Unfunded commitment</span>
-        <span class="tx-context__value">
-            {% if unfunded %}{{ unfunded }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}
-        </span>
+    <div>
+        <dt>Unfunded commitment</dt>
+        <dd>{% if unfunded %}{{ unfunded }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Vintage</span>
-        <span class="tx-context__value">{{ vintage_year or "—" }}</span>
+    <div>
+        <dt>Vintage</dt>
+        <dd>{{ vintage_year or "—" }}</dd>
     </div>
-    <div class="tx-context__item">
-        <span class="tx-context__label">Valuation mode</span>
-        <span class="tx-context__value">{{ valuation_mode or "—" }}</span>
+    <div>
+        <dt>Valuation mode</dt>
+        <dd>{{ valuation_mode or "—" }}</dd>
     </div>
-</div>
+</dl>

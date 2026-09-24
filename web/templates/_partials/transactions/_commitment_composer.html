@@ -14,8 +14,8 @@
 
    MD-19 is what makes this form unlike every other one in the Area: **no
    cash moves**, so there is no settlement block, no cash leg and no
-   projected balance. The `tx-nocash` panel says so in words rather than
-   leaving a block conspicuously empty, and `_gesture_context` drops a
+   projected balance. The info note says so in words rather than leaving a
+   block conspicuously empty, and `_gesture_context` drops a
    `cash_investment_id` a hand-made body might post — the schema's
    `ck_trade_tickets_commitment_shape` says the same thing one layer down.
 
@@ -23,15 +23,25 @@
    it (MD-11) — a dangling draft is what makes an unfinished commitment safe
    to leave — while Propose and Book now wait for it.
 
-   MD-2 as everywhere here: the header reads "New ticket · Unsaved" until the
+   Anatomy is §2.5's, since P-UX-A1b2 and identical to `_order_composer.html`'s:
+   one stable form column (`pf-form__main`) of `<section>` groups, the derived
+   figures in a summary rail placed by `.pf-form`'s own grid (§2.5.3), and the
+   outcome in a sticky action bar with one primary (§2.3.4, R1, R3). The rail
+   holds one block here where the other three composers hold three: a
+   commitment moves no cash, so there is no settlement position to pick and no
+   amount to net — which is the honest shape rather than an omission.
+
+   MD-2 as everywhere here: the head reads "New ticket · Unsaved" until the
    first gesture, then "Ticket #n" with its status pill, and `ticket_id` rides
-   in a hidden field so the next gesture updates that row.
+   in a hidden field so the next gesture updates that row. The head itself is
+   `_composer_head.html`, shared with the other three composers.
 
    Context: csrf_token, flow, investment_types, asset_classes,
    anlv_categories, cases, trade_date, entered, case_id, ticket_id,
    ticket_number, ticket_status, error, plus everything `_derived_context`
    returns. #}
-<form class="tx-ticket" id="tx-commit-form"
+{% include "_partials/transactions/_composer_head.html" %}
+<form class="pf-form" id="tx-commit-form"
       hx-post="/api/transactions/recalc"
       hx-trigger="input delay:300ms, change delay:300ms, submit"
       hx-target="#tx-derived"
@@ -40,24 +50,12 @@
     <input type="hidden" name="flow" value="{{ flow }}">
     {% if ticket_id %}<input type="hidden" name="ticket_id" value="{{ ticket_id }}">{% endif %}
 
-    <div class="tx-ticket__head">
-        <div class="tx-ticket__ident">
-            <span class="tx-ticket__id">
-                {%- if ticket_number -%}Ticket #{{ ticket_number }}{%- else -%}New ticket{%- endif -%}
-            </span>
-            {% include "_partials/transactions/_order_title.html" %}
-        </div>
-        <span class="tx-state tx-state--{{ ticket_status or 'unsaved' }}">
-            {{ ticket_status | default("unsaved", true) | capitalize }}
-        </span>
-    </div>
-
-    <div class="tx-ticket__body">
+    <div class="pf-form__main">
 
         {# --------------------------- New investment -------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">New investment</p>
-            <div class="tx-grid">
+        <section>
+            <h3 class="pf-block__title">New investment</h3>
+            <div class="pf-grid">
                 {% with
                     name_hint = "",
                     asset_class_hint = "",
@@ -69,44 +67,47 @@
                     {% include "_partials/transactions/_master_data_fields.html" %}
                 {% endwith %}
             </div>
-        </div>
+        </section>
 
         {# ----------------------------- Commitment ---------------------- #}
-        <div class="tx-block">
-            <p class="tx-block__title">Commitment</p>
-            <div class="tx-grid">
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-commit-amount">Commitment amount{% if currency %} ({{ currency }}){% endif %}</label>
-                    <input type="number" id="tx-commit-amount" name="commitment_amount" step="any"
+        <section>
+            <h3 class="pf-block__title">Commitment</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-commit-amount">Commitment amount{% if currency %} ({{ currency }}){% endif %}</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-commit-amount"
+                           name="commitment_amount" step="any"
                            value="{{ entered.commitment_amount }}">
                 </div>
-                <div class="tx-field tx-field--numeric">
-                    <label class="tx-field__label" for="tx-commit-vintage">Vintage year</label>
-                    <input type="number" id="tx-commit-vintage" name="md_vintage_year"
-                           value="{{ entered.md_vintage_year }}">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-commit-vintage">Vintage year</label>
+                    <input class="pf-input pf-input--num" type="number" id="tx-commit-vintage"
+                           name="md_vintage_year" value="{{ entered.md_vintage_year }}">
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-commit-date">Commitment date</label>
-                    <input type="date" id="tx-commit-date" name="trade_date" value="{{ trade_date }}">
-                    <span class="tx-field__hint">Books as the ticket's trade date.</span>
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-commit-date">Commitment date</label>
+                    <input class="pf-input" type="date" id="tx-commit-date" name="trade_date" value="{{ trade_date }}">
+                    <span class="pf-hint">Books as the ticket's trade date.</span>
                 </div>
             </div>
-        </div>
+        </section>
 
         {# ------------------------ MD-19: no cash moves ------------------ #}
         {# Static prose, not a derived region: it is true of the flow rather
            than of this ticket, so a keystroke has nothing to change about
-           it. Copy is M-3's, verbatim (MD-9). #}
-        <div class="tx-nocash">
-            <p><strong>No cash moves with this ticket.</strong> Money leaves the portfolio with the
-            capital calls, which stay ordinary cashflows on the investment — entered as they arrive,
-            outside this ticket.</p>
-            <p>The ticket books once, when the commitment is recorded, and remains the provenance
-            anchor a Case can point at. Pacing and drawdown views stay with the Planning Desk.</p>
+           it. Copy is M-3's, verbatim (MD-9). It is the one note pattern in
+           its info tone (§2.6.2) — the shape it already had, an info-bordered
+           panel with a lead sentence and a quieter second paragraph. #}
+        <div class="pf-note pf-note--info">
+            {{ pf_icon("info") }}
+            <p class="pf-note__lead">No cash moves with this ticket.</p>
+            <span></span>
+            <p class="pf-note__sub">Money leaves the portfolio with the capital calls, which stay
+            ordinary cashflows on the investment — entered as they arrive, outside this ticket.</p>
+            <p class="pf-note__sub">The ticket books once, when the commitment is recorded, and
+            remains the provenance anchor a Case can point at. Pacing and drawdown views stay with
+            the Planning Desk.</p>
         </div>
-
-        {# ---------------------------- On booking ----------------------- #}
-        {% include "_partials/transactions/_commitment_derived.html" %}
 
         {# ----------------------------- Provenance ---------------------- #}
         {# M-3 draws no Provenance block; M-1's is kept for the reason P-4a
@@ -114,12 +115,12 @@
            likely to *come from* a Case (ADR-0128 §6), and dropping the block
            would make the one ticket a Case most wants to point at the only
            one that cannot record which. Registered as a copy gap. #}
-        <div class="tx-block">
-            <p class="tx-block__title">Provenance</p>
-            <div class="tx-grid">
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-commit-case">Linked case <span class="tx-field__optional">(optional)</span></label>
-                    <select id="tx-commit-case" name="case_id">
+        <section>
+            <h3 class="pf-block__title">Provenance</h3>
+            <div class="pf-grid">
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-commit-case">Linked case <span class="pf-optional">(optional)</span></label>
+                    <select class="pf-select" id="tx-commit-case" name="case_id">
                         <option value="">No case</option>
                         {% for case in cases %}
                             <option value="{{ case.id }}"
@@ -129,20 +130,25 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="tx-field">
-                    <label class="tx-field__label" for="tx-commit-source">Source <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-commit-source" name="source" value="{{ entered.source }}"
+                <div class="pf-field">
+                    <label class="pf-label" for="tx-commit-source">Source <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-commit-source" name="source" value="{{ entered.source }}"
                            placeholder="Subscription agreement, side letter…">
                 </div>
-                <div class="tx-field tx-field--wide">
-                    <label class="tx-field__label" for="tx-commit-note">Note <span class="tx-field__optional">(optional)</span></label>
-                    <input type="text" id="tx-commit-note" name="note" value="{{ entered.note }}"
+                <div class="pf-field pf-field--wide">
+                    <label class="pf-label" for="tx-commit-note">Note <span class="pf-optional">(optional)</span></label>
+                    <input class="pf-input" type="text" id="tx-commit-note" name="note" value="{{ entered.note }}"
                            placeholder="Why this commitment was made.">
                 </div>
             </div>
-        </div>
+        </section>
 
         {# --------------------- Messages and actions --------------------- #}
         {% include "_partials/transactions/_commitment_outcome.html" %}
     </div>
+
+    {# ---------------------------- On booking ----------------------- #}
+    {# The form's second child, so `.pf-form`'s own `minmax(0,1fr) 360px`
+       places it as the rail with no rule of this Area's own. #}
+    {% include "_partials/transactions/_commitment_derived.html" %}
 </form>

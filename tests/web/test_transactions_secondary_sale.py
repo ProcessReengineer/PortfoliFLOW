@@ -421,7 +421,7 @@ def _new_section(body: str) -> str:
 
 def _actions(markup: str) -> dict[str, bool]:
     """Map each primary action's label to whether it is disabled."""
-    start = markup.index('<div class="tx-actions">')
+    start = markup.index('<div class="pf-actionbar">')
     region = markup[start : markup.index("</div>", markup.index("</p>", start))]
     return {m.group("label"): "disabled" in m.group("attrs") for m in _BUTTON.finditer(region)}
 
@@ -570,7 +570,7 @@ async def test_recalc_derives_the_net_the_info_row_and_the_four_effects(
     # MD-20: proceeds 1,837,500 against a NAV of 1,920,000 is −4.3 %.
     assert "vs. last reported NAV" in flat
     assert "−4.3 %" in flat
-    assert "tx-derived__row--info" in response.text
+    assert "<dt>vs. last reported NAV</dt>" in flat
 
     # The four on-booking rows, in M-3's order.
     assert "Emitted together, or not at all:" in flat
@@ -615,7 +615,7 @@ async def test_a_partial_sale_is_refused_and_disables_all_three_gestures(
 
     assert "Partial secondary sales are not supported yet." in flat
     assert "Record a full sale, or wait for the successor." in flat
-    assert "tx-msg--block" in body
+    assert "pf-note--block" in body
     assert "is-refused" in body, "the selected option carries the refusal state"
 
     assert _actions(body) == {
@@ -654,7 +654,7 @@ async def test_a_full_sale_states_its_consequence_and_its_warnings(
     flat = _flat(clean.text)
     assert "This closes the stake completely." in flat
     assert "NAV goes to zero, the unfunded commitment ends" in flat
-    assert "tx-msg--consequence" in clean.text
+    assert "pf-note pf-note--info" in clean.text
     assert _actions(clean.text)["Book now"] is False
 
     # Costs above the gross: amber, and the actions stay open (MD-5).
@@ -663,7 +663,7 @@ async def test_a_full_sale_states_its_consequence_and_its_warnings(
     )
     costly_flat = _flat(costly.text)
     assert "Net proceeds are −1.00 EUR." in costly_flat
-    assert "tx-msg--block" not in costly.text
+    assert "pf-note--block" not in costly.text
     assert _actions(costly.text)["Book now"] is False
 
     # A post-dated trade: amber for the same reason.
@@ -872,7 +872,7 @@ async def test_a_nav_already_standing_on_the_trade_date_is_refused(
         ),
     )
     assert response.status_code == 200
-    assert "tx-msg--block" in response.text
+    assert "pf-note--block" in response.text
 
     assert await _effects(superuser_engine) == []
     async with superuser_engine.begin() as conn:
@@ -962,3 +962,101 @@ async def test_an_investment_from_another_tenant_reads_as_unpicked(
     assert "Foreign Stake" not in response.text
     assert _actions(response.text)["Book now"] is True, "nothing is picked, so nothing is bookable"
     assert await _count(superuser_engine, "trade_tickets") == 0
+
+
+# ---------------------------------------------------------------------------
+# 9 · The composer anatomy (P-UX-A1b2)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_secondary_sale_composer_renames_the_section_head_into_a_crumb(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.1.6, through the shared `_composer_head.html`."""
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-sale-form")).text
+
+    assert 'id="new-title" hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-view__title pf-crumb"' in body
+    assert 'class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-crumb__here" id="tx-ticket-title"' in body
+
+
+async def test_the_secondary_sale_composer_carries_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R1 (§2.3.2): one primary per view, and it is Book now."""
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-sale-form")).text
+
+    assert body.count("pf-btn--primary") == 1
+    assert body.index("pf-btn--primary") > body.index('class="pf-actionbar"')
+
+
+async def test_the_secondary_sale_derived_region_is_a_summary_rail_with_settlement(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.5.3: three blocks in one rail, settlement inside it.
+
+    The facts strip stays in the main column and ahead of the rail — an
+    element carrying ``hx-swap-oob`` inside the recalculation's own swap target
+    is lifted out of the fragment before it lands.
+    """
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-sale-form")).text
+    form = body[body.index('<form class="pf-form" id="tx-secsell-form"') :]
+
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in form
+    assert "tx-derived-host" not in form, "the bespoke derived host is retired here"
+    assert '<dl class="pf-context" id="tx-secsell-context"' in form
+    assert form.index('id="tx-secsell-context"') < form.index('id="tx-derived"')
+
+    rail = form[form.index('<aside class="pf-rail-sum"') :]
+    assert rail.count("pf-rail-sum__title") == 3
+    assert rail.index("Amounts") < rail.index("On booking") < rail.index("Settlement position")
+
+
+async def test_the_scope_is_two_choices_and_the_consequence_one_note(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """MD-18 and MD-17 on the shared families.
+
+    The scope options take `pf-choice`, the family the settlement candidates
+    already use; `is-refused` has no counterpart in the record, so it stays a
+    state class beside it. MD-17's consequence is the one note pattern in its
+    info tone and carries **no** control — a secondary sale is a full disposal
+    by definition, so unlike U-SELL's there is nothing to decide.
+    """
+    user_id, email, password = seeded_user
+    stake_id, cash_id = await _standard_book(user_id)
+    csrf = await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-sale-form")).text
+    scope = body[body.index('id="tx-secsell-scope"') : body.index("Proceeds")]
+    assert scope.count('<label class="pf-choice') == 2
+    assert '<label class="pf-choice is-selected">' in scope, "the full sale is the default"
+    assert "tx-fraction" not in body, "the bespoke scope family is retired here"
+
+    clean = await web_client.post(
+        "/api/transactions/recalc",
+        data=_confirmed(
+            investment_id=str(stake_id),
+            cash_investment_id=str(cash_id),
+            csrf_token=csrf,
+        ),
+    )
+    outcome = clean.text[clean.text.index('id="tx-secsell-outcome"') :]
+    consequence = outcome[outcome.index("pf-note--info") : outcome.index('class="pf-actionbar"')]
+    assert "This closes the stake completely." in _flat(consequence)
+    assert "pf-note__lead" in consequence and "pf-note__sub" in consequence
+    assert "<input" not in consequence, "MD-17 states a definition; it offers no choice"

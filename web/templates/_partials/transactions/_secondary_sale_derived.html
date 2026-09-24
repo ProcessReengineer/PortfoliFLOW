@@ -1,9 +1,13 @@
 {# Proceeds, emission preview and settlement — the R-SEC-SELL composer's
    derived region and the recalculation endpoint's swap target (#tx-derived).
 
-   The three blocks are contiguous in M-3's order (the derived rows close the
-   Proceeds block, then "On booking", then "Settlement position"), so one swap
-   covers all three.
+   Since P-UX-A1b2 this *is* the summary rail (§2.5.3), the shape
+   `_order_derived.html` took in P-UX-A1b: one `pf-rail-sum` aside, the second
+   child of `#tx-secsell-form`, so `.pf-form`'s own `minmax(0,1fr) 360px` places
+   it without a rule of this Area's own, and every control inside it — the
+   settlement radios and the cash-creation mini-form — is still inside the form,
+   `hx-include="closest form"` unchanged. The three blocks are M-3's own, so one
+   swap still covers all three.
 
    Every number was derived in the route, by the service layer: the net is
    `TicketService.preview`'s cash_effect over a transient `secondary` ticket,
@@ -16,69 +20,66 @@
    NAV → 0 and the deactivation are what the flow **is** (D-S). They are shown
    as rows precisely so they are not mistaken for options.
 
+   MD-20's row is context, never judgement: a secondary that changed hands
+   below the last statement is ordinary economics, so the row states the
+   distance and the sign and says nothing about either. It is a labelled figure
+   like the four above it, so it stays a `pf-sum` pair rather than becoming a
+   hint under the list.
+
    Context (all pre-formatted): gross, fees, taxes, net, vs_nav, currency,
    effect_rows, plus everything `_settlement.html` reads. #}
-<div class="tx-derived-host" id="tx-derived">
+<aside class="pf-rail-sum" id="tx-derived" aria-label="Amounts and settlement">
 
-    <div class="tx-derived">
-        <div class="tx-derived__row">
-            <span>Sale proceeds</span>
-            <span>{% if gross %}{{ gross }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
-        </div>
-        <div class="tx-derived__row">
-            <span>Fees</span>
+    <div>
+        <p class="pf-rail-sum__title">Amounts</p>
+        <dl class="pf-sum">
+            <dt>Sale proceeds</dt>
+            <dd>{% if gross %}{{ gross }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</dd>
             {# A sale's costs come off its proceeds — the sign `derive_cash_effect`
                applies one layer down, stated here rather than recomputed. #}
-            <span>
+            <dt>Fees</dt>
+            <dd>
                 {%- if fees -%}
                     −{{ fees }}{% if currency %} {{ currency }}{% endif %}
                 {%- else -%}—{%- endif -%}
-            </span>
-        </div>
-        <div class="tx-derived__row">
-            <span>Taxes</span>
-            <span>
+            </dd>
+            <dt>Taxes</dt>
+            <dd>
                 {%- if taxes -%}
                     −{{ taxes }}{% if currency %} {{ currency }}{% endif %}
                 {%- else -%}—{%- endif -%}
-            </span>
-        </div>
-        <div class="tx-derived__row tx-derived__row--total">
-            <span>Net proceeds</span>
-            <span>{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</span>
-        </div>
-        {# MD-20: context, never judgement. A secondary that changed hands
-           below the last statement is ordinary economics, so the row states
-           the distance and the sign and says nothing about either. #}
-        <div class="tx-derived__row tx-derived__row--info">
-            <span>vs. last reported NAV</span>
-            <span>{{ vs_nav or "—" }}</span>
-        </div>
+            </dd>
+            <dt class="pf-sum__total">Net proceeds</dt>
+            <dd class="pf-sum__total">{% if net %}{{ net }}{% if currency %} {{ currency }}{% endif %}{% else %}—{% endif %}</dd>
+            <dt>vs. last reported NAV</dt>
+            <dd>{{ vs_nav or "—" }}</dd>
+        </dl>
     </div>
 
-    <div class="tx-block">
-        <p class="tx-block__title">On booking</p>
-        <div class="tx-legs">
-            <p class="tx-legs__lead">Emitted together, or not at all:</p>
-            {% if effect_rows %}
-                {% for row in effect_rows %}
-                    <div class="tx-leg">
-                        <span class="tx-leg__type tx-leg__type--{{ row.type }}">{{ row.type }}</span>
-                        <span class="tx-leg__what">{{ row.what }} <em>{{ row.detail }}</em></span>
-                        <span class="tx-leg__amount">{{ row.amount or "" }}</span>
-                    </div>
-                {% endfor %}
-            {% else %}
-                {# Operator decision D-3's rule, applied to four rows instead of
-                   two: showing some of an emission would be a promise the
-                   booking does not make. #}
-                <p class="tx-legs__pending">
-                    All four rows appear here once the investment, the proceeds
-                    and the settlement position are set.
-                </p>
-            {% endif %}
-        </div>
+    <div>
+        <p class="pf-rail-sum__title">On booking</p>
+        {# M-3's lead-in, verbatim. It stays visible where the order rail puts
+           its sentence behind `pf-more`: that one *explains* a pair already on
+           screen, this one introduces the rows that follow. #}
+        <p class="pf-hint">Emitted together, or not at all:</p>
+        {% if effect_rows %}
+            {% for row in effect_rows %}
+                <div class="pf-leg">
+                    <span class="pf-leg__type">{{ row.type }}</span>
+                    <span>{{ row.what }} <em>{{ row.detail }}</em></span>
+                    <span class="pf-leg__amount">{{ row.amount or "" }}</span>
+                </div>
+            {% endfor %}
+        {% else %}
+            {# Operator decision D-3's rule, applied to four rows instead of
+               two: showing some of an emission would be a promise the
+               booking does not make. #}
+            <p class="pf-hint">
+                All four rows appear here once the investment, the proceeds
+                and the settlement position are set.
+            </p>
+        {% endif %}
     </div>
 
     {% include "_partials/transactions/_settlement.html" %}
-</div>
+</aside>

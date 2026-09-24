@@ -17,21 +17,29 @@
    the route/template boundary makes one layer up — values there, words here
    — applied once more between two templates.
 
+   Since P-UX-A1b2 the structure is the shared form vocabulary — `pf-field`,
+   `pf-label`, `pf-input` / `pf-select`, `pf-hint` — and the including template
+   supplies the `pf-grid` the six fields are placed in. The two M-3 composers
+   have one; the wizard's Classify step still draws `tx-grid` until P-UX-A1c
+   gives it `pf-form`, so there the six render on the old track widths. A look,
+   not a break.
+
    `anlv_gate` is the route's one expression, never re-derived in Jinja; it
    only paints the field, and the block that states the rule belongs to each
-   flow's own outcome panel.
+   flow's own outcome panel. `is-missing` stays a state class beside
+   `pf-field`, its rule scoped to this Area.
 
    Context: entered, investment_types, asset_classes, anlv_categories,
    anlv_gate, plus the five copy parameters `name_hint`, `asset_class_hint`,
    `currency_hint`, `valuation_mode`, `valuation_mode_hint`, `anlv_hint`. #}
-<div class="tx-field tx-field--wide">
-    <label class="tx-field__label" for="tx-md-name">Name</label>
-    <input type="text" id="tx-md-name" name="md_name" value="{{ entered.md_name }}">
-    {% if name_hint %}<span class="tx-field__hint">{{ name_hint }}</span>{% endif %}
+<div class="pf-field pf-field--wide">
+    <label class="pf-label" for="tx-md-name">Name</label>
+    <input class="pf-input" type="text" id="tx-md-name" name="md_name" value="{{ entered.md_name }}">
+    {% if name_hint %}<span class="pf-hint">{{ name_hint }}</span>{% endif %}
 </div>
-<div class="tx-field">
-    <label class="tx-field__label" for="tx-md-type">Investment type</label>
-    <select id="tx-md-type" name="md_investment_type">
+<div class="pf-field">
+    <label class="pf-label" for="tx-md-type">Investment type</label>
+    <select class="pf-select" id="tx-md-type" name="md_investment_type">
         {% for option in investment_types %}
             <option value="{{ option }}"
                     {% if entered.md_investment_type == option %}selected{% endif %}>
@@ -40,9 +48,9 @@
         {% endfor %}
     </select>
 </div>
-<div class="tx-field">
-    <label class="tx-field__label" for="tx-md-asset-class">Asset class</label>
-    <select id="tx-md-asset-class" name="md_asset_class_id">
+<div class="pf-field">
+    <label class="pf-label" for="tx-md-asset-class">Asset class</label>
+    <select class="pf-select" id="tx-md-asset-class" name="md_asset_class_id">
         <option value="">Pick an asset class…</option>
         {% for option in asset_classes %}
             <option value="{{ option.id }}"
@@ -51,22 +59,25 @@
             </option>
         {% endfor %}
     </select>
-    {% if asset_class_hint %}<span class="tx-field__hint">{{ asset_class_hint }}</span>{% endif %}
+    {% if asset_class_hint %}<span class="pf-hint">{{ asset_class_hint }}</span>{% endif %}
 </div>
-<div class="tx-field">
-    <label class="tx-field__label" for="tx-md-currency">Currency</label>
-    <input type="text" id="tx-md-currency" name="currency" class="tx-mono"
+<div class="pf-field">
+    <label class="pf-label" for="tx-md-currency">Currency</label>
+    {# The mono stack rides on the id, not a class: the record names no `pf-mono`
+       family and P-UX-A1b2 does not invent one. The rule is scoped in
+       components/transactions.css and goes when the record grows the family. #}
+    <input class="pf-input" type="text" id="tx-md-currency" name="currency"
            maxlength="3" value="{{ entered.currency }}">
-    {% if currency_hint %}<span class="tx-field__hint">{{ currency_hint }}</span>{% endif %}
+    {% if currency_hint %}<span class="pf-hint">{{ currency_hint }}</span>{% endif %}
 </div>
-<div class="tx-field">
-    <span class="tx-field__label">Valuation mode</span>
-    <input type="text" value="{{ valuation_mode }}" readonly>
-    <span class="tx-field__hint">{{ valuation_mode_hint }}</span>
+<div class="pf-field">
+    <span class="pf-label">Valuation mode</span>
+    <input class="pf-input" type="text" value="{{ valuation_mode }}" readonly>
+    <span class="pf-hint">{{ valuation_mode_hint }}</span>
 </div>
-<div class="tx-field tx-field--wide{% if anlv_gate %} is-missing{% endif %}">
-    <label class="tx-field__label" for="tx-md-anlv">AnlV category</label>
-    <select id="tx-md-anlv" name="md_anlv_code">
+<div class="pf-field pf-field--wide{% if anlv_gate %} is-missing{% endif %}">
+    <label class="pf-label" for="tx-md-anlv">AnlV category</label>
+    <select class="pf-select" id="tx-md-anlv" name="md_anlv_code">
         <option value="">— not set —</option>
         {% for option in anlv_categories %}
             <option value="{{ option.code }}"
@@ -75,5 +86,5 @@
             </option>
         {% endfor %}
     </select>
-    <span class="tx-field__hint">{{ anlv_hint }}</span>
+    <span class="pf-hint">{{ anlv_hint }}</span>
 </div>

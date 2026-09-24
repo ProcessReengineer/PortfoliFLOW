@@ -551,7 +551,7 @@ async def test_resolve_without_a_currency_leaves_the_field_empty(
     assert "Resolved" in body
     assert _FIGI in body
     assert 'name="currency" class="tx-mono" maxlength="3" value=""' in _flat(body)
-    assert "tx-msg--block" not in body, "an absent currency is not a refusal"
+    assert "pf-note--block" not in body, "an absent currency is not a refusal"
 
 
 async def test_resolve_reports_no_match_and_provider_failure(
@@ -1072,7 +1072,7 @@ async def test_a_duplicate_name_refuses_at_book_and_keeps_the_draft(
     assert response.status_code == 200
     body = response.text
 
-    assert "tx-msg--block" in body
+    assert "pf-note--block" in body
     # The service's own sentence, quoted with `!r` and therefore autoescaped
     # by Jinja — the assertion reads around the escaped apostrophes rather
     # than pinning the escaping.

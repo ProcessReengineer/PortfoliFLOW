@@ -390,7 +390,7 @@ async def _cash_units(engine: AsyncEngine) -> Decimal:
 # ---------------------------------------------------------------------------
 
 _BUTTON = re.compile(r"<button\b(?P<attrs>[^>]*)>\s*(?P<label>[^<]*?)\s*</button>", re.S)
-_HINT_OPEN = '<p class="tx-actions__hint">'
+_HINT_OPEN = '<p class="pf-actionbar__hint">'
 
 
 def _flat(markup: str) -> str:
@@ -406,7 +406,7 @@ def _new_section(body: str) -> str:
 
 def _actions(markup: str) -> dict[str, bool]:
     """Map each primary action's label to whether it is disabled."""
-    start = markup.index('<div class="tx-actions">')
+    start = markup.index('<div class="pf-actionbar">')
     region = markup[start : markup.index("</div>", markup.index("</p>", start))]
     return {m.group("label"): "disabled" in m.group("attrs") for m in _BUTTON.finditer(region)}
 
@@ -549,14 +549,11 @@ async def test_recalc_derives_the_terms_the_discount_and_the_four_effects(
     flat = _flat(response.text)
 
     # The derived rows. The cash out is `preview.cash_effect`, signed.
-    assert "Purchase price (cash out)</span> <span>−2,208,000.00 EUR</span>" in flat
-    assert "Acquired NAV</span> <span>2,400,000.00 EUR</span>" in flat
+    assert "<dt>Purchase price (cash out)</dt> <dd>−2,208,000.00 EUR</dd>" in flat
+    assert "<dt>Acquired NAV</dt> <dd>2,400,000.00 EUR</dd>" in flat
     # MD-20: an info row with a sign and a word, never a warning — it carries
     # the info modifier and no message class anywhere near it.
-    assert (
-        'tx-derived__row tx-derived__row--info"> <span>Price vs. acquired NAV</span> '
-        "<span>−8.0 % (discount)</span>"
-    ) in flat
+    assert "<dt>Price vs. acquired NAV</dt> <dd>−8.0 % (discount)</dd>" in flat
 
     # The four On-booking rows, in emission order.
     assert f"Investment · {_NAME} <em>reported</em>" in flat
@@ -592,9 +589,7 @@ async def test_a_premium_reads_as_a_premium(
         "/api/transactions/recalc",
         data=_form(gross_amount="2640000", csrf_token=csrf),
     )
-    assert ("<span>Price vs. acquired NAV</span> <span>+10.0 % (premium)</span>") in _flat(
-        response.text
-    )
+    assert ("<dt>Price vs. acquired NAV</dt> <dd>+10.0 % (premium)</dd>") in _flat(response.text)
 
 
 async def test_a_purchase_that_overdraws_the_position_warns_and_still_books(
@@ -715,7 +710,7 @@ async def test_propose_without_the_acquired_nav_is_refused(
     )
     assert response.status_code == 200
     flat = _flat(response.text)
-    assert "tx-msg--block" in flat
+    assert "pf-note--block" in flat
     # The service's own sentence, which quotes the payload key and is
     # therefore autoescaped by Jinja (the S4b precedent).
     assert "A secondary purchase needs the acquired NAV" in flat
@@ -935,3 +930,62 @@ async def test_a_cash_position_from_another_tenant_reads_as_unconfirmed(
         "This flow settles against a cash position but none is confirmed on the ticket"
     ) in _flat(refused.text)
     assert await _count(superuser_engine, "trade_ticket_effects") == 0
+
+
+# ---------------------------------------------------------------------------
+# 7 · The composer anatomy (P-UX-A1b2)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_secondary_buy_composer_renames_the_section_head_into_a_crumb(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.1.6, through the shared `_composer_head.html`."""
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-buy-form")).text
+
+    assert 'id="new-title" hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-view__title pf-crumb"' in body
+    assert 'class="pf-view__asof" id="new-asof" hx-swap-oob="outerHTML"' in body
+    assert 'class="pf-crumb__here" id="tx-ticket-title"' in body
+
+
+async def test_the_secondary_buy_composer_carries_exactly_one_primary(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """R1 (§2.3.2): the rail's Create position is a default, Book now the primary."""
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-buy-form")).text
+
+    assert body.count("pf-btn--primary") == 1
+    assert body.index("pf-btn--primary") > body.index('class="pf-actionbar"')
+
+
+async def test_the_secondary_buy_derived_region_is_a_summary_rail_with_settlement(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """§2.5.3: three blocks in one rail, settlement inside it.
+
+    This is where P-UX-A1b's flag 5 is discharged: `_settlement.html` took the
+    rail's shapes in A1b but rendered unframed here, because this composer had
+    no rail to put them in.
+    """
+    _user_id, email, password = seeded_user
+    await _login_and_csrf(web_client, email, password)
+
+    body = (await web_client.get("/api/transactions/secondary-buy-form")).text
+    form = body[body.index('<form class="pf-form" id="tx-secbuy-form"') :]
+
+    assert '<aside class="pf-rail-sum" id="tx-derived"' in form
+    assert "tx-derived-host" not in form, "the bespoke derived host is retired here"
+    rail = form[form.index('<aside class="pf-rail-sum"') :]
+    assert rail.count("pf-rail-sum__title") == 3
+    assert "Settlement position" in rail, "the settlement block is a block of the rail"
+    assert rail.index("Amounts") < rail.index("On booking") < rail.index("Settlement position")

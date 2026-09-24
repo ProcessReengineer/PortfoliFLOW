@@ -1,12 +1,17 @@
 {# The composer head's ticket title (M-1: "Sell units · Alpha Global Equity
    Fund"). Derived — direction and instrument both move it — so it is one of
-   the four regions the recalc endpoint refreshes, out of band, since M-1
-   puts it in the head where no contiguous swap can reach it.
+   the four regions the recalc endpoint refreshes, out of band, since the head
+   is where no contiguous swap can reach it.
 
-   The id and the state pill beside it are NOT derived: MD-2 keeps the ticket
-   unsaved until a P-2 gesture, so they read "New ticket" and "Unsaved"
-   throughout this sub-strand.
+   Since P-UX-A1b the head is the section's own `<h2>`, rendered as a crumb
+   (§2.1.6), and this span is its `__here` slot. The id and the out-of-band
+   swap are unchanged: what moved is where the element lands, not how it is
+   addressed.
+
+   Shared with the three M-3 reported-flow composers, which still draw their
+   own in-composer head — they take the crumb in P-UX-A1b2. `pf-crumb__here`
+   only ellipsises an over-long title, so it reads the same in either host.
 
    Context: title, oob. #}
-<span class="tx-ticket__title" id="tx-ticket-title"
+<span class="pf-crumb__here" id="tx-ticket-title"
       {% if oob %}hx-swap-oob="outerHTML"{% endif %}>{{ title }}</span>

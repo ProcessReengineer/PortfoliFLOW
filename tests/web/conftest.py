@@ -225,6 +225,10 @@ def chooser_markup(section: str) -> str:
     control. Tests that mean "the chooser's controls" slice with this
     first, so that what they pin stays the Transactions composer's markup.
 
+    The chooser became a ``pf-flows`` list in P-UX-A1b (§2.2.6); the
+    selector moved with it, which is the whole reason it lives here and
+    not in the two modules that call it.
+
     Shared by ``test_transactions_composer.py`` and
     ``test_transactions_wizard.py``, which both state the tile count —
     deliberately, per ``_chooser.html``'s header comment — and so must
@@ -234,19 +238,19 @@ def chooser_markup(section: str) -> str:
         section: Rendered markup of the New-transaction Section.
 
     Returns:
-        The ``<div class="tx-flows">`` element, its own tags included and
+        The ``<ul class="pf-flows">`` element, its own tags included and
         everything the shell wraps around it excluded.
 
     Raises:
         ValueError: If the Section carries no chooser, or the chooser's
-            ``<div>`` nesting is unbalanced.
+            ``<ul>`` nesting is unbalanced.
     """
-    start = section.find('<div class="tx-flows">')
+    start = section.find('<ul class="pf-flows">')
     if start == -1:
         raise ValueError("the Section carries no flow chooser")
     depth = 0
-    for match in re.finditer(r"<div\b|</div\s*>", section[start:]):
-        depth += 1 if match.group().startswith("<div") else -1
+    for match in re.finditer(r"<ul\b|</ul\s*>", section[start:]):
+        depth += 1 if match.group().startswith("<ul") else -1
         if depth == 0:
             return section[start : start + match.end()]
-    raise ValueError("the flow chooser's <div> is unbalanced")
+    raise ValueError("the flow chooser's <ul> is unbalanced")

@@ -134,6 +134,17 @@
     }
 
     function toggle() {
+        // A surface that renders no rail has no Shirley (P-UX-A0s, A0s
+        // flag 8): super_admin/base.html overrides the `shirley` block to
+        // nothing, dropping the rail, the dock host and the stage together.
+        // Ctrl J there would have written `data-shirley` onto a shell with
+        // no column to widen. The guard sits in `toggle` rather than in
+        // section_nav.js's handler so it covers every caller of the public
+        // API, not only the hotkey. `.pf-side .pf-rail` rather than the bare
+        // class: cases_detail.html uses `pf-rail` for a case's own aside.
+        if (!document.querySelector(".pf-side .pf-rail")) {
+            return;
+        }
         setState(state() === "closed" ? lastOpen : "closed");
     }
 

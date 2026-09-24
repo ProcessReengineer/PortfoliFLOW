@@ -12,32 +12,59 @@
    raw row UUIDs the service sentences carry are shown as they are; a
    resolved-name line is explicitly not v1.
 
+   P-UX-A1e put it on the vocabulary, taking the cancel panel's transcription
+   of the record's `cancelPanel()` (mock01) one for one — the two are one
+   shape by construction. The lead states a *consequence*, not a refusal, and
+   under the record's panel head it is `pf-panel__sub` rather than a note of
+   either tone; the block note is kept for the service's own refusal.
+
    Context: id, ticket_number, csrf_token, error, cause. #}
-<div class="tx-reason tx-reason--reverse">
-    <p class="tx-reason__lead">Reverse booking #{{ ticket_number }}?</p>
-    <p class="tx-reason__sub">
-        The rows listed above are deleted in one transaction and the ticket
-        becomes cancelled. A reason is always required. The effect list stays
-        on the ticket so History still says what it once did.
-    </p>
+<div class="pf-panel">
+    <div class="pf-panel__head">
+        <div class="pf-panel__titles">
+            <p class="pf-panel__title">Reverse booking #{{ ticket_number }}?</p>
+            <p class="pf-panel__sub">
+                The rows listed above are deleted in one transaction and the ticket
+                becomes cancelled. A reason is always required. The effect list stays
+                on the ticket so History still says what it once did.
+            </p>
+        </div>
+    </div>
 
     {% if error %}
-        <div class="tx-msg tx-msg--block">
-            <span class="tx-msg__glyph">✕</span>
-            <div>
-                <strong>{{ error }}</strong>
-                {% if cause %}<span class="tx-msg__code">cause={{ cause }}</span>{% endif %}
-            </div>
+        {# The cause takes the note's `__sub` slot and the mono stack rides on
+           its id — the idiom P-UX-A1b2 and P-UX-A1c settled for every mono
+           holdout in this Area, since the record still names no `pf-mono`
+           family. It goes when the record grows one.
+
+           The id carries no ticket, unlike the textarea's: `cause` is set
+           only on the refusal render, and that render replaces `#tx-history`
+           whole, so exactly one cause line can stand on a page. The reason
+           field has no such guarantee — two rows can each hold an open
+           panel — so it keeps the ticket in its id. #}
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ error }}</p>
+            <span></span>
+            {% if cause %}
+                <p class="pf-note__sub" id="tx-reverse-cause">cause={{ cause }}</p>
+            {% endif %}
         </div>
     {% endif %}
 
-    <form class="tx-reason__form">
+    <form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <textarea name="reason" rows="2" placeholder="Reason (required)" required></textarea>
-        <div class="tx-reason__actions">
+        <div class="pf-grid">
+            <div class="pf-field pf-field--half">
+                <label class="pf-label" for="tx-reverse-reason-{{ id }}">Reason (required)</label>
+                <textarea class="pf-textarea" id="tx-reverse-reason-{{ id }}"
+                          name="reason" rows="2" required></textarea>
+            </div>
+        </div>
+        <div class="pf-panel__foot">
             {# The list the server returns is the answer, not a client-side
                edit: the row reads Reversed because the book says so. #}
-            <button class="tx-btn tx-btn--sm tx-btn--danger" type="button"
+            <button class="pf-btn pf-btn--danger" type="button"
                     hx-post="/api/transactions/ticket/{{ id }}/reverse"
                     hx-include="closest form"
                     hx-target="#tx-history"
@@ -45,7 +72,7 @@
             {# Keep destroys nothing and asks the server nothing: it empties
                the slot this panel was swapped into, and the detail row
                collapses on `:empty`. The P-5a idiom. #}
-            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+            <button class="pf-btn pf-btn--quiet" type="button"
                     hx-on:click="this.closest('td').innerHTML = ''">Keep</button>
         </div>
     </form>

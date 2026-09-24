@@ -12,39 +12,65 @@
    The red block is a service sentence rendered verbatim, in the shape
    `_messages.html` gives every refusal on this Area (A-7).
 
+   P-UX-A1e put it on the vocabulary, and the record draws *this* panel with
+   *this* copy (`DC-UX-D_mock-sources/mock01.src.html`, `cancelPanel()`), so
+   the transcription is direct rather than inferred: `pf-panel` with the
+   question as `pf-panel__title` and the consequence as `pf-panel__sub`, the
+   reason as a labelled `pf-field` in a `pf-grid`, and the two gestures in
+   `pf-panel__foot` — the danger button R7 asks for, then Keep. The record
+   puts no `pf-actionbar` here: that family is the *form outcome* bar of
+   §2.3.4, sticky and hinted, and this panel is a confirmation, not a form
+   outcome.
+
    Context: id, ticket_number, status, reason_required, csrf_token, error. #}
-<div class="tx-reason">
-    {% if status == "draft" %}
-        <p class="tx-reason__lead">Discard draft #{{ ticket_number }}?</p>
-        <p class="tx-reason__sub">
-            A draft is private workspace. A reason is optional. The ticket
-            number stays allocated and the ticket appears in History as
-            cancelled.
-        </p>
-    {% else %}
-        <p class="tx-reason__lead">Cancel ticket #{{ ticket_number }}?</p>
-        <p class="tx-reason__sub">
-            {% if status == "approved" %}An approved{% else %}A proposed{% endif %}
-            ticket is a decision others may have seen. A reason is required.
-        </p>
-    {% endif %}
+<div class="pf-panel">
+    <div class="pf-panel__head">
+        <div class="pf-panel__titles">
+            {% if status == "draft" %}
+                <p class="pf-panel__title">Discard draft #{{ ticket_number }}?</p>
+                <p class="pf-panel__sub">
+                    A draft is private workspace. A reason is optional. The ticket
+                    number stays allocated and the ticket appears in History as
+                    cancelled.
+                </p>
+            {% else %}
+                <p class="pf-panel__title">Cancel ticket #{{ ticket_number }}?</p>
+                <p class="pf-panel__sub">
+                    {% if status == "approved" %}An approved{% else %}A proposed{% endif %}
+                    ticket is a decision others may have seen. A reason is required.
+                </p>
+            {% endif %}
+        </div>
+    </div>
 
     {% if error %}
-        <div class="tx-msg tx-msg--block">
-            <span class="tx-msg__glyph">✕</span>
-            <div><strong>{{ error }}</strong></div>
+        <div class="pf-note pf-note--block">
+            {{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ error }}</p>
         </div>
     {% endif %}
 
-    <form class="tx-reason__form">
+    <form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <textarea name="reason" rows="2"
-                  placeholder="Reason ({% if reason_required %}required{% else %}optional{% endif %})"
-                  {% if reason_required %}required{% endif %}></textarea>
-        <div class="tx-reason__actions">
+        {# The record caps the field at 560px with an inline style; here the
+           cap rides on `pf-grid`'s six tracks instead, so the measure is the
+           grid's rather than a rule of this Area's own. #}
+        <div class="pf-grid">
+            <div class="pf-field pf-field--half">
+                <label class="pf-label" for="tx-cancel-reason-{{ id }}">
+                    Reason
+                    {%- if reason_required %} (required)
+                    {%- else %} <span class="pf-optional">(optional)</span>{% endif %}
+                </label>
+                <textarea class="pf-textarea" id="tx-cancel-reason-{{ id }}"
+                          name="reason" rows="2"
+                          {% if reason_required %}required{% endif %}></textarea>
+            </div>
+        </div>
+        <div class="pf-panel__foot">
             {# The list the server returns is the answer, not a client-side
                removal: the row is gone because the book says so. #}
-            <button class="tx-btn tx-btn--sm tx-btn--danger" type="button"
+            <button class="pf-btn pf-btn--danger" type="button"
                     hx-post="/api/transactions/ticket/{{ id }}/cancel"
                     hx-include="closest form"
                     hx-target="#tx-blotter"
@@ -54,7 +80,7 @@
             {# Keep destroys nothing and asks the server nothing: it empties
                the slot this panel was swapped into, and the detail row
                collapses on `:empty`. #}
-            <button class="tx-btn tx-btn--sm tx-btn--ghost" type="button"
+            <button class="pf-btn pf-btn--quiet" type="button"
                     hx-on:click="this.closest('td').innerHTML = ''">Keep</button>
         </div>
     </form>

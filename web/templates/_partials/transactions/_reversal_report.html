@@ -13,31 +13,33 @@
    it names the child table that kept the row, which is the only thing that
    tells the operator what to clear if they want it gone.
 
+   P-UX-A1e put it on `pf-note`, the one note pattern (§2.6.2). The wrapper
+   went with the move: `.pf-note + .pf-note` spaces the pair, which is all
+   the retired `tx-messages` supplied. Both notes take the **info** tone —
+   the record names three, and none of them is a "done": a completed
+   reversal is stated, not celebrated, and the check glyph carries the
+   completion the tone cannot. Registered as a flag for the record.
+
    Context: report — ticket_number, reason, count, by_type, shell. #}
-<div class="tx-messages tx-messages--report">
-    <div class="tx-msg tx-msg--done">
-        <span class="tx-msg__glyph">✓</span>
-        <div>
-            <strong>Ticket #{{ report.ticket_number }} reversed.</strong>
-            <span class="tx-msg__sub">
-                {{ report.count }} row{% if report.count != 1 %}s{% endif %} undone; the ticket is
-                now cancelled — &ldquo;{{ report.reason }}&rdquo;.
-            </span>
-            <span class="tx-msg__sub">
-                {%- for entry in report.by_type -%}
-                    {%- if not loop.first %} · {% endif -%}
-                    {{ entry.label }}: {{ entry.count }}
-                {%- endfor -%}
-            </span>
-        </div>
-    </div>
-    {% if report.shell and not report.shell.deleted %}
-        <div class="tx-msg tx-msg--consequence">
-            <span class="tx-msg__glyph">i</span>
-            <div>
-                <strong>Investment retained, inactive — because:
-                    {{ report.shell.retained_because }}</strong>
-            </div>
-        </div>
-    {% endif %}
+<div class="pf-note pf-note--info">
+    {{ pf_icon("done") }}
+    <p class="pf-note__lead">Ticket #{{ report.ticket_number }} reversed.</p>
+    <span></span>
+    <p class="pf-note__sub">
+        {{ report.count }} row{% if report.count != 1 %}s{% endif %} undone; the ticket is
+        now cancelled — &ldquo;{{ report.reason }}&rdquo;.
+    </p>
+    <p class="pf-note__sub">
+        {%- for entry in report.by_type -%}
+            {%- if not loop.first %} · {% endif -%}
+            {{ entry.label }}: {{ entry.count }}
+        {%- endfor -%}
+    </p>
 </div>
+{% if report.shell and not report.shell.deleted %}
+    <div class="pf-note pf-note--info">
+        {{ pf_icon("info") }}
+        <p class="pf-note__lead">Investment retained, inactive — because:
+            {{ report.shell.retained_because }}</p>
+    </div>
+{% endif %}

@@ -848,8 +848,8 @@ async def test_book_now_emits_all_four_effects_and_confirms_them(
     flat = _flat(response.text)
     assert "What was written" in flat
     assert "Cinder Ridge Buyout Fund III <em>set inactive</em>" in flat
-    assert '<span class="tx-leg__type">distribution</span>' in flat
-    assert '<span class="tx-leg__type">nav</span>' in flat
+    assert '<span class="pf-leg__type">distribution</span>' in flat
+    assert '<span class="pf-leg__type">nav</span>' in flat
 
 
 async def test_a_nav_already_standing_on_the_trade_date_is_refused(

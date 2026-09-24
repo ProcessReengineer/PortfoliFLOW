@@ -1286,19 +1286,24 @@ async def test_the_second_identify_card_is_a_disclosure(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """D-AK's card is explanation, so §2.6.4 makes it a `pf-more`.
+    """D-AK's card is explanation, so §2.6.4 makes it a `pf-more` — and it is open.
 
     M-2 draws two boxes and switches between them with a radio. The second
     never was a control — leaving the fields empty *is* the second path — and
     a box that looks like the one above it says otherwise. Its copy is M-2's,
     verbatim.
+
+    The `open` attribute is the operator's answer to A1c flag 6 (P-UX-A1e).
+    Deviation 1 says both cards stand open and M-2 draws the second one
+    visible; closed, the disclosure would have narrowed that to "the second
+    path exists behind a click".
     """
     _id, email, password = seeded_user
     await _login_and_csrf(web_client, email, password)
 
     body = _flat((await web_client.get("/api/transactions/wizard")).text)
 
-    assert '<details class="pf-more"> <summary>No public identifier?</summary>' in body
+    assert '<details class="pf-more" open> <summary>No public identifier?</summary>' in body
     assert "For instruments without a listed identifier — a Spezial-AIF share class" in body
     assert "Leave the fields beside this card empty and continue." in body
     assert "tx-idcard" not in body

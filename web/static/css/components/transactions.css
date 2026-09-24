@@ -13,10 +13,14 @@
  * and the three orphans A1b and A1b2 left behind. P-UX-A1c2 finished the
  * wizard — its Order and Confirm steps and its outcome bar — and retired the
  * block, grid, field, context, summary-card, outcome and action families with
- * it, along with `.tx-wizard-body` and `.tx-btn--primary`. What is left is
- * the four S5 panels' and the History detail's (A1e), plus `_effect_leg.html`,
- * which the detail and the Confirm step's own `pf-leg` rows no longer share:
- * the detail is its last user.
+ * it, along with `.tx-wizard-body` and `.tx-btn--primary`. P-UX-A1e moved
+ * what opens *under* a row — the two reason panels, the History detail with
+ * `_effect_leg.html`, and the reversal report — onto `pf-panel`, `pf-facts`,
+ * `pf-leg` and `pf-note`, retiring the reason, kv, legs, leg and messages
+ * families, `.tx-block__title`, `.tx-btn--danger` and the A1a slot-padding
+ * transition rule with them. What is left is the impact panel's and the
+ * negative-cash indicator's (A1e2), plus `.tx-num` and `.tx-state`, which
+ * migrate with the surfaces that draw them.
  *
  * Scoping. Every rule carries the `tx-` prefix and no rule reaches outside
  * it. That is stricter than the `.pf-cases`-root convention next door and is
@@ -24,16 +28,19 @@
  * into out-of-band hosts scattered through it, so a single scoping root would
  * have to ride on four separate fragments. One consequence is left worth
  * naming: buttons are `tx-btn*` rather than the mock's `.pf-btn`, and that
- * holds only for the surfaces still to migrate — the four S5 panels — since
+ * holds only for the one surface still to migrate — the impact panel — since
  * `pf-btn` has been declared in full in pf_components.css since A0d. The
  * sibling statement about `tx-field*` went with the family itself in
  * P-UX-A1c2: form fields on this surface are `pf-field` and `pf-grid` now,
  * everywhere.
- * Seven rule groups break the prefix rule on purpose and are scoped to
- * `.pf-transactions` instead — the `pf-table` row rule A1a needed, the two
- * A1c leftovers (the mono ids and the field holding a control), the three
- * P-UX-A1b2 re-homes and the one P-UX-A1c2 re-home below — each painting a
- * shared family in a state the record does not name.
+ * Nine rule groups break the prefix rule on purpose and are scoped to
+ * `.pf-transactions` instead — the `pf-table` slot rule A1a needed, now
+ * narrowed to the one occupant that is not a `pf-panel`, the two A1c
+ * leftovers (the mono ids and the field holding a control), the three
+ * P-UX-A1b2 re-homes, the one P-UX-A1c2 re-home and the two P-UX-A1e re-homes
+ * (the leg's type track, and the gap between the reversal report and the
+ * filter bar) — each painting a shared family in a state the record does not
+ * name.
  *
  * Tokens. Colours and fonts come from `--ui-*`, per MD-7's vocabulary:
  * blocks red (`--ui-semantic-error`), warnings amber
@@ -105,19 +112,14 @@
 
 /* --- Blocks, grid and fields ---------------------------------------- */
 
-/* `.tx-block` retired by P-UX-A1c2. Both wizard steps drew it and both are
- * `<section>` in `pf-form__main` now, whose own `gap` is the spacing the flex
- * column supplied. `.tx-block__title` stays: the History detail still heads
- * its ledger-effect block with it, and that surface is A1e's. */
-
-.tx-block__title {
-    font-size: 0.72rem;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ui-semantic-muted);
-    margin: 0;
-    font-weight: 600;
-}
+/* `.tx-block` retired by P-UX-A1c2, `.tx-block__title` by P-UX-A1e with its
+ * last user, the History detail's "What this booking wrote". Both wizard
+ * steps were `<section>` in `pf-form__main` already; the detail's heading is
+ * `pf-block__title` now, the family `_order_confirmation.html` heads the
+ * identical list with. The record's own drawing of the detail panel borrows
+ * `pf-rail-sum__title` there; the two surfaces `_effect_leg.html` exists to
+ * keep identical should not head their one list two ways, so the Area's
+ * declared block title wins and A1e's report registers the difference. */
 
 /* Retired by P-UX-A1c2, with the last surface that drew them: the wizard's
  * Order step. `.tx-grid`, `.tx-field`, `.tx-field--wide`, `.tx-field__label`,
@@ -146,102 +148,27 @@
 
 /* --- Ledger effect (MD-6) ------------------------------------------- */
 
-.tx-legs {
-    border: 1px dashed var(--ui-border-default);
-    border-radius: 5px;
-    padding: 12px 14px;
-}
+/* Retired by P-UX-A1e, the whole family. `.tx-legs__lead` had gone in
+ * P-UX-A1c2; `.tx-legs`, `.tx-legs__pending`, `.tx-legs__group` and its
+ * `:first-child` go with the History detail, the last surface to draw them.
+ * The dashed box around the effects is gone — `pf-panel` is the box, and
+ * §2.2.7's "no card inside a card" says a second frame inside it is one too
+ * many. The group headings are `pf-hint` lines (the record's leg list has no
+ * headings to take a family from) and the never-booked sentence is a
+ * `pf-hint` as well, the precedent P-UX-A1b2 deviation 4 set for a visible
+ * sentence with nothing of its own to say. */
 
-/* `.tx-legs__lead` retired by P-UX-A1c2 with its one user, the Confirm step's
- * "On booking, in one step:" — a `pf-hint` now. `.tx-legs` and
- * `.tx-legs__pending` stay for the History detail (A1e). */
-
-/* D-3: what stands in for the legs until the emission is determined. */
-.tx-legs__pending {
-    color: var(--ui-text-disabled);
-    font-size: 0.82rem;
-    font-style: italic;
-    margin: 0;
-}
-
-.tx-leg {
-    display: grid;
-    grid-template-columns: 62px 1fr auto;
-    gap: 12px;
-    align-items: baseline;
-    padding: 4px 0;
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.84rem;
-}
-
-.tx-leg + .tx-leg {
-    border-top: 1px solid var(--ui-border-default);
-}
-
-.tx-leg__type {
-    text-transform: uppercase;
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-    padding: 1px 6px;
-    text-align: center;
-    color: var(--ui-text-secondary);
-}
-
-.tx-leg__type--buy {
-    border-color: var(--ui-semantic-success);
-    color: var(--ui-semantic-success);
-}
-
-.tx-leg__type--sell {
-    border-color: var(--ui-accent-primary);
-    color: var(--ui-accent-primary);
-}
-
-/* M-3's third leg colour, for the rows that are not ledger legs at all: the
- * cashflow, the NAV write and the deactivation a secondary sale emits (MD-17),
- * and the commitment the two creating reported flows record (P-4b). Blue
- * reads as "this happens" rather than as a direction, which is right — none of
- * them has one. M-3 spells all four `tx-leg__type--info`; the route names each
- * row by what it is, so the four identifiers share the one rule here.
+/* `.tx-leg`, `.tx-leg__type` and its five tone modifiers, `.tx-leg__sub`,
+ * `.tx-leg__what` with its `em`, and `.tx-leg__amount` retired by P-UX-A1e
+ * with `_effect_leg.html`, their last user. The legs are `pf-leg` now, the
+ * shape the four M-3 rails and the Confirm step already draw, so every leg
+ * list in this Area is one family.
  *
- * `create` is deliberately absent and stays the base grey: M-3 draws it with a
- * bare `tx-leg__type`, because creating the row is the precondition of the
- * others rather than one more thing that happens to the book. */
-.tx-leg__type--flow,
-.tx-leg__type--nav,
-.tx-leg__type--status,
-.tx-leg__type--commit {
-    border-color: var(--ui-semantic-info);
-    color: var(--ui-semantic-info);
-}
-
-/* The confirmation panel's second line on a created row — what the booking
- * put on it beyond its identity (P-4b, operator fork 5). No mockup anchor:
- * the mockups draw no confirmation panel at all. */
-.tx-leg__sub {
-    display: block;
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-    margin-top: 2px;
-}
-
-.tx-leg__what {
-    font-family: var(--ui-font-family);
-    color: var(--ui-text-secondary);
-    font-size: 0.86rem;
-}
-
-.tx-leg__what em {
-    font-style: normal;
-    color: var(--ui-text-disabled);
-    font-size: 0.78rem;
-}
-
-.tx-leg__amount {
-    color: var(--ui-text-secondary);
-}
+ * Two things the family does not carry are registered in A1e's report rather
+ * than kept alive here: the buy/sell/info ink on the type (the Confirm step
+ * lost it in P-UX-A1c2, deviation 4), and the commitment line's own block —
+ * `pf-leg` declares no `__sub`, so the line rides inside the middle span at
+ * `pf-hint` weight. One `pf-leg` question for the record, not two. */
 
 /* --- Settlement position (MD-3) ------------------------------------- */
 
@@ -252,17 +179,13 @@
 
 /* --- Messages (MD-7 vocabulary) ------------------------------------- */
 
-/* `.tx-outcome` retired by P-UX-A1c2. The wizard's outcome is a bare host
- * with an id and no class: `.pf-note + .pf-note` spaces the notes and
- * `pf-actionbar`'s own `margin-top` spaces the bar, so the gap this rule
- * supplied is the record's already. `.tx-messages` stays — the reversal
- * report still groups its two messages with it (A1e). */
-
-.tx-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
+/* `.tx-outcome` retired by P-UX-A1c2 and `.tx-messages` by P-UX-A1e, both
+ * for the same reason: a group of notes needs no wrapper, because
+ * `.pf-note + .pf-note` is the gap. The reversal report was the last thing
+ * to carry one.
+ *
+ * `.tx-msg` and what is left under it stay for `_impact_panel.html`, the one
+ * surface in this Area still on the bespoke message family (A1e2). */
 
 .tx-msg {
     display: grid;
@@ -302,12 +225,8 @@
     font-weight: 600;
 }
 
-.tx-msg__sub {
-    display: block;
-    margin-top: 4px;
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
-}
+/* `.tx-msg__sub` retired by P-UX-A1e with the reversal report, its only
+ * user; the impact panel states its sentences inline. */
 
 .tx-num {
     font-family: var(--ui-font-family-mono);
@@ -412,10 +331,17 @@ a.tx-btn {
  * `.tx-mono` goes too. The record still names no `pf-mono` family, so the mono
  * stack rides on the ids of the three fields that want it, joining the
  * currency field P-UX-A1b2 put on the same footing. All four go when the
- * record grows the family. */
+ * record grows the family.
+ *
+ * P-UX-A1e adds the fifth and first non-field: the reversal refusal's
+ * machine-readable cause, which `.tx-msg__code` used to set in mono and
+ * which is a `pf-note__sub` now. Its id carries no ticket, because `cause`
+ * is set only on the refusal render and that render replaces `#tx-history`
+ * whole — one cause line per page, so one id. */
 .pf-transactions #tx-id-value,
 .pf-transactions #tx-id-figi,
-.pf-transactions #tx-currency {
+.pf-transactions #tx-currency,
+.pf-transactions #tx-reverse-cause {
     font-family: var(--ui-font-family-mono);
 }
 
@@ -504,65 +430,37 @@ a.tx-btn {
  *
  * What the family does not carry is the *occupant's* ground. `.pf-table__slot
  * > td` collapses to nothing, which is right for an empty slot and wrong for
- * a filled one — the four panels are still `tx-`-classed and take their
- * padding and background from the cell around them, as `.tx-detail-row td`
- * gave it to them. This one scoped rule stands in until A1e puts the panels
- * on `pf-panel`, whose own padding it already matches; it is scoped to the
- * Area so no other surface inherits a temporary. */
-.pf-transactions .pf-table__slot > td:not(:empty) {
+ * a filled one, and A1a's transition rule gave every filled slot the padding
+ * and background `.tx-detail-row td` used to.
+ *
+ * P-UX-A1e retired it *as a general rule*: three of the four occupants are
+ * `pf-panel` now, and `pf-panel`'s own padding and ground are the ones A1a
+ * matched by hand — a second copy underneath would double the padding. The
+ * fourth, `_impact_panel.html`, is A1e2's and still draws its own box, so
+ * the body survives behind a `:has()` that names it. The declarations are
+ * A1a's unchanged, so the impact panel is pixel-identical across this
+ * commit; the rule goes when that panel reaches `pf-panel` too. */
+.pf-transactions .pf-table__slot > td:has(> .tx-impact) {
     padding: var(--ui-space-4) var(--ui-space-5) var(--ui-space-5);
     background: var(--ui-background-secondary);
 }
 
 /* --- The inline reason step (A-13) ----------------------------------- */
 
-.tx-reason {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-semantic-warning);
-    border-radius: 4px;
-    padding: 12px 14px;
-    background: var(--ui-background-section);
-}
-
-.tx-reason__lead {
-    margin: 0;
-    color: var(--ui-text-on-sidebar);
-    font-weight: 600;
-    font-size: 0.88rem;
-}
-
-.tx-reason__sub {
-    margin: 0;
-    color: var(--ui-text-disabled);
-    font-size: 0.8rem;
-}
-
-.tx-reason__form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.tx-reason textarea {
-    width: 100%;
-    min-height: 56px;
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 8px 10px;
-    font: inherit;
-    resize: vertical;
-}
-
-.tx-reason__actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
+/* Retired by P-UX-A1e. `.tx-reason`, `.tx-reason--reverse`, `__lead`,
+ * `__sub`, `__form`, `.tx-reason textarea` and `__actions` drew a bordered
+ * amber-railed box with a lead, a sub, a textarea and a button row — which
+ * is `pf-panel` with `pf-panel__title` / `__sub`, a `pf-grid` holding one
+ * labelled `pf-field` / `pf-textarea`, and `pf-panel__foot`. That is not an
+ * inference: the record draws this panel, with this copy, in mock01's
+ * `cancelPanel()`, and both panels are transcribed from it.
+ *
+ * Two shapes changed in the move and are named where the old rules were.
+ * The reason is a `pf-label` now rather than a placeholder — the record's,
+ * and a placeholder was never a label. And the panel's own amber rail is
+ * gone: `pf-panel` has no tone. R7 asks for the danger *button*, and the
+ * question in `pf-panel__title` carries the rest; a warning note above a
+ * question the panel is already asking would state it twice. */
 
 /* --- Button sizes and the destructive tone --------------------------- */
 
@@ -573,19 +471,13 @@ a.tx-btn {
     font-size: 0.78rem;
 }
 
-/* Cancelling and discarding are terminal (ADR-0128 §3), and this is the one
- * tone in the Area that says so. It is deliberately not the composer's
- * primary: nothing on this surface should read as the obvious next step. */
-.tx-btn--danger {
-    color: var(--ui-semantic-error);
-    border-color: var(--ui-semantic-error);
-}
-
-.tx-btn--danger:hover:not(:disabled) {
-    background: var(--ui-semantic-error);
-    color: var(--ui-accent-on-accent);
-    border-color: var(--ui-semantic-error);
-}
+/* `.tx-btn--danger` and its hover retired by P-UX-A1e with the two reason
+ * panels, the only surfaces that ever drew them. Cancelling and reversing
+ * take `pf-btn--danger` now — declared since A0d, R7's own button, and
+ * outlined rather than filled, which keeps the point the old rule's comment
+ * made: nothing on this surface reads as the obvious next step. The base
+ * `.tx-btn`, `.tx-btn--sm` and `.tx-btn--ghost` stay for the impact panel's
+ * three Closes (A1e2). */
 
 /* --- The two states the composer never showed ------------------------ */
 
@@ -610,63 +502,23 @@ a.tx-btn {
     background: var(--ui-semantic-error);
 }
 
-/* The detail's facts, above the effects it lists. A two-column list rather
- * than a table: these are four labelled sentences about one ticket, not a
- * grid of comparable values. */
-.tx-kv {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 0 0 14px;
-}
-
-.tx-kv__pair {
-    display: grid;
-    grid-template-columns: 130px 1fr;
-    gap: 12px;
-    font-size: 0.84rem;
-}
-
-.tx-kv dt {
-    color: var(--ui-semantic-muted);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    font-weight: 600;
-    padding-top: 2px;
-}
-
-.tx-kv dd {
-    margin: 0;
-    color: var(--ui-text-secondary);
-}
-
-/* One heading per non-empty effect group, inside the legs box. The order is
- * fixed and no sequence is narrated (A-17), so the heading is the only thing
- * separating one group from the next. */
-.tx-legs__group {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ui-semantic-muted);
-    font-weight: 600;
-    margin: 10px 0 4px;
-}
-
-.tx-legs__group:first-child {
-    margin-top: 0;
-}
-
-/* The reversal report (A-15). The success counterpart of `tx-msg--block`,
- * and the only place in the Area that carries the success token: a reversal
- * is the one destructive gesture whose completion is worth confirming. */
-.tx-msg--done {
-    border-left-color: var(--ui-semantic-success);
-}
-
-.tx-msg--done .tx-msg__glyph {
-    color: var(--ui-semantic-success);
-}
+/* Retired by P-UX-A1e with the History detail and the reversal report.
+ *
+ * `.tx-kv`, `.tx-kv__pair` and its `dt` / `dd` are `pf-facts` — the record's
+ * own family, and the one mock01's `detailPanel()` states these four facts
+ * in. It wraps rather than gridding at 130px, so the four sit on one line
+ * where the panel is wide and reflow where it is not; the uppercase label
+ * treatment goes with the old rule, because `pf-facts dt` is the record's
+ * answer for a label and it is not uppercase.
+ *
+ * `.tx-legs__group` and its `:first-child` go with the legs box they sat in:
+ * the group headings are `pf-hint` lines now (see the Ledger-effect note
+ * above).
+ *
+ * `.tx-msg--done` and its glyph go with the reversal report. The record
+ * names three note tones and none of them is a "done", so the report's two
+ * notes both take `--info` and the check glyph carries the completion.
+ * Registered as a flag: the success token is now unused in this Area. */
 
 /* The machine-readable cause beneath a reversal refusal (A-14). Stated in
  * mono and dimmed: it is for the operator who is going to quote it, not for
@@ -679,8 +531,27 @@ a.tx-btn {
     color: var(--ui-text-disabled);
 }
 
-.tx-messages--report {
-    margin-bottom: 14px;
+/* `.tx-messages--report` retired by P-UX-A1e with the wrapper it modified.
+ * The gap it kept between the report and the filter bar below it is the one
+ * rule that had to survive the wrapper, and it is re-homed onto the two
+ * shared families it now sits between. */
+.pf-transactions .pf-note + .pf-filters {
+    margin-top: var(--ui-space-5);
+}
+
+/* The effect list's type column (P-UX-A1e). `pf-leg` is drawn 34px wide in
+ * the first track, which is what `buy` and `sell` need — the four M-3 rails
+ * and the Confirm step say nothing longer, and they keep the record's width
+ * untouched. `_effect_leg.html` names rows by what they are, so its
+ * vocabulary runs to `distribution`, `investor_flow` and, on the missing-row
+ * branch, `investment_update`; in a 34px track those overrun the name beside
+ * them. Each `pf-leg` is its own grid, so a content-sized track would give
+ * every line a different one — the column has to be fixed to stay a column.
+ * Scoped to the two surfaces that render effect legs, and retired when the
+ * record answers how wide a leg's type may be. */
+.pf-transactions .pf-panel .pf-leg,
+.pf-transactions .pf-form__main .pf-leg {
+    grid-template-columns: 124px minmax(0, 1fr) auto;
 }
 
 /* --- The negative-cash indicator (A-11, ADR-0130) — P-5c ------------- */
@@ -756,8 +627,10 @@ a.tx-btn {
  *
  * The M-6 block, unchanged. It lands in the blotter row's detail cell —
  * the same slot the cancel panel uses — so it needs no positioning of its
- * own; the scoped `.pf-transactions .pf-table__slot > td:not(:empty)` rule
- * above already gives it a ground and padding.
+ * own; the scoped `.pf-transactions .pf-table__slot > td:has(> .tx-impact)`
+ * rule above still gives it a ground and padding. P-UX-A1e narrowed that
+ * rule to this panel: the other three occupants are `pf-panel` now and bring
+ * their own.
  */
 
 .tx-impact {

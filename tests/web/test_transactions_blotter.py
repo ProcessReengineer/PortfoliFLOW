@@ -778,9 +778,10 @@ async def test_cancelling_a_proposed_ticket_without_a_reason_is_refused(
 
     assert response.status_code == 200
     assert "requires a reason" in response.text
-    # `_cancel_panel.html` writes its own strip and is not among the partials
-    # P-UX-A1b moved — A-7 is the strand that folds it into `_messages.html`.
-    assert "tx-msg--block" in response.text
+    # The refusal is `pf-note--block` since P-UX-A1e — A-7's uniform rendering
+    # in the record's one note pattern, the shape `_messages.html` gives every
+    # refusal on this Area.
+    assert "pf-note--block" in response.text
     # The panel came back, not the list.
     assert 'id="tx-blotter"' not in response.text
     assert await _ticket_status(ticket.id) == ("proposed", None)
@@ -827,6 +828,41 @@ async def test_cancel_panel_states_the_reason_rule_per_status(
     assert f"Cancel ticket #{proposed.ticket_number}?" in proposed_panel.text
     assert "A proposed" in proposed_panel.text
     assert "A reason is required." in proposed_panel.text
+
+
+async def test_cancel_panel_is_a_pf_panel_with_a_danger_confirm(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """P-UX-A1e: the record's own drawing of this panel (mock01 `cancelPanel()`).
+
+    R7 asks for an inline confirmation with a danger button, and the record
+    draws exactly that: `pf-panel` with the question as `pf-panel__title`, the
+    reason as a labelled `pf-field`, and `pf-panel__foot` carrying the danger
+    button and a quiet Keep. The "no primary" half is R1 — a destructive act
+    never reads as the obvious next step, so nothing here takes the accent.
+    """
+    user_id, email, password = seeded_user
+    ticket = await _seed_ticket(user_id, status=STATUS_PROPOSED)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get(f"/api/transactions/ticket/{ticket.id}/cancel")).text
+
+    assert 'class="pf-panel"' in body
+    assert 'class="pf-panel__title"' in body
+    assert 'class="pf-panel__sub"' in body
+    assert 'class="pf-panel__foot"' in body
+    assert 'class="pf-label"' in body
+    assert 'class="pf-textarea"' in body
+    assert body.count("pf-btn--danger") == 1
+    assert body.count("pf-btn--quiet") == 1
+    assert "pf-btn--primary" not in body
+    # Keep still empties the slot itself — the row's chevron un-rotates
+    # because the `:has()` writer sees an empty cell.
+    assert "this.closest('td').innerHTML = ''" in body
+    # Nothing of the retired families survives, ids excepted.
+    for legacy in ("tx-reason", "tx-msg", "tx-btn"):
+        assert legacy not in body, f"{legacy!r} survives on the cancel panel"
 
 
 async def test_cancel_refuses_a_non_owner(

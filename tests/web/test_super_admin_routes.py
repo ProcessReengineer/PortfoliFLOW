@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import cast
 from uuid import UUID
 
@@ -755,9 +756,41 @@ def test_super_admin_surface_carries_no_shirley_rail(
         assert 'id="pf-side"' not in body, f"Shirley's column renders on {path}"
         assert 'id="dock-chat-host"' not in body, f"the dock host renders on {path}"
         assert 'id="pf-stage"' not in body, f"the stage renders on {path}"
+        # The rail itself, which is also the predicate `shirley.js` reads
+        # before it will honour Ctrl J (P-UX-A1e §5, A0s flag 8).
+        assert 'class="pf-rail"' not in body, f"Shirley's rail renders on {path}"
         # The shell itself is untouched — only the one block is empty.
         assert 'class="pf-shell"' in body or "pf-shell" in body
         assert 'id="shell-main"' in body
+
+
+def test_shirley_toggle_is_inert_without_a_rail() -> None:
+    """Ctrl J does nothing on a surface that renders no rail (A0s flag 8).
+
+    The shortcut used to write ``data-shirley`` onto a shell with no column
+    to widen: ``super_admin/base.html`` overrides the ``shirley`` block to
+    nothing, so the rail, the dock host and the stage are all absent, and
+    the attribute change alone would have left an empty 380 px gutter.
+
+    The guard sits in ``toggle`` rather than in ``section_nav.js``'s handler
+    so it covers every caller of the public API, not only the hotkey — and it
+    reads ``.pf-side .pf-rail`` rather than the bare class, because
+    ``cases_detail.html`` uses ``pf-rail`` for a case's own aside.
+
+    Asserted on the source: the behaviour is a browser one, and the browser
+    round in the P-UX-A1e report is what exercises it. What a test can pin is
+    that the guard is there, reads the right selector, and stands *before*
+    the state write.
+    """
+    source = (
+        Path(__file__).resolve().parents[2] / "web" / "static" / "js" / "shirley.js"
+    ).read_text(encoding="utf-8")
+
+    # The function body, up to its own closing brace at file indent.
+    body = source.split("function toggle() {", 1)[1].split("\n    }", 1)[0]
+    guard = 'if (!document.querySelector(".pf-side .pf-rail")) {'
+    assert guard in body, "toggle() no longer guards on the rail's presence"
+    assert body.index(guard) < body.index("setState("), "the guard must precede the write"
 
 
 # ---------------------------------------------------------------------------

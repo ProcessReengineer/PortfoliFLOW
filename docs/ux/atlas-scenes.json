@@ -29,6 +29,19 @@
     "shot": "history"
   },
   {
+    "name": "transactions-history-detail-open",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "history",
+    "steps": [
+      {"wait": ".pf-table__row"},
+      {"click": ".pf-table__id button"},
+      {"wait": ".pf-table__slot .pf-panel"}
+    ],
+    "shot": "history-detail-open"
+  },
+  {
     "name": "shirley-docked",
     "area": "front_office",
     "start": "/front-office",

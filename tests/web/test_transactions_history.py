@@ -950,7 +950,46 @@ async def test_history_detail_of_a_cancelled_ticket_says_nothing_was_written(
 
     assert "Nothing was written — this ticket was never booked." in body
     assert " · cancelled 2026-03-02 09:00" in body
-    assert "tx-leg__type" not in body
+    assert "pf-leg" not in body
+
+
+async def test_history_detail_is_a_pf_panel_that_closes(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """P-UX-A1e: the record's `detailPanel()`, plus the close A1a flag 2 asked for.
+
+    The panel is `pf-panel`, its four facts `pf-facts` and its effects
+    `pf-leg` — the shape mock01 draws and the shape the four M-3 rails and
+    the Confirm step already use, so every leg list in this Area is one
+    family. It stays a projection (A-17): the only button is the way out,
+    and it asks the server nothing because nothing was stored.
+
+    Close carries the reason panels' Keep idiom verbatim. Emptying the cell
+    is what clears `is-open`: the `:has()` writer in pf_components.css reads
+    the slot, so the row's chevron un-rotates without a line of script.
+    """
+    user_id, email, password = seeded_user
+    world = await _seed_world(user_id)
+    booked = await _order(user_id, world)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get(f"/api/transactions/history/{booked.id}")).text
+
+    assert 'class="pf-panel"' in body
+    assert 'class="pf-facts"' in body
+    assert body.count('class="pf-leg"') == 2, "an order emits two ledger legs"
+    assert 'class="pf-block__title"' in body
+
+    # One button, quiet, and it is the Keep idiom — not a second copy of it.
+    assert body.count("<button") == 1
+    assert "pf-btn--quiet" in body
+    assert "pf-btn--primary" not in body
+    assert "this.closest('td').innerHTML = ''" in body
+    assert ">Close<" in body
+
+    for legacy in ('tx-detail"', "tx-kv", "tx-legs", 'tx-leg"', "tx-block__title"):
+        assert legacy not in body, f"{legacy!r} survives on the History detail"
 
 
 async def test_history_detail_refuses_an_in_flight_ticket(
@@ -994,6 +1033,35 @@ async def test_reverse_panel_opens_on_a_booked_ticket_only(
 
     refused = await web_client.get(f"/api/transactions/ticket/{cancelled.id}/reverse")
     assert refused.status_code == 404
+
+
+async def test_reverse_panel_is_a_pf_panel_with_a_danger_confirm(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The cancel panel's transcription, one for one (P-UX-A1e).
+
+    The two panels are one shape by construction — the record draws one of
+    them and the other is the same question about a different ending — so
+    this pins the same families and the same absence of an accent.
+    """
+    user_id, email, password = seeded_user
+    world = await _seed_world(user_id)
+    booked = await _order(user_id, world)
+
+    await _login_and_csrf(web_client, email, password)
+    body = (await web_client.get(f"/api/transactions/ticket/{booked.id}/reverse")).text
+
+    assert 'class="pf-panel"' in body
+    assert 'class="pf-panel__title"' in body
+    assert 'class="pf-panel__foot"' in body
+    assert 'class="pf-textarea"' in body
+    assert body.count("pf-btn--danger") == 1
+    assert body.count("pf-btn--quiet") == 1
+    assert "pf-btn--primary" not in body
+    assert "this.closest('td').innerHTML = ''" in body
+    for legacy in ("tx-reason", "tx-msg", "tx-btn"):
+        assert legacy not in body, f"{legacy!r} survives on the reverse panel"
 
 
 async def test_reverse_without_a_reason_is_refused_and_changes_nothing(

@@ -18,8 +18,9 @@
 
    P-UX-A1a put the filter bar on ``pf-filters`` and the list on ``pf-table``
    (ui-standards §2.4, §2.5.1), and both empty cases on ``pf-empty``
-   (§2.9.1). The reversal report keeps its own ``tx-`` classes: it is a panel,
-   and the panels migrate together in A1e.
+   (§2.9.1). P-UX-A1e put the reversal report on ``pf-note`` and dropped the
+   wrapper it used to group its two messages with: ``.pf-note + .pf-note`` is
+   the gap, and one scoped rule clears the filter bar below it.
 
    The as-of span is the view head's ``#history-asof``, filled out of band —
    see _blotter.html for the idiom and for why R9's stamp here is the render

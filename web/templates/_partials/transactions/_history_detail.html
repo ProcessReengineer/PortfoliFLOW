@@ -1,11 +1,11 @@
 {# What one terminal ticket did — the History row's Details panel (A-17).
 
    Two halves. The facts about the ticket itself, as a key/value list; then
-   the rows it emitted, grouped by effect type. Nothing here is a gesture:
-   A-13 puts both of History's gestures on the list row and neither on the
-   detail, so this panel stays a projection — it can be opened, read and left
-   without changing anything, and it carries no CSRF token because it has no
-   form to spend one on.
+   the rows it emitted, grouped by effect type. Nothing here is a gesture
+   that changes anything: A-13 puts both of History's *acts* on the list row
+   and neither on the detail, so this panel stays a projection — it can be
+   opened, read and left without changing anything, and it carries no CSRF
+   token because it has no form to spend one on.
 
    **Grouped, not sequenced.** The four groups appear in a fixed order and an
    empty one is absent. That order is deliberately not the emission order —
@@ -16,43 +16,63 @@
    deleted, so every effect renders through _effect_leg.html's missing-row
    branch. That is not a defect of this panel; it is what History is for.
 
+   P-UX-A1e put it on the vocabulary, following the record's own drawing of
+   this panel (`DC-UX-D_mock-sources/mock01.src.html`, `detailPanel()`):
+   `pf-panel`, the four facts as `pf-facts`, the legs as `pf-leg` rows. The
+   heading over them is `pf-block__title` rather than the mock's borrowed
+   `pf-rail-sum__title` — `_order_confirmation.html` heads the identical list
+   with `pf-block__title`, and the two surfaces `_effect_leg.html` exists to
+   keep identical should not head their one list two ways.
+
+   **Details closes** (A1a flag 2). With `is-open` visible on the row, a
+   re-click that did nothing read as a bug. Close empties the slot the way
+   the reason panels' Keep does — the row's chevron un-rotates by itself,
+   because the `:has()` writer reads the emptied cell. Nothing is asked of
+   the server: nothing was stored.
+
    Context: id, ticket_number, outcome, stations, settled_against, note,
    provenance, groups. #}
-<div class="tx-detail">
+<div class="pf-panel">
 
-    <dl class="tx-kv">
-        <div class="tx-kv__pair">
+    <dl class="pf-facts">
+        <div>
             <dt>Stations</dt>
             <dd>{{ stations }}</dd>
         </div>
-        <div class="tx-kv__pair">
+        <div>
             <dt>Settled against</dt>
             <dd>{{ settled_against }}</dd>
         </div>
-        <div class="tx-kv__pair">
+        <div>
             <dt>Note</dt>
             <dd>{% if note %}{{ note }}{% else %}&mdash;{% endif %}</dd>
         </div>
-        <div class="tx-kv__pair">
+        <div>
             <dt>Provenance</dt>
             <dd>{{ provenance }}</dd>
         </div>
     </dl>
 
-    <p class="tx-block__title">What this booking wrote</p>
+    <p class="pf-block__title">What this booking wrote</p>
     {% if groups %}
-        <div class="tx-legs">
-            {% for group in groups %}
-                <p class="tx-legs__group">{{ group.heading }}</p>
-                {% for row in group.rows %}
-                    {% include "_partials/transactions/_effect_leg.html" %}
-                {% endfor %}
+        {% for group in groups %}
+            {# The record's leg list carries no group headings, so there is no
+               heading family to take. `pf-hint` is the weight the strand uses
+               for a line that labels rows rather than titling a block. #}
+            <p class="pf-hint">{{ group.heading }}</p>
+            {% for row in group.rows %}
+                {% include "_partials/transactions/_effect_leg.html" %}
             {% endfor %}
-        </div>
+        {% endfor %}
     {% else %}
         {# A cancelled ticket never booked, so it emitted nothing. Said
            rather than left blank: an empty area under a heading reads as a
            panel that failed to load. #}
-        <p class="tx-legs__pending">Nothing was written — this ticket was never booked.</p>
+        <p class="pf-hint">Nothing was written — this ticket was never booked.</p>
     {% endif %}
+
+    <div class="pf-panel__foot">
+        <button class="pf-btn pf-btn--quiet" type="button"
+                hx-on:click="this.closest('td').innerHTML = ''">Close</button>
+    </div>
 </div>

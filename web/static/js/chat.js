@@ -60,11 +60,17 @@
             scrollHistoryToBottom();
             attachSseListeners(event.target);
         }
-        // The assistants section (with its composer + voice controls) is
-        // swapped in on area navigation; wire the controls each time. The
-        // dataset guard in initVoiceControls makes this idempotent, and it
-        // is a no-op when the swapped subtree has no voice toggle.
-        if (event.target) initVoiceControls(event.target);
+        // The /chat/dock swap lands in the dock host, and shirley.js — a
+        // body listener, which runs before this document one — may already
+        // have moved the conversation into the stage host. On that swap
+        // wire from the document; the dataset guard in initVoiceControls
+        // keeps this idempotent, and it is a no-op for swaps without a
+        // toggle (P-UX-A0e3).
+        if (event.target) {
+            initVoiceControls(
+                event.target.id === "dock-chat-host" ? document : event.target
+            );
+        }
     });
 
     // Enter / Shift+Enter on the composer textarea.

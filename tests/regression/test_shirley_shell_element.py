@@ -53,10 +53,15 @@ def test_layout_places_the_shell_children_by_named_area() -> None:
         assert f"grid-area: {area};" in css, f"nothing is placed in the {area} area"
 
 
-def test_layout_clears_the_statusbar_on_both_sticky_columns() -> None:
-    """The baseline bug: a flat ``100vh`` column ran under the status bar."""
+def test_layout_clears_the_statusbar_on_every_sticky_column() -> None:
+    """The baseline bug: a flat ``100vh`` column ran under the status bar.
+
+    Three columns are viewport-bound: ``.pf-sidebar``, ``.pf-side`` and —
+    since P-UX-A0e2 — ``.pf-stage``, which used to carry a ``height: 100%``
+    that resolved to ``auto`` and let the document scroll.
+    """
     css = _LAYOUT_CSS.read_text()
-    assert css.count("height: calc(100vh - var(--pf-statusbar-height));") == 2
+    assert css.count("height: calc(100vh - var(--pf-statusbar-height));") == 3
 
 
 def test_base_html_carries_exactly_one_of_each_host() -> None:

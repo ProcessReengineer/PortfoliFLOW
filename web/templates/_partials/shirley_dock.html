@@ -13,7 +13,8 @@
    ids ``chat-history``, ``chat-form``, ``chat-input`` are preserved so
    ``web/static/js/chat.js`` continues to wire up Enter-to-send,
    autoscroll, and the one-shot EventSource bootstrap without
-   modification.
+   modification. The composer controls are ``pf-btn--icon`` since
+   P-UX-A0e2; the anchor ids are unchanged.
 
    Rendered as a bare fragment by ``GET /chat/dock``, once per page
    life, when the dock is first opened. ``#chat-history`` then loads
@@ -127,23 +128,34 @@
                           name="message"
                           placeholder="Ask Shirley about your portfolio…"
                           aria-label="Message"></textarea>
+                {# The native picker stays in the form (same id, name,
+                   accept, capture, multiple — the multipart contract is
+                   untouched) but hidden; the paperclip opens it and chat.js
+                   lists the chosen names beneath the row (P-UX-A0e2). #}
                 <input type="file" id="chat-attach" name="images"
-                       class="chat-composer__attach"
                        accept="image/png,image/jpeg,image/webp,image/gif"
                        capture="environment" multiple
-                       aria-label="Attach image">
+                       aria-label="Attach image" hidden>
+                <button type="button"
+                        class="pf-btn pf-btn--quiet pf-btn--icon"
+                        data-pf-attach-trigger
+                        aria-label="Attach image"
+                        title="Attach image">{{ pf_icon("attach") }}</button>
+                {% if voice_enabled %}
+                {# Voice-mode toggle (ADR-0076). type="button" keeps it out of
+                   the hx-post submit path; chat.js reveals the panel below. #}
+                <button type="button"
+                        class="pf-btn pf-btn--quiet pf-btn--icon chat-composer__voice-toggle"
+                        data-pf-voice-toggle aria-pressed="false"
+                        aria-label="Toggle voice mode"
+                        title="Voice mode">{{ pf_icon("voice") }}</button>
+                {% endif %}
                 <button type="submit" id="chat-send"
                         class="btn btn--primary">
                     Send
                 </button>
-                {% if voice_enabled %}
-                {# Voice-mode toggle (ADR-0076). type="button" keeps it out of
-                   the hx-post submit path; chat.js reveals the panel below. #}
-                <button type="button" class="chat-composer__voice-toggle"
-                        data-pf-voice-toggle aria-pressed="false"
-                        aria-label="Toggle voice mode" title="Voice mode">🎤</button>
-                {% endif %}
             </div>
+            <p class="chat-composer__files" data-pf-attach-names hidden></p>
             {% if voice_enabled %}
             {# Voice capture panel — record / stop / cancel. Driven by chat.js
                via MediaRecorder + fetch to /chat/voice; all type="button" so

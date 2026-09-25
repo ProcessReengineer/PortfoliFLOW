@@ -224,6 +224,7 @@ async def test_every_area_page_carries_the_rail_and_the_two_hosts(
     assert body.count('id="dock-chat-host"') == 1
     assert body.count('id="stage-chat-host"') == 1
     assert body.count('id="pf-side"') == 1
+    assert 'id="pf-stage" data-canvas="empty"' in body
     assert 'data-shirley="closed"' in body
     assert 'title="Open Shirley  Ctrl J"' in body
 
@@ -283,6 +284,12 @@ async def test_chat_dock_renders_the_one_conversation_as_a_fragment(
     assert 'aria-label="Open on stage"' in body
     assert 'title="Close  Ctrl J"' in body
     assert "data-toggle-stage" in body
+
+    # Composer controls are icon buttons; the native picker is hidden
+    # but still in the form (P-UX-A0e2).
+    assert "data-pf-attach-trigger" in body
+    assert 'id="chat-attach"' in body and 'name="images"' in body
+    assert "🎤" not in body
 
     # Demoted by record §2.10.3 — its home is Providers & Credentials.
     assert "Model: " not in body

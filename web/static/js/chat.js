@@ -83,6 +83,51 @@
         }
     });
 
+    // ---- Attach (P-UX-A0e2) --------------------------------------
+    // The native file input is hidden; the paperclip button opens it and
+    // the chosen names render beneath the composer row. All delegated:
+    // the composer is swapped in later and moves between the two hosts.
+    function renderAttachNames() {
+        const input = document.getElementById("chat-attach");
+        const out = document.querySelector("[data-pf-attach-names]");
+        if (!input || !out) return;
+        const names = Array.prototype.map
+            .call(input.files || [], function (f) {
+                return f.name;
+            })
+            .join(", ");
+        out.textContent = names;
+        out.hidden = names.length === 0;
+    }
+
+    document.addEventListener("click", function (event) {
+        const trigger =
+            event.target && event.target.closest
+                ? event.target.closest("[data-pf-attach-trigger]")
+                : null;
+        if (!trigger) return;
+        event.preventDefault();
+        const input = document.getElementById("chat-attach");
+        if (input) input.click();
+    });
+
+    document.addEventListener("change", function (event) {
+        if (event.target && event.target.id === "chat-attach") renderAttachNames();
+    });
+
+    // ``reset`` does not bubble — capture it. The form resets itself after
+    // every request (hx-on::after-request); the files are cleared by the
+    // time the next task runs, hence the deferral.
+    document.addEventListener(
+        "reset",
+        function (event) {
+            if (event.target && event.target.id === "chat-form") {
+                setTimeout(renderAttachNames, 0);
+            }
+        },
+        true
+    );
+
     // ---- EventSource bootstrap ------------------------------------
 
     function escapeHtml(text) {

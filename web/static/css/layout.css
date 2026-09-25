@@ -812,7 +812,16 @@ dialog.pf-palette::backdrop {
 .pf-stage {
     grid-area: main;
     display: none;
-    height: 100%;
+    /* Viewport-bound like ``.pf-side``: sticky in its grid area, exactly one
+     * viewport tall above the status bar, its own overflow scoped. The
+     * former ``height: 100%`` resolved to ``auto`` (the shell has only a
+     * ``min-height``), so the stage grew with the conversation and the
+     * document scrolled — P-UX-A0e2. */
+    position: sticky;
+    top: 0;
+    height: calc(100vh - var(--pf-statusbar-height));
+    min-width: 0;
+    overflow: hidden;
 }
 
 .pf-shell[data-shirley="stage"] #shell-main {
@@ -822,6 +831,28 @@ dialog.pf-palette::backdrop {
 .pf-shell[data-shirley="stage"] .pf-stage {
     display: grid;
     grid-template-columns: var(--ui-layout-stage-conversation) minmax(0, 1fr);
+}
+
+/* While the canvas holds no figure the conversation takes the whole work
+ * area at a reading width; the two-column split returns the moment
+ * something lands on the canvas. ``data-canvas`` is server-rendered
+ * ``empty``; the canvas writer (not yet built) will set ``figure``. */
+.pf-shell[data-shirley="stage"] .pf-stage[data-canvas="empty"] {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.pf-stage[data-canvas="empty"] .pf-stage__canvas {
+    display: none;
+}
+
+.pf-stage[data-canvas="empty"] .pf-stage__chat {
+    justify-content: center;
+    border-right: 0;
+}
+
+.pf-stage[data-canvas="empty"] .pf-chat {
+    width: 100%;
+    max-width: 880px; /* reading width; no token yet — a D-UX-S question */
 }
 
 .pf-stage__chat {

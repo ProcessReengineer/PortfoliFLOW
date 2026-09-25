@@ -101,8 +101,12 @@
            state rule in ``layout.css`` sets ``display: grid`` on this
            element and out-specifies the UA's ``[hidden]`` rule — the
            trap P-UX-A0d documented — and ``shirley.js`` strips the
-           attribute the first time the stage is entered anyway. #}
-        <div class="pf-stage" id="pf-stage" hidden>
+           attribute the first time the stage is entered anyway.
+
+           ``data-canvas`` is ``empty`` at render; while it is, the
+           conversation takes the whole stage and the canvas is hidden.
+           The canvas writer — not yet built — flips it to ``figure``. #}
+        <div class="pf-stage" id="pf-stage" data-canvas="empty" hidden>
             <div class="pf-stage__chat" id="stage-chat-host"></div>
             <div class="pf-stage__canvas">
                 <div class="pf-stage__head">

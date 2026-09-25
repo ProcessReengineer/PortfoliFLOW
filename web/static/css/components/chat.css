@@ -8,6 +8,10 @@
  * section. The ``.chat-embed`` rules replace the deleted ``.chat-page``
  * / ``.chat-header`` rules — the section now provides the heading and
  * the embed sits inside ``.pf-section__body``.
+ *
+ * Since P-UX-A0e the embed lives in the shell's Shirley column — the dock
+ * or the stage — and never in a section body, which is why the history
+ * flexes to fill the column instead of being capped.
  */
 
 .chat-embed {
@@ -24,13 +28,15 @@
 }
 
 .chat-history {
-    /* Bounded height inside the section body so the composer stays
-     * visible without scrolling the whole page. The min-height keeps
-     * the empty state from collapsing to nothing on first paint. */
-    min-height: 280px;
-    max-height: 60vh;
+    /* The flexing middle of the conversation column, in the dock and on
+     * the stage alike (P-UX-A0e2): the head and the composer are
+     * ``flex: none``, the history takes what is left and scrolls inside
+     * it. ``min-height: 0`` is what lets a flex item shrink below its
+     * content — without it the column would grow and the page scroll. */
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-    padding: 12px 0;
+    padding: var(--ui-space-3) var(--ui-space-4);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -225,10 +231,11 @@
 }
 
 .chat-composer {
+    flex: none;
     border-top: 1px solid var(--ui-border-default);
     background-color: var(--ui-background-secondary);
     padding: 14px;
-    border-radius: 6px;
+    border-radius: 0;
 }
 
 .chat-composer__row {
@@ -237,13 +244,19 @@
     align-items: flex-end;
 }
 
-/* Inline file picker sits in the composer row, left of the send button
- * (ADR-0075). Kept compact so it does not crowd the textarea. */
-.chat-composer__attach {
-    flex: 0 0 auto;
-    max-width: 180px;
+/* Selected file names under the row (P-UX-A0e2). The native picker is
+ * hidden; the paperclip button opens it, chat.js writes the names here. */
+.chat-composer__files {
+    margin: 6px 0 0;
     color: var(--ui-text-secondary);
-    font-size: 0.8rem;
+    font-size: var(--ui-font-scale-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-composer__files[hidden] {
+    display: none;
 }
 
 .chat-composer__input {
@@ -270,24 +283,10 @@
     font-size: 0.75rem;
 }
 
-/* Voice surface (ADR-0076). The toggle sits in the composer row next to
- * Send; the record/stop/cancel panel reveals below the row. Styling
- * reuses the existing brand tokens so voice stays visually of-a-piece
- * with the rest of the composer. */
-.chat-composer__voice-toggle {
-    flex: 0 0 auto;
-    padding: 0 10px;
-    min-height: 44px;
-    background-color: transparent;
-    color: var(--ui-text-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 6px;
-    font-size: 1.1rem;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.chat-composer__voice-toggle:hover,
+/* Voice surface (ADR-0076). The toggle is a ``pf-btn--icon`` beside Send
+ * — the button family supplies the box, the hover and the cursor since
+ * P-UX-A0e2, so only the pressed state is stated here. The
+ * record/stop/cancel panel below the row is unchanged. */
 .chat-composer__voice-toggle[aria-pressed="true"] {
     color: var(--ui-text-primary);
     border-color: var(--ui-accent-primary);

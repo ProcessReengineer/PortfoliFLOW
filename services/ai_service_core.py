@@ -360,9 +360,10 @@ class AIServiceCore:
       ``end_turn`` brackets.
     * Synchronous one-shot extraction (:meth:`send_one_shot_extraction`)
       for callers that want a complete response without streaming —
-      either on a per-call :class:`ResolvedLLM` (the Report Scraper, per
-      tenant, ADR-0112 §4b / ADR-0123) or on the parked singleton
-      credentials (the Fetcher-LLM, which has no tenant context to
+      either on a per-call :class:`ResolvedLLM` (every web consumer, per
+      tenant — the Report Scraper since ADR-0112 §4b / ADR-0123, the web
+      research tool since ADR-0132) or on the singleton's own
+      credentials (the desktop path, which has no tenant context to
       resolve in).
 
     What this class does *not* do:
@@ -985,9 +986,9 @@ class AIServiceCore:
         and the singleton's stored triple and :class:`ConnectionStatus` are
         **not** consulted — that is what lets the Report Scraper extract on
         the requesting tenant's own credential. With ``model`` alone the
-        singleton path behaves verbatim as it always has, which is what
-        keeps the Fetcher-LLM (``services/web_research``) working off the
-        application-scope credentials ``web/main.py`` parks.
+        singleton path behaves verbatim as it always has; since ADR-0132 it
+        has no web consumer (``web/main.py`` parks nothing), and it remains
+        for the desktop path.
 
         Args:
             messages: OpenAI-format message list. Sent verbatim.
@@ -1080,8 +1081,9 @@ class AIServiceCore:
         ``llm`` is this call's resolution (ADR-0112 §4b, ADR-0123): it
         supplies both the client and the model, so nothing below reads the
         singleton's stored credentials. ``None`` falls back to the singleton
-        — the Fetcher-LLM path, unchanged. The caller has already enforced
-        that exactly one of ``llm`` / ``model`` is set.
+        — the desktop path, unchanged (no web consumer since ADR-0132). The
+        caller has already enforced that exactly one of ``llm`` / ``model``
+        is set.
         """
         active_model = llm.model if llm is not None else model
         client = self._make_async_client(llm)

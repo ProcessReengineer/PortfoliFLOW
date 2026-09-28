@@ -144,13 +144,13 @@ def _deterministic_llm_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 def _ai_core_hygiene() -> Generator[None, None, None]:
     """Reset the process-global AIServiceCore after every web test.
 
-    Web-app lifespans configure the singleton
-    (``web.main._configure_ai_core``: credentials, model, CONNECTED
-    status) and do not restore it on shutdown; some wiring tests also
-    pre-pollute it deliberately. Without this teardown, that state leaks
-    into any test module that runs after ``tests/web`` in the same
-    process (order-dependent flake — fires in ad-hoc combined runs such
-    as ``pytest tests/web tests/assistants``).
+    The web lifespan no longer parks anything on the singleton (ADR-0132
+    retired the last consumer that needed it), but the teardown stays:
+    wiring tests still pre-pollute it deliberately, and any test that
+    configures it in-body would otherwise leak that state into a module
+    running after ``tests/web`` in the same process (order-dependent
+    flake — fires in ad-hoc combined runs such as ``pytest tests/web
+    tests/assistants``).
 
     Teardown-only by design: resetting *before* the test would be
     redundant (the polluters are in this package) and the wiring tests

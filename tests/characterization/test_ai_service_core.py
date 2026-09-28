@@ -673,10 +673,12 @@ def test_empty_tool_orchestration_context_does_not_append_separator(
 # ---------------------------------------------------------------------------
 #
 # The one-shot surface takes the same mutual-exclusion contract
-# ``run_synthesis`` does. Two consumers, two paths: the Report Scraper hands a
-# per-tenant ``ResolvedLLM`` and never touches the singleton, while the
-# Fetcher-LLM keeps passing a bare ``model`` against the parked application
-# credentials. These tests pin both, and the two ``ValueError`` refusals that
+# ``run_synthesis`` does. Two paths, both still supported: every web consumer
+# hands a per-tenant ``ResolvedLLM`` and never touches the singleton (the
+# Report Scraper since ADR-0123, the web research tool since ADR-0132), while
+# the singleton path — a bare ``model`` against whatever the process has
+# configured — remains for the desktop app, with no web consumer since
+# ADR-0132. These tests pin both, and the two ``ValueError`` refusals that
 # keep the paths from being mixed.
 
 _LLM_BASE_URL = "https://tenant.example/v1"
@@ -753,7 +755,10 @@ def test_one_shot_rejects_neither_llm_nor_model(configured_core: AIServiceCore) 
 
 
 def test_one_shot_singleton_path_still_requires_connection() -> None:
-    """Without ``llm``, the pre-ADR-0123 gate is verbatim — the Fetcher-LLM's."""
+    """Without ``llm``, the pre-ADR-0123 gate is verbatim.
+
+    The singleton path (desktop app; no web consumer since ADR-0132).
+    """
     core = AIServiceCore()
     with pytest.raises(RuntimeError, match="not connected"):
         core.send_one_shot_extraction(

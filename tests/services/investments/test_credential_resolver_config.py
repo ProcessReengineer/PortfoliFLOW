@@ -94,6 +94,22 @@ class TestEnvSource:
             == "anthropic/claude-opus-4-7"
         )
 
+    async def test_research_model_reads_its_own_variable(self) -> None:
+        # ADR-0132's one new link, pinned for the same reason as its
+        # neighbour: a removed entry must fail here, not go quietly dead and
+        # leave web research on whatever SHIRLEY_MODEL happens to hold.
+        resolver = CredentialResolver(
+            matrix=_matrix(),
+            environ={
+                "RESEARCH_MODEL": "anthropic/claude-haiku-4-5",
+                "SHIRLEY_MODEL": "anthropic/claude-sonnet-4.5",
+            },
+        )
+        assert (
+            await resolver.resolve_config("openrouter", "research_model", scopes=("env",))
+            == "anthropic/claude-haiku-4-5"
+        )
+
 
 class TestScopeRestriction:
     async def test_env_only_restriction_skips_the_vault(self) -> None:

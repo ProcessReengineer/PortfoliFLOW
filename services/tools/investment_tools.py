@@ -88,7 +88,8 @@ the application's ``AsyncEngine`` — its asyncpg connections are bound
 to the uvicorn loop, and crossing that boundary raises
 ``RuntimeError: ... got Future ... attached to a different loop``.
 Each workflow instead builds its own short-lived, loop-local engine
-from the connection URL via :func:`_tool_session`, and disposes it
+from the connection URL via
+:func:`services.tools._tool_session.tool_session`, and disposes it
 when the workflow ends. See ADR-0047 (amended) and the
 :mod:`services.tools._tool_context` docstring for the cross-loop
 hazard.
@@ -103,13 +104,10 @@ explanatory string rather than raising. See ADR-0047.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
 
 import pandas as pd
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.repositories import (
     InvestmentCashflowRepository,
@@ -117,8 +115,6 @@ from core.repositories import (
     InvestmentNavDTO,
     InvestmentNavRepository,
     InvestmentRepository,
-    create_engine_from_url,
-    tenant_context,
 )
 from services.investments.investment_service import (
     InvestmentChartsBundle,
@@ -133,6 +129,7 @@ from services.tools._tool_context import (
     get_tool_context,
     store_tool_data,
 )
+from services.tools._tool_session import tool_session
 
 logger = logging.getLogger(__name__)
 
@@ -194,44 +191,6 @@ def _fmt_decimal(value: Decimal | None) -> str:
     return f"{value:,.2f}"
 
 
-@asynccontextmanager
-async def _tool_session(
-    ctx: ToolExecutionContext,
-) -> AsyncIterator[AsyncSession]:
-    """Yield a tenant-scoped session backed by a loop-local engine.
-
-    Constructs a short-lived ``AsyncEngine`` from ``ctx.database_url``
-    *inside the caller's event loop* — the fresh loop
-    :func:`~services.tools._async_bridge.run_async_in_fresh_loop`
-    provides — so no loop-bound object crosses a thread boundary, and
-    every asyncpg connection it pools is born and dies on that one
-    loop. The engine is disposed when the context exits.
-
-    A fresh engine per tool call is not free — it opens a new pool,
-    runs the asyncpg connection handshake, and tears it down — but at
-    Shirley's human-paced call volume the cost is negligible, and it
-    is the same tradeoff :func:`web.main._read_schema_revision`
-    already accepts. A per-thread / per-loop engine cache is a
-    possible future optimisation, deliberately not built now. See
-    ADR-0047 (amended).
-
-    Args:
-        ctx: The per-turn tool-execution context carrying the tenant
-            id and the database connection URL.
-
-    Yields:
-        An :class:`~sqlalchemy.ext.asyncio.AsyncSession` scoped to
-        ``ctx.tenant_id`` via
-        :func:`core.repositories.tenant_context`.
-    """
-    engine = create_engine_from_url(ctx.database_url)
-    try:
-        async with tenant_context(engine, ctx.tenant_id) as db:
-            yield db
-    finally:
-        await engine.dispose()
-
-
 # ---------------------------------------------------------------------------
 # list_investments
 # ---------------------------------------------------------------------------
@@ -250,7 +209,7 @@ def list_investments() -> str:
         return _CONTEXT_NOT_SET_MSG
 
     async def _workflow() -> list:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             service = InvestmentService(
                 InvestmentRepository(db),
                 InvestmentNavRepository(db),
@@ -304,7 +263,7 @@ def get_investment_detail(investment_name: str) -> str:
         return _CONTEXT_NOT_SET_MSG
 
     async def _workflow() -> InvestmentDetailDTO | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             dto = await investments.get_by_name(investment_name)
             if dto is None:
@@ -413,7 +372,7 @@ def get_investment_nav_history(investment_name: str, nav_kind: str | None = None
         )
 
     async def _workflow() -> tuple[str, list[InvestmentNavDTO]] | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             dto = await investments.get_by_name(investment_name)
             if dto is None:
@@ -615,7 +574,7 @@ def _catalogue_envelope(ctx: ToolExecutionContext) -> str:
     """Build the ``catalogue`` bundle — one row per investment, stamp data."""
 
     async def _workflow() -> list[InvestmentDTO]:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             return await InvestmentRepository(db).list_all()
 
     investments = run_async_in_fresh_loop(_workflow)
@@ -679,7 +638,7 @@ def _nav_series_envelope(
     """
 
     async def _workflow() -> tuple[InvestmentDTO, list[InvestmentNavDTO]] | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             dto = await investments.get_by_name(name)
             if dto is None:
@@ -750,7 +709,7 @@ def _portfolio_nav_series_envelope(
     name_set = {n.strip() for n in names} if names is not None else None
 
     async def _workflow() -> tuple[int, list[tuple[str, list[InvestmentNavDTO]]]]:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             inv_repo = InvestmentRepository(db)
             nav_repo = InvestmentNavRepository(db)
             investments = await inv_repo.list_all()
@@ -843,7 +802,7 @@ def _cashflow_series_envelope(
     """
 
     async def _workflow() -> tuple[InvestmentDTO, list] | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             dto = await investments.get_by_name(name)
             if dto is None:
@@ -907,7 +866,7 @@ def _return_metrics_envelope(
     """
 
     async def _workflow() -> InvestmentChartsBundle | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             dto = await investments.get_by_name(name)
             if dto is None:

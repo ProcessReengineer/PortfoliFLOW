@@ -146,6 +146,7 @@ _ENV_CONFIG_FIELDS: dict[str, dict[str, str]] = {
         "base_url": "OPENROUTER_BASE_URL",
         "irene_model": "IRENE_MODEL",
         "scraper_model": "SCRAPER_MODEL",
+        "research_model": "RESEARCH_MODEL",
     },
     # ``telegram.enabled`` is the per-tenant opt-out switch; its
     # application-scope link is the master kill switch the bot thread
@@ -413,9 +414,10 @@ class CredentialResolver:
                 (the default) means the field's full declared chain. Used by
                 consumers that need scope-major precedence across two fields —
                 the tick resolves ``irene_model`` then ``model`` at tenant
-                scope before descending to the environment (ADR-0112 §4b), and
-                the Report Scraper walks the same shape with
-                ``scraper_model`` in Irene's place (ADR-0123).
+                scope before descending to the environment (ADR-0112 §4b), the
+                Report Scraper walks the same shape with ``scraper_model`` in
+                Irene's place (ADR-0123), and the web research tool with
+                ``research_model`` in it (ADR-0132).
 
         Returns:
             The first value found along the chain, or ``None`` when the field

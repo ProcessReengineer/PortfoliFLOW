@@ -45,7 +45,10 @@ model is chosen. No new provider, no new secret, no migration: a
 ``scoped_settings`` row is ``(scope, provider, key)``, which is exactly the
 extensibility ADR-0112 §3 built this table for. ADR-0131 is the third: a new
 config-only provider, ``provider_channel``, whose one field is the tenant's
-opt-in switch for the provider channel.
+opt-in switch for the provider channel. ADR-0132 is the fourth, and of the
+same smallest kind as ADR-0123 — one more ``openrouter`` config field,
+``research_model``, so the web research LLM is chosen where every other model
+is chosen, and the news path stops reading the application scope alone.
 """
 
 from __future__ import annotations
@@ -198,11 +201,19 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
             # ``irene_model``: the Report Scraper is a tenant tool, not a
             # personal one, and a user-scope model would only widen the
             # surface on which a non-PDF-capable model can be chosen. It
-            # sits between the two other model fields so the Admin card
-            # renders its three model rows as one block (Shirley model →
-            # Report Scraper model → Watch Desk model → Base URL). Field
-            # order here is presentational only; nothing chains on it.
+            # sits between the other model fields so the Admin card
+            # renders its four model rows as one block (Shirley model →
+            # Report Scraper model → Web research model → Watch Desk model
+            # → Base URL). Field order here is presentational only;
+            # nothing chains on it.
             ProviderField(name="scraper_model", is_secret=False, scopes=_TENANT),
+            # ``research_model`` (ADR-0132) is tenant-only for the same
+            # reason as its two neighbours: web research is a tenant
+            # capability, not a personal one, and one field serves both of
+            # its LLMs (the Feed-Filter and the Fetcher are two stages of
+            # one call, so a split would double the surface for a decision
+            # nobody takes).
+            ProviderField(name="research_model", is_secret=False, scopes=_TENANT),
             ProviderField(name="irene_model", is_secret=False, scopes=_TENANT),
             ProviderField(name="base_url", is_secret=False, scopes=_TENANT),
         ),

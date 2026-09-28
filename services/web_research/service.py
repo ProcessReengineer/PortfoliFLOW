@@ -10,8 +10,11 @@ relevant to the query, fetches the selected article URLs, and runs each
 extracted article through the isolated Fetcher-LLM, returning validated
 :class:`WebResearchResult` payloads.
 
-PyQt-free and synchronous. Called from the AIService tool-execution loop
-inside a QThread worker; do not add Qt imports here.
+PyQt-free and synchronous. Called from the ToolRegistry's tool-execution
+thread; do not add Qt imports here. The service holds no credential and no
+model of its own: the caller resolves this call's :class:`ResolvedLLM` — per
+call, inside the turn's tenant context — and passes it in (ADR-0132). See
+:mod:`services.web_research.llm` for the chains.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from services.ai_service_core import ResolvedLLM
 from services.ai_service_core import get_ai_service_core as get_ai_service
 from services.scraper.json_parser import JsonParseError, parse_extraction_response
 from services.web_research.allowlist import (
@@ -126,10 +130,12 @@ def load_feed_filter_prompt(path: Path | None = None) -> str:
 class WebResearchService:
     """Orchestrates a single research query end-to-end.
 
-    Typical usage::
+    Typical usage — the caller resolves this call's LLM and passes it in
+    (ADR-0132); the service holds none::
 
         svc = WebResearchService()
-        results = svc.research("ECB rate decision")
+        llm = await resolve_research_llm(resolver, tenant_id=tid, user_id=uid)
+        results = svc.research("ECB rate decision", llm=llm)
         for r in results:
             print(r.title, r.key_facts)
     """
@@ -169,6 +175,8 @@ class WebResearchService:
         self,
         query: str,
         max_articles: int = 5,
+        *,
+        llm: ResolvedLLM,
     ) -> list[WebResearchResult]:
         """Resolve, pre-filter, fetch, and extract validated results.
 
@@ -182,6 +190,10 @@ class WebResearchService:
             query: Free-text research query.
             max_articles: Upper bound on article fetches after pre-filter.
                 Default 5.
+            llm: This call's resolved endpoint, credential and model —
+                resolved by the caller per call, never held by the service
+                (ADR-0132). Both stages, the Feed-Filter-LLM and the
+                Fetcher-LLM, run on it.
 
         Returns:
             A list of :class:`WebResearchResult` objects in the order the
@@ -198,7 +210,7 @@ class WebResearchService:
             return []
 
         # --- Stage 2: LLM pre-filter ---
-        selected = self._pre_filter_feed_items(query, all_items, max_articles)
+        selected = self._pre_filter_feed_items(query, all_items, max_articles, llm)
         logger.info(
             "WebResearchService.research: query=%r — %d items sent to pre-filter, %d returned.",
             query,
@@ -211,7 +223,7 @@ class WebResearchService:
         # --- Stage 3: per-article fetch + Fetcher-LLM ---
         results: list[WebResearchResult] = []
         for item in selected:
-            result = self._research_one(item.url)
+            result = self._research_one(item.url, llm)
             if result is not None:
                 results.append(result)
 
@@ -336,21 +348,19 @@ class WebResearchService:
         query: str,
         items: list[FeedItem],
         max_articles: int,
+        llm: ResolvedLLM,
     ) -> list[FeedItem]:
         """Ask the Feed-Filter-LLM which candidates are relevant to ``query``.
 
+        Runs on ``llm`` — this call's resolution, passed down from
+        :meth:`research` (ADR-0132).
+
         Returns the matched :class:`FeedItem` objects, preserving the LLM's
-        relevance ordering. On any failure (no active model, validation
-        failure, raised exception), returns an empty list — we refuse to
-        proceed with unvalidated URLs.
+        relevance ordering. On any failure (validation failure, raised
+        exception), returns an empty list — we refuse to proceed with
+        unvalidated URLs.
         """
         ai = get_ai_service()
-        model = ai.get_model()
-        if not model:
-            logger.warning(
-                "WebResearchService: no active model selected; cannot run Feed-Filter-LLM."
-            )
-            return []
 
         candidate_block = _render_candidates(items)
         user_content = (
@@ -381,7 +391,7 @@ class WebResearchService:
         try:
             raw = ai.send_one_shot_extraction(
                 messages=messages,
-                model=model,
+                llm=llm,
                 temperature=_FILTER_TEMPERATURE,
                 timeout=_FILTER_TIMEOUT_S,
             )
@@ -439,12 +449,13 @@ class WebResearchService:
     # Stage 3 — per-article fetch + Fetcher-LLM
     # ------------------------------------------------------------------
 
-    def _research_one(self, candidate_url: str) -> WebResearchResult | None:
+    def _research_one(self, candidate_url: str, llm: ResolvedLLM) -> WebResearchResult | None:
         """Fetch + extract + validate one candidate URL.
 
         Returns ``None`` on any failure (logged at WARNING). All exception
         paths are handled here so that :meth:`research` never raises on a
-        per-source issue.
+        per-source issue. ``llm`` is this call's resolution, passed through
+        to the Fetcher-LLM (ADR-0132).
         """
         entries = list(self._allowlist.entries)
 
@@ -499,6 +510,7 @@ class WebResearchService:
             url=fetched.final_url,
             fetched_at=datetime.now(timezone.utc).isoformat(),
             extracted_text=text,
+            llm=llm,
         )
         if raw_llm is None:
             return None
@@ -540,21 +552,18 @@ class WebResearchService:
         url: str,
         fetched_at: str,
         extracted_text: str,
+        llm: ResolvedLLM,
     ) -> str | None:
         """Invoke the Fetcher-LLM via AIService.send_one_shot_extraction.
+
+        Runs on ``llm`` — this call's resolution, passed down from
+        :meth:`research` (ADR-0132).
 
         Returns the raw string response, or ``None`` on any exception. The
         Fetcher-LLM is told which URL and timestamp to echo back so that
         downstream Shirley-side citations line up with the real resolved URL.
         """
         ai = get_ai_service()
-        model = ai.get_model()
-        if not model:
-            logger.warning(
-                "WebResearchService: no active model selected; cannot invoke Fetcher-LLM for %s.",
-                url,
-            )
-            return None
 
         user_content = (
             f"source_url: {url}\n"
@@ -571,7 +580,7 @@ class WebResearchService:
         try:
             return ai.send_one_shot_extraction(
                 messages=messages,
-                model=model,
+                llm=llm,
                 temperature=_FETCHER_TEMPERATURE,
                 timeout=_FETCHER_TIMEOUT_S,
             )

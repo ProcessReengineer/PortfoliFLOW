@@ -470,24 +470,31 @@ async def test_cards_carry_purpose_copy_and_disambiguate_the_three_model_rows(
 
     # Purpose copy under the card title, and the per-field hint under the input.
     assert (
-        "The LLM provider behind Shirley, the Report Scraper and the Watch Desk monitoring notes."
-        in body
+        "The LLM provider behind Shirley, the Report Scraper, web research and the "
+        "Watch Desk monitoring notes." in body
     )
     assert "The model Shirley uses." in body
     assert (
         "The model that extracts figures from uploaded GP reports. "
         "Must be an Anthropic model (PDF input)." in body
     )
+    assert (
+        "The model that filters the RSS candidates and extracts the articles "
+        "Shirley&#39;s web research reads. Leave empty to use the Shirley model; "
+        "applies on the next query." in body
+    )
     # The key hint names every surface the key is spent on.
     assert (
-        "Used for every Shirley turn, Report Scraper run and Watch Desk beat in this tenant."
-        in body
+        "Used for every Shirley turn, Report Scraper run, web research query and "
+        "Watch Desk beat in this tenant." in body
     )
 
-    # The three OpenRouter model rows no longer all read "Model"...
+    # The four OpenRouter model rows no longer all read "Model"...
     assert "Watch Desk model" in body
     assert "Report Scraper model" in body
     assert 'value="scraper_model"' in body
+    assert "Web research model" in body
+    assert 'value="research_model"' in body
     # ...and the pill says a save is live, not merely stored.
     assert "live — saves apply instantly" in body
 
@@ -606,6 +613,9 @@ async def test_tenant_write_rejects_undeclared_shapes(
         # tenant tool, and a user-scope model would only widen the surface on
         # which a non-PDF-capable model can be chosen.
         ("openrouter", "scraper_model", "may not be written at user scope"),
+        # Likewise tenant-only (ADR-0132): web research is a tenant
+        # capability, and one field serves both of its LLMs.
+        ("openrouter", "research_model", "may not be written at user scope"),
     ],
 )
 async def test_user_write_rejects_fields_the_panel_does_not_offer(
@@ -902,6 +912,45 @@ async def test_scraper_model_saves_and_deletes_at_tenant_scope(
     assert removed.status_code == 200
     assert (
         await _read_row(app_engine, scope="tenant", provider="openrouter", key="scraper_model")
+        is None
+    )
+
+
+async def test_research_model_saves_and_deletes_at_tenant_scope(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """ADR-0132's field is an ordinary tenant config row, end to end.
+
+    Like its ADR-0123 twin: no migration and no code path of its own, which
+    is what a taxonomy-driven form buys.
+    """
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+    base = {"csrf_token": csrf, "provider": "openrouter", "key": "research_model"}
+
+    saved = await client.post(
+        _TENANT_URL,
+        data={**base, "value": "anthropic/claude-haiku-4-5", "action": "save"},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 200
+    assert "Web research model saved." in saved.text
+    row = await _read_row(app_engine, scope="tenant", provider="openrouter", key="research_model")
+    assert row is not None
+    assert row.value_plain == "anthropic/claude-haiku-4-5"
+    assert row.is_secret is False
+    assert row.enabled is True
+
+    removed = await client.post(
+        _TENANT_URL,
+        data={**base, "value": "", "action": "delete"},
+        follow_redirects=False,
+    )
+    assert removed.status_code == 200
+    assert (
+        await _read_row(app_engine, scope="tenant", provider="openrouter", key="research_model")
         is None
     )
 
@@ -1370,6 +1419,28 @@ async def test_model_list_serves_the_scraper_model_field(
     assert 'hx-target="#tenant-openrouter-scraper_model-models-slot"' in body
 
 
+async def test_model_list_serves_the_research_model_field(
+    client_factory: Any,
+    vault_key: str,
+    catalog_stub: dict[str, Any],
+) -> None:
+    """ADR-0132's fourth model field is served like the other three.
+
+    Same catalog, same slot ids derived from ``(scope, key)`` — the field
+    needed no endpoint of its own, only a place in ``_MODEL_FIELD_KEYS``.
+    """
+    client = await client_factory("owner")
+
+    response = await client.get(_models_url("tenant", "research_model"), follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="tenant-openrouter-research_model-models"' in body
+    assert "tenant-openrouter-scraper_model-models" not in body
+    assert '<option value="anthropic/claude-opus-4-8">Claude Opus 4.8</option>' in body
+    assert 'hx-target="#tenant-openrouter-research_model-models-slot"' in body
+
+
 async def test_user_scope_model_list_serves_a_non_owner_their_own_panel(
     client_factory: Any,
     vault_key: str,
@@ -1435,6 +1506,7 @@ async def test_tenant_scope_model_list_is_refused_for_a_non_owner(
         ("tenant", "nonsense"),  # undeclared
         ("user", "irene_model"),  # declared, but tenant-only (taxonomy gate)
         ("user", "scraper_model"),  # likewise tenant-only (ADR-0123)
+        ("user", "research_model"),  # likewise tenant-only (ADR-0132)
     ],
 )
 async def test_model_list_refuses_a_scope_or_field_it_does_not_offer(
@@ -1525,7 +1597,7 @@ async def test_the_section_offers_the_list_on_the_model_fields_and_nowhere_else(
     client_factory: Any,
     vault_key: str,
 ) -> None:
-    """Four model inputs across the two panels; no other field gets a list."""
+    """Five model inputs across the two panels; no other field gets a list."""
     client = await client_factory("owner")
     response = await client.get(_SECTION_URL, follow_redirects=False)
 
@@ -1535,14 +1607,15 @@ async def test_the_section_offers_the_list_on_the_model_fields_and_nowhere_else(
     for expected in (
         'list="tenant-openrouter-model-models"',
         'list="tenant-openrouter-scraper_model-models"',
+        'list="tenant-openrouter-research_model-models"',
         'list="tenant-openrouter-irene_model-models"',
         'list="user-openrouter-model-models"',
     ):
         assert expected in body
 
-    # Exactly those four — the OpenFIGI key, the base URL and the bot
+    # Exactly those five — the OpenFIGI key, the base URL and the bot
     # token are not model ids and get no autocomplete.
-    assert body.count('list="') == 4
-    assert body.count("Load models") == 4
+    assert body.count('list="') == 5
+    assert body.count("Load models") == 5
     assert "openrouter/models?scope=tenant&amp;key=model" in body
     assert "openrouter/models?scope=user&amp;key=model" in body

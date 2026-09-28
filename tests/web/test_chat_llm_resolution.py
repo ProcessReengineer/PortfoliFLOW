@@ -85,6 +85,7 @@ class _FakeCore:
 
     def __init__(self) -> None:
         self.last_llm: Any = None
+        self.last_tool_context: Any = None
         self.calls = 0
 
     def get_status(self) -> ConnectionStatus:
@@ -107,6 +108,7 @@ class _FakeCore:
         llm: object = None,
     ) -> AsyncIterator[StreamEvent]:
         self.last_llm = llm
+        self.last_tool_context = tool_context
         self.calls += 1
         final = Message(role=MessageRole.ASSISTANT, content="ok")
         yield StreamEvent("chunk", {"text": "ok"})
@@ -338,6 +340,31 @@ async def test_tenant_rows_drive_the_turn_without_a_restart(
     assert core.last_llm is not None
     assert core.last_llm.api_key == "sk-tenant"
     assert core.last_llm.model == "tenant/model"
+
+
+async def test_the_turn_context_carries_the_sessions_user(
+    app_client: Any, seeded_user: Any, vault_key: VaultCipher, no_env_scope: None
+) -> None:
+    """The route builds the tool context from the session, user axis included.
+
+    ADR-0132: the ``user_id`` is what lets a tool resolving its own credential
+    per call — the web research tool — consult the user scope of the chain at
+    all. Without it the tool would silently see only the tenant's rows.
+    """
+    client, core, app = app_client
+    user_id, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    await _write_setting(
+        app.state.engine, scope="tenant", key="api_key", value="sk-tenant", cipher=vault_key
+    )
+    await _write_setting(app.state.engine, scope="tenant", key="model", value="tenant/model")
+
+    _post, sse = await _run_turn(client, csrf)
+
+    assert "event: done" in sse
+    assert core.last_tool_context is not None
+    assert core.last_tool_context.user_id == user_id
+    assert core.last_tool_context.tenant_id == SENTINEL_TENANT_ID
 
 
 async def test_a_user_model_outranks_the_tenant_model(

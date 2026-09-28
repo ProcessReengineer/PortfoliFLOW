@@ -196,6 +196,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0129 | [Provider Channel — Suggestion List, Zero-Knowledge Relay, Provider Portal, and Engagements](./0129-provider-channel-suggestion-list-relay-portal-and-engagements.md) | Accepted (2026-08-27) — revives the provider-directory half of the Execution-Network concept ADR-0107 cut, under the conditions ADR-0107 named; honours the ADR-0108 open-client / proprietary-service split | 2026-08-26 | provider-channel, suggestion-list, relay, encryption, engagement, monetisation, agpl-boundary, regulatory |
 | 0130 | [Non-Negative Holdings Guard: Cash Investments Are Exempt](./0130-non-negative-holdings-guard-cash-investment-exemption.md) | Accepted (2026-08-31) — supersedes the *mechanism sentence* of ADR-0128 Q-2 (path-scoped capability flag); narrows the ADR-0097 §4 write-time invariant to non-cash investment types; ADR-0128 Q-2's behavioural decision stands | 2026-08-31 | cash, holdings, ledger, invariant, transactions, crud, excel-import, overdraft |
 | 0131 | [Provider Channel Opt-In Switch in the Scoped-Settings Taxonomy — `provider_channel.enabled`, Tenant-Scoped, Config-Only](./0131-provider-channel-enabled-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-11) — annex amendment to ADR-0112 §3 (third, after 0118/0123): config-only provider `provider_channel` with the tenant's opt-in switch `enabled`; `env_fallback=False` (no deployment-wide phone-home switch), `optional=True`; Admin card copy states what leaves the instance (ADR-0129 §6); when off, Transactions shows no gesture (Stage B record B-D-25). | 2026-09-11 | provider-channel, configuration, multi-tenancy, credentials, admin, privacy |
+| 0132 | [Web Research Model in the Scoped-Settings Taxonomy — Per-Call, Per-Tenant Resolution for the News Path](./0132-web-research-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-28) — annex amendment to ADR-0112 §3 (fourth, after 0118/0123/0131) and **amendment to ADR-0047**: one new `openrouter` config field, `research_model` (tenant-only, env link `RESEARCH_MODEL`, label "Web research model"), resolved scope-major research-first per **tool call** inside the turn's `tenant_context` and never stashed; `ToolExecutionContext` gains `user_id` so the user scope is reachable from a tool; one model serves both news LLMs; `_tool_session` lifted to its own module; `web/main.py::_configure_ai_core` deleted — the singleton's last web consumer is gone and `.env` is the application scope only. | 2026-09-28 | web-research, configuration, multi-tenancy, credentials, admin, openrouter, tools |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -838,7 +839,33 @@ Nothing reads the switch yet: the reader lands with SB-6,
 `services/provider_channel/` never imports the resolver (C-2), and there is no
 migration and no schema change.
 
-The next free ADR number is **0132**.
+**Update (2026-09-28):** ADR-0132 (the web research model in the scoped-settings
+taxonomy) is **Accepted (2026-09-28)** — the fourth annex amendment to ADR-0112
+§3, after ADR-0118, ADR-0123 and ADR-0131, and the one that closes what ADR-0123
+left open. It declares one new `openrouter` config field, `research_model`
+(non-secret, tenant-only, env link `RESEARCH_MODEL`, public label "Web research
+model"), and converts the News Scraper's two LLMs — the Feed-Filter-LLM and the
+Fetcher-LLM — from the process-global `AIServiceCore` singleton to a resolution
+walked **per tool call**, inside the turn tenant's context: credential through
+the unchanged façade, model `tenant research_model → tenant model → env
+RESEARCH_MODEL → env SHIRLEY_MODEL → the built-in default`, base URL from a
+constant in `services/web_research/llm.py` (the layering forbids reading
+`WebSettings`). One model serves both LLMs, since they are two stages of one
+call. Reaching the *user* scope from a tool required amending ADR-0047:
+`ToolExecutionContext` now carries an optional `user_id` — the chat session's
+user, the bot's paired user — read by nothing but the resolving tool, and no
+part of RLS. The shared `_tool_session` helper moved to
+`services/tools/_tool_session.py` so no tool module imports a private name from
+a sibling; its one behavioural change is that `user_id` reaches the b001 audit
+GUC, a no-op for all thirteen `READ_INTERNAL` call sites. Two observed failures
+motivated it, three days apart on one deployment: "no active model selected"
+when `.env` carried no model, then a 401 when the re-parked `.env` key had drifted
+from the tenant's current vault key. With the conversion, `web/main.py` parks
+nothing — `_configure_ai_core` is deleted — and `.env` is the application scope
+of the chains rather than a second source of truth. No migration and no schema
+change.
+
+The next free ADR number is **0133**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

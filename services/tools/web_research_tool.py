@@ -10,6 +10,24 @@ registered with class
 ``wraps_result_as_untrusted=True``. The ToolRegistry is responsible for
 wrapping the returned string in ``<external_content>`` delimiters (ADR-0022);
 this module must never emit those delimiters itself.
+
+Resolution (ADR-0132)
+---------------------
+The wrapper resolves this call's endpoint, credential and model before it
+runs the pipeline, and hands the result to
+:meth:`~services.web_research.service.WebResearchService.research` as
+``llm=``. With a :class:`~services.tools._tool_context.ToolExecutionContext`
+— the web chat surface and the Telegram bot both populate one — the
+resolution runs inside the turn's ``tenant_context``, carrying the turn's
+user, so the tenant's own key and model win over the application scope.
+Without a context (the desktop path, a DB-less contributor laptop) the
+resolver is built without a session and the environment is the only source
+— the same graceful degradation ``web/routes/scraper.py`` takes.
+
+The resolution is **never stashed** (ADR-0112 §4b): it lives for one call,
+in one local. A tenant with no credential in any scope gets the shortfall as
+an ordinary in-band envelope body naming where to fix it — this tool never
+raises at the model.
 """
 
 from __future__ import annotations
@@ -18,14 +36,62 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from services.ai_service_core import ResolvedLLM
+from services.investments.credential_resolver import CredentialResolver
 from services.tool_classes import ToolClass
 from services.tool_registry import get_tool_registry
+from services.tools._async_bridge import run_async_in_fresh_loop
+from services.tools._tool_context import ToolExecutionContext, get_tool_context
+from services.tools._tool_session import tool_session
+from services.web_research.llm import (
+    NO_RESEARCH_LLM_MESSAGE,
+    ResearchLLMUnavailableError,
+    resolve_research_llm,
+)
 from services.web_research.models import WebResearchResult
 from services.web_research.service import WebResearchService
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_ARTICLES = 5
+
+
+def _resolve_llm_for_call(ctx: ToolExecutionContext | None) -> ResolvedLLM:
+    """Resolve this call's endpoint, credential and model (ADR-0132).
+
+    With a context, opens a loop-local, tenant-scoped session inside a fresh
+    event loop — the same bridge the Postgres-native tools cross — and walks
+    the chains through a vault-backed façade, carrying the turn's user.
+    Without one there is no database to read a vault from, so the resolver is
+    built session-less and the environment is the only source.
+
+    Args:
+        ctx: The per-turn tool-execution context, or ``None`` when no turn
+            populated one.
+
+    Returns:
+        The :class:`~services.ai_service_core.ResolvedLLM` for this call.
+        Returned, never stored.
+
+    Raises:
+        ResearchLLMUnavailableError: If no scope holds a credential.
+        VaultDecryptError: Propagated untouched — a wrong or rotated master
+            key must never read as an absent credential.
+    """
+    if ctx is None:
+        return run_async_in_fresh_loop(
+            lambda: resolve_research_llm(CredentialResolver(), tenant_id=None, user_id=None)
+        )
+
+    async def _workflow() -> ResolvedLLM:
+        async with tool_session(ctx) as db:
+            return await resolve_research_llm(
+                CredentialResolver(session=db),
+                tenant_id=ctx.tenant_id,
+                user_id=ctx.user_id,
+            )
+
+    return run_async_in_fresh_loop(_workflow)
 
 
 def web_research(query: str, max_articles: int = _DEFAULT_MAX_ARTICLES) -> str:
@@ -45,8 +111,9 @@ def web_research(query: str, max_articles: int = _DEFAULT_MAX_ARTICLES) -> str:
     Returns:
         A JSON envelope ``{"source", "fetched_at", "body"}`` consumed by the
         ToolRegistry's ``wraps_result_as_untrusted`` wrapping. On failure
-        (no candidates / all fetches failed / all validations failed), the
-        envelope's ``body`` reports that outcome — the tool never raises.
+        (no LLM resolved / no candidates / all fetches failed / all
+        validations failed), the envelope's ``body`` reports that outcome —
+        the tool never raises.
     """
     try:
         service = WebResearchService()
@@ -60,7 +127,26 @@ def web_research(query: str, max_articles: int = _DEFAULT_MAX_ARTICLES) -> str:
             ),
         )
 
-    results = service.research(query=query, max_articles=max_articles)
+    ctx = get_tool_context()
+    try:
+        llm = _resolve_llm_for_call(ctx)
+    except ResearchLLMUnavailableError as exc:
+        logger.warning("web_research: no LLM resolved for this call: %s", exc)
+        return _envelope(
+            source=f"tool:web_research (query={query!r})",
+            body=NO_RESEARCH_LLM_MESSAGE,
+        )
+
+    # The model **id** is not a secret and the resolution is inert in logs
+    # (``ResolvedLLM.__repr__`` masks the key); nothing else about it is
+    # logged. ADR-0132.
+    logger.info(
+        "web_research: resolved model=%s for tenant=%s",
+        llm.model,
+        ctx.tenant_id if ctx is not None else "-",
+    )
+
+    results = service.research(query=query, max_articles=max_articles, llm=llm)
 
     if not results:
         return _envelope(

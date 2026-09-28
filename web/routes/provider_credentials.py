@@ -146,11 +146,13 @@ _PAIR_ENDPOINT = "/admin/providers-credentials/telegram/pair"
 _UNPAIR_ENDPOINT = "/admin/providers-credentials/telegram/unpair"
 _MODELS_ENDPOINT = "/admin/providers-credentials/openrouter/models"
 
-#: The OpenRouter fields the model catalog serves. All three are declared,
+#: The OpenRouter fields the model catalog serves. All four are declared,
 #: plain config fields; the taxonomy gate below still decides whether the
-#: *scope* may carry the one that was asked for (``irene_model`` and
-#: ``scraper_model`` are tenant-only).
-_MODEL_FIELD_KEYS: frozenset[str] = frozenset({"model", "scraper_model", "irene_model"})
+#: *scope* may carry the one that was asked for (``irene_model``,
+#: ``scraper_model`` and ``research_model`` are tenant-only).
+_MODEL_FIELD_KEYS: frozenset[str] = frozenset(
+    {"model", "scraper_model", "research_model", "irene_model"}
+)
 
 #: Actions each panel accepts. The user panel deliberately carries no
 #: enable/disable: a user's own row is either set or absent, and a third
@@ -193,7 +195,8 @@ _CONSUMER_STATUS: dict[str, str] = {
 _PROVIDER_DESCRIPTIONS: dict[str, str] = {
     "openfigi": "Identifier resolution for market data (ISIN and ticker lookup).",
     "openrouter": (
-        "The LLM provider behind Shirley, the Report Scraper and the Watch Desk monitoring notes."
+        "The LLM provider behind Shirley, the Report Scraper, web research and the "
+        "Watch Desk monitoring notes."
     ),
     "provider_channel": (
         "The provider channel — signed provider directory and encrypted ticket exports. "
@@ -217,7 +220,7 @@ _PROVIDER_LABELS: dict[str, str] = {
 }
 
 #: Presentational only. ``irene_model`` reads as "Watch Desk model" so the
-#: three OpenRouter model rows are distinguishable — and because the internal
+#: four OpenRouter model rows are distinguishable — and because the internal
 #: agent name never reaches a user-facing string (ADR-0115). The taxonomy key
 #: itself is wire format and stays as declared.
 _FIELD_LABELS: dict[str, str] = {
@@ -228,6 +231,7 @@ _FIELD_LABELS: dict[str, str] = {
     "enabled": "Enabled",
     "irene_model": "Watch Desk model",
     "model": "Model",
+    "research_model": "Web research model",
     "scraper_model": "Report Scraper model",
     "voice": "Voice",
 }
@@ -240,10 +244,16 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
         "The model that extracts figures from uploaded GP reports. Must be an "
         "Anthropic model (PDF input)."
     ),
+    ("openrouter", "research_model"): (
+        "The model that filters the RSS candidates and extracts the articles "
+        "Shirley's web research reads. Leave empty to use the Shirley model; "
+        "applies on the next query."
+    ),
     ("openrouter", "irene_model"): "The model that writes the Watch Desk monitoring notes.",
     ("openrouter", "base_url"): "OpenAI-compatible endpoint. Leave empty for OpenRouter's default.",
     ("openrouter", "api_key"): (
-        "Used for every Shirley turn, Report Scraper run and Watch Desk beat in this tenant."
+        "Used for every Shirley turn, Report Scraper run, web research query and "
+        "Watch Desk beat in this tenant."
     ),
     ("openfigi", "api_key"): "Optional — without a key, lookups run keyless at a lower rate limit.",
     ("provider_channel", "enabled"): (
@@ -953,8 +963,9 @@ async def get_openrouter_models(
         request: The active request.
         scope: ``tenant`` or ``user`` — which chain to resolve the key
             and which panel's field this is.
-        key: ``model``, ``scraper_model`` or ``irene_model`` — which
-            field's slot this fragment is bound for.
+        key: ``model``, ``scraper_model``, ``research_model`` or
+            ``irene_model`` — which field's slot this fragment is bound
+            for.
         session: The authenticated session.
         user: The authenticated user; ``has_role("owner")`` gates the
             tenant scope.

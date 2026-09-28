@@ -85,6 +85,14 @@ programming error and raises :class:`ToolContextNotSetError` so a
 GUI-style caller that never set a context produces a clear
 diagnostic instead of leaking onto the primary tenant.
 
+Since ADR-0132 the context carries a second, optional axis: the
+``user_id`` of the turn's authenticated person. It exists because a
+tool that resolves its own LLM credential per call — the web research
+tool is the first — must be able to consult the *user* scope of the
+credential chain, which the tenant alone cannot express. It is
+``None`` whenever no person is bound to the turn, and it never widens
+what a query can read: tenant isolation binds on ``tenant_id`` alone.
+
 Layering: this module sits under ``services/`` (ADR-0038 — no PyQt6),
 imports only the stdlib and :mod:`core.exceptions`, and must not
 import from ``web/`` — the chat route imports *from* here, not the
@@ -127,10 +135,19 @@ class ToolExecutionContext:
             object itself must not be carried here. Never empty — the
             chat route does not construct a context when the database
             URL is unconfigured (see ADR-0047 §Decision).
+        user_id: The authenticated user of the turn — the session's
+            user on the web chat surface, the paired user in a
+            Telegram chat, and ``None`` when no person is bound to the
+            turn. Carried so a tool that resolves credentials per call
+            can consult the **user** scope of the chain (ADR-0112 §1);
+            it also reaches ``app.user_id`` for the audit trigger via
+            :func:`services.tools._tool_session.tool_session`. Nothing
+            else reads it, and it plays no part in RLS. ADR-0132.
     """
 
     tenant_id: UUID
     database_url: str
+    user_id: UUID | None = None
 
 
 _context: ToolExecutionContext | None = None

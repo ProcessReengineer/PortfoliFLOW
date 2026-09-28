@@ -53,10 +53,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from services.ai_models import ConnectionStatus
-from services.ai_service_core import AIServiceCore, get_ai_service_core
+from services.ai_service_core import get_ai_service_core
 from services.auth.local_password import LocalPasswordAuthBackend
-from services.credential_vault import is_vault_configured
 from services.tenant_resolution import SubdomainTenantResolver
 from web.icons import pf_icon
 from web.routes.areas import router as areas_router
@@ -101,91 +99,6 @@ _LOG = logging.getLogger("portfoliflow.web")
 _WEB_DIR: Path = Path(__file__).resolve().parent
 _STATIC_DIR: Path = _WEB_DIR / "static"
 _TEMPLATES_DIR: Path = _WEB_DIR / "templates"
-
-
-def _configure_ai_core(settings: WebSettings) -> AIServiceCore:
-    """Park the application-wide :class:`AIServiceCore` for this app.
-
-    **Chat, the Irene beat and the Telegram bot no longer read anything
-    this function sets.** Since ADR-0112 §4b each of them resolves its own
-    endpoint, credential and model *per turn*, inside the requesting
-    tenant's context, through the credential façade — so a tenant or user
-    row written in Admin → Providers & Credentials applies on the next
-    turn, with no restart, and one process serves many tenants without
-    their keys ever meeting. ``.env`` remains the **application scope** of
-    that chain: the last link, consulted when no vault row serves.
-
-    What the parked configuration is still for: the **one** one-shot
-    extraction consumer that has no per-tenant resolution — the News
-    Scraper's Fetcher-LLM (``services/web_research``). It calls
-    :meth:`AIServiceCore.send_one_shot_extraction` on this singleton from
-    synchronous tool threads that have no session and no tenant context to
-    resolve in, and on that path the method still gates on the singleton
-    triple plus ``CONNECTED``. Leaving the singleton unconfigured would take
-    it down — and with it the untrusted-content extraction ADR-0022 requires
-    — so the application-scope credentials stay parked here until that
-    consumer gets its own resolution seam.
-
-    The Report Scraper was the second such consumer until ADR-0123: it now
-    resolves per run, per tenant, through the same façade as chat and passes
-    a :class:`~services.ai_service_core.ResolvedLLM` into the extraction
-    call, so nothing it does depends on what this function sets.
-
-    The singleton is intentionally reused — see ADR-0038 §5. Tests that
-    need a different state per app instance override via
-    ``app.state.ai_core``.
-
-    Args:
-        settings: The resolved :class:`WebSettings` for this app.
-
-    Returns:
-        The application-wide :class:`AIServiceCore` instance.
-    """
-    core = get_ai_service_core()
-    if not settings.openrouter_api_key:
-        # Reset to a known clean state so a previously-configured
-        # singleton (e.g. left over from a prior app instance in the
-        # same process — the test suite does this) cannot leak its
-        # CONNECTED status into a no-credentials lifespan.
-        core.reset()
-        if not is_vault_configured():
-            # Neither scope can serve anything: no vault for tenant rows,
-            # no environment key. Chat will 503 on every turn, so say why
-            # at startup rather than leaving the operator to discover it
-            # one failed message at a time.
-            _LOG.warning(
-                "AIServiceCore: OPENROUTER_API_KEY not set and no credential "
-                "vault configured — no scope can resolve an LLM credential; "
-                "chat and the Report Scraper will refuse every turn. Set a "
-                "tenant key in Admin → Providers & Credentials (needs the "
-                "vault master key), or OPENROUTER_API_KEY in .env."
-            )
-        else:
-            _LOG.info(
-                "AIServiceCore: OPENROUTER_API_KEY not set — chat and the "
-                "Report Scraper resolve per tenant from the credential vault "
-                "(ADR-0112 §4b, ADR-0123). The Fetcher-LLM, the last consumer "
-                "still reading the application scope, is unavailable until it "
-                "is set."
-            )
-        return core
-
-    core.configure(settings.openrouter_base_url, settings.openrouter_api_key)
-    if settings.shirley_model:
-        core.set_model(settings.shirley_model)
-    # The Qt adapter only flips status to CONNECTED after a successful
-    # ``fetch_models`` round-trip. The web lifespan skips that probe
-    # to keep startup fast and offline-tolerant; a missing or invalid
-    # key surfaces on the first call as an upstream error, not as a
-    # startup failure.
-    core.set_status(ConnectionStatus.CONNECTED)
-    _LOG.info(
-        "AIServiceCore: application-scope credentials parked for the one-shot "
-        "extraction consumers (model=%r). Chat, Irene and the bot resolve "
-        "per turn (ADR-0112 §4b).",
-        settings.shirley_model or "<unset>",
-    )
-    return core
 
 
 async def _read_schema_revision(database_url: str | None) -> str | None:
@@ -263,15 +176,21 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
 
         app.state.schema_revision = await _read_schema_revision(resolved_settings.database_url)
 
-        # AI core — parked here for the one-shot extraction consumers; the
-        # chat turn resolves its own credential and model per request
-        # (ADR-0112 §4b). See :func:`_configure_ai_core`. Tests that need a
-        # different instance per app override ``app.state.ai_core`` after
-        # lifespan startup completes (see
-        # ``tests/web/test_chat_sse.py::web_client_factory``); the
+        # AI core — the **instance**, carrying no credentials. The chat
+        # turn, the Watch Desk beat, the Telegram bot, the Report Scraper
+        # (ADR-0123) and the web research tool (ADR-0132) each resolve
+        # their own endpoint, credential and model per call, inside the
+        # requesting tenant's context, through the credential façade; with
+        # ADR-0132 the last web consumer of the parked singleton is gone,
+        # so this lifespan parks nothing and ``.env`` is simply the
+        # application scope of those chains, consulted when no vault row
+        # serves. The instance is registered only for the chat route's
+        # override seam: tests that need a different one per app override
+        # ``app.state.ai_core`` after lifespan startup completes (see
+        # ``tests/web/test_chat_sse.py::web_client_factory``), and the
         # ``getattr(..., "ai_core", None)`` check in
         # :func:`web.routes.chat._ai_core` honours that override.
-        app.state.ai_core = _configure_ai_core(resolved_settings)
+        app.state.ai_core = get_ai_service_core()
 
         # In-process Telegram bot (ADR-0063, ADR-0112 §5). Started here so
         # Shirley on Telegram reads the same Postgres data as the web chat.

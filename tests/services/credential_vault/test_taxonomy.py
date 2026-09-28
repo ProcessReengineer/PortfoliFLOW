@@ -164,10 +164,12 @@ def test_tx04_secret_and_config_fields_split_as_declared() -> None:
     assert [field.name for field in openrouter.secret_fields] == ["api_key"]
     # Declaration order is presentational (nothing chains on it) but it is the
     # order the Admin card renders, and ADR-0123 chose it deliberately: the
-    # three model rows read as one block, Base URL last.
+    # model rows read as one block, Base URL last. ADR-0132 inserted
+    # ``research_model`` into that block rather than appending it.
     assert [field.name for field in openrouter.config_fields] == [
         "model",
         "scraper_model",
+        "research_model",
         "irene_model",
         "base_url",
     ]
@@ -320,12 +322,14 @@ def test_tx06_openrouter_declares_exactly_its_config_env_fields() -> None:
         "base_url",
         "irene_model",
         "scraper_model",
+        "research_model",
     }
     assert {field.name for field in declaration_for("openrouter").config_fields} == {
         "model",
         "base_url",
         "irene_model",
         "scraper_model",
+        "research_model",
     }
 
 

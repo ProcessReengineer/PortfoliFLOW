@@ -1516,10 +1516,14 @@ async def _run_turn(
         # ``_TURN_LOCK`` and clears it when the turn ends. Built only when the
         # web lifespan injected both a tenant id and a database URL; on the
         # desktop entry point both are unset and the tools degrade gracefully.
+        # The paired user rides along as the turn's user axis, so the one tool
+        # that resolves its own credential per call sees the same user scope
+        # this handler already resolves its own LLM through (ADR-0132).
         tool_context = (
             ToolExecutionContext(
                 tenant_id=binding.tenant_id,
                 database_url=_bot_database_url,
+                user_id=paired_user_id,
             )
             if (binding.tenant_id is not None and _bot_database_url)
             else None

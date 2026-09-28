@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from services.ai_service_core import ResolvedLLM
 from services.web_research.allowlist import AllowlistConfig, AllowlistEntry
 from services.web_research.fetcher import (
     ExtractionError,
@@ -29,6 +30,15 @@ from services.web_research.service import WebResearchService
 
 _FETCHER_PROMPT = "fake fetcher prompt"
 _FILTER_PROMPT = "fake feed-filter prompt"
+
+#: This call's resolution, as the caller now supplies it (ADR-0132). A real
+#: ``ResolvedLLM``, not a stub: the service passes it straight through to
+#: ``send_one_shot_extraction``, so the type is part of what is under test.
+_FAKE_LLM = ResolvedLLM(
+    base_url="https://openrouter.test/api/v1",
+    api_key="k",
+    model="fake-model",
+)
 
 
 def _allowlist(entries: list[AllowlistEntry] | None = None) -> AllowlistConfig:
@@ -111,7 +121,6 @@ def _article_fetch(url: str) -> FetchResult:
 def patched_ai_service():
     with patch("services.web_research.service.get_ai_service") as mock_get:
         fake = MagicMock()
-        fake.get_model.return_value = "fake-model"
         mock_get.return_value = fake
         yield fake
 
@@ -133,7 +142,7 @@ class TestEmptyFeedPool:
                 return_value=[],
             ),
         ):
-            assert _svc().research("x") == []
+            assert _svc().research("x", llm=_FAKE_LLM) == []
         patched_ai_service.send_one_shot_extraction.assert_not_called()
 
     def test_all_feed_fetches_fail_returns_empty(self, patched_ai_service) -> None:
@@ -141,7 +150,7 @@ class TestEmptyFeedPool:
             "services.web_research.service.fetch_feed",
             side_effect=FetchError("boom"),
         ):
-            assert _svc().research("x") == []
+            assert _svc().research("x", llm=_FAKE_LLM) == []
         patched_ai_service.send_one_shot_extraction.assert_not_called()
 
 
@@ -180,7 +189,7 @@ class TestTimeFilter:
                     return_value="clean article text " * 50,
                 ),
             ):
-                results = _svc().research("x", max_articles=5)
+                results = _svc().research("x", max_articles=5, llm=_FAKE_LLM)
         assert len(results) == 1
 
 
@@ -206,7 +215,7 @@ class TestPreFilter:
             patched_ai_service.send_one_shot_extraction.side_effect = [
                 json.dumps({"selected_urls": []}),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
         fetch_url_mock.assert_not_called()
 
@@ -232,7 +241,7 @@ class TestPreFilter:
             patched_ai_service.send_one_shot_extraction.side_effect = [
                 json.dumps({"selected_urls": ["https://evil.example.com/injected"]}),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
         fetch_url_mock.assert_not_called()
 
@@ -257,7 +266,7 @@ class TestPreFilter:
             patched_ai_service.send_one_shot_extraction.side_effect = [
                 json.dumps({"bogus": "shape"}),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
         fetch_url_mock.assert_not_called()
 
@@ -292,7 +301,7 @@ class TestPreFilter:
                 fenced,
                 _valid_fetcher_json("https://www.ecb.europa.eu/pr260424"),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert len(results) == 1
         assert results[0].title == "ECB holds rates"
 
@@ -317,7 +326,7 @@ class TestPreFilter:
             patched_ai_service.send_one_shot_extraction.side_effect = [
                 "not valid json",
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
         fetch_url_mock.assert_not_called()
 
@@ -352,7 +361,7 @@ class TestPreFilter:
                 _valid_fetcher_json("https://www.ecb.europa.eu/0"),
                 _valid_fetcher_json("https://www.ecb.europa.eu/1"),
             ]
-            results = _svc().research("x", max_articles=2)
+            results = _svc().research("x", max_articles=2, llm=_FAKE_LLM)
         assert len(results) == 2
 
 
@@ -386,7 +395,7 @@ class TestHappyPath:
                 json.dumps({"selected_urls": ["https://www.ecb.europa.eu/pr260424"]}),
                 _valid_fetcher_json("https://www.ecb.europa.eu/pr260424"),
             ]
-            results = _svc().research("ECB rate decision")
+            results = _svc().research("ECB rate decision", llm=_FAKE_LLM)
         assert len(results) == 1
         assert results[0].title == "ECB holds rates"
         assert results[0].key_facts[0].startswith("The ECB")
@@ -439,7 +448,7 @@ class TestHappyPath:
                 json.dumps({"selected_urls": [url]}),
                 fenced_fetcher_response,
             ]
-            results = _svc().research("Anthropic investment")
+            results = _svc().research("Anthropic investment", llm=_FAKE_LLM)
         assert len(results) == 1
         assert results[0].source_url == url
         assert results[0].title.startswith("Banks charged")
@@ -489,7 +498,7 @@ class TestHappyPath:
                 ),
                 _valid_fetcher_json("https://www.ecb.europa.eu/b"),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert len(results) == 1
 
     def test_post_redirect_to_non_allowlisted_drops_article(self, patched_ai_service) -> None:
@@ -522,7 +531,7 @@ class TestHappyPath:
             patched_ai_service.send_one_shot_extraction.side_effect = [
                 json.dumps({"selected_urls": ["https://www.ecb.europa.eu/pr"]}),
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
 
     def test_schema_violation_from_fetcher_skips(self, patched_ai_service) -> None:
@@ -554,5 +563,55 @@ class TestHappyPath:
                 json.dumps({"selected_urls": ["https://www.ecb.europa.eu/pr"]}),
                 json.dumps({"title": "only a title"}),  # missing fields
             ]
-            results = _svc().research("x")
+            results = _svc().research("x", llm=_FAKE_LLM)
         assert results == []
+
+
+class TestResolutionIsTheCallers:
+    """The service holds no model of its own (ADR-0132)."""
+
+    def test_research_requires_llm_keyword(self, patched_ai_service) -> None:
+        """``llm`` is keyword-only and required — no positional, no default.
+
+        The seam is worth pinning: a caller that forgets it must fail at the
+        call, not fall back to a process-global model the way the pre-ADR-0132
+        path did.
+        """
+        with pytest.raises(TypeError):
+            _svc().research("x")  # type: ignore[call-arg]
+
+    def test_one_shot_calls_carry_llm_not_model(self, patched_ai_service) -> None:
+        """Both stages pass ``llm=``; neither passes ``model=``."""
+        item = _feed_item("https://www.ecb.europa.eu/a")
+        with (
+            patch(
+                "services.web_research.service.fetch_feed",
+                return_value=FeedFetchResult(
+                    final_url="https://www.ecb.europa.eu/rss/press.html",
+                    status_code=200,
+                    raw_bytes=b"<rss/>",
+                    content_length=6,
+                ),
+            ),
+            patch("services.web_research.service.parse_feed", return_value=[item]),
+            patch(
+                "services.web_research.service.fetch_url",
+                return_value=_article_fetch("https://www.ecb.europa.eu/a"),
+            ),
+            patch(
+                "services.web_research.service.extract_text",
+                return_value="body text",
+            ),
+        ):
+            patched_ai_service.send_one_shot_extraction.side_effect = [
+                json.dumps({"selected_urls": ["https://www.ecb.europa.eu/a"]}),
+                _valid_fetcher_json("https://www.ecb.europa.eu/a"),
+            ]
+            results = _svc().research("x", llm=_FAKE_LLM)
+
+        assert len(results) == 1
+        calls = patched_ai_service.send_one_shot_extraction.call_args_list
+        assert len(calls) == 2, "both the Feed-Filter and the Fetcher stage must fire"
+        for call in calls:
+            assert call.kwargs["llm"] is _FAKE_LLM
+            assert "model" not in call.kwargs

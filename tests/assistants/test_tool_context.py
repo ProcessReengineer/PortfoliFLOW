@@ -17,6 +17,7 @@ happy-path coverage.
 from __future__ import annotations
 
 from collections.abc import Generator
+from uuid import uuid4
 
 import pytest
 
@@ -84,6 +85,27 @@ def test_context_is_frozen() -> None:
     ctx = ToolExecutionContext(tenant_id=SENTINEL_TENANT_ID, database_url=_DUMMY_DB_URL)
     with pytest.raises(AttributeError):
         ctx.tenant_id = SENTINEL_TENANT_ID  # type: ignore[misc]
+
+
+def test_user_id_defaults_to_none_and_round_trips() -> None:
+    """The ADR-0132 user axis is optional, carried verbatim, and still frozen.
+
+    Defaulted rather than required so every constructor that predates
+    ADR-0132 — the desktop path, the tests, any caller with no person bound
+    to the turn — stays valid without edits.
+    """
+    user_id = uuid4()
+    without = ToolExecutionContext(tenant_id=SENTINEL_TENANT_ID, database_url=_DUMMY_DB_URL)
+    assert without.user_id is None
+
+    with_user = ToolExecutionContext(
+        tenant_id=SENTINEL_TENANT_ID,
+        database_url=_DUMMY_DB_URL,
+        user_id=user_id,
+    )
+    assert with_user.user_id == user_id
+    with pytest.raises(AttributeError):
+        with_user.user_id = None  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

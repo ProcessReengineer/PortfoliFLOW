@@ -57,9 +57,11 @@ Each tool mirrors ``investment_tools.py`` exactly: a synchronous
 factory, runs it through
 :func:`services.tools._async_bridge.run_async_in_fresh_loop`, opens a
 short-lived loop-local session via the shared
-:func:`services.tools.investment_tools._tool_session` context manager,
-constructs the service from per-tenant repositories — mirroring the
-web routes' ``_build_service`` DI — and reads under
+:func:`services.tools._tool_session.tool_session` context manager
+(ADR-0069 reuse; lifted out of ``investment_tools.py`` into its own
+module by ADR-0132, so no tool module imports a private name from
+another), constructs the service from per-tenant repositories —
+mirroring the web routes' ``_build_service`` DI — and reads under
 ``tenant_context``. When the tool-execution context is unset (the GUI
 path, which imports this module but never populates the context), each
 tool returns a clear explanatory string instead of raising. See
@@ -121,12 +123,7 @@ from services.tools._tool_context import (
     get_tool_context,
     store_tool_data,
 )
-
-# Reuse the loop-local session helper verbatim — it is module-level in
-# investment_tools.py and importable; ADR-0069 directs reuse over
-# duplication. Importing it triggers that module's tool registration
-# once (import cache), which is harmless: the bootstrap imports both.
-from services.tools.investment_tools import _tool_session
+from services.tools._tool_session import tool_session
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +307,7 @@ def get_limit_coverage(
     effective_cut_over = parsed["cut_over"] or date.today()
 
     async def _workflow() -> LimitsCoverageBundle | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             service = LimitsCoverageService(
                 investments=InvestmentRepository(db),
                 navs=InvestmentNavRepository(db),
@@ -503,7 +500,7 @@ def get_saa_hypothetical_comparison(
         )
 
     async def _workflow() -> SAAHypotheticalBundle:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             saa_service = SAAService(
                 configurations=SAAConfigurationRepository(db),
                 asset_classes=AssetClassRepository(db),
@@ -700,7 +697,7 @@ def get_portfolio_statistics(
     requested = [n.strip() for n in investment_names] if investment_names is not None else None
 
     async def _workflow() -> tuple[UniverseStatisticsBundle, list[str]]:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             investments = InvestmentRepository(db)
             resolved_ids = None
             unknown: list[str] = []
@@ -769,7 +766,7 @@ def get_portfolio_overview(as_of_date: str = "") -> str:
         )
 
     async def _workflow() -> OverviewKpis | None:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             review_service = PortfolioReviewService(
                 investments=InvestmentRepository(db),
                 navs=InvestmentNavRepository(db),
@@ -909,7 +906,7 @@ def get_saa_configuration(configuration_name: str = "") -> str:
     wanted = configuration_name.strip()
 
     async def _workflow() -> tuple[SAAConfigurationDetailDTO | None, dict[UUID, str], list[str]]:
-        async with _tool_session(ctx) as db:
+        async with tool_session(ctx) as db:
             service = SAAService(
                 configurations=SAAConfigurationRepository(db),
                 asset_classes=AssetClassRepository(db),

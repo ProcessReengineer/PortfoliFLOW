@@ -3,19 +3,23 @@
 
 """Tests for the FastAPI AIService wiring (sub-stream 3a, Task 1).
 
-The PyQt6 GUI configures Shirley through ``QSettings`` via the AI
-Settings widget; the web variant has no settings UI yet, so the
-FastAPI lifespan reads ``OPENROUTER_API_KEY``, ``OPENROUTER_BASE_URL``,
-and ``SHIRLEY_MODEL`` from ``.env`` and configures the
-:class:`AIServiceCore` singleton at startup.
+The lifespan used to read ``OPENROUTER_API_KEY``, ``OPENROUTER_BASE_URL``
+and ``SHIRLEY_MODEL`` from ``.env`` and *park* them on the process-global
+:class:`AIServiceCore` singleton, for the benefit of the one-shot
+extraction consumers that had no per-tenant resolution of their own. Since
+ADR-0132 there are none left on the web surface — the web research tool was
+the last, and it now resolves per call like chat, the bot, the Report
+Scraper and the Watch Desk beat — so the lifespan parks nothing and
+``.env`` is simply the application scope of those chains.
 
-These tests exercise three contracts:
+These tests exercise two contracts:
 
-1. The lifespan configures the core when credentials are supplied.
-2. The lifespan resets the core when credentials are missing — so a
-   prior CONNECTED state cannot leak into a no-credentials app instance.
-3. ``POST /chat/messages`` returns 503 with a clear pointer to ``.env``
-   when the core is not configured.
+1. The lifespan leaves the singleton untouched, even when the environment
+   *could* configure it. A key parked on a process-global object is a key
+   one tenant's turn could reach from another's, which is exactly what the
+   per-call resolution exists to prevent.
+2. ``POST /chat/messages`` returns 503 with a clear pointer to both scopes
+   when no resolution serves the turn.
 
 The tests do not exercise a real OpenRouter endpoint — that is what
 the manual smoke test from the sub-stream acceptance criteria covers.
@@ -155,10 +159,20 @@ def _build_settings(
 # ---------------------------------------------------------------------------
 
 
-async def test_lifespan_configures_core_when_api_key_set(
+async def test_lifespan_leaves_the_singleton_untouched(
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """A configured key + model leaves the core CONNECTED with the model set."""
+    """The lifespan parks nothing, even with a key and model configured.
+
+    Pre-polluted deliberately, so the assertion cannot pass by accident on a
+    singleton that merely started clean: the lifespan must neither configure
+    *nor* reset it — since ADR-0132 it simply does not touch the credentials
+    on that object at all. What it still does is register the instance, for
+    the chat route's ``app.state.ai_core`` override seam.
+    """
+    pre = get_ai_service_core()
+    pre.reset()
+
     settings = _build_settings(
         api_key="sk-or-v1-test-key-not-real",
         model="anthropic/claude-haiku-4.5",
@@ -166,29 +180,7 @@ async def test_lifespan_configures_core_when_api_key_set(
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         core = app.state.ai_core
-        assert core is not None
-        assert core.get_status() == ConnectionStatus.CONNECTED
-        assert core.get_model() == "anthropic/claude-haiku-4.5"
-
-
-async def test_lifespan_resets_core_when_api_key_missing(
-    seeded_user: tuple[UUID, str, str],
-) -> None:
-    """An unset key leaves the core DISCONNECTED — even if a prior
-    instance had configured the singleton in the same process.
-    """
-    # Pre-pollute: configure the singleton as if a prior app had set
-    # it up. The lifespan must reset this back to a clean state.
-    pre = get_ai_service_core()
-    pre.configure("https://example.invalid/api/v1", "stale-key")
-    pre.set_model("stale/model")
-    pre.set_status(ConnectionStatus.CONNECTED)
-
-    settings = _build_settings(api_key=None)
-    app = create_app(settings)
-    async with app.router.lifespan_context(app):
-        core = app.state.ai_core
-        assert core is not None
+        assert core is get_ai_service_core()
         assert core.get_status() == ConnectionStatus.DISCONNECTED
         assert core.get_model() == ""
 

@@ -1861,12 +1861,16 @@ async def chat_stream(
             # boundary (ADR-0047, amended). The URL is ``None`` when
             # ``DATABASE_URL`` is unset — in that case the context is
             # ``None`` and the tools degrade gracefully, telling the
-            # model the data is unavailable.
+            # model the data is unavailable. The user axis rides along
+            # for the one tool that resolves its own credential per
+            # call — the web research tool walks the user scope of the
+            # chain before the tenant's (ADR-0132).
             database_url = request.app.state.settings.database_url
             tool_context = (
                 ToolExecutionContext(
                     tenant_id=session.tenant_id,
                     database_url=database_url,
+                    user_id=session.user_id,
                 )
                 if database_url
                 else None

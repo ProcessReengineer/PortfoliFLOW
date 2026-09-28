@@ -17,6 +17,10 @@ import pandas as pd
 
 from services.chart_specs import build_correlation_heatmap_spec
 from services.chart_specs.base import get_chart_theme
+from services.chart_specs.statistics_correlation_heatmap import (
+    _format_correlation,
+    _interpolate_colour,
+)
 
 
 def _sample_corr() -> pd.DataFrame:
@@ -125,6 +129,7 @@ def test_nan_cells_are_not_annotated() -> None:
     annotations = spec["layout"]["annotations"]
     # 2 finite cells (the diagonal), 2 NaN cells (off-diagonal).
     assert len(annotations) == 2
+    assert len(spec["layout"]["shapes"]) == 2
 
 
 def test_pure_function_deterministic() -> None:
@@ -136,3 +141,70 @@ def test_pure_function_deterministic() -> None:
 def test_title_present() -> None:
     spec = build_correlation_heatmap_spec(_sample_corr())
     assert "Correlation Matrix" in spec["layout"]["title"]["text"]
+
+
+def test_heatmap_trace_is_invisible() -> None:
+    # The raster is what canvas anti-fingerprinting garbles; the trace
+    # survives only for its colorbar and hover template.
+    spec = build_correlation_heatmap_spec(_sample_corr())
+    assert spec["data"][0]["opacity"] == 0.0
+    empty = build_correlation_heatmap_spec(pd.DataFrame())
+    assert empty["data"][0]["opacity"] == 0.0
+
+
+def test_one_rect_shape_per_finite_cell() -> None:
+    spec = build_correlation_heatmap_spec(_sample_corr())
+    shapes = spec["layout"]["shapes"]
+    # 3x3 = 9 finite cells.
+    assert len(shapes) == 9
+    for shape in shapes:
+        assert shape["type"] == "rect"
+        assert shape["xref"] == "x"
+        assert shape["yref"] == "y"
+        assert shape["layer"] == "below"
+        assert shape["line"] == {"width": 0}
+
+
+def test_shape_geometry_matches_cell_index() -> None:
+    # Numeric coordinates on a category axis are category serial
+    # numbers, so a cell spans index ± 0.5. Row "B" (i=1), column
+    # "C" (j=2) is the third shape of the second row.
+    spec = build_correlation_heatmap_spec(_sample_corr())
+    shape = spec["layout"]["shapes"][1 * 3 + 2]
+    assert shape["x0"] == 1.5
+    assert shape["x1"] == 2.5
+    assert shape["y0"] == 0.5
+    assert shape["y1"] == 1.5
+
+
+def test_diagonal_shapes_use_hot_stop() -> None:
+    spec = build_correlation_heatmap_spec(_sample_corr())
+    shapes = spec["layout"]["shapes"]
+    hot = get_chart_theme()["colours"]["primary"]
+    for k in range(3):
+        assert shapes[k * 3 + k]["fillcolor"].lower() == hot.lower()
+
+
+def test_interpolate_colour_hits_the_three_stops() -> None:
+    cold, neutral, hot = "#4A9BD9", "#1E1E1E", "#E8304A"
+    assert _interpolate_colour(-1.0, cold, neutral, hot) == "#4A9BD9"
+    assert _interpolate_colour(0.0, cold, neutral, hot) == "#1E1E1E"
+    assert _interpolate_colour(1.0, cold, neutral, hot) == "#E8304A"
+    # Out-of-range input clamps rather than extrapolating.
+    assert _interpolate_colour(1.7, cold, neutral, hot) == "#E8304A"
+    assert _interpolate_colour(-3.0, cold, neutral, hot) == "#4A9BD9"
+
+
+def test_interpolate_colour_midpoint_is_linear_rgb() -> None:
+    cold, neutral, hot = "#4A9BD9", "#1E1E1E", "#E8304A"
+    # round(0x1E + (0xE8 - 0x1E) * 0.5) = 131 = 0x83, and so on per channel.
+    assert _interpolate_colour(0.5, cold, neutral, hot) == "#832734"
+    # Half-to-even rounding: 92.5 -> 92 (0x5C), 123.5 -> 124 (0x7C).
+    assert _interpolate_colour(-0.5, cold, neutral, hot) == "#345C7C"
+
+
+def test_negative_zero_formats_as_zero() -> None:
+    assert _format_correlation(-0.001) == "0.00"
+    assert _format_correlation(-0.0049) == "0.00"
+    assert _format_correlation(-0.006) == "-0.01"
+    assert _format_correlation(0.004) == "0.00"

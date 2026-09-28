@@ -31,7 +31,9 @@ Ten groups:
   a smuggled ``user_id`` form field cannot redirect the write.
 * **Vault unconfigured** — the banner renders, a secret write is refused
   inline, and config writes keep working.
-* **Telegram pairing** (F5, ADR-0112 §5) — the block renders per state for
+* **Telegram pairing** (F5, ADR-0112 §5) — the card states which of the
+  four bot states the tenant is in and drops the pairing actions when the
+  deployment-wide switch is off (P-TG-H1); the block renders per state for
   every role, a generated code is shown exactly once and never logged,
   re-issuing invalidates the previous code, the code binds the *session's*
   tenant and user, revoking deletes the row and voids pending codes, and
@@ -64,6 +66,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from bot.telegram_bot import BotStatus
 from core.repositories._session import tenant_context
 from core.repositories.scoped_setting_repository import (
     ScopedSettingDTO,
@@ -114,6 +117,40 @@ def _clean_pairing_store() -> Any:
     telegram_pairing.reset_store()
     yield
     telegram_pairing.reset_store()
+
+
+#: The four verbatim status lines the Telegram card renders (P-TG-H1,
+#: D-TG-1 … D-TG-4). Asserted as copy, not as a class name: the operator
+#: reads these sentences, and a reworded one is a change to the surface.
+_BOT_OFF_COPY = (
+    "The Telegram bot is switched off for this deployment "
+    "(TELEGRAM_BOT_ENABLED). Pairing is not possible until the operator "
+    "enables it."
+)
+_BOT_IDLE_COPY = "The Telegram bot is enabled but not running. Check the web process start-up log."
+_BOT_OTHER_TENANT_COPY = (
+    "No bot is running for this tenant. An owner stores a bot token under "
+    "Tenant credentials; token changes apply after a restart."
+)
+_BOT_SERVING_COPY = "The bot for this tenant is running."
+
+
+@pytest.fixture(autouse=True)
+def _bot_status_serving(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report an ordinary, healthy bot to every test that does not say otherwise.
+
+    ``tests/web/conftest.py`` forces ``TELEGRAM_BOT_ENABLED=false`` for this
+    whole package — a live aiogram bot in a test process would steal the
+    production bot's update stream — so the card's *real* state here is
+    "switched off for this deployment", which hides the pairing actions
+    (P-TG-H1). That is a statement about the test process, not about the
+    pairing flow the tests below are for, so the seam is patched to the
+    healthy state and the four state tests patch it themselves.
+    """
+    monkeypatch.setattr(
+        "bot.telegram_bot.bot_status",
+        lambda tenant_id: BotStatus(env_enabled=True, running=True, tenant_served=True),
+    )
 
 
 def _url(value: str | None) -> str:
@@ -311,6 +348,17 @@ def _visible_text(html: str) -> str:
     ``aria-describedby``).
     """
     return re.sub(r"<[^>]+>", " ", html)
+
+
+def _card_copy(html: str) -> str:
+    """Return the rendered copy as one whitespace-normalised line.
+
+    Builds on :func:`_visible_text`, which turns every tag boundary into a
+    space: an inline ``<code>`` mid-sentence would otherwise pad the
+    parentheses around it, and the status lines name an environment
+    variable that way.
+    """
+    return " ".join(_visible_text(html).split()).replace("( ", "(").replace(" )", ")")
 
 
 async def _read_row(
@@ -1331,6 +1379,68 @@ async def test_the_pairing_endpoints_require_a_session(
 
     assert response.status_code in (302, 303, 401, 403), response.text
     assert telegram_pairing.pending_code_count() == 0
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (BotStatus(env_enabled=False, running=False, tenant_served=False), _BOT_OFF_COPY),
+        (BotStatus(env_enabled=True, running=False, tenant_served=False), _BOT_IDLE_COPY),
+        (BotStatus(env_enabled=True, running=True, tenant_served=False), _BOT_OTHER_TENANT_COPY),
+        (BotStatus(env_enabled=True, running=True, tenant_served=True), _BOT_SERVING_COPY),
+    ],
+    ids=["switched-off", "not-running", "other-tenants-only", "serving"],
+)
+async def test_the_card_states_which_bot_state_the_tenant_is_in(
+    client_factory: Any,
+    vault_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    status: BotStatus,
+    expected: str,
+) -> None:
+    """One line per state, and only that one (P-TG-H1).
+
+    The two-level switch (ADR-0112 §5) used to be invisible here: a tenant
+    could store a token, set its Enabled field and mint pairing codes
+    against a deployment whose master switch was off, and the card said
+    nothing at all.
+    """
+    monkeypatch.setattr("bot.telegram_bot.bot_status", lambda tenant_id: status)
+
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+
+    assert response.status_code == 200
+    copy = _card_copy(response.text)
+    assert expected in copy
+    for other in (_BOT_OFF_COPY, _BOT_IDLE_COPY, _BOT_OTHER_TENANT_COPY, _BOT_SERVING_COPY):
+        if other != expected:
+            assert other not in copy
+
+
+async def test_a_deployment_wide_off_switch_withdraws_the_pairing_actions(
+    client_factory: Any,
+    vault_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No code could ever be redeemed, so none is offered — the card explains.
+
+    The paired / not-paired pill stays either way: an existing pairing must
+    remain visible, only the actions go.
+    """
+    monkeypatch.setattr(
+        "bot.telegram_bot.bot_status",
+        lambda tenant_id: BotStatus(env_enabled=False, running=False, tenant_served=False),
+    )
+
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert _PAIR_URL not in response.text
+    assert _UNPAIR_URL not in response.text
+    assert "Generate pairing code" not in response.text
+    assert "not paired" in response.text
 
 
 # ---------------------------------------------------------------------------

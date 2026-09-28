@@ -27,6 +27,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _MIN_TICK_INTERVAL_SECONDS = 5
 _MAX_TICK_INTERVAL_SECONDS = 3600
 
+# The levels ``LOG_LEVEL`` may name. The same set ``core.config`` validates
+# its own ``LOG_LEVEL`` against — one spelling of the knob across both
+# entry points, so an operator who sets it once gets it everywhere.
+_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
 
 class WebSettings(BaseSettings):
     """Runtime configuration for the FastAPI variant."""
@@ -41,6 +46,16 @@ class WebSettings(BaseSettings):
     web_port: int = 8000
     session_cookie_name: str = "portfoliflow_session"
     csrf_cookie_name: str = "portfoliflow_csrf_pre_session"
+
+    # The level ``web.main.run`` configures the application's own loggers at.
+    # Read here rather than in ``core.config`` because the serve command must
+    # not build the GUI-flavoured ``Settings`` singleton just to learn one
+    # string; both read the same ``LOG_LEVEL`` variable, so the operator sets
+    # it once. Without this, ``portfoliflow-web`` configured no logging at
+    # all and every INFO line the app emitted — the Telegram bot's
+    # ``dispatcher registered`` lines among them — was swallowed by Python's
+    # last-resort handler, which passes WARNING and above only.
+    log_level: str = "INFO"
 
     # The application-wide Postgres connection URL. Read here so the
     # web lifespan can build the engine without re-reading os.environ.
@@ -95,6 +110,34 @@ class WebSettings(BaseSettings):
     # ``market_data_schedule``, and no value here changes when a tenant is
     # due — only how promptly a due tenant is noticed. Bounds-checked below.
     tick_scheduler_interval_seconds: int = 60
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, value: str) -> str:
+        """Normalise and bounds-check ``LOG_LEVEL``.
+
+        Mirrors ``core.config.Settings.__post_init__``: reject rather than
+        fall back. A typo that silently degraded to INFO would look like a
+        working configuration while the DEBUG lines the operator turned it
+        up for never appeared.
+
+        Args:
+            value: The configured level name, in any case.
+
+        Returns:
+            The level, upper-cased, when it names a real logging level.
+
+        Raises:
+            ValueError: If the value is not one of ``_VALID_LOG_LEVELS``.
+                Pydantic surfaces this as a ``ValidationError`` from
+                ``WebSettings()``, i.e. before the app is built.
+        """
+        normalised = value.strip().upper()
+        if normalised not in _VALID_LOG_LEVELS:
+            raise ValueError(
+                f"Invalid LOG_LEVEL {value!r}. Must be one of {sorted(_VALID_LOG_LEVELS)}."
+            )
+        return normalised
 
     @field_validator("tick_scheduler_interval_seconds")
     @classmethod

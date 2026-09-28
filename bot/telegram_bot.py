@@ -120,6 +120,7 @@ from bot.token_discovery import (
     DiscoveredBot,
     discover_bot_tokens,
 )
+from core.exceptions import ConfigurationError
 from core.repositories._session import tenant_context
 from core.repositories.scoped_setting_repository import ScopedSettingRepository
 from core.repositories.user_repository import UserRepository
@@ -182,6 +183,15 @@ _bot_core: AIServiceCore | None = None
 # ``call_soon_threadsafe`` so the gather returns and the single worker
 # thread unwinds through its ordinary cleanup path.
 _bot_tasks: list[asyncio.Task[None]] = []
+
+# The dispatchers that were actually registered, keyed by the tenant each one
+# serves (ADR-0112 §5). Filled by :func:`_run_bot_in_thread` as it registers
+# each dispatcher, cleared when the worker unwinds and by :func:`stop_bot`;
+# read by :func:`bot_status` so the Providers & Credentials card can say
+# whether *this* tenant has a bot. One entry per tenant: a tenant that both
+# stores a token and is bound to the environment fallback keeps whichever
+# dispatcher registered last, which is all a yes/no status needs.
+_bot_bindings: dict[UUID | None, _BotBinding] = {}
 
 # Stop signal for the polling retry loop. Set by :func:`stop_bot` so an
 # in-progress backoff sleep returns immediately instead of blocking the
@@ -543,10 +553,83 @@ def stop_bot() -> None:
     _bot_superuser_url = ""
     _whitelist_deprecation_warned = False
     _bot_tasks.clear()
+    _bot_bindings.clear()
     _chat_histories.clear()
     # Pending pairing codes are redeemed against dispatchers that no longer
     # exist; void them with the bots they belonged to (D4).
     telegram_pairing.reset_store()
+
+
+@dataclass(frozen=True)
+class BotStatus:
+    """Whether a bot runs at all, and whether one serves a given tenant.
+
+    The read behind the Telegram card's status line in Providers &
+    Credentials. It exists because the switch is two-level (ADR-0112 §5,
+    ``docs/deploy/telegram-multi-bot.md`` §1): ``TELEGRAM_BOT_ENABLED`` in
+    ``.env`` decides whether the bot *thread* runs at all, while a tenant's
+    own Telegram **Enabled** field decides only whether that tenant's token
+    is discovered. Both are needed — and neither was visible on the one
+    surface where an owner stores a token and a user mints pairing codes.
+
+    The card renders exactly four states from the three flags:
+
+    * not :attr:`env_enabled` — switched off for the whole deployment: no
+      bot runs for any tenant and pairing is impossible, so the card drops
+      the pairing actions and says why.
+    * :attr:`env_enabled` and not :attr:`running` — the master switch is on
+      but no worker thread is alive (nothing discovered, aiogram missing, a
+      start-up failure); the start-up log carries the reason.
+    * :attr:`running` and not :attr:`tenant_served` — bots are polling, but
+      none for this tenant: no token stored, its **Enabled** field false, or
+      a token stored since the last restart (restart-to-apply).
+    * :attr:`tenant_served` — this tenant's bot is polling.
+
+    Attributes:
+        env_enabled: ``TELEGRAM_BOT_ENABLED`` is true in the environment.
+        running: The single bot worker thread is alive.
+        tenant_served: A dispatcher is registered for the tenant asked about.
+    """
+
+    env_enabled: bool
+    running: bool
+    tenant_served: bool
+
+
+def bot_status(tenant_id: UUID | None) -> BotStatus:
+    """Report the bot's state for one tenant. A pure read, no side effects.
+
+    Lock-free by design: the three reads are independent module-level
+    values, the bindings mapping is snapshotted rather than iterated live,
+    and a status one restart stale cannot arise — the dict is written only
+    while dispatchers are being registered. Imports no aiogram, so the card
+    still renders on a deployment installed without the ``[bot]`` extra.
+
+    Args:
+        tenant_id: The tenant to answer :attr:`BotStatus.tenant_served`
+            for — the session's tenant on the web surface. ``None`` asks
+            about the desktop entry point's unbound dispatcher.
+
+    Returns:
+        The :class:`BotStatus` triple for that tenant.
+    """
+    try:
+        env_enabled = get_bot_config().enabled
+    except ConfigurationError:
+        # A configuration that will not build is a bot that cannot run:
+        # :func:`start_bot` calls the same constructor and raises there too
+        # (the web lifespan catches it and carries on without a bot).
+        # Reporting "off" keeps the card rendering, and the reason for the
+        # refusal is in the start-up log.
+        env_enabled = False
+
+    thread = _bot_thread
+    bindings = dict(_bot_bindings)
+    return BotStatus(
+        env_enabled=env_enabled,
+        running=thread is not None and thread.is_alive(),
+        tenant_served=tenant_id in bindings,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -881,6 +964,10 @@ def _run_bot_in_thread(config: BotSettings) -> None:
             )
             runners.append((binding, _polling_runner(dispatcher, aiobot)))
             logger.info("Telegram bot [%s]: dispatcher registered.", binding.label)
+            # Visible to :func:`bot_status` from here on, so the admin card
+            # answers "is there a bot for this tenant?" from what actually
+            # registered rather than from what was configured.
+            _bot_bindings[binding.tenant_id] = binding
 
         logger.info("Telegram bot: polling %d dispatcher(s).", len(runners))
         loop.run_until_complete(
@@ -901,6 +988,10 @@ def _run_bot_in_thread(config: BotSettings) -> None:
         # which masks foreign exception detail in user-facing responses.
         logger.exception("Telegram bot terminated due to unexpected error.")
     finally:
+        # No dispatcher outlives this frame, so no tenant is served once it
+        # returns — whether it returns through a stop, a crash or an empty
+        # discovery.
+        _bot_bindings.clear()
         for aiobot in bots:
             try:
                 loop.run_until_complete(aiobot.session.close())
@@ -2189,4 +2280,4 @@ async def _resolve_bot_voice_key(
     return credential.payload["api_key"]
 
 
-__all__ = ["start_bot", "stop_bot"]
+__all__ = ["BotStatus", "bot_status", "start_bot", "stop_bot"]

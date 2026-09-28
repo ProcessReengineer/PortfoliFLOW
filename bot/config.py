@@ -57,10 +57,12 @@ class BotSettings:
     * ADR-0112 §5 — the **Telegram token** is discovered per tenant from
       ``scoped_settings``, and the **whitelist** is replaced by pairing.
 
-    Empty values therefore warn (or say nothing, where empty is now an
-    ordinary configuration) instead of raising: refusing to start would
-    make the vault-configured deployment impossible, which is the one the
-    ADR is steering towards.
+    Empty values therefore state themselves in the log instead of raising:
+    refusing to start would make the vault-configured deployment
+    impossible, which is the one the ADR is steering towards. The level
+    follows what the emptiness *means* — INFO where an empty value is now
+    the ordinary configuration, WARNING only where the value that is set is
+    deprecated, and silence where emptiness says nothing at all.
 
     Attributes:
         enabled: Master switch for the whole bot thread — N tenant bots or
@@ -84,9 +86,10 @@ class BotSettings:
         openai_api_key: API key for the endpoint. **Optional** since
             ADR-0112 §4b — the application-scope link of the per-turn
             credential chain, which a tenant's own vault row outranks. An
-            empty value with the bot enabled warns rather than raising.
+            empty value with the bot enabled is noted at INFO rather than
+            raising.
         model: Model ID (e.g. ``"openai/gpt-4o"``). **Optional** on the same
-            grounds, and warns on the same terms.
+            grounds, and noted on the same terms.
         database_url: The ``portfoliflow_app`` (RLS-scoped) asyncpg URL the
             bot's Postgres-native tools read through. Required when enabled
             so an accidentally DB-less deployment fails loudly. The bot does
@@ -132,7 +135,8 @@ class BotSettings:
                 empty. The Shirley credential and model (ADR-0112 §4b) and
                 the Telegram token and whitelist (ADR-0112 §5) are no
                 longer required — each has another scope that can supply
-                it, so they warn or stay silent instead.
+                it, so they are noted at INFO, warn where what is set is
+                deprecated, or stay silent instead.
         """
         self.allowed_user_ids = self._parse_whitelist(self.allowed_user_ids_raw)
 
@@ -154,23 +158,28 @@ class BotSettings:
                 "then clear this variable."
             )
         # The Shirley credential and model are *not* required here any more
-        # (ADR-0112 §4b): they are resolved per turn from the tenant's vault
-        # rows, with these environment values as the application-scope
-        # fallback. An empty pair is therefore a legitimate configuration —
-        # the tenant supplies them — but it is also the shape of a genuine
-        # mistake, so it warns rather than passing silently. A turn that
-        # resolves nothing answers with the ordinary polite error reply.
+        # (ADR-0112 §4b): they are resolved per turn from the user's and the
+        # tenant's own rows, with these environment values as the last,
+        # application-scope fallback. Once the tenants hold their own rows an
+        # empty pair here is the *documented* shape, not the shape of a
+        # mistake — so both lines state what is true (there is no
+        # deployment-wide fallback) at INFO, rather than reading like a
+        # missing key and sending the operator after a problem that does not
+        # exist. Neither line can do better by looking: configuration is built
+        # before any database access, so the vault is not consulted here and
+        # never will be. A turn that resolves nothing at any scope answers
+        # with the ordinary polite error reply.
         if not self.openai_api_key:
-            _LOG.warning(
-                "TELEGRAM_BOT_ENABLED=true but OPENROUTER_API_KEY is empty — "
-                "the bot will answer only if the tenant holds its own "
-                "OpenRouter API key (Admin → Providers & Credentials)."
+            _LOG.info(
+                "No application-scope OPENROUTER_API_KEY in .env — the "
+                "Telegram bot resolves keys per tenant and user from Providers "
+                "& Credentials only (no deployment-wide fallback)."
             )
         if not self.model:
-            _LOG.warning(
-                "TELEGRAM_BOT_ENABLED=true but SHIRLEY_MODEL is empty — the "
-                "bot will answer only if the tenant holds its own OpenRouter "
-                "model (Admin → Providers & Credentials)."
+            _LOG.info(
+                "No application-scope SHIRLEY_MODEL in .env — the Telegram bot "
+                "resolves models per tenant and user from Providers & "
+                "Credentials only (no deployment-wide fallback)."
             )
         # Checked last so the more specific Telegram errors above surface
         # first. ``tenant_subdomain`` always has a default, so it needs no

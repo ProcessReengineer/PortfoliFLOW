@@ -3,10 +3,12 @@
 
 """Unit tests for the :mod:`bot` package.
 
-The tests cover three concerns: configuration validation
+The tests cover four concerns: configuration validation
 (:class:`bot.config.BotSettings`), the public lifecycle entry points
 (:func:`bot.telegram_bot.start_bot` / :func:`bot.telegram_bot.stop_bot`),
-and the long-message splitting helper. Live aiogram polling, the
+the status seam the admin card reads
+(:func:`bot.telegram_bot.bot_status`), and the long-message splitting
+helper. Live aiogram polling, the
 typing-indicator scheduling, and the executor-based dispatch of
 ``run_turn`` are explicitly out of scope — covering them would require
 a real Telegram test environment or invasive mocking of aiogram
@@ -61,6 +63,7 @@ def reset_bot_state(monkeypatch: pytest.MonkeyPatch) -> None:
         bot.telegram_bot._bot_superuser_url = ""
         bot.telegram_bot._whitelist_deprecation_warned = False
         bot.telegram_bot._bot_tasks.clear()
+        bot.telegram_bot._bot_bindings.clear()
         bot.telegram_bot._chat_histories.clear()
 
     _reset()
@@ -170,16 +173,19 @@ def test_config_warns_when_the_whitelist_is_set(
     assert any("deprecated" in m and "TELEGRAM_ALLOWED_USER_IDS" in m for m in messages), messages
 
 
-def test_config_warns_but_accepts_enabled_without_api_key(
+def test_config_notes_but_accepts_enabled_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An enabled bot without an API key warns — it no longer raises.
+    """An enabled bot without an API key is noted at INFO — never raises.
 
     Since ADR-0112 §4b the credential is resolved per turn, so a tenant's
     own vault row can serve a bot whose ``.env`` carries none. Refusing to
     start would make that configuration impossible; staying silent would
-    hide a genuine mistake. It warns.
+    hide the fact that there is no deployment-wide fallback left. So it
+    states that, at INFO: a WARNING here read as a *missing* key, and sent
+    the operator after a problem that did not exist whenever the key was in
+    the vault (P-TG-H1).
     """
     monkeypatch.setenv("TELEGRAM_BOT_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
@@ -190,19 +196,22 @@ def test_config_warns_but_accepts_enabled_without_api_key(
 
     from bot.config import BotSettings
 
-    with caplog.at_level(logging.WARNING, logger="portfoliflow.bot"):
+    with caplog.at_level(logging.INFO, logger="portfoliflow.bot"):
         config = BotSettings()
 
     assert config.enabled is True
     assert config.openai_api_key == ""
-    assert any("OPENROUTER_API_KEY is empty" in r.getMessage() for r in caplog.records)
+    records = [r for r in caplog.records if "OPENROUTER_API_KEY" in r.getMessage()]
+    assert records, [r.getMessage() for r in caplog.records]
+    assert "No application-scope OPENROUTER_API_KEY" in records[0].getMessage()
+    assert records[0].levelno == logging.INFO
 
 
-def test_config_warns_but_accepts_enabled_without_model(
+def test_config_notes_but_accepts_enabled_without_model(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An enabled bot without a model warns on the same grounds."""
+    """An enabled bot without a model is noted on the same grounds."""
     monkeypatch.setenv("TELEGRAM_BOT_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     monkeypatch.setenv("TELEGRAM_ALLOWED_USER_IDS", "123")
@@ -212,12 +221,15 @@ def test_config_warns_but_accepts_enabled_without_model(
 
     from bot.config import BotSettings
 
-    with caplog.at_level(logging.WARNING, logger="portfoliflow.bot"):
+    with caplog.at_level(logging.INFO, logger="portfoliflow.bot"):
         config = BotSettings()
 
     assert config.enabled is True
     assert config.model == ""
-    assert any("SHIRLEY_MODEL is empty" in r.getMessage() for r in caplog.records)
+    records = [r for r in caplog.records if "SHIRLEY_MODEL" in r.getMessage()]
+    assert records, [r.getMessage() for r in caplog.records]
+    assert "No application-scope SHIRLEY_MODEL" in records[0].getMessage()
+    assert records[0].levelno == logging.INFO
 
 
 def test_config_still_rejects_enabled_without_a_database_url(
@@ -429,6 +441,112 @@ def test_start_bot_noops_without_a_token_or_a_discovery_url(
 
     assert tb._bot_thread is None
     assert any("not starting" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Status seam for the admin card (ADR-0112 §5)
+# ---------------------------------------------------------------------------
+
+
+class _AliveThread:
+    """A stand-in for the worker thread that reports itself as running."""
+
+    def is_alive(self) -> bool:
+        return True
+
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
+
+def _enable_bot_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seat the minimum environment an *enabled* bot configuration needs."""
+    monkeypatch.setenv("TELEGRAM_BOT_ENABLED", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://app@localhost/db")
+
+
+def test_bot_status_reports_the_master_switch_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``TELEGRAM_BOT_ENABLED=false`` nothing runs and nobody is served.
+
+    The state the P-TG-H1 incident sat in for the better part of a day: a
+    tenant with a stored token, an Enabled field set and pairing codes
+    minted, against a deployment-wide off switch.
+    """
+    from uuid import uuid4
+
+    monkeypatch.setenv("TELEGRAM_BOT_ENABLED", "false")
+
+    import bot.telegram_bot as tb
+
+    assert tb.bot_status(uuid4()) == tb.BotStatus(False, False, False)
+
+
+def test_bot_status_reports_enabled_but_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The switch alone is not a bot: no worker thread, nothing served."""
+    from uuid import uuid4
+
+    _enable_bot_env(monkeypatch)
+
+    import bot.telegram_bot as tb
+
+    assert tb.bot_status(uuid4()) == tb.BotStatus(True, False, False)
+
+
+def test_bot_status_is_per_tenant_once_dispatchers_are_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered binding answers for *its* tenant and for no other.
+
+    ``running`` is a property of the process, ``tenant_served`` of the
+    tenant asked about — which is exactly the distinction the card's third
+    state renders ("no bot is running for this tenant").
+    """
+    from uuid import uuid4
+
+    _enable_bot_env(monkeypatch)
+
+    import bot.telegram_bot as tb
+
+    served = uuid4()
+    monkeypatch.setattr(tb, "_bot_thread", _AliveThread())
+    monkeypatch.setitem(
+        tb._bot_bindings,
+        served,
+        tb._BotBinding(tenant_id=served, source="vault", label=f"tenant={served} source=vault"),
+    )
+
+    assert tb.bot_status(served) == tb.BotStatus(True, True, True)
+    assert tb.bot_status(uuid4()) == tb.BotStatus(True, True, False)
+
+
+def test_stop_bot_clears_the_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After a stop no tenant is served — the dispatchers are gone with it."""
+    import asyncio
+    from uuid import uuid4
+
+    _enable_bot_env(monkeypatch)
+
+    import bot.telegram_bot as tb
+
+    served = uuid4()
+    tb._bot_bindings[served] = tb._BotBinding(
+        tenant_id=served, source="vault", label=f"tenant={served} source=vault"
+    )
+
+    # stop_bot early-returns unless both a loop and a thread handle exist.
+    loop = asyncio.new_event_loop()
+    monkeypatch.setattr(tb, "_bot_loop", loop)
+    monkeypatch.setattr(tb, "_bot_thread", _AliveThread())
+    try:
+        tb.stop_bot()
+    finally:
+        loop.close()
+
+    assert tb._bot_bindings == {}
+    assert tb.bot_status(served) == tb.BotStatus(True, False, False)
 
 
 # ---------------------------------------------------------------------------

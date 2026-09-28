@@ -16,6 +16,28 @@ token change **applies at the next restart**, and the deployment must run
 
 ## 1. Give a tenant its own bot
 
+### Two switches
+
+Two switches have to agree before a tenant has a working bot, and they
+answer different questions:
+
+| Switch | Where | What it decides |
+|---|---|---|
+| `TELEGRAM_BOT_ENABLED` | `.env`, deployment-wide | Whether the bot **thread** runs at all. Off means no bot for any tenant, no matter what is stored. |
+| Telegram **Enabled** | Providers & Credentials, per tenant | Whether *that tenant's* token is discovered. An absent row means enabled. |
+
+The Telegram card on Admin → Providers & Credentials states which of the
+four resulting states a tenant is in:
+
+* *switched off for this deployment* — the master switch is off; the card
+  also drops the pairing actions, because no code could ever be redeemed.
+* *enabled but not running* — the switch is on and no worker thread is
+  alive; the start-up log carries the reason.
+* *no bot is running for this tenant* — bots are polling, but none for this
+  tenant: no token stored, its **Enabled** field false, or a token stored
+  since the last restart.
+* *the bot for this tenant is running*.
+
 1. Create the bot with [@BotFather](https://t.me/BotFather) and copy the
    token.
 2. Log in to that tenant as an **owner** and open
@@ -30,6 +52,11 @@ token change **applies at the next restart**, and the deployment must run
    Telegram bot [tenant=… source=vault]: dispatcher registered.
    Telegram bot: polling 2 dispatcher(s).
    ```
+
+   These are INFO lines. `portfoliflow-web` configures the application's
+   loggers from `2026.09.1` on (`LOG_LEVEL` in `.env`, default `INFO`);
+   before that release the serve command configured none, so the lines
+   above existed but never reached the terminal.
 
 To switch a tenant's bot off without deleting the token, set the Telegram
 **Enabled** field to `false` (or disable the `bot_token` row). Discovery

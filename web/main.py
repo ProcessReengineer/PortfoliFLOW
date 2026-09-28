@@ -53,6 +53,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from core.logging_setup import configure_logging
 from services.ai_service_core import get_ai_service_core
 from services.auth.local_password import LocalPasswordAuthBackend
 from services.tenant_resolution import SubdomainTenantResolver
@@ -432,8 +433,24 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
 
 
 def run() -> None:
-    """Entry point for the ``portfoliflow-web`` console script."""
+    """Entry point for the ``portfoliflow-web`` console script.
+
+    Configures the application's own loggers here, at the one place the
+    serve command owns: every ``cli/`` command calls
+    :func:`core.logging_setup.configure_logging` for itself, and this
+    command had no equivalent — so under ``portfoliflow-web`` every INFO
+    line the app emitted went nowhere, Python's last-resort handler
+    passing WARNING and above only. Deliberately *not* in
+    :func:`create_app` or the lifespan: the test suite builds many apps
+    per process and ``caplog`` must keep working unchanged.
+
+    :func:`configure_logging` is idempotent, so a process that already
+    configured logging (a CLI command, a test) is unaffected, and
+    uvicorn's own loggers keep their handlers — its default logging
+    config does not disable existing ones.
+    """
     settings = get_web_settings()
+    configure_logging(settings.log_level)
     uvicorn.run(
         "web.main:create_app",
         factory=True,

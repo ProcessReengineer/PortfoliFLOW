@@ -192,6 +192,8 @@ Running the tests: `pip install -e ".[dev]"` then `pytest` (some tests need the 
 
 ## Version history
 
+2026.09.1 - major UI overhaul, easier setup options for AI assistants & telegram bot
+
 2026.09.0 - added transactions area and recommended provider list
 
 2026.08.1 - the one line installer is included now

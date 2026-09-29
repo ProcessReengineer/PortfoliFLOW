@@ -490,7 +490,7 @@ gen_secret() {
     local out
     # pipefail off in the subshell: head closes the pipe early and tr then
     # dies of SIGPIPE, which is expected, not a failure.
-    out=$(set +o pipefail; LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$SECRET_LENGTH")
+    out=$(set +o pipefail; LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null | head -c "$SECRET_LENGTH")
     if [ "${#out}" -ne "$SECRET_LENGTH" ]; then
         die 1 "Could not generate a $SECRET_LENGTH-character secret from /dev/urandom." \
               "Got ${#out} characters. Check that /dev/urandom is readable."

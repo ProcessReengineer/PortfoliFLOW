@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portfoliflow"
-version = "2026.09.0"
+version = "2026.09.1"
 description = "AI-assisted portfolio management platform for institutional investors (incl. fund-of-funds and alternatives)"
 requires-python = ">=3.11"
 readme = "readme.md"
@@ -30,7 +30,7 @@ dependencies = [
     "feedparser>=6.0",
     "python-dateutil>=2.8",
     "squarify",
-    "sqlalchemy>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.29",
     "alembic>=1.13",
     "argon2-cffi>=23.1",

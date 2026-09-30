@@ -2,13 +2,14 @@
 
 This document explains the architecture of PortfoliFLOW: not just *what* the structure is, but *why* it is the way it is. It is intended for human developers joining the project, for AI assistants generating new code, and for external reviewers (auditors, compliance, institutional investors, GP partners) who need to understand how the system is organised before they can trust its outputs.
 
-This document is the canonical narrative description of the architecture. Three sister documents complete the picture:
+This document is the canonical narrative description of the architecture. Four sister documents complete the picture:
 
-- **`CLAUDE.md`** — the *runtime rules* file read automatically by Claude Code at the start of every session. A concise, prescriptive operational subset of this document: hard constraints on code generation, the abbreviated glossary used during AI sessions, Git rules, the Excel import format invariants. For depth, CLAUDE.md references this document.
+- **`AGENTS.md`** — the *rules* file for coding agents, read automatically at the start of a session by coding agents, Claude Code included. A concise, prescriptive operational subset of this document: dependency rules, AI hard rules, code, UI and test conventions, the working protocol, the Git rules, the Excel import invariants. For depth, `AGENTS.md` references this document (ADR-0134).
+- **`docs/glossary.md`** — the *canonical glossary*: every project term with its code mapping and definition, the project-name spellings, and the German-to-English domain equivalents. This document and `AGENTS.md` point to it and carry no copy (ADR-0134).
 - **`docs/adr/`** — the *decision log*. Numbered Architecture Decision Records (ADR-0001 onward) that capture each architecturally significant decision, the alternatives considered, and the consequences accepted. ADRs are immutable in spirit; when a decision changes, a new ADR supersedes the old one.
 - **`docs/roadmap.md`** — the *steering document*. Two active categories (Loose ends / Features) plus a passive Shipped record, flat category-independent IDs (`#001`…) and P1/P2/P3 priorities; replaces the older A–D taxonomy and the Mission Control chat pattern.
 
-Where this document and an ADR disagree, the ADR wins. Where this document and `CLAUDE.md` disagree on a *rule* (as opposed to a description), `CLAUDE.md` wins.
+Where documents disagree, an accepted ADR wins over everything; `AGENTS.md` wins on *rules*; `docs/glossary.md` is canonical for *terms*; this document is the narrative and yields to all three (ADR-0134).
 
 This document and several ADRs still cite legacy A/B/C/D roadmap IDs (e.g. `A1`, `B2`, `B5d`); these resolve to the flat `#NNN` roadmap IDs through the crosswalk in `docs/roadmap.md` and are intentionally retained rather than renumbered, since accepted ADRs and their cross-references are not rewritten.
 
@@ -57,54 +58,11 @@ Every architecturally significant decision is captured in an ADR before the code
 
 ## Canonical terminology
 
-The terms below are binding across architecture discussions, code,
-documentation, and commit messages. `CLAUDE.md` carries an
-abbreviated operational version of this table for the AI runtime;
-this document is the canonical source.
-
-### Architectural vocabulary
-
-| Term | Code mapping | Definition |
-|---|---|---|
-| **Area** | `module_area`, `_AREAS` | One of nine top-level operational groups, in sidebar order: Front Office, Back Office, Assistants, Planning Desk, Investor Communication, Watch Desk, Cases, Transactions, Admin (the ADR-0122 §1 order). Watch Desk was added as the sixth Area by ADR-0089; Planning Desk as the seventh by ADR-0104 §6; Cases as the eighth by ADR-0107; Transactions as the ninth by ADR-0128 §7, between Cases and Admin. ADR-0122 fixed the sidebar order above, superseding the ADR-0104 §6 order. Each has one directory under `modules/` and one URL `/{area-name}` in the web surface. |
-| **Section** | Long-scroll subdivision in a web area | A section within an Area's long-scroll page, addressable via anchor (e.g. `/front-office#charts`). Multiple sections per Area. Defined by ADR-0058. |
-| **Module** | `BaseModule` subclass, `@registry.register` | A registered unit of business logic assigned to exactly one Area. Discoverable via `ModuleRegistry`. Each module renders into a Section in its Area's web page. |
-| **Feature** | *Planning term — not a code construct* | A user-visible capability. May span Modules, Sections, and Functions. Use in product / roadmap discussions, not for code. |
-| **Function** | Python `def` / method | A Python function or method. Nothing else. Never used to mean a Feature or a Module. |
-| **Service** | Class in `services/` | An integration or calculation layer that Modules and Web routes call through defined interfaces. |
-| **Repository** | Class in `core/repositories/` | Async CRUD interface over one or more ORM models. Tenant-scoped, audit-aware (ADR-0034, ADR-0041). |
-| **Tenant** | `Tenant` ORM row | The scoping unit of all multi-tenant data. Every domain table carries `tenant_id`, enforced by RLS (ADR-0035). |
-| **Sentinel / Primary Tenant** | `PRIMARY_TENANT_ID` (= alias `SENTINEL_TENANT_ID`) | The default tenant installed by `cli/bootstrap.py` at first deployment (ADR-0040). Renamed **Primary Tenant** in ADR-0063 §7 (holds the Minathena Capital deployment, subdomain `minathena-capital` — ADR-0063 still carries the earlier pre-release demo identity; the row was renamed before public release, with migration `b012` edited in place as a documented exception); `PRIMARY_TENANT_ID` is canonical and `SENTINEL_TENANT_ID` is retained as a transitional alias in `core/tenant_constants.py`. |
-| **System Tenant** | `SYSTEM_TENANT_ID = 00000000-0000-0000-0000-000000000000` | The platform-operations tenant; hosts super-admin accounts only. Subdomain `admin`. ADR-0063 §3, ADR-0064. |
-| **Super-admin** | `users.is_super_admin = TRUE` | A System-Tenant user with the platform-operations role. Cannot read tenant data from the web surface (ADR-0064 §1); emergency tenant-data reads go through `portfoliflow inspect-tenant`. |
-| **Tenant role** | `users.roles: TEXT[]` | One or more of `{owner, member, auditor}` (ADR-0063 §2). Owner writes domain data; Member runs and persists analytics; Auditor is read-only with tenant-scoped `audit_log` access. |
-| **Tenant Resolver** | `services/tenant_resolution/` | Maps a request's `Host` header to a tenant id. Production: `SubdomainTenantResolver` (audit-engine `tenants.subdomain` lookup). ADR-0063 §1. |
-| **ToolRegistry** | `services/tool_registry.py` | Single seam for AI-callable tools (ADR-0012). Every Shirley-callable tool registers with a name, schema, and Trust Class. |
-| **Tool Trust Class** | Enum on registered tools | One of `READ_INTERNAL`, `WRITE_INTERNAL`, `READ_EXTERNAL_UNTRUSTED`, `EXTERNAL_EFFECT`. Gates per-turn behaviour (ADR-0022). |
-| **Chart Spec** | Function under `services/chart_specs/` | A pure dict serialisable to Plotly JSON. Consumed by `web/routes/charts.py` and friends. No DB access (ADR-0045). |
-
-### Schema vocabulary
-
-| Term | Code mapping | Definition |
-|---|---|---|
-| **Investment** | `Investment` ORM, `investments` table | A single tenant-scoped investment instrument. Identified by `(tenant_id, name)`. Classified by `investment_type` and 1:1-linked to an `AssetClass`. |
-| **Investment Type** | `investment_type` column | One of eight canonical values: `private_equity`, `private_debt`, `real_estate`, `infra_equity`, `listed_equity`, `listed_bonds`, `cash`, `other`. `'cash'` was added as the eighth value by ADR-0100 §1 (migration `b027`). |
-| **NAV** | `InvestmentNav` ORM | Statement-day valuation for one investment. Identified by `(investment_id, as_of_date, nav_kind)`. |
-| **Cashflow** | `InvestmentCashflow` ORM | A point-in-time financial event. Multiple cashflows per investment-timestamp-type combination are allowed. |
-| **`nav_kind` / `flow_kind`** | column value | `'plan'` (manager projection) or `'actual'` (realised). Plan and actual series coexist. |
-| **`flow_type`** | column value | One of eight canonical cashflow-type values: `capital_call`, `distribution`, `fee`, `carry`, `dividend`, `coupon`, `other`, `investor_flow`. `'investor_flow'` was added as the eighth value by ADR-0103 §5 (migration `b028`). |
-| **Country (ISO 3166-1 alpha-2)** | `countries` table, `iso_code` | Two-letter country code per ISO 3166-1 alpha-2. The `XX` sentinel marks unallocated splits. The `countries` table is the single global stammtabelle in the schema. |
-| **Country split** | `investment_country_weights` | Per-investment country allocation. Weights do not need to sum to 100. |
-| **Region** | `Region` ORM, `region_country_memberships` | Coarse geographic grouping per the M1 Strict-Partition model (ADR-0046). Investment region splits live in `investment_region_weights`. |
-| **Sector** | `Sector` ORM | Tenant-curated taxonomy with `(tenant_id, code)` UNIQUE. Each tenant has its own catalogue plus an `unclassified` sentinel. |
-| **Sector split** | `investment_sector_weights` | Per-investment sector allocation. Same non-summation rule as country weights. |
-| **AnlV Code** | `investments.anlv_code` | German Anlageverordnung classification on an investment. Joined to the global `anlv_categories` stammtabelle. ADR-0057. |
-| **Limit / Limit Set** | `limits`, `limit_sets` ORM | Phase-7 investment-limit feature. Historised via `effective_from` (ADR-0056); `family IN ('saa', 'anlv')`. |
-| **AUM** | `services/investments/aum.py` | `aum(t) = Σ nav_functional(t)` over **all** investments, cash rows included — derived, not persisted, with one shared formulation (`compute_aum`). ADR-0103 §2 retired the `portfolio_aum` series (migration `b030`) and the cash residual with it: all cash is an explicit position, so there is no unmodelled float to infer by subtraction. |
-| **Net Capital Gain** | `services/analytics/investment_returns.py` | Cumulative distributions − cumulative calls + NAV, computed as a time series. The orange "ncg" line in the Cashflows tile. |
-| **Total Return since Inception** | `services/analytics/investment_returns.py` | Cumulative-product return index `(1 + r_t).cumprod() * 100`. Indexed to 100 at inception. |
-| **Six-tile review** | `services/portfolio_review/` | The Portfolio Review report layout: 3×2 grid of charts plus a header KPI strip. |
-| **News Scraper vs. Report Scraper** | *distinct backends* | The **News Scraper** is `services/web_research/` (RSS press coverage). The **Report Scraper** is `modules/assistants/report_scraper.py` plus `services/scraper/` (GP quarterly report extraction). Use the qualified term in docs and commits — never the bare word "scraper". |
+The binding terms — architecture and layers, the Areas and their work objects,
+tenancy, AI and agents, the investment domain, currency and cash, the Watch
+Desk and the provider channel — are defined in [`docs/glossary.md`](./glossary.md),
+the canonical glossary (ADR-0134). This document uses those terms and does not
+repeat their definitions.
 
 ---
 
@@ -350,7 +308,7 @@ The **three-line rule** (ADR-0016) applies across all four stages: adding a modu
 
 PortfoliFLOW is built by a single developer with AI assistance, in a human-in-the-loop model where the AI generates code for individual modules and the human reviews and commits each piece (ADR-0015). The workflow rests on three artefacts:
 
-- **`CLAUDE.md`** — read automatically by Claude Code at the start of every session. Defines the rules and conventions. The AI cannot drift outside these rules without the human noticing in review.
+- **`AGENTS.md`** — read automatically by the coding agent at the start of every session. Defines the rules and conventions. The agent cannot drift outside these rules without the human noticing in review.
 - **A Repomix snapshot** — a single XML file containing the whole repository, generated on demand. The snapshot is the canonical context for architectural reviews (Opus) and for implementation prompts (Sonnet/Claude Code).
 - **A module spec** — filled out from `docs/module_spec_template.md` for any non-trivial change. The spec is the prompt.
 

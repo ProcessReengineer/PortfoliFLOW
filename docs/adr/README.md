@@ -198,6 +198,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0131 | [Provider Channel Opt-In Switch in the Scoped-Settings Taxonomy — `provider_channel.enabled`, Tenant-Scoped, Config-Only](./0131-provider-channel-enabled-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-11) — annex amendment to ADR-0112 §3 (third, after 0118/0123): config-only provider `provider_channel` with the tenant's opt-in switch `enabled`; `env_fallback=False` (no deployment-wide phone-home switch), `optional=True`; Admin card copy states what leaves the instance (ADR-0129 §6); when off, Transactions shows no gesture (Stage B record B-D-25). | 2026-09-11 | provider-channel, configuration, multi-tenancy, credentials, admin, privacy |
 | 0132 | [Web Research Model in the Scoped-Settings Taxonomy — Per-Call, Per-Tenant Resolution for the News Path](./0132-web-research-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-28) — annex amendment to ADR-0112 §3 (fourth, after 0118/0123/0131) and **amendment to ADR-0047**: one new `openrouter` config field, `research_model` (tenant-only, env link `RESEARCH_MODEL`, label "Web research model"), resolved scope-major research-first per **tool call** inside the turn's `tenant_context` and never stashed; `ToolExecutionContext` gains `user_id` so the user scope is reachable from a tool; one model serves both news LLMs; `_tool_session` lifted to its own module; `web/main.py::_configure_ai_core` deleted — the singleton's last web consumer is gone and `.env` is the application scope only. | 2026-09-28 | web-research, configuration, multi-tenancy, credentials, admin, openrouter, tools |
 | 0133 | [Watch Desk Briefing Artefact and Watch-Point Scope — Second Synthesis Step, Family Switches, Sensitivity Presets](./0133-watch-desk-briefing-artefact-and-watch-point-scope.md) | Accepted (2026-09-30) — annex amendment to ADR-0088 (a second synthesis call after the deterministic floor writes a persisted, append-only briefing per beat) and to ADR-0116 §1/§3/§5/§7 (historised, audited family on/off scope beside the watchpoints; per-family WARN step and presets Quiet · Standard · Nervous; owner-only editing); extends the ADR-0107 C6 consultation brief with a briefing kind; corrects `get_system_prompt` so Irene is never presented as Shirley; migration `b036`. | 2026-09-30 | watch-desk, irene, shirley, synthesis, briefing, watchpoints, calibration, audit, llm, prompts, ux |
+| 0134 | [AGENTS.md as the Agent Instruction File, a Standalone Canonical Glossary, and Section as One View](./0134-agents-md-standalone-glossary-and-section-as-one-view.md) | Accepted (2026-09-30) — **amends ADR-0015** (the project instruction file is `AGENTS.md`; no `CLAUDE.md` in the tree); **supersedes ADR-0084 in part** (glossary location — `docs/glossary.md`, the only copy — item 5 precedence, and the Section sentence of item 1); **supersedes ADR-0058 in part** (long-scroll sections and the section indicator: one Section per view, selected by the URL fragment, catalogued in `web/shell.py`); precedence ADR › `AGENTS.md` (rules) › `docs/glossary.md` (terms) › `docs/architecture.md` (narrative). | 2026-09-30 | process, glossary, documentation, ai-workflow, navigation, ui |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -889,7 +890,26 @@ check calls no longer carry Shirley's introduction and tool list. One migration,
 `b036` (`b035` is reserved for `engagements`). Build follows as DC-WD-B, the
 surface as UX strand A-6 on M-WD-1.
 
-The next free ADR number is **0134**.
+**Update (2026-09-30):** ADR-0134 (the agent instruction file, a standalone
+canonical glossary, and Section as one view) is **Accepted (2026-09-30)** — part
+of the documentation cleanup ahead of external review. The project instruction
+file for coding agents is `AGENTS.md` at the repository root, with no
+`CLAUDE.md` kept beside it (amends ADR-0015). The canonical glossary is
+`docs/glossary.md`, its only copy: `AGENTS.md` and `docs/architecture.md` point
+to it, and the German-to-English domain terms of `docs/translation-glossary.md`
+move into it (supersedes ADR-0084 in part — location and precedence).
+Precedence among the documents: an accepted ADR wins over everything;
+`AGENTS.md` wins on rules; `docs/glossary.md` is canonical for terms;
+`docs/architecture.md` is the narrative. A Section is one view within an Area —
+one shown at a time, selected by the URL fragment, catalogued in
+`web/shell.py` — which records the navigation model the UX overhaul shipped
+(supersedes the Section sentence of ADR-0084 item 1 and ADR-0058's long-scroll
+paragraphs in part). **Older ADRs refer to the instruction file by its former
+name and to the glossary as living in it; read those references as `AGENTS.md`
+for rules and `docs/glossary.md` for terms.** Those ADRs are not edited. No
+code, schema or migration change.
+
+The next free ADR number is **0135**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 
@@ -897,7 +917,7 @@ The next free ADR number is **0134**.
 
 ## Relation to Other Documentation
 
-- **CLAUDE.md** — conventions and glossary enforced during AI-assisted development. Cross-reference relevant ADRs from there.
+- **AGENTS.md** — the rules coding agents follow when working on the codebase (ADR-0134). Cross-reference relevant ADRs from there. Terms are defined in `docs/glossary.md`.
 - **Docstrings** — document *what* a function or class does and how to use it. Cross-reference ADRs from docstrings where a non-obvious design choice is encoded in the code.
 - **arc42 / architecture documentation** (if introduced) — describes the system structure holistically. ADRs are the decision log that architecture documentation can link to.
 - **CHANGELOG** — tracks released changes. ADRs track decisions, not releases; the two are complementary.

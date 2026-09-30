@@ -197,6 +197,7 @@ A current index of ADRs can be generated with a short script or maintained manua
 | 0130 | [Non-Negative Holdings Guard: Cash Investments Are Exempt](./0130-non-negative-holdings-guard-cash-investment-exemption.md) | Accepted (2026-08-31) — supersedes the *mechanism sentence* of ADR-0128 Q-2 (path-scoped capability flag); narrows the ADR-0097 §4 write-time invariant to non-cash investment types; ADR-0128 Q-2's behavioural decision stands | 2026-08-31 | cash, holdings, ledger, invariant, transactions, crud, excel-import, overdraft |
 | 0131 | [Provider Channel Opt-In Switch in the Scoped-Settings Taxonomy — `provider_channel.enabled`, Tenant-Scoped, Config-Only](./0131-provider-channel-enabled-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-11) — annex amendment to ADR-0112 §3 (third, after 0118/0123): config-only provider `provider_channel` with the tenant's opt-in switch `enabled`; `env_fallback=False` (no deployment-wide phone-home switch), `optional=True`; Admin card copy states what leaves the instance (ADR-0129 §6); when off, Transactions shows no gesture (Stage B record B-D-25). | 2026-09-11 | provider-channel, configuration, multi-tenancy, credentials, admin, privacy |
 | 0132 | [Web Research Model in the Scoped-Settings Taxonomy — Per-Call, Per-Tenant Resolution for the News Path](./0132-web-research-model-in-the-scoped-settings-taxonomy.md) | Accepted (2026-09-28) — annex amendment to ADR-0112 §3 (fourth, after 0118/0123/0131) and **amendment to ADR-0047**: one new `openrouter` config field, `research_model` (tenant-only, env link `RESEARCH_MODEL`, label "Web research model"), resolved scope-major research-first per **tool call** inside the turn's `tenant_context` and never stashed; `ToolExecutionContext` gains `user_id` so the user scope is reachable from a tool; one model serves both news LLMs; `_tool_session` lifted to its own module; `web/main.py::_configure_ai_core` deleted — the singleton's last web consumer is gone and `.env` is the application scope only. | 2026-09-28 | web-research, configuration, multi-tenancy, credentials, admin, openrouter, tools |
+| 0133 | [Watch Desk Briefing Artefact and Watch-Point Scope — Second Synthesis Step, Family Switches, Sensitivity Presets](./0133-watch-desk-briefing-artefact-and-watch-point-scope.md) | Accepted (2026-09-30) — annex amendment to ADR-0088 (a second synthesis call after the deterministic floor writes a persisted, append-only briefing per beat) and to ADR-0116 §1/§3/§5/§7 (historised, audited family on/off scope beside the watchpoints; per-family WARN step and presets Quiet · Standard · Nervous; owner-only editing); extends the ADR-0107 C6 consultation brief with a briefing kind; corrects `get_system_prompt` so Irene is never presented as Shirley; migration `b036`. | 2026-09-30 | watch-desk, irene, shirley, synthesis, briefing, watchpoints, calibration, audit, llm, prompts, ux |
 
 > **Number-collision resolved (2026-06-03 reconciliation):** the file formerly
 > at `0069-single-investment-review-web-surface.md` was renumbered to **0073**
@@ -865,7 +866,30 @@ nothing — `_configure_ai_core` is deleted — and `.env` is the application sc
 of the chains rather than a second source of truth. No migration and no schema
 change.
 
-The next free ADR number is **0133**.
+**Update (2026-09-30):** ADR-0133 (the Watch Desk briefing artefact and
+watch-point scope) is **Accepted (2026-09-30)** — the concept half of roadmap
+**#069**, the first refinement item after the owner declared PortfoliFLOW
+feature-complete. It amends ADR-0088 by annex: after the deterministic floor, a
+second Irene call writes a two-part **briefing** — markets and press read
+against the whole priceable book, then the watched families — persisted
+append-only in `irene_briefing` with the timestamp of the check that wrote it,
+and never generated on page load. Grounding stays a prompt obligation (a new
+fenced Briefing Prompt block in `docs/Soul_Irene.md`), not a deterministic
+number check. It amends ADR-0116 by annex: a historised, audited
+`watch_family_scope` structure gives every family, quota families included, an
+owner-only on/off switch separate from mute — with a standing note on the
+Briefing view while a quota family is off — and `floor_calibration` gains one
+nullable WARN column per scalar family, set by the presets Quiet · Standard ·
+Nervous (Custom when the expert value matches none); the Calibration section
+becomes "Watch points" with the old editor as owner-only "Advanced tuning". The
+Journal shows every check, silent ones included. "Discuss briefing with Shirley"
+extends the ADR-0107 C6 consultation brief with a second kind, while Irene keeps
+one tool per call; and `AIServiceCore.get_system_prompt` is corrected so Irene's
+check calls no longer carry Shirley's introduction and tool list. One migration,
+`b036` (`b035` is reserved for `engagements`). Build follows as DC-WD-B, the
+surface as UX strand A-6 on M-WD-1.
+
+The next free ADR number is **0134**.
 
 **Phase 5 (Charts/Statistics web migration and analytics-service foundation) and Phase 6 Block 1 (frontend re-architecture) are complete. The web variant is the sole surface; the PyQt6 GUI was removed in the Qt sunset (ADR-0094 Stage 1, roadmap #016). Phase 7 (investment-limit monitoring, "Anlagegrenzen-Überwachung") shipped its data layer (ADRs 0055, 0056, 0057, migration b010), coverage engine, Excel-import path, and read-only web surface at `/back-office#limits` (roadmap B5 `mostly-done`); the editing surface is deferred.**
 

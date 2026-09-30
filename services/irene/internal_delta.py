@@ -14,7 +14,7 @@ level from re-firing on the next beat.
 Because it reads and writes the database it lives here under
 ``services/irene/`` — deliberately **not** under ``services/analytics/``,
 whose purity guard forbids any DB session. It imports only from
-``core/`` and ``services/`` (CLAUDE.md layering) and is Qt-free.
+``core/`` and ``services/`` (AGENTS.md layering) and is Qt-free.
 
 Three separable stages sit behind the delta layer (ADR-0087): the delta
 layer decides *what is worth showing Irene* (here); Irene decides *how to

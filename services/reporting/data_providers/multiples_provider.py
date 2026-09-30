@@ -5,8 +5,8 @@
 
 Returns a DataFrame indexed by investment name with columns ``["TVPI", "DPI"]``.
 
-Defensive against CF Out sign inconsistencies — see CLAUDE.md Excel import schema
-for the canonical convention.  The denominator is always
+Defensive against CF Out sign inconsistencies in the imported
+data; no sign convention is guaranteed.  The denominator is always
 ``abs(cum_cf_out)``.
 """
 

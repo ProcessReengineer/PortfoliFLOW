@@ -236,7 +236,7 @@ def test_web_settings_satisfies_the_scheduler_settings_protocol() -> None:
     """``WebSettings`` structurally satisfies what the task reads.
 
     The protocol is what keeps ``services/`` free of a ``web`` import
-    (CLAUDE.md § Dependency rules), so the satisfying end of it is worth
+    (AGENTS.md § Dependency rules), so the satisfying end of it is worth
     pinning: a renamed field would otherwise only fail at runtime, in a
     background task, on someone's deployment.
     """

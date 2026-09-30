@@ -281,7 +281,7 @@ Eigener Schritt nach 4a/4b/4c, vor dem Acceptance-Report. Aufgaben:
   füllen, soweit substantiell.
 - Conventional-Commit-Disziplin nachprüfen: Sind alle Phase-4-Commits
   sauber gruppiert?
-- `CLAUDE.md` ggf. um Glossar-Erweiterungen ergänzen: `Investment`,
+- `docs/glossary.md` ggf. um Glossar-Erweiterungen ergänzen: `Investment`,
   `Investment Type`, `NAV`, `Cashflow`, `flow_kind`, `nav_kind`, etc.
 
 ### 5.5 Sub-Strang 4e — Phase-4-Acceptance-Report

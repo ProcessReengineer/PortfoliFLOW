@@ -75,7 +75,7 @@ Before pushing, the local pre-flight expectations are:
 
 ### House rules
 
-The full rule set lives in `CLAUDE.md` and `docs/architecture.md`. The
+The full rule set lives in `AGENTS.md`, the terms in `docs/glossary.md`. The
 ones contributors most often trip over:
 
 - English everywhere in code, comments, and documentation (ADR-0008).

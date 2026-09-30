@@ -18,7 +18,7 @@ migration ``b019`` established:
   urgency floor and band derivation live in
   :mod:`services.analytics.irene_floor` and are applied by the beat.
 
-Layering (per CLAUDE.md): this package lives under ``services/`` and
+Layering (per AGENTS.md): this package lives under ``services/`` and
 imports only from ``core/`` and other ``services/`` modules. It is
 Qt-free and holds no business logic beyond scheduling and orchestration.
 """

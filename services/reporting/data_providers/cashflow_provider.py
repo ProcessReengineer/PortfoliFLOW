@@ -7,8 +7,8 @@ Returns a DataFrame indexed by year-end timestamp with columns
 ``["calls", "distributions"]``.  ``calls`` are negative (capital invested by
 LP, sign-normalised).  ``distributions`` are positive.
 
-Defensive against CF Out sign inconsistencies — see CLAUDE.md Excel import schema
-for the canonical convention.  This provider always emits ``calls`` as
+Defensive against CF Out sign inconsistencies in the imported
+data; no sign convention is guaranteed.  This provider always emits ``calls`` as
 negative values regardless of the input sign.
 """
 

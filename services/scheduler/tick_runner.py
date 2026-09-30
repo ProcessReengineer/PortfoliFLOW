@@ -139,7 +139,7 @@ _LOCK_DOMAIN = "market_data"
 class IreneTickSettings(Protocol):
     """The deployment settings one Irene tick reads — structurally typed.
 
-    ``services/`` must not import from ``web/`` (CLAUDE.md § Dependency
+    ``services/`` must not import from ``web/`` (AGENTS.md § Dependency
     rules), so the settings object travels as an argument instead of being
     fetched here. ``web.settings.WebSettings`` satisfies this protocol
     structurally; so does any test double with the two attributes.

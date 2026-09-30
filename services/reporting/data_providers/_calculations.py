@@ -7,8 +7,8 @@ These helpers are reused by :class:`MultiplesProvider`, :class:`IRRProvider`
 and :class:`KeyFiguresProvider` so that the numbers shown in the key-figures
 strip are guaranteed consistent with the per-tile charts.
 
-Defensive against CF Out sign inconsistencies — see CLAUDE.md Excel import schema
-for the canonical convention.  Capital calls are always treated as positive
+Defensive against CF Out sign inconsistencies in the imported
+data; no sign convention is guaranteed.  Capital calls are always treated as positive
 *magnitudes*; whenever a negative-cashflow stream is required for IRR
 root-finding, the magnitude is explicitly negated.
 """

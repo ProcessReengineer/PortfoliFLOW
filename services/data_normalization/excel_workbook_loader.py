@@ -15,7 +15,7 @@ Layering:
     shared parsing path. This module lives here so that both the web surface
     (``web/routes/data_import.py``) and the Front-Office module shell can
     consume it without ``web/`` importing from ``modules/`` (the hard layering
-    rule in ``CLAUDE.md``). It imports only stdlib, third-party (``pandas``,
+    rule in ``AGENTS.md``). It imports only stdlib, third-party (``pandas``,
     ``openpyxl``), and ``core/`` — never from ``modules/`` or ``web/``.
 
     The public entry point :func:`load_excel` is re-exported from

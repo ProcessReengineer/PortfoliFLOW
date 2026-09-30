@@ -3,7 +3,7 @@
 
 """Regression guard: ``web/`` may import ``modules`` only via ``module_registry``.
 
-``docs/architecture.md`` and ``CLAUDE.md`` state the hard layering rule:
+``docs/architecture.md`` and ``AGENTS.md`` state the hard layering rule:
 ``web/`` imports from ``core/``, ``services/``, ``services/analytics/``, and
 ``modules.module_registry`` **only**. The web surface must never reach into a
 concrete business module under ``modules/<area>/`` — shared logic belongs in
@@ -72,7 +72,7 @@ def test_web_imports_modules_only_via_module_registry() -> None:
 
     assert not offenders, (
         "web/ may import from modules only via modules.module_registry "
-        "(docs/architecture.md, CLAUDE.md). Relocate shared code into "
+        "(docs/architecture.md, AGENTS.md). Relocate shared code into "
         "services/ instead of importing a concrete module. Offending lines: "
         + "; ".join(f"{path}:{lineno}:{text}" for path, lineno, text in offenders)
     )

@@ -6,7 +6,7 @@
 ``core/repositories/floor_calibration_repository.py`` maps ``FloorConfig``
 keys to columns, and it has to restate the ``TRIGGER_*`` / ``SOURCE_*``
 vocabulary as string literals because ``core/`` imports nothing from
-within the project (the layering contract in CLAUDE.md). That restatement
+within the project (the layering contract in AGENTS.md). That restatement
 is the only place in the codebase where the vocabulary exists twice, so
 it gets a guard rather than a comment.
 

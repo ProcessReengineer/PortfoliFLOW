@@ -5,8 +5,8 @@
 
 Returns a DataFrame indexed by investment name with column ``["IRR"]``.
 
-Defensive against CF Out sign inconsistencies — see CLAUDE.md Excel import schema
-for the canonical convention.  Capital calls are forced to negative magnitudes
+Defensive against CF Out sign inconsistencies in the imported
+data; no sign convention is guaranteed.  Capital calls are forced to negative magnitudes
 inside the root finder regardless of the input sign.
 """
 

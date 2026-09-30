@@ -17,7 +17,7 @@ kind of theme.
 Design notes:
     * This module imports nothing from PyQt6 or from the ``gui``,
       ``services``, ``modules``, or ``analytics`` layers — see
-      ``CLAUDE.md`` dependency rules. ``QSettings``-based persistence
+      ``AGENTS.md`` dependency rules. ``QSettings``-based persistence
       lives in ``gui/theme_persistence.py``.
     * The active filename is held in process memory only. It is
       assigned at application start by the persistence layer, and read

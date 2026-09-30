@@ -10,8 +10,8 @@ Internally calls the same helpers used by :class:`MultiplesProvider` and
 :class:`IRRProvider` so the strip values are guaranteed consistent with the
 charts.
 
-Defensive against CF Out sign inconsistencies — see CLAUDE.md Excel import schema
-for the canonical convention.
+Defensive against CF Out sign inconsistencies in the imported
+data; no sign convention is guaranteed.
 """
 
 from __future__ import annotations

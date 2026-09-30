@@ -114,7 +114,8 @@ def test_base_html_loads_htmx_from_vendor() -> None:
     attribute would pin the shell to a hash that a legitimate version
     bump has to remember to update — a guard with no threat left to
     cover. Byte-identity with the CDN copies was verified once, when the
-    files were vendored (docs/reports/P-UX-A0v-report.md).
+    files were vendored: both matched the SHA-384 hashes that the removed
+    ``integrity`` attributes had pinned.
     """
     base = _read(_TEMPLATES_DIR / "base.html")
     assert _VENDOR_HTMX_JS in base

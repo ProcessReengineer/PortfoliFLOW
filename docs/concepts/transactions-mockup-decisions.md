@@ -1,17 +1,21 @@
 # Transactions — Mockup Decision Record (M-4)
 
-**Status:** Draft for operator review and commit
+**Status:** Accepted — decisions final (MD-18 confirmed 2026-09-04); addenda
+from implementation (S2–S6) in §6
 **Date:** 2026-08-30
 **Roadmap item:** #061 — Transactions
 **Session:** S4 checkpoint pulled forward (kickoff T-0, Mission Control 2026-08-27)
 **Refines:** ADR-0128 (trade-ticket object model and record flow), ADR-0129
 (area placement, provider channel staging),
 `docs/concepts/transactions-record-flow-plan.md` (working document),
-`docs/concepts/transactions-implementation-kickoff-handover.md`
-**Mockup files (committed alongside this record):**
-`docs/handover/transactions-order-form-mockup-m1.html` (M-1),
-`docs/handover/transactions-new-instrument-wizard-mockup-m2.html` (M-2),
-`docs/handover/transactions-reported-flows-mockup-m3.html` (M-3)
+the Transactions implementation kickoff handover (retired)
+**Mockups:** M-1 order form, M-2 new-instrument wizard, M-3 reported flows
+(retired — see the note below)
+
+> **Note (2026-09-30).** The M-series HTML mockups (M-1 to M-3, M-5, M-6)
+> were working material; the UX overhaul superseded them and they are no
+> longer in the tree. The domain decisions recorded here stand — where the
+> text refers to a mockup, read it as the history of how a decision was made.
 
 ---
 
@@ -19,9 +23,9 @@
 
 This record fixes every user-facing decision the T-0 mockup session settled, so
 that S1 (schema) encodes them and S4 (surfaces) builds against an approved
-picture. The mockup HTML files are the **binding visual specification**
-(precedent: `docs/handover/cases-area-mockup-v2.html` for the Cases area);
-this record is the machine-readable extract implementation prompts cite.
+picture. The mockup HTML files were the **binding visual specification**
+at the time (precedent: the Cases-area mockup v2); this record is the
+machine-readable extract implementation prompts cite.
 
 Where a decision refines the working document or an ADR, the refinement is
 recorded here; accepted ADRs remain untouched (corrections travel in successor
@@ -264,15 +268,10 @@ Control before proceeding.
 
 ## 5. Operator actions
 
-1. Review this record; strike the confirm-at-commit marker on MD-18 (or amend
-   MD-18 and the M-3 mockup).
-2. Copy the three mockup HTML files to `docs/handover/` under the names in
-   the header; place this file at
-   `docs/concepts/transactions-mockup-decisions.md`.
-3. Single docs commit, suggested message:
-   `docs(transactions): add T-0 mockups M-1..M-3 and decision record (#061)`
-4. Report MD-2, MD-3, MD-4, MD-5, MD-12, MD-18 and §2 to Mission Control as
-   the schema-touching set; Mission Control releases kickoff T-1 with them.
+Done. The record and mockups M-1 to M-3 were committed, the confirm-at-commit
+marker on MD-18 was struck on 2026-09-04 (§0), and the schema-touching set
+(MD-2, MD-3, MD-4, MD-5, MD-12, MD-18 and §2) went to Mission Control, which
+released kickoff T-1 with it.
 
 ## 6. Addenda — decisions of record from implementation (S2–S6)
 

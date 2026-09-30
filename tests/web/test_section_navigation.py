@@ -11,8 +11,8 @@ palette survived the change intact and is still covered here.
 
 The tests are deliberately ASGI-level: they assert markup, CSS rules
 and JSON endpoint shapes. Real browser behaviour (the fragment
-switching views, Ctrl K, focus traps) is the operator walk in
-``docs/reports/P-UX-A0b-report.md``.
+switching views, Ctrl K, focus traps) cannot be proved at this level
+and is checked in the operator's browser walk (docs/testing.md).
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ _AREAS: tuple[tuple[str, str, tuple[str, ...]], ...] = tuple(
 # The 6F-2 theme-token assertion is gone with the surface it guarded:
 # the five ``--pf-section-indicator-*`` and two ``--pf-sticky-header-*``
 # tokens are no longer read by any sheet. They still sit in the ``pf``
-# block of config/chart_theme.json, which this strand does not touch —
-# see docs/reports/P-UX-A0b-report.md for the parked cleanup.
+# block of config/chart_theme.json (emitted into theme.css) as a parked
+# cleanup: removing them is a theme change, not a test change.
 
 
 def test_layout_css_sticky_view_header() -> None:

@@ -65,9 +65,9 @@
 
     {# HTMX 1.9.12 + SSE extension, Plotly.js 2.35.2, Tabulator 5.6.1 —
        vendored under /static/vendor/ (ADR-0037 §9, local bundle). Versions
-       are pinned by directory name; the SRI hashes that locked the CDN
-       bytes were checked against these files when they were vendored
-       (docs/reports/P-UX-A0v-report.md). #}
+       are pinned by directory name. When vendored, the two HTMX files
+       matched the SRI hashes that had locked the CDN bytes; Plotly and
+       Tabulator were matched by their version banners. #}
     <script src="/static/vendor/htmx-1.9.12/htmx.min.js"></script>
     <script src="/static/vendor/htmx-1.9.12/ext/sse.js"></script>
     <script src="/static/vendor/plotly-2.35.2/plotly.min.js" charset="utf-8"></script>

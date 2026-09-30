@@ -12,9 +12,8 @@ The complementary catalogue half — which slug is the landing view and
 why — is DB-free and lives in ``tests/web/test_shell_catalogue.py``.
 
 Browser behaviour (the fragment switching views, back/forward, the
-loaders firing on ``intersect``) is the operator walk in
-``docs/reports/P-UX-A0b-report.md``; ASGI-level markup is what this
-module can prove.
+loaders firing on ``intersect``) is checked in the operator's browser
+walk (docs/testing.md); ASGI-level markup is what this module can prove.
 """
 
 from __future__ import annotations

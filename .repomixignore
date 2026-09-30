@@ -31,12 +31,5 @@ yarn.lock
 .idea/
 .vscode/
 
-# === ADR retrofit reports (historical; cited by ADRs, kept in the tree) ===
-docs/adr/0000-*.md
-
-# === Old phase reports (phases 3 & 4 completed) ===
-docs/phase-3-*.md
-docs/phase-4-*.md
-
 # === Vendored third-party assets (ADR-0037 §9) ===
 web/static/vendor/**

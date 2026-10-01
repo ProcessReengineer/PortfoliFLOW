@@ -3,9 +3,9 @@
 
 """Unit tests for :mod:`services.tools.datastore_tools`.
 
-Tests call the tool functions directly (not through the ToolRegistry) so
-that they can be run without a QApplication.  The DataStore singleton is
-used throughout; fixtures handle setup and teardown.
+Tests call the tool functions directly (not through the ToolRegistry).
+The DataStore singleton is used throughout; fixtures handle setup and
+teardown.
 """
 
 from __future__ import annotations

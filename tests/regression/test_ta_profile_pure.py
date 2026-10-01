@@ -7,8 +7,8 @@ ADR-0105 §1 makes import-purity the *binding* constraint on the TA module: it
 "provides one entry point … import-pure like the existing ``services/investments``
 computation submodules, no DB, no web, no Qt." The generator is a pure engine
 that takes values and returns flows; it must be consultable from the plan-world
-assembly seam (S34.7) without dragging a repository, a session, FastAPI, or Qt
-into that seam's import graph.
+assembly seam (S34.7) without dragging a repository, a session or FastAPI
+into that seam's import graph, and it has no Qt imports.
 
 **A sibling guard, not an extra analytics root.** ``test_analytics_layer_pure.py``
 walks ``services/analytics/`` only, and its ADR-0103 §8 type-blindness scan
@@ -24,7 +24,7 @@ Three complementary checks, over ``services/investments/ta_profile.py`` and
 ``services/investments/ta_profile_constants.py``:
 
 * **Source scan.** Every line is rejected if it begins with a forbidden import
-  prefix (SQLAlchemy, ``core.repositories``, FastAPI, PyQt6, ``gui``) or
+  prefix (SQLAlchemy, ``core.repositories``, FastAPI, ``PyQt6``, ``gui``) or
   contains an SQL-session sentinel. The ``TYPE_CHECKING``-only import of
   ``Periodisation`` from the (impure) ``cash_flow_timeline`` module is *not* a
   runtime import and does not match any forbidden prefix; the fresh-subprocess
@@ -97,7 +97,7 @@ def _scan_source(source: str) -> list[tuple[int, str]]:
 
 
 def test_ta_modules_have_no_forbidden_imports() -> None:
-    """Source-level scan of both TA modules for DB / web / Qt coupling."""
+    """Source-level scan of both TA modules for DB / web coupling and Qt imports."""
     offenders: list[tuple[Path, int, str]] = []
     for module_path in _TA_MODULES:
         assert module_path.exists(), f"expected module missing: {module_path}"
@@ -138,8 +138,8 @@ def _run(code: str) -> subprocess.CompletedProcess[str]:
 
 
 #: The leak probe: an ``import services.investments.ta_profile`` must reach
-#: neither the book (SQLAlchemy, ``core.repositories``) nor a user surface
-#: (FastAPI, PyQt6). The ``Periodisation`` type hint is ``TYPE_CHECKING``-only
+#: neither the book (SQLAlchemy, ``core.repositories``) nor the web layer
+#: (FastAPI) nor ``PyQt6``. The ``Periodisation`` type hint is ``TYPE_CHECKING``-only
 #: and never executes; the reused ``PlanFlow`` lives in the book-free overlay
 #: package.
 _LEAK_PROBE = (
@@ -158,7 +158,7 @@ _LEAK_PROBE = (
 
 
 def test_ta_import_is_db_web_and_qt_free() -> None:
-    """A fresh ``import services.investments.ta_profile`` reaches no DB/web/Qt.
+    """A fresh ``import services.investments.ta_profile`` reaches no DB/web, no PyQt6.
 
     The machine proof of ADR-0105 §1: importing the generator does not even
     load the code that could reach the book. The subprocess isolates the

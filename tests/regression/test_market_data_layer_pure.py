@@ -12,7 +12,7 @@ module under ``services/market_data/`` reaches for:
 
 - SQLAlchemy or an async DB session (it must not persist — that is the ingest
   write path's job, a later slice, ADR-0092);
-- FastAPI or the Qt surface;
+- FastAPI or ``PyQt6``;
 - ``core.repositories`` / ``core.models`` DB machinery;
 - an LLM / OpenRouter client (identifier resolution is deterministic OpenFIGI
   mapping, ADR-0090 — never a model).
@@ -22,7 +22,7 @@ fine.
 
 Two complementary checks, as in the analytics guard: a source scan (anchored
 import patterns + forbidden substrings) and a fresh-subprocess import that
-asserts none of SQLAlchemy / FastAPI / PyQt6 land in ``sys.modules``. A third
+asserts none of SQLAlchemy / FastAPI / ``PyQt6`` land in ``sys.modules``. A third
 test feeds a synthetic offending line to the scanner to prove the mechanism
 actually catches a sneaked-in import.
 """
@@ -145,7 +145,7 @@ def test_scanner_catches_a_sneaked_import() -> None:
 
 
 def test_market_data_import_is_db_web_and_qt_free() -> None:
-    """A fresh ``import services.market_data`` pulls in no SQLAlchemy/FastAPI/Qt.
+    """A fresh ``import services.market_data`` pulls in no SQLAlchemy/FastAPI, no PyQt6.
 
     The subprocess isolates the assertion from the parent pytest process, which
     has typically already imported these via other test modules.

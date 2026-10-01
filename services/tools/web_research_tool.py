@@ -20,8 +20,9 @@ runs the pipeline, and hands the result to
 — the web chat surface and the Telegram bot both populate one — the
 resolution runs inside the turn's ``tenant_context``, carrying the turn's
 user, so the tenant's own key and model win over the application scope.
-Without a context (the desktop path, a DB-less contributor laptop) the
-resolver is built without a session and the environment is the only source
+Without a context (web chat without ``DATABASE_URL``, a Telegram dispatcher
+without a tenant or database URL) the resolver is built without a session
+and the environment is the only source
 — the same graceful degradation ``web/routes/scraper.py`` takes.
 
 The resolution is **never stashed** (ADR-0112 §4b): it lives for one call,

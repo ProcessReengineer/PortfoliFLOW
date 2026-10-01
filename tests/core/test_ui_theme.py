@@ -92,8 +92,8 @@ def test_required_top_level_keys_present() -> None:
 def test_all_alternative_themes_have_same_schema() -> None:
     """Every shipped UI theme must expose the exact same leaf-key set.
 
-    A missing leaf in an alternative theme would crash ``gui.theme`` on
-    load (KeyError) once the theme is selected, so this is a hard
+    A missing leaf in an alternative theme would raise KeyError in
+    whichever consumer reads that leaf once the theme is selected, so this is a hard
     guarantee for the future Phase B picker.
     """
     schemas: dict[str, set[tuple[str, ...]]] = {}

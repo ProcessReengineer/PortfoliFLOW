@@ -283,7 +283,7 @@ def test_a_code_cannot_cross_tenants() -> None:
 
 
 def test_a_code_with_no_dispatcher_tenant_is_refused() -> None:
-    """The desktop dispatcher has no tenant, so it can bind nothing."""
+    """A dispatcher with no tenant can bind nothing."""
     issued = telegram_pairing.issue_code(_TENANT_A, _USER_A)
 
     assert telegram_pairing.redeem_code(issued.code, tenant_id=None) is None

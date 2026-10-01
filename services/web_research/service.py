@@ -554,7 +554,7 @@ class WebResearchService:
         extracted_text: str,
         llm: ResolvedLLM,
     ) -> str | None:
-        """Invoke the Fetcher-LLM via AIService.send_one_shot_extraction.
+        """Invoke the Fetcher-LLM via AIServiceCore.send_one_shot_extraction.
 
         Runs on ``llm`` — this call's resolution, passed down from
         :meth:`research` (ADR-0132).

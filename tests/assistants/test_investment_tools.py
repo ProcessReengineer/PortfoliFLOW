@@ -8,7 +8,7 @@ Two layers, mirroring the structure ADR-0047 §Tests prescribes:
 1. **Context-not-set path** — no database needed. With the
    tool-execution context cleared, each of the three tools must
    return its graceful explanatory string rather than raising. This
-   pins the GUI-degradation path and runs in any environment.
+   pins the no-context degradation path and runs in any environment.
 2. **Happy path** — DB-backed. Seeds one tenant with three
    investments (each with NAV and cashflow rows), points a
    ``ToolExecutionContext`` at the test database URL + seeded tenant,

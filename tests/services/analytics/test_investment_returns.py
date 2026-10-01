@@ -5,9 +5,8 @@
 
 Pure-function tests — no DB, no Qt, no FastAPI. Each test builds a
 deterministic pandas DataFrame / Series and asserts numerical
-output. The QT-consistency tests at the bottom replicate the
-formulas implemented in ``gui/widgets/chart_widgets.py`` (the
-calculation half of the QT chart widgets) and assert that the new
+output. The parity tests at the bottom replicate the chart formulas
+of the former Qt implementation (ADR-0094) and assert that the
 analytics functions produce identical results to within 1e-9.
 """
 
@@ -234,8 +233,8 @@ def test_cashflow_adjusted_empty_or_single_nav_returns_empty() -> None:
 def test_net_capital_gain_matches_qt_formula() -> None:
     """``NCG = NAV + cumsum(amount)`` evaluated on the union of dates.
 
-    Mirrors ``gui/widgets/chart_widgets.py::_make_cash_flow_nav_chart``:
-    QT's ``cf_in`` (positive distributions) and ``cf_out`` (negative
+    Mirrors the cash-flow/NAV chart of the former Qt implementation (ADR-0094):
+    its ``cf_in`` (positive distributions) and ``cf_out`` (negative
     calls) are subsumed by the signed ``amount`` column in the
     Phase-4 schema, so the formula collapses to a single cumulative
     sum. At inception (call equals NAV magnitude before any value
@@ -413,20 +412,18 @@ def test_rolling_irr_empty_when_no_navs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# QT-consistency: identical methodology, identical resulting numbers
+# Parity with the former Qt implementation (ADR-0094): identical methodology and numbers
 # ---------------------------------------------------------------------------
 
 
 def _qt_reference_net_capital_gain(
     cf_in: pd.Series, cf_out: pd.Series, nav: pd.Series
 ) -> pd.Series:
-    """Reference implementation lifted from chart_widgets.py.
+    """Reference formula lifted from the former Qt implementation (ADR-0094).
 
-    Defined here in the test to make the QT-consistency assertion
-    self-contained — the QT widget code itself imports PyQt6, so we
-    can't import it from the test. Any drift between this reference
-    and the QT module body is a behavioural regression that must be
-    surfaced via an explicit ADR.
+    Defined here in the test to keep the parity assertion
+    self-contained. Any change to this reference is a behavioural
+    change that must be surfaced via an explicit ADR.
     """
     all_dates = nav.index.union(cf_in.index).union(cf_out.index).sort_values()
     nav_full = nav.reindex(all_dates)
@@ -436,9 +433,9 @@ def _qt_reference_net_capital_gain(
 
 
 def test_qt_consistency_net_capital_gain() -> None:
-    """New analytics function == QT reference within 1e-9.
+    """Analytics function == the former Qt implementation (ADR-0094) within 1e-9.
 
-    QT reads Excel dates into a date-only index — both cashflow and
+    That implementation read Excel dates into a date-only index — both cashflow and
     NAV entries land on midnight UTC. The migration normalises
     cashflow ``flow_timestamp`` (TIMESTAMPTZ at 12:00 UTC by V2
     convention) to midnight UTC so the two surfaces evaluate on the
@@ -503,7 +500,7 @@ def _qt_reference_tvpi_dpi(cf_in: pd.Series, cf_out: pd.Series, nav: pd.Series) 
 
 
 def test_qt_consistency_tvpi_dpi() -> None:
-    """TVPI/DPI from new analytics matches QT reference at NAV observations."""
+    """TVPI/DPI match the former Qt implementation (ADR-0094) at NAV observations."""
     timestamps_qt = pd.DatetimeIndex(
         [
             pd.Timestamp(date(2024, 1, 31), tz="UTC"),

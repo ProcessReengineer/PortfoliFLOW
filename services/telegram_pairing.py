@@ -236,7 +236,8 @@ def redeem_code(code: str, *, tenant_id: UUID | None) -> UUID | None:
     Args:
         code: The code as typed; normalised here.
         tenant_id: The redeeming dispatcher's tenant. ``None`` (a
-            dispatcher with no tenant identity — the desktop entry point)
+            dispatcher with no tenant identity — the environment token when
+            the lifespan resolved none)
             can never match an issued code and always fails.
 
     Returns:

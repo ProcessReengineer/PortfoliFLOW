@@ -5,11 +5,9 @@
 
 Pure-function tests — no DB, no Qt, no FastAPI. Each test builds a
 deterministic pandas Series and asserts numerical output against
-hand-computed values. The QT-consistency tests at the bottom
-replicate the formulas embedded in
-``gui/widgets/_statistics_helpers.py`` and
-``gui/widgets/statistics_widgets.py`` and assert agreement to within
-``1e-12``.
+hand-computed values. The parity tests at the bottom replicate the
+statistics formulas of the former Qt implementation (ADR-0094) and
+assert agreement to within ``1e-12``.
 """
 
 from __future__ import annotations
@@ -90,7 +88,7 @@ def test_compute_mean_return_empty_is_nan() -> None:
 
 
 def test_annualise_mean_return_arithmetic_convention() -> None:
-    # QT convention: mean * 252 (NOT geometric).
+    # Convention of the former Qt implementation (ADR-0094): mean * 252 (NOT geometric).
     assert annualise_mean_return(0.001, 252) == pytest.approx(0.252, abs=1e-15)
     assert annualise_mean_return(0.0, 252) == 0.0
 
@@ -161,7 +159,7 @@ def test_compute_max_drawdown_negative_for_drawdown_series() -> None:
     assert mdd < 0.0
     # Peak NAV = 121 at index 2, trough NAV = 95 at index 4 →
     # implied MDD ≈ (95-121)/121 ≈ -0.2148 on the cumprod side.
-    # Hand-compute against the QT formula for parity:
+    # Hand-compute against the reference formula for parity:
     cleaned = _sample_navs().sort_index()
     returns = cleaned.pct_change().dropna()
     cumulative = (1.0 + returns).cumprod()
@@ -181,9 +179,9 @@ def test_compute_max_drawdown_too_short_is_nan() -> None:
 
 
 def test_compute_max_drawdown_from_returns_matches_qt_helper() -> None:
-    """QT helper ``_max_drawdown(returns)`` formula bit-for-bit."""
+    """The reference max-drawdown-from-returns formula, bit-for-bit."""
     returns = pd.Series([0.10, 0.10, -0.20, -0.05, 0.10])
-    # QT formula
+    # Reference formula
     cumulative = pd.Series(returns).add(1).cumprod()
     running_max = cumulative.cummax()
     drawdown = (cumulative - running_max) / running_max
@@ -277,19 +275,19 @@ def test_compute_risk_metrics_packs_all_thirteen() -> None:
 
 
 # ---------------------------------------------------------------------------
-# QT-consistency: identical methodology, identical resulting numbers
+# Parity with the former Qt implementation (ADR-0094): identical methodology and numbers
 # ---------------------------------------------------------------------------
 
 
 def _qt_annualised_mean(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/_statistics_helpers.py::_annualised_mean."""
+    """Lifted from the former Qt implementation (ADR-0094): annualised mean."""
     if returns.size == 0:
         return float("nan")
     return float(np.nanmean(returns)) * 252
 
 
 def _qt_max_drawdown(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/_statistics_helpers.py::_max_drawdown."""
+    """Lifted from the former Qt implementation (ADR-0094): max drawdown."""
     if returns.size == 0:
         return float("nan")
     cumulative = pd.Series(returns).add(1).cumprod()
@@ -299,7 +297,7 @@ def _qt_max_drawdown(returns: np.ndarray) -> float:
 
 
 def _qt_sharpe(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/_statistics_helpers.py::_sharpe."""
+    """Lifted from the former Qt implementation (ADR-0094): Sharpe ratio."""
     if returns.size == 0:
         return float("nan")
     mean_ann = float(np.nanmean(returns)) * 252
@@ -310,12 +308,12 @@ def _qt_sharpe(returns: np.ndarray) -> float:
 
 
 def _qt_skewness(returns: np.ndarray) -> float:
-    """Lifted from DistributionTableWidget — scipy.stats.skew, omit NaN."""
+    """Lifted from the former Qt implementation (ADR-0094): scipy.stats.skew, omit NaN."""
     return float(scipy.stats.skew(returns, nan_policy="omit"))
 
 
 def _qt_kurtosis_excess(returns: np.ndarray) -> float:
-    """Lifted from DistributionTableWidget — scipy.stats.kurtosis (excess)."""
+    """Lifted from the former Qt implementation (ADR-0094): scipy.stats.kurtosis (excess)."""
     return float(scipy.stats.kurtosis(returns, nan_policy="omit"))
 
 
@@ -359,8 +357,8 @@ def test_qt_consistency_max_drawdown_from_navs_matches_returns_path() -> None:
 
     The two helpers should produce the same number when the NAV
     series's ``pct_change`` is the input to the returns-side helper.
-    This is the structural invariant the QT widget relies on:
-    DistributionTableWidget passes ``r`` (returns) into _max_drawdown,
+    This is the structural invariant the former Qt implementation (ADR-0094)
+    relied on: it passed ``r`` (returns) into its max-drawdown helper,
     while the web service can pass NAVs directly.
     """
     nav_series = _sample_navs()
@@ -444,7 +442,7 @@ def test_compute_conditional_value_at_risk_empty_tail_is_nan() -> None:
 
 
 def test_compute_ulcer_index_matches_qt_formula() -> None:
-    """QT body bit-for-bit."""
+    """The former Qt implementation (ADR-0094), bit-for-bit."""
     series = _sample_returns()
     values = series.dropna()
     cumulative = (1.0 + values).cumprod()
@@ -543,19 +541,19 @@ def test_compute_autocorrelation_invalid_lag_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# QT-consistency for the six new functions
+# Parity with the former Qt implementation (ADR-0094) for the six new functions
 # ---------------------------------------------------------------------------
 
 
 def _qt_var_95(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/statistics_widgets.py::RiskTableWidget."""
+    """Lifted from the former Qt implementation (ADR-0094): VaR 95."""
     if returns.size == 0:
         return float("nan")
     return float(np.nanpercentile(returns, 5))
 
 
 def _qt_cvar_95(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/statistics_widgets.py::RiskTableWidget."""
+    """Lifted from the former Qt implementation (ADR-0094): CVaR 95."""
     if returns.size == 0:
         return float("nan")
     var95 = _qt_var_95(returns)
@@ -568,7 +566,7 @@ def _qt_cvar_95(returns: np.ndarray) -> float:
 
 
 def _qt_ulcer_index(returns: np.ndarray) -> float:
-    """Lifted from gui/widgets/statistics_widgets.py::RiskTableWidget."""
+    """Lifted from the former Qt implementation (ADR-0094): ulcer index."""
     if returns.size == 0:
         return float("nan")
     cumulative = pd.Series(returns).add(1).cumprod()
@@ -578,7 +576,7 @@ def _qt_ulcer_index(returns: np.ndarray) -> float:
 
 
 def _qt_downside_deviation(returns: np.ndarray) -> float:
-    """Lifted from RiskTableWidget body (un-annualised variant)."""
+    """Lifted from the former Qt implementation (ADR-0094): downside deviation, un-annualised."""
     if returns.size == 0:
         return float("nan")
     negative = np.minimum(returns, 0.0)
@@ -586,7 +584,7 @@ def _qt_downside_deviation(returns: np.ndarray) -> float:
 
 
 def _qt_sortino(returns: np.ndarray, rf: float = 0.0) -> float:
-    """Lifted from RiskReturnTableWidget body."""
+    """Lifted from the former Qt implementation (ADR-0094): Sortino ratio."""
     if returns.size == 0:
         return float("nan")
     mean_ann = float(np.nanmean(returns)) * 252
@@ -643,7 +641,7 @@ def test_qt_consistency_sortino_ratio() -> None:
 def test_qt_consistency_autocorrelation_lags_1_to_4() -> None:
     series = _sample_returns()
     for lag in [1, 2, 3, 4]:
-        # Qt body: series.autocorr(lag=lag) on dropna'd input.
+        # Reference body: series.autocorr(lag=lag) on dropna'd input.
         expected = float(series.dropna().autocorr(lag=lag))
         assert compute_autocorrelation(series, lag) == pytest.approx(expected, abs=1e-12)
 

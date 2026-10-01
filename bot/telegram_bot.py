@@ -95,9 +95,10 @@ RLS-bypass and the ``tenants`` table is unreadable without a tenant
 context. The web lifespan hands :func:`start_bot` the app-role database
 URL, the superuser URL discovery scans on, and the tenant id it resolved
 for the deprecated ``SHIRLEY_BOT_TENANT_SUBDOMAIN`` — which now binds the
-environment-token dispatcher alone. On the desktop entry point all three
-are unset: discovery is skipped, and the Postgres-native tools degrade
-gracefully.
+environment-token dispatcher alone. Without a superuser URL the lifespan
+resolves no tenant and injects no scan URL: discovery is skipped, and the
+Postgres-native tools degrade gracefully. All three are unset only when
+:func:`start_bot` is called with no arguments, which only tests do.
 """
 
 from __future__ import annotations
@@ -213,17 +214,18 @@ _BOT_RETRY_BACKOFF_MAX: float = 60.0  # cap
 # Since ADR-0112 §5 this is *one* dispatcher's identity, not the process's:
 # every vault-discovered bot carries its own tenant on its
 # :class:`_BotBinding`. What is left here is exactly the transition
-# dispatcher's binding — and the desktop entry point's, where it stays unset
-# (``main.py`` calls ``start_bot()`` with no arguments) and the
-# Postgres-native tools degrade gracefully. Reset by :func:`stop_bot`.
+# dispatcher's binding. It stays unset when the lifespan injects no tenant
+# (no environment token, or no superuser URL to resolve it on) and when tests
+# call ``start_bot()`` with no arguments; the Postgres-native tools then
+# degrade gracefully. Reset by :func:`stop_bot`.
 _bot_tenant_id: UUID | None = None
 _bot_database_url: str = ""
 
 # The superuser (RLS-bypassing) URL :mod:`bot.token_discovery` scans every
 # tenant's bot token on, injected by the web lifespan alongside the app-role
-# URL. Empty on the desktop entry point and whenever the deployment has no
-# superuser URL configured — discovery is then skipped and only an
-# environment token can serve. The bot never reads
+# URL. Empty whenever the deployment has no superuser URL configured (and in
+# tests that call ``start_bot()`` with no arguments) — discovery is then
+# skipped and only an environment token can serve. The bot never reads
 # ``DATABASE_URL_SUPERUSER`` itself; ``cli/_db.py`` remains its only reader.
 _bot_superuser_url: str = ""
 
@@ -234,8 +236,8 @@ _bot_superuser_url: str = ""
 # the web app's ``app.state.engine`` — that one is bound to the uvicorn loop,
 # and an asyncpg pool must never cross loops (the same rule that makes the
 # Postgres-native tools build their own short-lived engine, ADR-0047). Stays
-# ``None`` on the desktop entry point and whenever no database URL was
-# injected; resolution then falls back to the environment alone.
+# ``None`` whenever no database URL was injected; resolution then falls back
+# to the environment alone.
 _bot_engine: AsyncEngine | None = None
 
 #: The pairing command (ADR-0112 §5). Handled before authorisation — it is
@@ -352,7 +354,8 @@ class _BotBinding:
     Attributes:
         tenant_id: The tenant this dispatcher serves. Scopes the pairing
             lookup, the credential resolution, the tool context and the
-            conversation history. ``None`` only on the desktop entry point.
+            conversation history. ``None`` only for the environment-token
+            dispatcher when the lifespan injected no tenant for it.
         source: ``"vault"`` for a tenant's own stored token,
             ``"env-fallback"`` for the deprecated ``TELEGRAM_BOT_TOKEN``
             dispatcher — the only one where the legacy whitelist still
@@ -373,12 +376,11 @@ def _binding_label(tenant_id: UUID | None, source: str) -> str:
 def _default_binding() -> _BotBinding:
     """Return the binding for a handler invoked without a dispatcher context.
 
-    Two callers reach the handlers without one: the desktop entry point
-    (``start_bot()`` with no arguments — no discovery, no dispatcher set)
-    and the handler-level tests, which drive the turn body directly. Both
-    are the *transition* shape, so the binding is the environment one: the
-    tenant the lifespan injected, and whitelist admission enabled.
-    Production dispatchers always pass their own binding explicitly.
+    Only the handler-level tests reach the handlers without one: they drive
+    the turn body directly. That is the *transition* shape, so the binding
+    is the environment one: the tenant the lifespan injected, and whitelist
+    admission enabled. Every dispatcher — the environment-token one
+    included — passes its own binding explicitly.
     """
     return _BotBinding(
         tenant_id=_bot_tenant_id,
@@ -437,15 +439,17 @@ def start_bot(
     Args:
         tenant_id: The tenant the **environment token** is bound to,
             resolved from the deprecated ``SHIRLEY_BOT_TENANT_SUBDOMAIN``
-            and injected by the web lifespan (ADR-0063). ``None`` on the
-            desktop entry point, where the Postgres-native tools then
+            and injected by the web lifespan (ADR-0063). ``None`` when the
+            lifespan resolved none (no environment token, or no superuser
+            URL to resolve it on), where the Postgres-native tools then
             degrade gracefully (no tenant context, "data unavailable").
             Tenants whose own token discovery finds carry their own id and
             never consult this one.
         database_url: The ``portfoliflow_app`` (RLS-scoped) asyncpg URL the
             tools build a short-lived engine from, and the bot's own
-            engine opens tenant contexts on. Empty on the desktop entry
-            point. Paired with the dispatcher's tenant into the per-turn
+            engine opens tenant contexts on. Unset when no
+            ``DATABASE_URL`` is configured. Paired with the dispatcher's
+            tenant into the per-turn
             :class:`~services.tools._tool_context.ToolExecutionContext`.
         superuser_url: The RLS-bypassing URL the cross-tenant token scan
             runs on (:mod:`bot.token_discovery`). Empty skips discovery
@@ -609,7 +613,7 @@ def bot_status(tenant_id: UUID | None) -> BotStatus:
     Args:
         tenant_id: The tenant to answer :attr:`BotStatus.tenant_served`
             for — the session's tenant on the web surface. ``None`` asks
-            about the desktop entry point's unbound dispatcher.
+            about the environment-token dispatcher bound to no tenant.
 
     Returns:
         The :class:`BotStatus` triple for that tenant.
@@ -841,9 +845,9 @@ async def _discover_bots(config: BotSettings) -> list[DiscoveredBot]:
         The discovered bots, possibly empty.
     """
     if not _bot_superuser_url:
-        # No RLS-bypassing URL was injected (desktop entry point, or a
-        # deployment without one): no scan is possible, so the environment
-        # token is the only candidate.
+        # No RLS-bypassing URL was injected (a deployment without one, or a
+        # test calling ``start_bot()`` with no arguments): no scan is
+        # possible, so the environment token is the only candidate.
         return _env_only(config)
 
     engine = create_async_engine(_bot_superuser_url, future=True, pool_pre_ping=True)
@@ -1606,8 +1610,8 @@ async def _run_turn(
 
         # Per-turn tool-execution context (ADR-0063). The core sets it under
         # ``_TURN_LOCK`` and clears it when the turn ends. Built only when the
-        # web lifespan injected both a tenant id and a database URL; on the
-        # desktop entry point both are unset and the tools degrade gracefully.
+        # web lifespan injected both a tenant id and a database URL; without
+        # either the tools degrade gracefully.
         # The paired user rides along as the turn's user axis, so the one tool
         # that resolves its own credential per call sees the same user scope
         # this handler already resolves its own LLM through (ADR-0132).
@@ -2095,8 +2099,9 @@ async def _resolve_bot_llm(
     §4b left this axis empty and F5 fills it. A whitelist-admitted turn still
     resolves tenant-then-environment.
 
-    Without an engine or a tenant id (the desktop entry point) the resolver
-    is built without a session and the environment is the only source — the
+    Without an engine or a tenant id (no database URL injected, or an
+    environment token bound to no tenant) the resolver is built without a
+    session and the environment is the only source — the
     same graceful degradation the Postgres-native tools take.
 
     Args:
@@ -2160,7 +2165,7 @@ async def _resolve_bot_voice_enabled(binding: _BotBinding) -> bool:
     it at first use.
 
     Engine/tenant branching is :func:`_resolve_bot_llm`'s: without an engine
-    or a tenant id (the desktop entry point) the resolver is built without a
+    or a tenant id the resolver is built without a
     session and the environment is the only source.
 
     Args:

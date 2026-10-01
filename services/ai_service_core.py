@@ -352,9 +352,8 @@ class AIServiceCore:
     Responsibilities:
 
     * OpenAI / OpenRouter client construction (``openai.AsyncOpenAI``).
-    * The full tool-execution loop, structurally unchanged from the
-      legacy ``_StreamWorker.run`` per ADR-0038's "lift the loop
-      unchanged" rule.
+    * The full tool-execution loop (:meth:`stream_response`), shared by
+      the web chat's SSE route and the Telegram bot's message handler.
     * Soul-identity injection from ``docs/Soul_Shirley.md`` (see
       :meth:`get_system_prompt`).
     * ``ToolRegistry`` integration with the ADR-0022 ``begin_turn`` /
@@ -554,8 +553,7 @@ class AIServiceCore:
     ) -> AsyncGenerator[StreamEvent, None]:
         """Drive one Shirley turn end-to-end, yielding :class:`StreamEvent`.
 
-        The control flow mirrors the legacy ``_StreamWorker.run``
-        verbatim per ADR-0038's "lift the loop unchanged" rule:
+        The control flow (ADR-0038):
 
         * Bracket the turn in ``ToolRegistry.begin_turn()`` /
           ``end_turn()`` (ADR-0022).
@@ -967,8 +965,7 @@ class AIServiceCore:
     ) -> str:
         """Synchronous, non-streaming, no-tools extraction call.
 
-        Same contract as the legacy
-        ``AIService.send_one_shot_extraction``: the request body never
+        The request body never
         carries a ``tools`` key, the ``ToolRegistry`` is never queried,
         the response content is returned as a string. Internally this
         wraps the async path in :func:`asyncio.run`, so the request
@@ -989,9 +986,9 @@ class AIServiceCore:
         and the singleton's stored triple and :class:`ConnectionStatus` are
         **not** consulted — that is what lets the Report Scraper extract on
         the requesting tenant's own credential. With ``model`` alone the
-        singleton path behaves verbatim as it always has; since ADR-0132 it
-        has no web consumer (``web/main.py`` parks nothing), and it remains
-        for the desktop path.
+        singleton path uses the credentials set by :meth:`configure`; since
+        ADR-0132 it has no runtime consumer (``web/main.py`` parks nothing)
+        and is reached only from tests.
 
         Args:
             messages: OpenAI-format message list. Sent verbatim.
@@ -1084,7 +1081,7 @@ class AIServiceCore:
         ``llm`` is this call's resolution (ADR-0112 §4b, ADR-0123): it
         supplies both the client and the model, so nothing below reads the
         singleton's stored credentials. ``None`` falls back to the singleton
-        — the desktop path, unchanged (no web consumer since ADR-0132). The
+        — reached only from tests (no runtime consumer since ADR-0132). The
         caller has already enforced that exactly one of ``llm`` / ``model``
         is set.
         """
@@ -1253,8 +1250,7 @@ class AIServiceCore:
     def get_system_prompt(self, prompt_name: str = "shirley") -> str:
         """Load a system prompt from ``docs/Soul_<Name>.md``.
 
-        Identical parsing rules to the legacy
-        ``AIService.get_system_prompt``: extract the content between
+        Parsing rules: extract the content between
         the first triple-backtick fence pair, then append any
         companion context files. Falls back to a minimal default if
         the soul file is missing or malformed.

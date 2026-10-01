@@ -6,9 +6,7 @@
 Per ADR-0038's test strategy and the stream A1 implementation prompt's
 allocation, these tests live on the Qt-free core: they consume
 :class:`StreamEvent` records directly from
-:meth:`AIServiceCore.stream_response`, no ``QApplication``, no signal
-spy. The Qt-flavoured counterparts (signal-emission tests) live in
-``tests/characterization/test_ai_service_qt.py``.
+:meth:`AIServiceCore.stream_response`.
 
 Allocation in this file:
 
@@ -28,9 +26,8 @@ Allocation in this file:
 * C-17a — module-level absence-of-lock characterisation (static check).
 * C-18-core — :func:`get_ai_service_core` returns the same instance.
 
-C-12 (cancel) is omitted: no cancel mechanism exists in the legacy
-``_StreamWorker`` and none was introduced by ADR-0038's "lift the
-loop unchanged" rule.
+C-12 (cancel) is omitted: :meth:`AIServiceCore.stream_response` has no
+cancel mechanism.
 """
 
 from __future__ import annotations
@@ -193,8 +190,8 @@ async def test_C_08_multi_tool_calls_executed_sequentially_in_index_order(
 ) -> None:
     """Multiple tool calls in one response execute in declared index order.
 
-    Mirrors the legacy ``_StreamWorker.run`` behaviour: the
-    streaming worker accumulates ``tool_calls_raw[idx]`` during the
+    The tool-execution loop in :meth:`AIServiceCore.stream_response`
+    accumulates ``tool_calls_raw[idx]`` during the
     stream and then runs a plain sequential ``for`` loop. There is no
     parallelism. Both ``tool_called`` events arrive in declared
     order, and the second outgoing request carries two ``role: tool``
@@ -428,11 +425,11 @@ def test_C_17a_module_level_turn_lock_in_core() -> None:
     """``services.ai_service_core`` exposes a module-level ``_TURN_LOCK``.
 
     Stream A2 of ADR-0038 consolidated the bot-side ``_TURN_LOCK``
-    (ADR-0031) into the core. Every consumer (Qt adapter, Telegram
-    bot, future FastAPI handler) routes through
+    (ADR-0031) into the core. Every consumer (the web chat's SSE route,
+    the Telegram bot) routes through
     :meth:`AIServiceCore.stream_response`, so a lock at this seam
     closes both the bot-vs-bot race ADR-0031 originally addressed and
-    the bot-vs-GUI race that ADR-0031 named as a known limitation.
+    the cross-consumer race that ADR-0031 named as a known limitation.
 
     The lock is :class:`threading.Lock` (not :class:`asyncio.Lock`) so
     it serialises across threads regardless of which event loop holds
@@ -677,8 +674,8 @@ def test_empty_tool_orchestration_context_does_not_append_separator(
 # hands a per-tenant ``ResolvedLLM`` and never touches the singleton (the
 # Report Scraper since ADR-0123, the web research tool since ADR-0132), while
 # the singleton path — a bare ``model`` against whatever the process has
-# configured — remains for the desktop app, with no web consumer since
-# ADR-0132. These tests pin both, and the two ``ValueError`` refusals that
+# configured — has no runtime consumer since ADR-0132 and is reached only
+# from tests. These tests pin both, and the two ``ValueError`` refusals that
 # keep the paths from being mixed.
 
 _LLM_BASE_URL = "https://tenant.example/v1"
@@ -757,7 +754,7 @@ def test_one_shot_rejects_neither_llm_nor_model(configured_core: AIServiceCore) 
 def test_one_shot_singleton_path_still_requires_connection() -> None:
     """Without ``llm``, the pre-ADR-0123 gate is verbatim.
 
-    The singleton path (desktop app; no web consumer since ADR-0132).
+    The singleton path (no runtime consumer since ADR-0132; reached only from tests).
     """
     core = AIServiceCore()
     with pytest.raises(RuntimeError, match="not connected"):

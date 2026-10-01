@@ -7,7 +7,7 @@ Layers, mirroring ``tests/assistants/test_investment_tools.py``:
 
 1. **Context-not-set path** — no database. With the tool-execution
    context cleared, each of the three tools returns its graceful
-   explanatory string rather than raising (the GUI-degradation path).
+   explanatory string rather than raising (the no-context degradation path).
 2. **Registration / contract** — the three tools register as
    ``READ_INTERNAL`` and appear in ``get_tool_definitions``; the
    regression guard pins that ``get_limit_coverage`` exposes **no

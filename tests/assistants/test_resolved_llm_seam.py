@@ -14,9 +14,9 @@ These tests pin the two properties the whole strand rests on:
    unconfigured, ``DISCONNECTED`` core still drives a turn, and the client it
    builds carries the resolution's own ``base_url`` / ``api_key`` / ``model``.
    That is what lets one process serve many tenants.
-2. **Without** ``llm``, behaviour is exactly what it always was — the Qt/GUI
-   compatibility path, where ``configure`` / ``set_model`` / ``set_status``
-   remain the seam. A regression here would silently break the desktop flow.
+2. **Without** ``llm``, behaviour is exactly what it always was — the
+   singleton path, where ``configure`` / ``set_model`` / ``set_status``
+   remain the seam. It is reached only from tests.
 
 Plus the security property: :class:`ResolvedLLM` never renders its key, so a
 log line, an f-string or a traceback that touches one cannot leak it.
@@ -191,7 +191,7 @@ class TestStreamResponse:
     async def test_without_llm_an_unconfigured_core_still_refuses(
         self, captured: dict[str, Any]
     ) -> None:
-        # The Qt/GUI compatibility path, verbatim: same guard, same message.
+        # The singleton path, verbatim: same guard, same message.
         core = AIServiceCore()
 
         events = [e async for e in core.stream_response(_conversation())]

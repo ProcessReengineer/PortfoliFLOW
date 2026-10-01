@@ -5,8 +5,8 @@
 
 The synchronous one-shot extraction surface is consumed by both
 ``WebResearchService._pre_filter_feed_items`` (called from the FastAPI
-``/chat/stream`` handler) and the report scraper (called from the Qt
-``_StreamWorker``). After ADR-0038 migrated the wrapped coroutine onto
+``/chat/stream`` handler) and the report scraper (called from
+``web/routes/scraper.py``). After ADR-0038 migrated the wrapped coroutine onto
 ``openai.AsyncOpenAI``, the wrapper used :func:`asyncio.run`
 unconditionally — which raises ``RuntimeError`` whenever the calling
 thread already has a running asyncio loop. This file pins the

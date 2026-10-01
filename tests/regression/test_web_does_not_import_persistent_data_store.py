@@ -3,17 +3,16 @@
 
 """Regression guard: nothing under ``web/`` may import ``PersistentDataStore``.
 
-ADR-0041 commits the strangler period to **separate persistence
-entry-points**: the PyQt6 GUI keeps its in-memory ``DataStore``
-singleton, while FastAPI routes go through the repository layer
-(``UserRepository`` and future per-domain repositories).
+ADR-0041 gives the web layer its own persistence entry point: FastAPI
+routes go through the repository layer (``UserRepository`` and the
+per-domain repositories), never through a ``DataStore``.
 
 The Phase-1 ``PersistentDataStore`` (Postgres-backed ``DataStore``
-subclass) is preserved as a Phase-4-ready compatibility layer for the
-GUI's eventual migration, but it is **not** the right abstraction for
-the web variant. Routing FastAPI through ``PersistentDataStore`` would
-force-fit a GUI-flavoured ``store(name, df)`` API onto a surface that
-should be repository-flavoured.
+subclass) has no runtime caller and is reached only from tests; it is
+**not** the right abstraction for the web. Routing FastAPI through
+``PersistentDataStore`` would force-fit a ``DataStore``-shaped
+``store(name, df)`` API onto a surface that should be
+repository-flavoured.
 
 This test walks every ``.py`` file under ``web/`` and asserts that no
 ``import core.persistent_data_store`` or ``from

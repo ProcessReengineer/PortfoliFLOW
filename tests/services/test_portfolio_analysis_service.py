@@ -345,7 +345,8 @@ async def test_current_portfolio_is_finite_with_navs(app_engine: AsyncEngine, se
 
     Uses six NAV observations per investment so the annualised
     statistics stay well-conditioned; the service uses the same
-    daily-period annualisation convention as the QT widget, which
+    daily-period annualisation convention as the
+    former Qt implementation (ADR-0094), which
     needs more than two return observations to behave well.
     """
     tenant_id = await seed_tenant()

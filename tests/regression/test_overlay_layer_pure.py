@@ -158,7 +158,7 @@ def _run(code: str) -> subprocess.CompletedProcess[str]:
 
 #: The leak probe, parameterised by the module to import. The set is strict
 #: again (S2.1c): an overlay import must reach neither the book (SQLAlchemy,
-#: ``core.repositories``) nor a user surface (FastAPI, PyQt6). The ADR-0104 §2
+#: ``core.repositories``) nor the web layer (FastAPI) nor ``PyQt6``. The ADR-0104 §2
 #: archetype and exemption seams are importable without their DB-coupled
 #: neighbours because ``services/investments/__init__.py`` is a lazy PEP 562
 #: façade.

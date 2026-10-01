@@ -96,9 +96,9 @@ def generate_chart(
 ) -> str:
     """Generate a themed matplotlib chart and return it as a Base64 PNG artefact.
 
-    The return value is a JSON envelope detected by the ``_StreamWorker`` tool-
-    execution loop.  The image data is stripped before forwarding to the LLM;
-    the model only receives the short ``llm_response`` confirmation string.
+    The return value is a JSON envelope detected by the tool-execution loop in
+    :meth:`AIServiceCore.stream_response`.  The image data is stripped
+    before forwarding to the LLM; the model only receives the short ``llm_response`` confirmation string.
 
     Args:
         chart_type: One of ``"line"``, ``"bar"``, ``"grouped_bar"``,

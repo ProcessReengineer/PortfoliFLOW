@@ -17,9 +17,8 @@ Note: the persistent store calls ``asyncio.run`` internally, which
 cannot be invoked from inside an already-running event loop. The
 ``pytest-asyncio`` ``auto`` mode wraps every test function in a loop —
 so each test below uses ``asyncio.to_thread`` to run the synchronous
-store calls on a worker thread that has no current loop. This mirrors
-how a future Phase-2 sync caller (e.g. a PyQt6 widget) would invoke
-the store.
+store calls on a worker thread that has no current loop, as any
+synchronous caller would.
 """
 
 from __future__ import annotations

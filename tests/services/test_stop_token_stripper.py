@@ -7,7 +7,7 @@ Some non-default LLMs leak control tokens like ``<|eom|>`` and
 ``<|eot_id|>`` into their streaming output. The Phase-2 web variant
 exposes the model picker, which makes the bug visible — the stripper
 in :mod:`services.ai_service_core` runs at the core level so every
-adapter (Qt, SSE, bot) inherits the fix without channel-specific
+consumer (the SSE route, the bot) inherits the fix without channel-specific
 filtering. See sub-stream 2c, Task 4 (Option A).
 """
 

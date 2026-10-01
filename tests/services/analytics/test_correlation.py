@@ -3,10 +3,11 @@
 
 """Unit tests for ``services.analytics.correlation``.
 
-Pure-function tests against ``compute_correlation_matrix``. The QT
-widget uses ``pandas.DataFrame.corr(method="pearson")`` directly on
-the wide DataFrame; this module wraps that call so the result must
-reproduce the QT numbers exactly.
+Pure-function tests against ``compute_correlation_matrix``. The
+former Qt implementation (ADR-0094) applied
+``pandas.DataFrame.corr(method="pearson")`` directly to the wide
+DataFrame; this module wraps that call, so the result must reproduce
+those numbers exactly.
 """
 
 from __future__ import annotations
@@ -96,7 +97,10 @@ def test_constant_series_yields_nan() -> None:
 
 
 def test_qt_consistency_against_dataframe_corr() -> None:
-    """Result must equal ``df.corr(method="pearson")`` from the QT widget."""
+    """Result must equal ``df.corr(method="pearson")``.
+
+    That is the call the former Qt implementation (ADR-0094) made.
+    """
     a = _series(
         [0.01, -0.02, 0.03, -0.005, 0.015],
         [
@@ -130,7 +134,7 @@ def test_qt_consistency_against_dataframe_corr() -> None:
 
     result = compute_correlation_matrix({"A": a, "B": b, "C": c})
 
-    # QT reference: build a wide DataFrame and call .corr() directly.
+    # Reference: build a wide DataFrame and call .corr() directly.
     qt_df = pd.DataFrame({"A": a, "B": b, "C": c})
     qt_corr = qt_df.corr(method="pearson")
 

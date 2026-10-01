@@ -555,7 +555,7 @@ def test_stop_bot_clears_the_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_no_qt_import() -> None:
-    """Importing ``bot.telegram_bot`` must not pull PyQt6 in.
+    """Importing ``bot.telegram_bot`` must not import PyQt6.
 
     Run in a fresh subprocess so the assertion is independent of whatever
     the parent test process has already imported.

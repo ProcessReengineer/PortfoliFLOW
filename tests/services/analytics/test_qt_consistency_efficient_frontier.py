@@ -1,23 +1,22 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""QT-consistency regression for the sub-stream 5d efficient frontier.
+"""Parity regression for the sub-stream 5d efficient frontier.
 
-The QT Front-Office widget at
-``gui/widgets/portfolio_analysis_widget.py`` and the web analytics
-layer at ``services/analytics/efficient_frontier.py`` must yield
-the same tangency / minimum-variance / current-portfolio numerics
-to within ``1e-6``. This test pins that contract by:
+The analytics layer at ``services/analytics/efficient_frontier.py``
+must yield the tangency / minimum-variance / current-portfolio numerics
+of the former Qt implementation (ADR-0094) to within ``1e-6``. This
+test pins that contract by:
 
 1. Synthesising a deterministic three-asset universe of daily
    returns (seeded RNG).
-2. Reproducing the QT widget's annualisation step exactly:
+2. Reproducing that implementation's annualisation step exactly:
    ``mu = (1 + daily_mean) ** 252 - 1`` and ``Σ = daily_cov * 252``.
 3. Constructing a :class:`PortfolioOptimizer` with long-only
-   constraints — the same construction the QT widget makes.
+   constraints — the same construction that implementation made.
 4. Calling :meth:`PortfolioOptimizer.tangency_portfolio` and
    :meth:`PortfolioOptimizer.minimum_variance_portfolio` directly
-   (the QT path) and the
+   (the reference path) and the
    :func:`services.analytics.compute_tangency_portfolio` /
    :func:`compute_min_variance_portfolio` facade (the web path).
 5. Asserting the two paths agree on volatility, expected return,
@@ -51,7 +50,7 @@ _QT_TOLERANCE = 1e-6
 
 
 def _deterministic_universe() -> tuple[pd.Series, pd.DataFrame]:
-    """Three-asset universe of daily returns annualised QT-style."""
+    """Three-asset universe of daily returns, annualised as the reference does."""
     rng = np.random.default_rng(20260507)
     n_days = 600
     dates = pd.date_range("2023-01-02", periods=n_days, freq="B")
@@ -71,14 +70,14 @@ def _deterministic_universe() -> tuple[pd.Series, pd.DataFrame]:
 
     df = pd.DataFrame(data, index=dates, columns=["A", "B", "C"])
 
-    # QT-style annualisation — geometric for the mean, linear for cov.
+    # Reference annualisation — geometric for the mean, linear for cov.
     mu = (1.0 + df.mean()) ** 252 - 1.0
     cov = df.cov() * 252.0
     return mu, cov
 
 
 def _qt_optimizer(mu: pd.Series, cov: pd.DataFrame, *, risk_free_rate: float) -> PortfolioOptimizer:
-    """Replicate the QT widget's optimiser construction."""
+    """Replicate the reference optimiser construction."""
     return PortfolioOptimizer(
         expected_returns=mu.to_numpy(dtype=float),
         cov_matrix=cov.to_numpy(dtype=float),
@@ -117,7 +116,7 @@ def test_min_variance_within_1e_6_of_qt() -> None:
 
 
 def test_derive_expected_returns_matches_qt_annualisation() -> None:
-    """``derive_expected_returns_and_cov`` reproduces the QT formulas."""
+    """``derive_expected_returns_and_cov`` reproduces the reference formulas."""
     rng = np.random.default_rng(123)
     n_days = 252
     dates = pd.date_range("2024-01-02", periods=n_days, freq="B")

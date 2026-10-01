@@ -5,7 +5,7 @@
 
 ADR-0013 establishes the analytics-layer purity contract: every public
 function takes pandas / numpy inputs and returns plain Python data
-structures, with no database, FastAPI, or PyQt6 coupling. The contract
+structures, with no database or FastAPI coupling and no Qt imports. The contract
 applies to **both** analytics roots:
 
 1. ``services/analytics/`` — the DB-aware foundation introduced in
@@ -20,7 +20,7 @@ applies to **both** analytics roots:
    direct SQL-session usage in the analytics files themselves.
 2. ``analytics/`` (top-level) — the algorithmic engines that are
    intentionally **stricter** per ADR-0013. They must not pull in
-   SQLAlchemy, DTOs, FastAPI, or Qt at all. Kickoff #2's limit-
+   SQLAlchemy, DTOs or FastAPI at all, and have no Qt imports. Kickoff #2's limit-
    coverage engine briefly lived here before Kickoff #3a relocated
    it to :mod:`services.analytics.limit_coverage` (the engine
    consumes repository DTOs, which belong under the more permissive
@@ -125,7 +125,7 @@ def _assert_fresh_import_clean(module_name: str) -> None:
 
     Raises:
         AssertionError: If the subprocess exits non-zero or reports
-            FastAPI / PyQt6 modules in :data:`sys.modules` after the
+            FastAPI / ``PyQt6`` modules in :data:`sys.modules` after the
             import.
     """
     code = (

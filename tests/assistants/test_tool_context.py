@@ -91,7 +91,7 @@ def test_user_id_defaults_to_none_and_round_trips() -> None:
     """The ADR-0132 user axis is optional, carried verbatim, and still frozen.
 
     Defaulted rather than required so every constructor that predates
-    ADR-0132 — the desktop path, the tests, any caller with no person bound
+    ADR-0132 — the tests, any caller with no person bound
     to the turn — stays valid without edits.
     """
     user_id = uuid4()

@@ -3,8 +3,8 @@
 
 """Unit tests for :mod:`services.tools.chart_tools`.
 
-Tests call the generate_chart function directly (not through ToolRegistry)
-to avoid QApplication dependency. DataStore fixtures handle setup/teardown.
+Tests call the generate_chart function directly (not through ToolRegistry).
+DataStore fixtures handle setup/teardown.
 """
 
 from __future__ import annotations

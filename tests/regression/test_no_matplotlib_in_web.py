@@ -19,8 +19,9 @@ Two complementary checks:
    ``matplotlib`` module ends up in :data:`sys.modules`. The
    subprocess form mirrors the existing
    ``test_ai_service_core_qt_free.py`` pattern; the parent pytest
-   process has typically already imported matplotlib via PyQt6 widget
-   tests, so an in-process check would be useless.
+   process may already have imported matplotlib via other tests
+   (``generate_chart`` renders with it), so an in-process check would
+   be useless.
 
 If this guard goes red, the fix is to remove the matplotlib import.
 The chart_specs path uses :func:`services.chart_specs.base.get_chart_theme`

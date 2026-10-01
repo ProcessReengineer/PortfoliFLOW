@@ -400,7 +400,7 @@ async def test_sse_png_chart_artifact_still_yields_chart_event(
     """A legacy ``generate_chart`` PNG artefact still streams a ``data:`` src.
 
     Defensive coexistence path: the web assistant uses ``render_chart``,
-    but a GUI-shaped PNG envelope must never silently break the stream.
+    but a ``generate_chart`` PNG envelope must never silently break the stream.
     """
     import json as _json
 

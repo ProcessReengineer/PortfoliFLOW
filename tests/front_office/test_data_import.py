@@ -571,9 +571,9 @@ def test_column_count_differs_from_fixture(
 def test_headless_import(monkeypatch: pytest.MonkeyPatch) -> None:
     """The data-import module must be importable with no graphical display.
 
-    :mod:`modules.front_office.data_import` must not import any GUI packages at
-    module scope.  This test removes the ``DISPLAY`` environment variable and
-    verifies that the public functions remain callable.
+    :mod:`modules.front_office.data_import` must not import PyQt6 or any other
+    windowing package at module scope.  This test removes the ``DISPLAY``
+    environment variable and verifies that the public functions remain callable.
     """
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.setenv("DISPLAY", "")

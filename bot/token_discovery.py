@@ -100,9 +100,9 @@ class DiscoveredBot:
 
     Attributes:
         tenant_id: The tenant this bot serves. ``None`` only for the
-            environment token on an entry point that resolved no tenant
-            (the desktop path), where the Postgres-native tools degrade
-            gracefully anyway.
+            environment token when the web lifespan resolved no tenant
+            for it (no superuser URL to resolve on), where the
+            Postgres-native tools degrade gracefully anyway.
         token: The BotFather token. Never logged, never rendered.
         source: :data:`SOURCE_VAULT` or :data:`SOURCE_ENV_FALLBACK`.
     """

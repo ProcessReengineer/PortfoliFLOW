@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""QT-consistency regression for the sub-stream 5e portfolio aggregations.
+"""Parity regression for the sub-stream 5e portfolio aggregations.
 
-The QT report-engine providers under
+The DataStore-backed report-engine providers under
 ``services/reporting/data_providers/`` and the Phase-5e analytics
 layer at ``services/analytics/portfolio_aggregation.py`` must yield
 the same per-year multiples, cashflows, vintage shares, and header
@@ -12,11 +12,11 @@ KPIs to within ``1e-6``.
 This test pins that contract by:
 
 1. Building a deterministic two-investment fixture in the canonical
-   QT shape: Excel-import-derived DataFrames seeded into the in-memory
+   DataStore shape: Excel-import-derived DataFrames seeded into the in-memory
    :class:`core.data_store.DataStore`. The same fixture is also
    converted to the per-investment dicts the new aggregations
    accept.
-2. Calling the QT providers (``InvestedNavProvider``,
+2. Calling the DataStore providers (``InvestedNavProvider``,
    ``CashflowWithNavProvider``, ``MultiplesTimeseriesProvider``,
    ``VintagesProvider``, ``KeyFiguresProvider``).
 3. Calling the parallel
@@ -24,8 +24,8 @@ This test pins that contract by:
 4. Asserting per-year and header-level numerical agreement.
 
 The test does not exercise the region / sector breakdowns — those
-have no QT counterpart with the new ORM-driven inputs (the QT
-provider reads attributes from the import-format ``Attributes`` sheet, not from
+have no DataStore counterpart with the new ORM-driven inputs (the
+DataStore provider reads attributes from the import-format ``Attributes`` sheet, not from
 the per-investment ``investment_region_weights`` rows). Region and
 sector aggregations are covered by the unit tests under
 ``test_portfolio_aggregation.py``.
@@ -93,7 +93,7 @@ def _seed_universe() -> tuple[
     dict[UUID, pd.DataFrame],
     pd.Timestamp,
 ]:
-    """Seed both the DataStore (QT path) and ORM-style dicts (web path).
+    """Seed both the DataStore (provider path) and ORM-style dicts (web path).
 
     Returns:
         Investments, NAV history dict, cashflow dict, and the
@@ -118,7 +118,7 @@ def _seed_universe() -> tuple[
         ]
     )
 
-    # ----- DataStore (QT) ---------------------------------------------------
+    # ----- DataStore (providers) --------------------------------------------
     df_attr = pd.DataFrame(
         {
             "Alpha": ["2018"],
@@ -287,7 +287,7 @@ def test_vintage_distribution_matches_qt() -> None:
 
 def test_header_kpis_match_qt() -> None:
     """The four header scalars (NAV, IRR, TVPI, DPI) must match the
-    QT KeyFiguresProvider output."""
+    DataStore ``KeyFiguresProvider`` output."""
     from services.portfolio_review import PortfolioReviewService
 
     investments, nav_dict, cf_dict, report_date = _seed_universe()
@@ -335,7 +335,7 @@ def _approx_equal(qt_value: float | None, web_value: float | None) -> None:
     if qt_value is None and web_value is None:
         return
     if qt_value is None or web_value is None:
-        # The QT layer uses 0.0-as-None for NAV; treat 0/None pair as equal.
+        # The DataStore providers use 0.0-as-None for NAV; treat 0/None pair as equal.
         if (qt_value or 0.0) == 0.0 and (web_value or 0.0) == 0.0:
             return
         raise AssertionError(f"None / value mismatch: qt={qt_value!r}, web={web_value!r}")

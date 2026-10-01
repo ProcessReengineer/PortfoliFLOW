@@ -36,10 +36,10 @@ Usage::
 Per-turn gating (ADR-0022)
 --------------------------
 
-A "user turn" is scoped to a single ``AIService.send_message()`` invocation
+A "user turn" is scoped to a single ``AIServiceCore.stream_response()`` invocation
 together with its complete tool-execution loop. The registry exposes
-:meth:`ToolRegistry.begin_turn` and :meth:`ToolRegistry.end_turn` which the
-streaming worker calls at the boundaries of a turn.
+:meth:`ToolRegistry.begin_turn` and :meth:`ToolRegistry.end_turn` which
+``stream_response`` calls at the boundaries of a turn.
 
 Once any tool of class :attr:`~services.tool_classes.ToolClass.READ_EXTERNAL_UNTRUSTED`
 executes within a turn, subsequent attempts to call a tool of class

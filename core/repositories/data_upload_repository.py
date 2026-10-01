@@ -10,10 +10,10 @@ passed in, methods return frozen DTOs, ``tenant_id`` is implicit in
 the session context (RLS WITH CHECK derives it from
 ``app.tenant_id``).
 
-Per ADR-0041 §3, this repository owns the *web* Excel-import write
-path. The PyQt6 GUI continues to write to the in-memory
-:class:`~core.data_store.DataStore`. The two surfaces deliberately do
-not share data during Phase 2 / 3; convergence is Phase-4 work.
+Per ADR-0041 §3, this repository owns the Excel-import write path.
+The in-memory :class:`~core.data_store.DataStore` is not written by
+any runtime path; it survives for the DataStore tools until roadmap
+#035.
 
 JSONB shape
 -----------

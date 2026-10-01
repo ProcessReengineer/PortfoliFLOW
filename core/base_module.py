@@ -62,7 +62,8 @@ class BaseModule(ABC):
 
     * ``module_name`` — unique snake_case identifier (e.g. ``"data_import"``).
     * ``module_area`` — one of the nine Areas in :data:`VALID_AREAS`.
-    * ``run()`` — entry-point called by the GUI and by other modules.
+    * ``run()`` — entry-point; tests call it (no runtime layer imports
+      ``modules/``).
 
     Attributes:
         module_name: Unique snake_case identifier for this module.

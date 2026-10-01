@@ -10,7 +10,7 @@ from below. The fill tints the area beneath the curve in the canonical
 accent hue so the depth and duration of each drawdown read at a glance.
 
 The function is pure — a pandas Series in, a plain Plotly dict out — so
-it is callable from any non-GUI consumer (ADR-0013 / ADR-0045). The
+it is callable from any consumer (ADR-0013 / ADR-0045). The
 Phase-3 regression guard
 (``tests/regression/test_no_matplotlib_in_web.py``) keeps this module
 matplotlib-free.

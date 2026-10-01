@@ -3,13 +3,13 @@
 
 """Plotly figure spec — investment Cash Flows & NAV (dual-axis).
 
-Migration of the QT ``_make_cash_flow_nav_chart`` widget to Plotly.
+Port of the Cash Flows & NAV chart of the former Qt implementation (ADR-0094) to Plotly.
 matplotlib's ``twinx`` is mapped onto Plotly's ``yaxis2`` with
 ``overlaying='y'`` and ``side='right'``: cashflows and the Net
 Capital Gain line live on the left axis, NAV lives on the right.
 
 The function is pure — pandas in, plain dict out — so it is callable
-from any non-GUI consumer.
+from any consumer.
 """
 
 from __future__ import annotations
@@ -56,10 +56,9 @@ def build_cashflows_nav_spec(
       §2 plan tail: dashed, muted, present only when both ``nav_plan``
       and ``plan_tail_end`` are given.
 
-    The QT widget renders calls as red bars and distributions as
-    green bars, with NAV on the right axis and the Net Capital Gain
-    line overlaid in orange — see
-    ``gui/widgets/chart_widgets.py::_make_cash_flow_nav_chart``.
+    The former Qt implementation (ADR-0094) rendered calls as red bars
+    and distributions as green bars, with NAV on the right axis and the
+    Net Capital Gain line overlaid in orange.
 
     Plan **cashflows** are deliberately not drawn: the bars and the Net
     Capital Gain line stay actual-only (ADR-0113 "Not in scope").

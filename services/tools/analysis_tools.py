@@ -62,9 +62,9 @@ short-lived loop-local session via the shared
 module by ADR-0132, so no tool module imports a private name from
 another), constructs the service from per-tenant repositories —
 mirroring the web routes' ``_build_service`` DI — and reads under
-``tenant_context``. When the tool-execution context is unset (the GUI
-path, which imports this module but never populates the context), each
-tool returns a clear explanatory string instead of raising. See
+``tenant_context``. When the tool-execution context is unset (the web
+chat route without ``DATABASE_URL``, a Telegram dispatcher without a
+tenant or database URL), each tool returns a clear explanatory string instead of raising. See
 ADR-0047 and the :mod:`services.tools._tool_context` docstring for the
 cross-loop hazard and the tenant seam.
 """
@@ -127,10 +127,9 @@ from services.tools._tool_session import tool_session
 
 logger = logging.getLogger(__name__)
 
-# Returned by every tool when the chat route has not populated the
-# tool-execution context — the graceful-degradation path for the GUI,
-# which imports this module but never sets the context (no FastAPI
-# request). Mirrors ``investment_tools._CONTEXT_NOT_SET_MSG``.
+# Returned by every tool when no consumer has populated the
+# tool-execution context — the graceful-degradation path described in
+# the module docstring. Mirrors ``investment_tools._CONTEXT_NOT_SET_MSG``.
 _CONTEXT_NOT_SET_MSG = (
     "Back-office analysis data is not available in this context. (The "
     "tool-execution context was not set — these analysis tools read the "

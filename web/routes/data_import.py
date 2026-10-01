@@ -26,12 +26,12 @@ The shared helper :func:`load_data_import_section_context` is also
 imported from ``web/routes/areas.py`` to pre-render the upload form
 inside the Admin area page on initial load.
 
-Per ADR-0041, the web Excel-import write path is *separate* from the
-GUI's in-memory ``DataStore`` write path. The two surfaces deliberately
-do not share data during Phase 2 / 3; convergence to a single
-persistence path is Phase-4 work. The parsing function ``load_excel``
-is reused (it is persistence-agnostic — it returns
-``dict[str, pd.DataFrame]``) but the *write* layer is duplicated.
+Per ADR-0041, the web Excel-import path writes to Postgres only and
+never touches the in-memory ``DataStore``, which survives for the
+DataStore tools until roadmap #035. The parsing function ``load_excel``
+is shared with the ``front_office.data_import`` module shell (it is
+persistence-agnostic — it returns ``dict[str, pd.DataFrame]``); only
+that shell, which only tests run, writes the ``DataStore``.
 
 Validation
 ----------

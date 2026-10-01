@@ -3,8 +3,8 @@
 
 """Plotly figure spec for the investment-universe Portfolio Analysis chart.
 
-The PyQt6 reference is
-``gui/widgets/portfolio_analysis_widget.py::_render_chart``. This
+The reference is the Portfolio Analysis chart of
+the former Qt implementation (ADR-0094). This
 module mirrors its visual choices — the same colours, the same
 marker shapes, the same axis formatters — so that the side-by-side
 acceptance comparison in sub-stream 5d shows visual identity, not
@@ -80,8 +80,8 @@ def build_frontier_spec(
             ``×`` markers with text labels above each point.
         risk_free_rate: Annualised risk-free rate (decimal). Used
             for the dotted reference line and the legend label.
-        title: Figure title. Defaults to the QT-side wording for
-            visual identity; web routes can override (e.g. to
+        title: Figure title. Defaults to the wording of
+            the former Qt implementation (ADR-0094); web routes can override (e.g. to
             include the as-of date).
 
     Returns:
@@ -132,8 +132,8 @@ def build_frontier_spec(
         )
 
     # 3 — Risk-free rate horizontal reference line. Drawn as a
-    # trace rather than a layout shape so it appears in the legend
-    # like the PyQt6 version does.
+    # trace rather than a layout shape so it appears in the legend,
+    # as in the former Qt implementation (ADR-0094).
     x_max_candidates: list[float] = []
     if frontier.frontier_volatilities.size:
         x_max_candidates.append(float(frontier.frontier_volatilities.max()))

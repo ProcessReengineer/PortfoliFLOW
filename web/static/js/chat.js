@@ -13,16 +13,14 @@
 //
 //   1. Auto-scroll the chat history to the bottom whenever new
 //      content is swapped in.
-//   2. Submit on Enter; insert a newline on Shift+Enter — the same
-//      keyboard contract as ``_InputEdit`` in
-//      ``gui/widgets/shirley_chat_widget.py``.
+//   2. Submit on Enter; insert a newline on Shift+Enter.
 //   3. Open a one-shot ``EventSource`` for each turn-started fragment
 //      that HTMX swaps into ``#chat-history``, dispatching the full
 //      server event vocabulary (message, tool_called, tool_completed,
 //      chart, done, error) into the assistant bubble. The ``chart``
 //      event carries either an interactive Plotly figure spec
 //      (``chart_format: "plotly"``, the web path — ADR-0048) or a
-//      data: URI (``chart_format: "png"``, the legacy GUI path);
+//      data: URI (``chart_format: "png"``, from ``generate_chart``);
 //      Plotly figures go through the shared render helper in
 //      ``chart_snapshot.js``, the same path the rehydrated history and
 //      the Cases timeline use (ADR-0114). A plotly payload also carries
@@ -273,8 +271,8 @@
 
             // Two artefact formats (ADR-0048): "plotly" carries an
             // interactive figure spec; "png" carries a data: URI from
-            // the legacy GUI path. The web assistant always emits
-            // "plotly"; the png branch is defensive.
+            // ``generate_chart``, which is registered for every consumer,
+            // so the png branch runs whenever the model picks it.
             let plotDiv = null;
             if (payload.chart_format === "plotly") {
                 plotDiv = document.createElement("div");

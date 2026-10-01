@@ -8,7 +8,7 @@ unsorted-by-default in Plotly so we sort ascending) and NAV-weighted
 share on the y-axis. ``n=N`` annotation above each bar (number of
 investments in that vintage).
 
-Mirrors the QT
+Mirrors the reporting engine's matplotlib
 :class:`~services.reporting.chart_builders.VerticalBarBuilder` output
 for the Portfolio Review report's vintage tile.
 """

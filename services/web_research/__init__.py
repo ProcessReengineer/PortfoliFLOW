@@ -18,7 +18,7 @@ Both LLMs run on a resolution the **caller** supplies per tool call, walked
 per tenant through the credential façade by :mod:`services.web_research.llm`
 (ADR-0132). The service holds no credential and no model of its own.
 
-The module is PyQt-free and synchronous. The tool wrapper that exposes it to
+The module is Qt-free and synchronous. The tool wrapper that exposes it to
 the AIService is in :mod:`services.tools.web_research_tool`.
 """
 

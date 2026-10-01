@@ -7,8 +7,9 @@ Provides data providers, chart builders, and an orchestrating engine that
 together produce the in-app Portfolio Review report.
 
 Layering rules:
-    * Imports from :mod:`core` only.  No GUI, no PyQt6, no module imports.
-    * Chart builders return :class:`matplotlib.figure.Figure` objects.  Qt
-      embedding (``FigureCanvasQTAgg``) happens only in the GUI widget that
-      consumes those figures.
+    * Imports from :mod:`core` only.  No Qt imports, no module imports.
+    * Chart builders return :class:`matplotlib.figure.Figure` objects.  The
+      engine's only caller is the ``investor_communication.portfolio_review``
+      module shell, which only tests run; the web Portfolio Review is built
+      from :mod:`services.portfolio_review` and :mod:`services.chart_specs`.
 """

@@ -3,13 +3,10 @@
 
 """Per-investment return calculations.
 
-Pure-Python migration of the QT calculation logic in
-``modules/front_office/charts.py`` (and its widget twin in
-``gui/widgets/chart_widgets.py``). The QT widgets read from the
-in-memory ``DataStore`` and call matplotlib in the same function;
-this module is the calculation half — DB-free, Qt-free,
-matplotlib-free — that both the web side (sub-stream 5b) and the
-Phase-6 GUI-on-Postgres reorientation (ADR-0033 follow-up) consume.
+Pure-Python port of the calculation logic of
+the former Qt implementation (ADR-0094). This module is the calculation
+half — DB-free, Qt-free, matplotlib-free — that the web services
+consume.
 
 Functions take pandas DataFrames or Series as arguments and return
 plain pandas objects. Per ADR-0045 §3 they never reach into the
@@ -18,8 +15,8 @@ repositories and pass the DataFrames / Series in.
 
 Cashflow sign convention (see Phase-4 :class:`InvestmentCashflow`
 and ADR-0043 §1): ``amount`` is signed. Capital calls and fees are
-negative; distributions, dividends, and coupons are positive. The
-QT formulas in ``chart_widgets.py`` use ``cf_in`` (positive
+negative; distributions, dividends, and coupons are positive. That
+implementation's formulas use ``cf_in`` (positive
 distributions) and ``cf_out`` (negative calls) with the identity
 ``NCG = NAV + cumsum(cf_in) + cumsum(cf_out)`` — equivalent here to
 ``NCG = NAV + cumsum(amount)``.
@@ -54,9 +51,9 @@ def _split_cashflows_for_irr(
     than by ``flow_type`` so secondary types (fees, carry, dividends,
     coupons, other) flow through the IRR engine via the side that
     matches their sign — fees and carry as outflows, dividends /
-    coupons as inflows. This is the same partitioning that the QT
-    chart code applies indirectly by aggregating the four Cash-Flow-In
-    / Cash-Flow-Out sheets.
+    coupons as inflows. This is the same partitioning that
+    the former Qt implementation (ADR-0094) applied indirectly by
+    aggregating the four Cash-Flow-In / Cash-Flow-Out sheets.
 
     Args:
         cashflows: DataFrame with at least the columns
@@ -122,7 +119,7 @@ def _signed_cashflow_series(cashflows: pd.DataFrame) -> pd.Series:
 def compute_total_return_series(nav_series: pd.Series) -> pd.Series:
     """Compute the period-over-period Total Return series from NAVs.
 
-    Mirrors the QT methodology: each periodic return is
+    Mirrors the former Qt implementation (ADR-0094): each periodic return is
     ``(NAV[t] - NAV[t-1]) / NAV[t-1]`` — i.e. ``pct_change()`` on the
     chronologically sorted NAV series. The first datapoint has no
     predecessor and is dropped (NaN under ``pct_change``); rows where
@@ -225,7 +222,7 @@ def compute_net_capital_gain(
 ) -> pd.Series:
     """Compute the Net Capital Gain time series.
 
-    The QT chart code defines NCG as
+    The former Qt implementation (ADR-0094) defines NCG as
     ``NCG[t] = NAV[t] + cumsum(cf_in)[t] + cumsum(cf_out)[t]`` where
     ``cf_in`` is positive (distributions) and ``cf_out`` is negative
     (capital calls). With the Phase-4 signed-amount convention this
@@ -284,8 +281,8 @@ def compute_rolling_multiples(
     ``RVPI = NAV / |cumCalls|``.
 
     Where the cumulative-calls magnitude is zero the row's multiples
-    are NaN — division-by-zero is guarded the same way as in the QT
-    chart.
+    are NaN — division-by-zero is guarded the same way as in
+    the former Qt implementation (ADR-0094).
 
     Args:
         cashflows: DataFrame with at least ``flow_timestamp`` and

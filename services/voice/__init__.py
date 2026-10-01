@@ -15,8 +15,8 @@ unsupported audio format, an empty transcript, or an SDK failure raises a clear
 error rather than returning empty data.
 
 Pure Python: this package imports only the standard library and ``openai``. It
-must not import from ``web/``, ``bot/``, ``gui/``, ``core/``, ``modules/``, or
-PyQt6 (ADR-0038). The web surface and the Telegram bot import **from** this
+must not import from ``web/``, ``bot/``, ``core/``, ``modules/``, or PyQt6
+(ADR-0038). The web surface and the Telegram bot import **from** this
 service; the dependency arrow points one way only.
 """
 

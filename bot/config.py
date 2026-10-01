@@ -5,9 +5,9 @@
 
 This module mirrors the pattern of :mod:`core.config` but is independent of it
 — the bot reads its own variables and validates them on its own. It must not
-call :func:`core.config.get_config` and must not import from PyQt6, so it
-remains safe to load in non-GUI contexts (notably the regression-guard test
-``tests/bot/test_telegram_bot.py::test_no_qt_import``).
+call :func:`core.config.get_config` and must not import from PyQt6; the
+latter is pinned by the regression-guard test
+``tests/bot/test_telegram_bot.py::test_no_qt_import``.
 
 Usage::
 

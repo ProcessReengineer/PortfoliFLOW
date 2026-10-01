@@ -3,15 +3,13 @@
 
 """Pairwise correlation matrix — Implemented in sub-stream 5c.
 
-Pure-Python migration of the correlation logic in
-``gui/widgets/statistics_widgets.py::CorrelationMatrixWidget``. The
-QT widget invokes ``df[cols].corr(method="pearson")`` on a wide
-DataFrame whose columns are investment names; this module is the
-calculation half — DB-free, Qt-free — that both the web side
-(sub-stream 5c) and the Phase-6 GUI-on-Postgres reorientation
-consume.
+Pure-Python port of the correlation logic of
+the former Qt implementation (ADR-0094), which invoked
+``df[cols].corr(method="pearson")`` on a wide DataFrame whose columns
+are investment names; this module is the calculation half — DB-free,
+Qt-free — that :class:`services.statistics.StatisticsService` consumes.
 
-Convention copied bit-for-bit from the QT side:
+Convention copied bit-for-bit from that implementation:
 
 - **Method.** Pearson — pandas default, matches ``df.corr(method="pearson")``.
 - **Pairwise complete observations.** Pandas's default (``min_periods=1``)
@@ -22,8 +20,8 @@ Convention copied bit-for-bit from the QT side:
   pandas's behaviour). The Statistics page styles diagonal cells
   separately, so the calculation is faithful to pandas.
 - **Stable column / row order.** The matrix preserves the order of
-  the input dict so the chart-spec generator and the QT widget can
-  align labels deterministically.
+  the input dict so the chart-spec generator can align labels
+  deterministically.
 """
 
 from __future__ import annotations
@@ -36,7 +34,8 @@ def compute_correlation_matrix(
 ) -> pd.DataFrame:
     """Pairwise Pearson correlation across multiple return series.
 
-    Mirrors ``df[cols].corr(method="pearson")`` from the QT widget.
+    Mirrors ``df[cols].corr(method="pearson")`` from
+    the former Qt implementation (ADR-0094).
     Series are aligned on their date index; pandas handles
     pairwise-complete observations natively.
 

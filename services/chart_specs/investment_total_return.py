@@ -27,13 +27,13 @@ def build_total_return_spec(
 ) -> dict[str, Any]:
     """Build a Plotly figure spec for an investment's periodic Total Return.
 
-    The QT chart in ``gui/widgets/chart_widgets.py::_make_total_return_chart``
-    uses a continuous line with a zero reference. The Phase-5 spec
+    The former Qt implementation (ADR-0094) used a continuous line with
+    a zero reference. The Phase-5 spec
     follows the migration prompt and renders bars instead — bars make
     the sign of each period unambiguous (positive vs. negative
     return) at the small chart-tile size used in the investment
     detail view. Theme colours are inherited from the canonical
-    chart theme so the visual language matches the QT plots.
+    chart theme so the visual language matches that implementation.
 
     Args:
         return_series: Pandas Series indexed by date, values are

@@ -3,8 +3,9 @@
 
 """Central registry that maps module names to their classes.
 
-The GUI and any orchestration layer should import **only** this module to
-discover and instantiate modules.  Individual module files register themselves
+Any caller that discovers and instantiates modules should import **only**
+this module to do so; today that is the tests (no runtime layer imports
+``modules/``).  Individual module files register themselves
 via the ``@registry.register`` decorator, so adding a new module never requires
 touching existing code.
 
@@ -19,7 +20,7 @@ Usage::
         module_area = "front_office"
         ...
 
-    # In the GUI or tests:
+    # In tests:
     from modules.module_registry import registry
     from core.config import get_config
 

@@ -15,10 +15,10 @@ display names, and tracks which filename is currently *active* for each
 kind of theme.
 
 Design notes:
-    * This module imports nothing from PyQt6 or from the ``gui``,
+    * This module imports nothing from PyQt6 or from the
       ``services``, ``modules``, or ``analytics`` layers — see
-      ``AGENTS.md`` dependency rules. ``QSettings``-based persistence
-      lives in ``gui/theme_persistence.py``.
+      ``AGENTS.md`` dependency rules. Nothing persists the active
+      filename; only tests call the setters.
     * The active filename is held in process memory only. It is
       assigned at application start by the persistence layer, and read
       by the theme loaders on the next reload. The service never
@@ -172,8 +172,9 @@ class ThemeService:
     discovered list and raise :class:`ConfigurationError` on unknown
     values.
 
-    The service does not perform any persistence — that is the job of
-    :mod:`gui.theme_persistence`. It also does not reload theme caches
+    The service does not perform any persistence. Its readers are
+    :mod:`core.ui_theme`, :mod:`core.chart_theme` and
+    :mod:`services.chart_specs.base`. It also does not reload theme caches
     in :mod:`core.ui_theme` / :mod:`core.chart_theme`; the loaders pick
     up the new filename on their next read or explicit reload.
     """

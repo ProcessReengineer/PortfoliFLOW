@@ -5,9 +5,10 @@
 ========================
 Shared matplotlib figure and axes helpers for themed chart rendering.
 
-All chart-rendering code — GUI widgets, AI tools, export engines — should
-use these functions instead of applying theme parameters manually.  Visual
-parameters come exclusively from ``config/chart_theme.json`` via
+All matplotlib chart-rendering code — the ``generate_chart`` AI tool and
+the reporting engine's chart builders — should use these functions
+instead of applying theme parameters manually.  Visual parameters come
+exclusively from ``config/chart_theme.json`` via
 :func:`core.chart_theme.get_chart_theme`.
 
 Usage::

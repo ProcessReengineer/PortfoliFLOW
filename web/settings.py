@@ -3,10 +3,13 @@
 
 """Web-specific settings for the FastAPI variant.
 
-Kept separate from ``core/config.py`` because the latter is the GUI-
-flavoured ``Settings`` singleton (read on every PyQt6 launch via
-``get_config()``); polluting it with web-only knobs would force the
-GUI process to validate FastAPI settings it does not use.
+Kept separate from ``core/config.py`` because the latter is the
+framework-free ``Settings`` singleton (``get_config()``) that ``core``
+(the application database role in ``core/repositories/_session.py``),
+the CLI, the module shells and the case-attachment caps in
+``web/routes/cases.py`` read; polluting it with web-only knobs would
+force every one of those callers to validate FastAPI settings it does
+not use.
 
 All values are read from environment variables / ``.env`` via
 ``pydantic-settings``. The defaults match what an operator running
@@ -49,7 +52,7 @@ class WebSettings(BaseSettings):
 
     # The level ``web.main.run`` configures the application's own loggers at.
     # Read here rather than in ``core.config`` because the serve command must
-    # not build the GUI-flavoured ``Settings`` singleton just to learn one
+    # not build the ``core.config`` ``Settings`` singleton just to learn one
     # string; both read the same ``LOG_LEVEL`` variable, so the operator sets
     # it once. Without this, ``portfoliflow-web`` configured no logging at
     # all and every INFO line the app emitted — the Telegram bot's
@@ -77,10 +80,12 @@ class WebSettings(BaseSettings):
     # over plain HTTP needs this False.
     session_cookie_secure: bool = False
 
-    # OpenRouter (or any OpenAI-compatible) endpoint for Shirley. The
-    # PyQt6 GUI configures these via QSettings through the AI Settings
-    # widget; the web variant has no settings UI yet (Phase 5), so the
-    # FastAPI lifespan reads them from .env at startup. The bot reads
+    # OpenRouter (or any OpenAI-compatible) endpoint for Shirley, read
+    # from .env. Since ADR-0112 §4b each turn resolves its endpoint, key
+    # and model through the credential resolver (vault first, then the
+    # environment); ``openrouter_base_url`` is the deployment default
+    # when no scope configures one, and the tick runner reads
+    # ``openrouter_api_key`` to tell whether any credential is reachable. The bot reads
     # the same three variables — sharing them here means the operator
     # configures Shirley once for both surfaces.
     #

@@ -3,6 +3,6 @@
 
 """Report Scraper backend service.
 
-Pure Python — no PyQt6. Consumed by ``modules/assistants/report_scraper.py``
-(registration) and ``gui/widgets/report_scraper_widget.py`` (future).
+Pure Python — no PyQt6. Consumed by the web route ``web/routes/scraper.py``
+and by the ``modules/assistants/report_scraper.py`` registry shell.
 """

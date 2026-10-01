@@ -60,9 +60,9 @@ class StrategicAssetAllocation(BaseModule):
     optimisation.  All inputs are manually entered forward-looking expectations —
     no historical time-series data is required.
 
-    The GUI widget (:class:`gui.widgets.saa_widget.SAAWidget`) calls the
-    analytics engine directly for interactive use.  This module exists for
-    registry completeness and for programmatic / AI-assistant use.
+    The web route ``web/routes/saa_section.py`` calls :mod:`services.saa`
+    directly; no runtime layer imports this module, which exists for
+    registry completeness and is run by tests.
 
     Attributes:
         module_name: ``"saa"``

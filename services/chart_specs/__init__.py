@@ -12,7 +12,7 @@ browser calls
 ``Plotly.newPlot(target, fig.data, fig.layout, fig.config)``.
 
 The package is deliberately Qt-free, FastAPI-free, and matplotlib-
-free per ADR-0042 §4 / §5. It is importable from any non-GUI
+free per ADR-0042 §4 / §5. It is importable from any
 consumer (web routes today, Shirley tool calls in Phase 5+) without
 dragging a UI toolkit into the import graph.
 """

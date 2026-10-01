@@ -7,7 +7,7 @@ Daily cumulative-return index ``cumprod(1 + r) * 100`` rendered as a
 smooth line. The Single-Investment Review tile 4 shows this index
 since inception. Tile is omitted in the Portfolio Overview where
 NAV-weighted compounding is not in scope (per ADR-0045 §3 and the
-QT precedent in
+reporting-engine precedent in
 :class:`services.reporting.data_providers.TotalReturnTimeseriesProvider`).
 """
 

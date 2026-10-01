@@ -4,12 +4,12 @@
 """Plotly figure spec — Portfolio Review tile 1 (Invested Capital & NAV).
 
 Stacked-area trace for invested capital plus a NAV line overlay,
-both indexed by year. Mirrors the QT
+both indexed by year. Mirrors the reporting engine's matplotlib
 :class:`~services.reporting.chart_builders.StackedAreaWithLineBuilder`
 output rendered for the Portfolio Review report's first tile.
 
 Pure function — pandas / dataclass in, plain dict out — so it is
-callable from any non-GUI consumer.
+callable from any consumer.
 """
 
 from __future__ import annotations

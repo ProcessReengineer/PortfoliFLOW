@@ -3,15 +3,17 @@
 
 """Portfolio-level roll-ups — sub-stream 5e (ADR-0045 §3).
 
-Pure-Python migration of the QT report-engine providers in
-``services/reporting/data_providers/``. Functions take typed inputs
+Pure-Python port of the report-engine providers in
+``services/reporting/data_providers/``; the two agree to within ``1e-6``
+(``tests/services/analytics/test_qt_consistency_portfolio_review.py``).
+Functions take typed inputs
 (per-investment NAV series, signed cashflow frames, country / sector
 weight DTO lists) and return frozen dataclasses. None of the
 functions reach into the database directly — that responsibility
 lives on :class:`services.portfolio_review_service.PortfolioReviewService`.
 
 Sign convention (mirrors the Phase-4 ``investment_cashflows`` table
-and the QT chart code): ``amount`` is signed. Capital calls are
+and the report-engine providers): ``amount`` is signed. Capital calls are
 negative; distributions are positive.
 
 Cumulative-calls magnitude (``invested_capital``) is the absolute
@@ -404,7 +406,7 @@ def _portfolio_nav_series(
 ) -> pd.Series:
     """Build the portfolio NAV series by summing per-investment NAVs.
 
-    The QT provider semantics: at each date present in *any*
+    The report-engine provider semantics: at each date present in *any*
     investment's NAV history, the portfolio NAV is the sum of each
     investment's most-recent NAV at-or-before that date (forward-fill
     semantics). This avoids a missing NAV in one investment from
@@ -507,7 +509,7 @@ def aggregate_invested_capital_and_nav(
     Per-year invested capital is the magnitude of cumulative capital
     calls (``-amount`` summed for ``amount < 0``) up to and including
     each year-end. NAV at year-end is the cross-investment sum of
-    each investment's latest NAV at-or-before that year-end (the QT
+    each investment's latest NAV at-or-before that year-end (the
     convention from :class:`InvestedNavProvider`).
 
     Args:
@@ -685,7 +687,7 @@ def aggregate_portfolio_multiples(
 
         irr_t  = IRR of all flows up to t with +nav_t at t.
 
-    IRR uses the same Brent-method engine as the QT report.
+    IRR uses the same Brent-method engine as the report engine.
 
     Args:
         cashflows_by_investment: Mapping ``investment_id -> signed

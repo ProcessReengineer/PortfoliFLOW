@@ -18,7 +18,7 @@ Money figures are in the tenant's functional currency (ADR-0099 §4); the
 ``currency`` argument selects the label prefix (ADR-0101 §3).
 
 Pure function — dataclass in, plain dict out — and matplotlib-free, so
-it stays importable from any non-GUI consumer (ADR-0042 §4). Grouping
+it stays importable from any consumer (ADR-0042 §4). Grouping
 into a top-N + "Other" set is the caller's responsibility via
 ``services.analytics.portfolio_aggregation.group_fund_composition``;
 this spec renders whatever rows it is given. The concentration strip is

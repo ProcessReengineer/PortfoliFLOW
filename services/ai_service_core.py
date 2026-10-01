@@ -6,19 +6,21 @@
 This module owns the OpenAI / OpenRouter client construction, the
 tool-execution loop, soul-identity injection, and the
 :class:`~services.tool_registry.ToolRegistry` integration with
-ADR-0022's per-turn ``begin_turn`` / ``end_turn`` brackets. It MUST NOT
-import from :mod:`PyQt6` in any form. The Qt-coupled side of the
-service lives in :mod:`services.ai_service_qt`.
+ADR-0022's per-turn ``begin_turn`` / ``end_turn`` brackets.
+It must not import from :mod:`PyQt6` in any form.
 
-ADR-0038 named this module as the resolution of ADR-0011's follow-up:
-the layering exception in ``services/`` shrinks from "the entire AI
-service" to "the Qt adapter file only". The split also makes the
-asyncio-native consumers (FastAPI in Phase 2, modern Telegram libs)
-first-class without forcing them through a Qt-bridge.
+ADR-0038 named this module as the resolution of ADR-0011's follow-up;
+since ADR-0094 it is the whole AI service. Its consumers are the web
+chat route (:mod:`web.routes.chat`, via :func:`get_ai_service_core`),
+the Telegram bot (its own instance, see :mod:`bot.telegram_bot`),
+Irene's beat (:meth:`AIServiceCore.run_synthesis` with
+``get_system_prompt("irene")``, driven by the scheduler tick runner),
+and the Report Scraper and web research services
+(:meth:`AIServiceCore.send_one_shot_extraction`).
 
 The streaming surface is :meth:`AIServiceCore.stream_response`, an
-async generator yielding :class:`StreamEvent` records. Adapters
-(``ai_service_qt``, future SSE handler, future Telegram consumer)
+async generator yielding :class:`StreamEvent` records. Its two
+consumers, the web chat route's SSE handler and the Telegram bot,
 translate those events into their respective wire shapes.
 
 Concurrency:
@@ -28,15 +30,14 @@ Concurrency:
     issued from. This is the consolidated home for the interim
     concurrency control originally introduced by ADR-0031 in
     :mod:`services.headless_shirley`; stream A2 of ADR-0038 relocated
-    it to the core because every consumer (GUI Qt adapter, Telegram
-    bot, FastAPI SSE handler) routes through this seam, so a lock here
+    it to the core because every streaming consumer (Telegram bot,
+    FastAPI SSE handler) routes through this seam, so a lock here
     closes the cross-channel race characterised in ADR-0031.
 
     The lock is :class:`threading.Lock`, not :class:`asyncio.Lock`,
-    because consumers dispatch from different event loops: the Qt
-    adapter spawns one ``asyncio.run`` per ``send_message`` inside a
-    fresh ``QThread``; the Telegram bot runs on its own daemon-thread
-    asyncio loop; the FastAPI handler runs many SSE turns as
+    because consumers dispatch from different event loops: the
+    Telegram bot runs on its own daemon-thread asyncio loop; the
+    FastAPI handler runs many SSE turns as
     concurrent tasks on one uvicorn loop. A :class:`threading.Lock` is
     loop-agnostic and works across threads without binding to any one
     loop.
@@ -111,8 +112,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MAX_TOOL_ITERATIONS = 10
 
 # Process-wide turn lock. Acquired in :meth:`AIServiceCore.stream_response`
-# around the entire turn so concurrent turns from any consumer (Qt
-# adapter, Telegram bot, FastAPI SSE handler) cannot race the
+# around the entire turn so concurrent turns from any consumer
+# (Telegram bot, FastAPI SSE handler) cannot race the
 # :class:`~services.tool_registry.ToolRegistry` per-turn gating state
 # (ADR-0022). Acquired via ``asyncio.to_thread`` so a waiting turn never
 # freezes the uvicorn event loop, and process-global — it serialises
@@ -147,7 +148,7 @@ def _temporal_grounding_block() -> str:
 # emit these, but Llama-family and a few others do, and the bug is
 # only visible once the web variant exposes the model picker. See
 # sub-stream 2c, Task 4 (Option A): strip server-side so every consumer
-# (Qt adapter, web SSE, bot) inherits the fix.
+# (web SSE, bot) inherits the fix.
 _STOP_TOKENS: tuple[str, ...] = (
     "<|eom|>",
     "<|eot_id|>",
@@ -236,7 +237,7 @@ class StreamEvent:
 
     The event vocabulary covers all observable transitions of one
     Shirley turn. Adapters map each ``event_type`` onto their channel's
-    wire shape (Qt signals, SSE frames, Telegram message edits).
+    wire shape (SSE frames, Telegram message edits).
 
     Attributes:
         event_type: The discrete kind of event. See :data:`EventType`.
@@ -363,18 +364,16 @@ class AIServiceCore:
       either on a per-call :class:`ResolvedLLM` (every web consumer, per
       tenant — the Report Scraper since ADR-0112 §4b / ADR-0123, the web
       research tool since ADR-0132) or on the singleton's own
-      credentials (the desktop path, which has no tenant context to
-      resolve in).
+      credentials (set by :meth:`configure`; only tests call it).
 
     What this class does *not* do:
 
-    * No Qt signals, no ``QObject``, no ``QThread``. The Qt adapter
-      lives in :mod:`services.ai_service_qt`.
-    * No persistence. The legacy ``QSettings``-based credential storage
-      is preserved on the adapter side; the core never reads or writes
-      ``QSettings``.
-    * No GUI-thread management. Each adapter is responsible for
-      delivering events to its own event loop.
+    * No Qt code.
+    * No persistence. Credentials arrive per call as a
+      :class:`ResolvedLLM` (or through :meth:`configure`); the core
+      never reads or writes a credential store.
+    * No event delivery. Each consumer is responsible for delivering
+      events to its own event loop.
 
     Singleton:
         Use :func:`get_ai_service_core` to obtain the
@@ -388,20 +387,20 @@ class AIServiceCore:
 
         Default tools are imported lazily here (their ``register_tool``
         calls run at import time). Importing the tool modules
-        transitively pulls in :mod:`services.web_research`, which is
-        why ``services/web_research/service.py`` must import from this
-        module rather than from the legacy ``services.ai_service``
-        shim — otherwise the cycle would re-introduce PyQt6 into the
-        core's import graph.
+        transitively pulls in :mod:`services.web_research`, whose
+        ``service.py`` imports :func:`get_ai_service_core` from this
+        module; importing the tools here rather than at module level
+        keeps that pair from forming an import cycle at module load.
 
         Endpoint credentials are stored as plain attributes; the
         ``openai.AsyncOpenAI`` client is constructed *per call* inside
         each async method. That avoids the cross-thread / cross-loop
-        sharing hazard that would otherwise arise when the Qt adapter
-        spawns a fresh ``QThread`` (with its own ``asyncio.run`` loop)
-        for every ``send_message`` invocation: an ``httpx.AsyncClient``
-        is bound to the loop in which it was created, so handing one
-        across threads is undefined behaviour.
+        sharing hazard that would otherwise arise when one instance is
+        used from several event loops (the uvicorn loop, the Telegram
+        bot's daemon-thread loop, the per-call loops of the synchronous
+        one-shot extraction): an ``httpx.AsyncClient`` is bound to the
+        loop in which it was created, so handing one across threads is
+        undefined behaviour.
         """
         self._base_url: str | None = None
         self._api_key: str | None = None
@@ -443,9 +442,10 @@ class AIServiceCore:
             llm: A per-turn resolution (ADR-0112 §4b). When given, the
                 client is built from *its* endpoint and key and the
                 singleton's stored credentials are not consulted at all.
-                ``None`` is the singleton path — the Qt/GUI flow and the
-                one-shot extraction consumers — and behaves exactly as it
-                always has.
+                ``None`` is the singleton path — the credentials set by
+                :meth:`configure` — and behaves exactly as it always has.
+                Every runtime caller passes a resolution; ``None`` is
+                reached only from tests.
 
         Returns:
             A new ``openai.AsyncOpenAI`` instance.
@@ -484,8 +484,8 @@ class AIServiceCore:
     def reset(self) -> None:
         """Forget endpoint credentials and clear cached model list / status.
 
-        Equivalent to the legacy ``AIService.disconnect`` minus the Qt
-        signal emission.
+        Clears the singleton-path state that :meth:`configure`,
+        :meth:`set_model` and :meth:`set_status` set.
         """
         self._base_url = None
         self._api_key = None
@@ -586,17 +586,20 @@ class AIServiceCore:
                 cache) in a ``finally`` when the turn ends — so the
                 Postgres-native tools resolve the right tenant and no
                 surface can race another on the shared module-level
-                context. ``None`` (the GUI / Qt path) leaves the context
-                unset and the tools degrade gracefully.
+                context. ``None`` (the web chat route when
+                ``DATABASE_URL`` is unset; the Telegram bot when the chat
+                has no tenant binding or no database URL) leaves the
+                context unset and the tools degrade gracefully.
             llm: This turn's resolved endpoint, credential and model
                 (ADR-0112 §4b). When given, the client and the model come
                 from it and the singleton's stored triple and
                 :class:`ConnectionStatus` are **not** consulted — that is
                 what lets one process serve many tenants without a
                 configure-once global. ``None`` keeps the singleton
-                behaviour verbatim: the Qt / GUI path, where
-                :meth:`configure` / :meth:`set_model` / :meth:`set_status`
-                remain the seam.
+                behaviour verbatim, where :meth:`configure` /
+                :meth:`set_model` / :meth:`set_status` remain the seam;
+                both streaming consumers always pass a resolution, so
+                ``None`` is reached only from tests.
 
         Yields:
             :class:`StreamEvent` records describing the turn.
@@ -683,7 +686,7 @@ class AIServiceCore:
         ``llm`` is this turn's resolution (ADR-0112 §4b): it supplies both
         the client and the model, so nothing below reads ``_active_model``
         or the stored credentials. ``None`` falls back to the singleton's
-        state — the Qt / GUI path, unchanged.
+        state, unchanged (reached only from tests).
         """
         if tool_context is not None:
             set_tool_context(tool_context)
@@ -843,10 +846,10 @@ class AIServiceCore:
                             # Chart-artefact detection — envelope shape
                             # produced by ``services.tools.chart_tools``.
                             # Two formats coexist: ``generate_chart`` emits
-                            # ``chart_format="png"`` with ``image_base64``
-                            # (the GUI path); ``render_chart`` emits
-                            # ``chart_format="plotly"`` with ``spec`` (the
-                            # web path, ADR-0048). Both keys are always
+                            # ``chart_format="png"`` with ``image_base64``;
+                            # ``render_chart`` emits ``chart_format="plotly"``
+                            # with ``spec`` (ADR-0048) plus a best-effort
+                            # ``image_base64`` for Telegram. Both keys are always
                             # forwarded so every adapter can branch cleanly;
                             # a missing ``chart_format`` is treated as png.
                             # The large payload (image or spec) is stripped
@@ -973,8 +976,8 @@ class AIServiceCore:
         synchronous for the existing scraper / web-research consumers.
 
         When the calling thread already has a live asyncio event loop
-        (FastAPI request handler, Qt ``_StreamWorker`` after ADR-0038,
-        any other async-driven consumer), the coroutine is dispatched
+        (a FastAPI request handler, the Telegram bot's loop, any other
+        async-driven consumer), the coroutine is dispatched
         to a fresh daemon thread that runs its own ``asyncio.run`` and
         the calling thread blocks on the join. This preserves the
         synchronous contract without colliding with the caller's loop.
@@ -1433,15 +1436,14 @@ class AIServiceCore:
     def _register_default_tools(self) -> None:
         """Import tool modules to trigger their registry.register_tool calls.
 
-        Superset of the legacy ``AIService._register_default_tools``:
-        the legacy adapter registered three tool modules; the Qt-free
-        core adds a fourth, ``investment_tools`` (the Postgres-native
-        investment read tools for the web chat surface, ADR-0047), and a
-        fifth, ``analysis_tools`` (the back-office analysis tools —
+        Five tool modules: the three DataStore / chart / web research
+        modules, plus ``investment_tools`` (the Postgres-native
+        investment read tools for the web chat surface, ADR-0047) and
+        ``analysis_tools`` (the back-office analysis tools —
         limit coverage, the SAA-hypothetical comparison, and portfolio
         statistics, ADR-0069). Both Postgres-native modules are imported
-        here but only become *reachable* once the chat route populates
-        the tool-execution context — on the GUI path they degrade
+        here but only become *reachable* once a consumer populates
+        the tool-execution context — when no context is set they degrade
         gracefully (see ``services/tools/investment_tools.py`` and
         ``services/tools/analysis_tools.py``).
 
@@ -1461,8 +1463,7 @@ def get_ai_service_core() -> AIServiceCore:
     """Return the application-wide :class:`AIServiceCore` singleton.
 
     Lazy on first call; thereafter every call returns the same
-    instance. Mirrors the singleton lifecycle of the legacy
-    :func:`services.ai_service.get_ai_service`.
+    instance (ADR-0010).
 
     Returns:
         The shared :class:`AIServiceCore` instance.

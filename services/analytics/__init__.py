@@ -4,7 +4,7 @@
 """Analytics service foundation — pure calculation layer.
 
 Per ADR-0045 §3, this package holds the calculation layer extracted
-from the QT modules. Functions are pure: they take pandas DataFrames
+from the former Qt implementation (ADR-0094). Functions are pure: they take pandas DataFrames
 or numpy arrays as arguments and return plain Python data structures.
 None of the analytics functions reach into the database directly;
 that is the service-layer caller's responsibility (e.g.

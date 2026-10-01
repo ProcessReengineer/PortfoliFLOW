@@ -3,7 +3,7 @@
 
 """Report Scraper service — orchestrates LLM-based extraction from PDFs.
 
-Strictly sequential. PyQt-free. Calls
+Strictly sequential. Qt-free. Calls
 :meth:`services.ai_service_core.AIServiceCore.send_one_shot_extraction` which
 is synchronous and tool-free. This method blocks; the web surface drives it
 through ``asyncio.to_thread`` (``web/routes/scraper.py``).
@@ -97,8 +97,8 @@ def load_scraper_prompt(path: Path | None = None) -> str:
 class ScraperService:
     """Orchestrates Scraper extraction runs.
 
-    PyQt-free; designed to be called from a QThread worker owned by the
-    Widget layer.
+    Qt-free and blocking; the web route ``web/routes/scraper.py`` calls
+    it via ``asyncio.to_thread``.
 
     Typical usage::
 

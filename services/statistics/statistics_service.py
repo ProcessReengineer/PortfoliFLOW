@@ -12,7 +12,8 @@ The service does not run analytics itself: it loads NAV histories,
 derives return series via :func:`compute_total_return_series`, and
 delegates to the calculation primitives in
 :mod:`services.analytics`. The analytics layer is the single source
-of truth for the QT-consistent numerical conventions; this service
+of truth for the numerical conventions carried over from
+the former Qt implementation (ADR-0094); this service
 is the thin DB-aware wrapper that orchestrates per-investment loads
 and packs the result into a single DTO.
 
@@ -166,7 +167,7 @@ class StatisticsService:
                 are restricted to entries on or before this date.
             risk_free_rate: Annualised risk-free rate (decimal) for
                 the Sharpe-ratio calculation. Defaults to ``0.0`` to
-                match the QT screens.
+                match the former Qt implementation (ADR-0094).
             active_only: When ``True`` (the default), only
                 ``is_active = TRUE`` investments are included in the
                 "all" path. Ignored when ``investment_ids`` is
@@ -316,9 +317,9 @@ class StatisticsService:
 def _build_sparkline_values(return_series: pd.Series) -> list[float]:
     """``(1 + r).cumprod()`` as a list of floats, empty when too short.
 
-    Mirrors ``gui/widgets/_statistics_helpers.py::_sparkline_data``:
-    an empty list when the return series has fewer than two
-    datapoints; the cumulative-performance values otherwise.
+    Mirrors the former Qt implementation (ADR-0094): an empty list
+    when the return series has fewer than two datapoints; the
+    cumulative-performance values otherwise.
     """
     cleaned = return_series.dropna()
     if cleaned.size < 2:

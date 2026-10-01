@@ -66,11 +66,11 @@ no longer pass through the model's context.
 Relationship to ``datastore_tools.py``
 --------------------------------------
 The four ``datastore_tools.py`` tools (``list_datasets`` &c.) read the
-in-memory ``DataStore`` singleton, which the PyQt6 GUI populates on
-Excel import but the web variant does not (ADR-0041). These tools are
-the web-side counterpart: they read what the web Excel-import path
-actually wrote — Postgres. Both families coexist in the registry
-during the strangler period; neither replaces the other here.
+in-memory ``DataStore`` singleton, which the web Excel-import path
+does not populate (ADR-0041); the singleton stays until roadmap #035.
+These tools read what the web Excel-import path actually wrote —
+Postgres. Both families are registered; neither replaces the other
+here.
 
 How the async repository layer is reached from a sync tool
 ----------------------------------------------------------
@@ -96,9 +96,10 @@ hazard.
 
 The request's tenant id and database URL arrive via the module-level
 :class:`~services.tools._tool_context.ToolExecutionContext`, populated
-by the chat route per turn. When that context is unset — the GUI
-imports this module but never populates it — the tools return a clear
-explanatory string rather than raising. See ADR-0047.
+by the chat route per turn. When that context is unset — the web
+chat route without ``DATABASE_URL``, a Telegram dispatcher without a
+tenant or database URL — the tools return a clear explanatory string
+rather than raising. See ADR-0047.
 """
 
 from __future__ import annotations
@@ -133,10 +134,9 @@ from services.tools._tool_session import tool_session
 
 logger = logging.getLogger(__name__)
 
-# Returned by every tool when the chat route has not populated the
-# tool-execution context — the graceful-degradation path for the GUI,
-# which imports this module but never sets the context (no FastAPI
-# request). A clean explanatory return reads better to the model than
+# Returned by every tool when no consumer has populated the
+# tool-execution context — the graceful-degradation path described in
+# the module docstring. A clean explanatory return reads better to the model than
 # a raised exception caught by ``execute_tool``.
 _CONTEXT_NOT_SET_MSG = (
     "Investment data is not available in this context. (The tool-execution "

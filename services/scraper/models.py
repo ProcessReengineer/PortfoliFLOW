@@ -3,7 +3,7 @@
 
 """Data models for the Report Scraper.
 
-Plain dataclasses, decoupled from PyQt and from any API wire format.
+Plain dataclasses, Qt-free and decoupled from any API wire format.
 """
 
 from __future__ import annotations

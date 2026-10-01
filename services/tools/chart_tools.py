@@ -5,10 +5,14 @@
 
 Two tools live here, one per rendering stack:
 
-* ``generate_chart`` — the legacy PyQt6-GUI path. Renders themed
-  matplotlib charts to Base64 PNGs, reading from the in-memory
-  ``DataStore`` or hand-typed inline data. Kept unchanged for the GUI,
-  which populates the DataStore on Excel import (ADR-0041).
+* ``generate_chart`` — renders themed matplotlib charts to Base64 PNGs
+  (``chart_format="png"``), reading from the in-memory ``DataStore`` or
+  hand-typed inline data. It is registered for every consumer: the
+  Telegram bot sends the PNG, the web chat shows it as an image. No
+  runtime path fills the ``DataStore`` (ADR-0041; only the
+  ``front_office.data_import`` and ``back_office.saa`` module shells
+  write it, and only tests run them), so at runtime only the inline-data
+  source yields a chart.
 * ``render_chart`` — the web-assistant path (ADR-0048, Axis 2).
   Consumes the structured-data envelope produced by the
   ``get_investment_data`` tool — looked up server-side by the *data
@@ -19,7 +23,9 @@ Two tools live here, one per rendering stack:
   and behave exactly like the web pages' charts.
 
 ``generate_chart`` renders using the Agg backend (headless,
-thread-safe) so it can be called safely from a QThread worker.
+thread-safe) so it can be called safely from the worker thread that
+:meth:`~services.ai_service_core.AIServiceCore.stream_response` runs
+each tool on (``asyncio.to_thread``).
 ``render_chart`` is pure dict construction — no rendering engine, no
 event loop, no thread concerns.
 
@@ -39,10 +45,9 @@ import json
 import logging
 import re
 
-# NOTE: matplotlib.use() is intentionally omitted here. The GUI widgets set the
-# backend to QtAgg at import time, and matplotlib does not allow switching backends
-# after initialisation. This module is thread-safe without it because it uses the
-# Figure class directly — never pyplot — and never instantiates a Qt canvas.
+# NOTE: matplotlib.use() is intentionally omitted here; this module does not depend on
+# the global backend. It is thread-safe without it because it uses the
+# Figure class directly — never pyplot — and never instantiates an interactive canvas.
 # FigureCanvasAgg is attached explicitly so fig.savefig() always uses the Agg
 # renderer regardless of the global rcParams backend.
 

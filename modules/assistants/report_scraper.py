@@ -4,9 +4,9 @@
 """Assistants — Report Scraper module.
 
 Thin registry shell for the Report Scraper. The full extraction logic lives
-in :class:`services.scraper.service.ScraperService`; the GUI widget
-(``gui/widgets/report_scraper_widget.py``, future) drives that service from
-a QThread worker.
+in :class:`services.scraper.service.ScraperService`, which the web route
+``web/routes/scraper.py`` drives directly via ``asyncio.to_thread``; no runtime
+layer imports this shell.
 
 Pattern: same thin-shell pattern as :class:`~modules.assistants.shirley.Shirley`.
 The module holds a ``ScraperService`` instance as ``self.service`` so the Widget
@@ -32,8 +32,7 @@ class ReportScraperModule(BaseModule):
 
     Holds a :class:`~services.scraper.service.ScraperService` instance that
     the Widget layer invokes directly for extraction runs.  The ``run()`` method
-    provides a programmatic entry-point for non-GUI callers (test harnesses,
-    batch scripts).
+    provides a programmatic entry-point for tests.
 
     Attributes:
         module_name: ``"report_scraper"``

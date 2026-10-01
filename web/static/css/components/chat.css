@@ -1,6 +1,6 @@
 /* Shirley chat — vertical layout with scrolling history and a
- * fixed-height composer at the bottom. The right side intentionally
- * ports the visual feel of `gui/widgets/shirley_chat_widget.py` —
+ * fixed-height composer at the bottom. The visual feel carries over
+ * from the former Qt implementation (ADR-0094) —
  * left-aligned assistant bubbles, right-aligned user bubbles, accent
  * colour on the brand name, BG_SECONDARY on the assistant bubble.
  *

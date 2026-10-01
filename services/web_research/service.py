@@ -10,7 +10,7 @@ relevant to the query, fetches the selected article URLs, and runs each
 extracted article through the isolated Fetcher-LLM, returning validated
 :class:`WebResearchResult` payloads.
 
-PyQt-free and synchronous. Called from the ToolRegistry's tool-execution
+Qt-free and synchronous. Called from the ToolRegistry's tool-execution
 thread; do not add Qt imports here. The service holds no credential and no
 model of its own: the caller resolves this call's :class:`ResolvedLLM` — per
 call, inside the turn's tenant context — and passes it in (ADR-0132). See

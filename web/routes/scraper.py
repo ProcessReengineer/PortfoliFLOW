@@ -3,7 +3,7 @@
 
 """Report Scraper web surface under ``/assistants#report-scraper``.
 
-The Report Scraper service (``services/scraper/``) is PyQt-free and
+The Report Scraper service (``services/scraper/``) is Qt-free and
 synchronous. This module lifts it into the web layer with a multipart
 upload form, a keyword editor, a read-only line naming the model the next
 run will use, and an SSE stream that drives the synchronous service via

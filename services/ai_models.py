@@ -3,7 +3,7 @@
 
 """Data models for the AIService layer.
 
-These models are intentionally decoupled from PyQt6 and from the OpenAI SDK.
+These models are Qt-free and intentionally decoupled from the OpenAI SDK.
 They represent the application's own view of conversations, messages, and
 attachments. Serialisation to/from OpenAI wire format is the AIService's
 responsibility, not theirs.

@@ -3,8 +3,8 @@
 
 """Plotly figure spec — investment Multiples (TVPI / DPI lines).
 
-Migration of the QT ``_make_tvpi_dpi_chart`` widget. The Charts
-module variant (``modules/front_office/charts.py``) plots only
+Port of the multiples chart of the former Qt implementation (ADR-0094),
+which plotted only
 **TVPI and DPI as lines** with a 1.0× breakeven reference line —
 no IRR overlay and no stacked bars. The portfolio-review treemap
 variant (stacked DPI/RVPI bars + IRR line on a secondary axis) is

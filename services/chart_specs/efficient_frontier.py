@@ -3,7 +3,7 @@
 
 """Plotly figure spec builder for SAA efficient-frontier charts.
 
-The PyQt6 reference is ``gui/widgets/saa_widget.py::_render_chart``.
+The reference is the SAA chart of the former Qt implementation (ADR-0094).
 This module mirrors its visual choices — the same colours, the same
 marker shapes, the same legend labels, the same axis formatters —
 so that the side-by-side acceptance comparison in sub-stream 3d
@@ -67,8 +67,8 @@ def build_efficient_frontier_spec(
 ) -> dict[str, Any]:
     """Build a Plotly figure spec for the SAA efficient frontier view.
 
-    The figure has six traces (mirroring the PyQt6 chart from
-    ``gui/widgets/saa_widget.py``):
+    The figure has six traces (mirroring
+    the former Qt implementation (ADR-0094)):
 
     1. Random portfolio cloud (scatter, low alpha, hover off).
     2. Efficient frontier (line, hover with return / vol / Sharpe).
@@ -147,8 +147,8 @@ def build_efficient_frontier_spec(
     }
 
     # 4 — Risk-free rate horizontal reference line. Drawn as a trace
-    # rather than a layout shape so it appears in the legend like the
-    # PyQt6 version does.
+    # rather than a layout shape so it appears in the legend, as in the
+    # former Qt implementation (ADR-0094).
     if frontier or cml:
         x_max_candidates = [p.volatility for p in frontier] + [point[0] for point in cml]
         x_max = max(x_max_candidates) * 1.05 if x_max_candidates else 0.5
@@ -220,8 +220,8 @@ def build_efficient_frontier_spec(
         ylabel="Expected Return (annualised)",
         show_legend=True,
     )
-    # Pin the lower y-axis bound the same way the PyQt6 chart does so
-    # the visual baseline is identical.
+    # Pin the lower y-axis bound at zero, as
+    # the former Qt implementation (ADR-0094) did.
     layout["yaxis"]["rangemode"] = "tozero"
     layout["xaxis"]["rangemode"] = "tozero"
 

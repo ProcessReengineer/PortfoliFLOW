@@ -35,22 +35,17 @@ Phase-5 follow-up.
 
 Tool confirmation flow
 ----------------------
-The PyQt6 chat surface has **no** tool-confirmation prompt today —
-``gui/widgets/shirley_chat_widget.py`` runs every tool through
-``AIServiceCore`` without an interstitial dialog, and the only gating
-is ADR-0022's per-turn class-lock for ``READ_EXTERNAL_UNTRUSTED``
-followers (silently refused inside :meth:`ToolRegistry.execute_tool`).
-No ``EXTERNAL_EFFECT`` tool is registered, so the "explicit
-confirmation" path that ADR-0022 §EXTERNAL_EFFECT mandates is dormant.
-
-Per the Phase-2 kickoff guidance — *identical semantics, no
-relaxation, no tightening* — this module deliberately does not invent
-a confirmation surface that PyQt6 does not have. When the first
+The web chat has **no** tool-confirmation prompt today — every tool
+runs through ``AIServiceCore`` without an interstitial step, and the
+only gating is ADR-0022's per-turn class-lock for
+``READ_EXTERNAL_UNTRUSTED`` followers (silently refused inside
+:meth:`ToolRegistry.execute_tool`). No ``EXTERNAL_EFFECT`` tool is
+registered, so the "explicit confirmation" path that ADR-0022
+§EXTERNAL_EFFECT mandates is dormant, and this module deliberately
+builds no confirmation surface ahead of it. When the first
 ``EXTERNAL_EFFECT`` tool ships, the web side will gain a
 ``confirmation_required`` SSE event whose Approve/Deny resolves an
-``asyncio.Future`` parked on ``app.state.pending_confirmations``; that
-work lands together with the corresponding desktop confirmation
-dialog so the two surfaces stay in step.
+``asyncio.Future`` parked on ``app.state.pending_confirmations``.
 """
 
 from __future__ import annotations
@@ -1902,11 +1897,10 @@ async def chat_stream(
                     yield _format_sse("tool_completed", str(payload.get("name", "")))
                 elif et == "chart_artifact":
                     # Two artefact formats reach here. ``render_chart``
-                    # (the web path, ADR-0048) emits a Plotly ``spec``;
-                    # ``generate_chart`` (the GUI path) emits a PNG.
-                    # The web model uses ``render_chart``, so the PNG
-                    # branch is defensive — kept so a GUI-shaped
-                    # envelope never silently breaks the stream.
+                    # (ADR-0048) emits a Plotly ``spec``;
+                    # ``generate_chart`` emits a PNG. Both tools are
+                    # registered for every consumer, so the PNG branch
+                    # runs whenever the model picks ``generate_chart``.
                     chart_format = str(payload.get("chart_format", "png"))
                     if chart_format == "plotly":
                         spec = payload.get("spec") or {}

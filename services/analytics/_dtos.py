@@ -37,9 +37,9 @@ from core.repositories.limits_repository import LimitSetDTO
 class DistributionStats:
     """Bundled distribution descriptors for one return series.
 
-    Mirrors the rows of the QT Distribution table in
-    ``gui/widgets/statistics_widgets.py::DistributionTableWidget``.
-    Annualisations follow the QT conventions: arithmetic-mean
+    Mirrors the rows of the Distribution table of
+    the former Qt implementation (ADR-0094).
+    Annualisations follow that implementation: arithmetic-mean
     annualisation (``mean * 252``) for the mean, ``sqrt(252)``
     scaling for the standard deviation. Skewness and kurtosis are
     the scipy defaults (biased estimator, Fisher / excess kurtosis).
@@ -74,14 +74,14 @@ class DistributionStats:
 class RiskMetrics:
     """Bundled risk metrics for one investment.
 
-    Mirrors the four Details tables shown in the QT Statistics
-    section: Risk (7 rows), Risk/Return (2 rows), Autocorrelation
+    Mirrors the four Details tables of the Statistics section of
+    the former Qt implementation (ADR-0094): Risk (7 rows), Risk/Return (2 rows), Autocorrelation
     (4 rows), plus the Distribution-pill µ headline rendered
     separately by the service layer.
 
-    Conventions follow ``gui/widgets/statistics_widgets.py`` —
-    every field's calculation is QT-consistency-tested to 1e-12
-    in ``tests/services/analytics/test_statistics.py``.
+    Conventions follow that implementation — every field's
+    calculation is tested to 1e-12 in
+    ``tests/services/analytics/test_statistics.py``.
 
     Attributes:
         var_90_daily: Historical VaR at 90% confidence (10th
@@ -91,8 +91,8 @@ class RiskMetrics:
         cvar_95_daily: Conditional VaR / Expected Shortfall at
             95% (mean of returns at or below the VaR-95 threshold).
         max_drawdown: Maximum drawdown computed from the return
-            series (NOT from the NAV series — matches the QT
-            Risk-table convention). Negative decimal.
+            series (NOT from the NAV series — matches that
+            implementation's Risk-table convention). Negative decimal.
         ulcer_index: RMS of percentage drawdowns in
             percentage-point units (e.g. 11.29 for a moderate-vol
             track record).
@@ -130,7 +130,7 @@ class RiskMetrics:
 class KeyMetricsCard:
     """Per-investment KPI strip card.
 
-    The QT KPI strip renders a small card per investment with the
+    The former Qt implementation (ADR-0094) rendered a KPI-strip card per investment with the
     most-recent NAV, the annualised arithmetic mean return, the
     Sharpe ratio, and a sparkline derived from the cumulative
     performance series. The web migration packs these four values

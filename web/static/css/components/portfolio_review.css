@@ -2,7 +2,7 @@
  *
  * Embedded under /investor-communication#portfolio-review. Classes
  * are prefixed .pr- to avoid cascade collisions with other section
- * components. Layout follows the QT Portfolio Review six-tile grid:
+ * components. Layout follows the six-tile grid of the former Qt implementation (ADR-0094):
  * four KPI cards in a strip plus a 3×2 chart grid. */
 
 .pr-section {

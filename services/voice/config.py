@@ -16,8 +16,8 @@ Groq-STT via a ``VOICE_STT_BASE_URL`` swap + OpenAI-TTS). When
 ``VOICE_ENABLED=false`` (or a required key is empty while enabled) the surfaces
 hide the voice affordances and behave exactly as text-only today.
 
-This module imports only the standard library and ``python-dotenv``; it must not
-import from ``web/``, ``bot/``, ``gui/``, ``core/``, ``modules/``, or PyQt6
+This module imports only the standard library and ``python-dotenv``;
+it must not import from ``web/``, ``bot/``, ``core/``, ``modules/``, or PyQt6
 (ADR-0038). The local :mod:`services.voice.errors` exceptions keep
 :class:`VoiceConfigurationError` catchable without a ``core/`` dependency.
 """

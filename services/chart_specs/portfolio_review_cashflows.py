@@ -5,11 +5,11 @@
 
 Yearly capital calls (negative, red) and distributions (positive,
 green) drawn as bars, with NAV and Net Capital Gain rendered as line
-overlays on the same axis. Mirrors the QT
+overlays on the same axis. Mirrors the reporting engine's matplotlib
 :class:`~services.reporting.chart_builders.StackedBarWithLineBuilder`
 output for the Portfolio Review report's second tile.
 
-The QT report shows distributions as positive bars and calls as
+The reporting engine shows distributions as positive bars and calls as
 negative bars; the y-axis straddles zero and the NAV / NCG lines
 share the same numeric scale as the bars.
 """

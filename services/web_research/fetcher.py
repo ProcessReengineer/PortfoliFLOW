@@ -3,7 +3,7 @@
 
 """HTTP fetch, HTML extraction, and RSS/Atom parsing for Web Research.
 
-Pure functions. No DataStore, no AIService, no PyQt. This module implements
+Pure functions. No DataStore, no AIService, no Qt imports. This module implements
 Stage 1 of the two-stage pipeline described in ADR-0023 and the feed-fetch
 addition from ADR-0024. Stage 2 (the Fetcher-LLM call) lives in
 :mod:`services.web_research.service`.

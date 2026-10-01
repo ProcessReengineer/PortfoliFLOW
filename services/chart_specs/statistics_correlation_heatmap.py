@@ -4,9 +4,8 @@
 """Plotly figure spec — correlation heatmap (sub-stream 5c).
 
 Diverging-colour heatmap of pairwise correlations across the
-investment universe. The QT widget
-(``gui/widgets/statistics_widgets.py::CorrelationMatrixWidget``)
-uses a custom ``primary_alt`` → ``cell_bg_even`` → ``primary``
+investment universe. The former Qt implementation (ADR-0094)
+used a custom ``primary_alt`` → ``cell_bg_even`` → ``primary``
 gradient with theme-driven endpoints; the Plotly counterpart
 defines the same three stops on a normalised ``[-1, 1]`` colour
 range so the visual language matches.
@@ -41,7 +40,7 @@ def build_correlation_heatmap_spec(corr_df: pd.DataFrame) -> dict[str, Any]:
     Annotations carry the correlation value formatted to two
     decimals (``0.67``, ``-0.04``); the colour scale stops at
     ``-1.0``, ``0.0``, ``+1.0`` use theme tokens so a runtime
-    theme switch (the GUI Phase-B picker calling
+    theme switch (a test calling
     :meth:`ThemeService.set_active_chart_theme`) is reflected on the
     next request.
 

@@ -10,7 +10,7 @@ the variant deferred from
 (``style="stacked_bars"``) — see the ``NotImplementedError`` raised
 there.
 
-Mirrors the QT
+Mirrors the reporting engine's matplotlib
 :class:`~services.reporting.chart_builders.StackedBarWithLineBuilder`
 configuration in
 ``services.reporting.report_engine._MULTIPLES_TS_CONFIG``.

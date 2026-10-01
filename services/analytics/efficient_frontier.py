@@ -5,10 +5,11 @@
 
 Per ADR-0045 §3, this module is a thin pandas-typed facade over the
 SLSQP optimiser already in service for the Phase-3 SAA module
-(``analytics.portfolio_optimizer.PortfolioOptimizer``). The web side
-of Phase 5 consumes these helpers; the QT side keeps calling the
-optimiser directly. The two paths land at the same numerical answer
-(verified to ``1e-6`` by the QT-consistency regression test).
+(``analytics.portfolio_optimizer.PortfolioOptimizer``). The Front Office
+portfolio analysis consumes these helpers; they land at the same numerical
+answer as calling the optimiser directly, as
+the former Qt implementation (ADR-0094) did (verified to ``1e-6`` by
+``tests/services/analytics/test_qt_consistency_efficient_frontier.py``).
 
 The functions are pure: they take pandas / numpy inputs and return
 plain dataclasses. None of them reach into the database directly —
@@ -40,9 +41,9 @@ class EfficientFrontierResult:
     are carried alongside so downstream tangency / min-variance
     derivations can reconstruct the same analytical
     :class:`PortfolioOptimizer` instance — that reconstruction is
-    the seam that keeps the web tangency / min-var numerically
-    identical to the QT widget at the ``1e-6`` level required by
-    sub-stream 5d's QT-consistency acceptance.
+    the seam that keeps the tangency / min-var numerically identical to
+    the former Qt implementation (ADR-0094) at the ``1e-6`` level pinned by
+    ``tests/services/analytics/test_qt_consistency_efficient_frontier.py``.
 
     Attributes:
         frontier_returns: Per-frontier-point annualised expected
@@ -108,9 +109,8 @@ def derive_expected_returns_and_cov(
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Annualise expected returns and covariance from periodic returns.
 
-    Mirrors the numerical convention used by the QT widget at
-    ``gui/widgets/portfolio_analysis_widget.py::_on_compute_clicked``:
-    geometric compounding for expected returns
+    Mirrors the numerical convention of
+    the former Qt implementation (ADR-0094): geometric compounding for expected returns
     (``(1 + μ_daily) ** periods_per_year - 1``) and linear scaling
     for the covariance matrix (``Σ_daily * periods_per_year``). The
     geometric convention differs from
@@ -289,9 +289,9 @@ def compute_tangency_portfolio(
     :class:`PortfolioOptimizer.tangency_portfolio`, which solves the
     QP transformation analytically (with a fallback to direct
     Sharpe maximisation when finite per-asset bounds break the
-    QP's scale-invariance). This is the same code path the QT
-    widget exercises, which is the prerequisite for the
-    sub-stream 5d QT-consistency acceptance.
+    QP's scale-invariance). This is the same code path
+    the former Qt implementation (ADR-0094) exercised, which is the
+    prerequisite for ``tests/services/analytics/test_qt_consistency_efficient_frontier.py``.
 
     Args:
         frontier_result: Output of :func:`compute_efficient_frontier`.
@@ -372,7 +372,8 @@ def compute_capital_market_line(
         risk_free_rate: Annualised risk-free rate (decimal).
         tangency: Tangency portfolio whose Sharpe drives the slope.
         x_max: Upper bound of the volatility axis sample. Typically
-            ``1.5 * tangency.volatility`` to mirror the QT widget,
+            ``1.5 * tangency.volatility`` to mirror
+            the former Qt implementation (ADR-0094),
             but the orchestrator can extend the line to whatever
             volatility is needed to keep the chart readable across
             random portfolios and individual investments.

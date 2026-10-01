@@ -3,12 +3,10 @@
 
 """PortfoliFLOW FastAPI web application package.
 
-The web variant runs in parallel to the PyQt6 GUI during the strangler
-period defined by ADR-0039 and ADR-0041. The two surfaces have separate
-persistence entry points: the GUI uses the in-memory ``DataStore``
-singleton, while web routes go through the repository layer
-(``UserRepository`` and future per-domain repositories) — see
-ADR-0041.
+The web application is the only surface (ADR-0094). Web routes persist
+through the repository layer (ADR-0041) and never touch the in-memory
+``DataStore`` singleton, which survives for the DataStore tools and the
+reporting engine until roadmap #035.
 
 Sub-stream 2a delivers only the skeleton: the FastAPI app factory, a
 health endpoint, a login placeholder, and engine wiring through a

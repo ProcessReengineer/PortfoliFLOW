@@ -81,7 +81,7 @@ def get_ui_theme() -> dict[str, Any]:
     Raises:
         ConfigurationError: If the theme file is missing, unreadable, or
             contains invalid JSON. Failure is loud by design — a corrupted
-            theme should crash startup rather than render a broken GUI.
+            theme should crash startup rather than render a broken UI.
     """
     global _theme_cache
     if _theme_cache is not None:

@@ -4,8 +4,8 @@
 """Theme-aware Plotly layout helpers.
 
 The single source of truth for chart visuals is
-``config/chart_theme.json`` (per ADR-0021 / ADR-0042 §4). The PyQt6
-matplotlib path reads it through
+``config/chart_theme.json`` (per ADR-0021 / ADR-0042 §4). The matplotlib
+path (``generate_chart`` and the reporting engine) reads it through
 :func:`core.chart_theme.get_chart_theme` — that loader transitively
 imports matplotlib, so this module cannot reuse it: the Phase-3
 regression guard requires that nothing under ``services/chart_specs/``
@@ -17,9 +17,9 @@ parameters, but the import graph here stays Qt-free, FastAPI-free,
 and matplotlib-free.
 
 The active theme filename is resolved through
-:class:`core.theme_service.ThemeService` when available — the same
-Phase-B picker the PyQt6 widgets use — so that switching themes via
-the GUI also affects the web variant on the next request. When the
+:class:`core.theme_service.ThemeService` when available, so both paths
+read the same file and a switch through the service's setters (only
+tests call them) takes effect on the next request. When the
 service has not been told otherwise, the filename defaults to
 ``chart_theme.json`` and behaviour matches the Phase-A loader.
 """
@@ -44,8 +44,8 @@ _theme_cache: dict[str, dict[str, Any]] = {}
 def _resolve_active_filename() -> str:
     """Return the active chart-theme filename.
 
-    Delegates to :class:`core.theme_service.ThemeService` so the GUI
-    theme picker (Phase B) and the web variant stay in sync. The
+    Delegates to :class:`core.theme_service.ThemeService` so this
+    package and :mod:`core.chart_theme` resolve the same file. The
     service is matplotlib-free; importing it does not break the
     Qt-free / matplotlib-free invariants of this package.
 
@@ -88,8 +88,8 @@ def get_chart_theme() -> dict[str, Any]:
     """Return the active chart theme dict, loading from disk on first call.
 
     Cached per filename so repeated calls do not re-read the JSON.
-    The cache is keyed by filename, so a runtime theme switch (the
-    GUI Phase-B picker calling
+    The cache is keyed by filename, so a runtime theme switch (a
+    test calling
     :meth:`ThemeService.set_active_chart_theme`) is honoured on the
     next request without further bookkeeping.
 
@@ -309,9 +309,8 @@ def plan_tail_window(
 def color_palette() -> dict[str, str]:
     """Return the named colour palette for SAA-flavoured charts.
 
-    The mapping mirrors the matplotlib choices in
-    ``gui/widgets/saa_widget.py`` so the Plotly and matplotlib
-    renderings of the same data look the same:
+    The mapping mirrors the matplotlib choices of
+    the former Qt implementation (ADR-0094):
 
     * ``frontier`` — ``colours.primary`` (red) for the efficient frontier line.
     * ``tangency`` — ``colours.primary`` (matplotlib uses the same colour

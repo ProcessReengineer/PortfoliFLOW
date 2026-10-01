@@ -15,7 +15,7 @@ in years on the right. The dual axis follows the established
 ``yaxis2`` is themed explicitly via :func:`themed_secondary_axis`.
 
 The function is pure — a DataFrame in, a plain Plotly dict out — so it
-is callable from any non-GUI consumer (ADR-0013 / ADR-0045).
+is callable from any consumer (ADR-0013 / ADR-0045).
 """
 
 from __future__ import annotations

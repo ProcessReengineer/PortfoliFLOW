@@ -5,7 +5,7 @@
 
 This module provides a standalone, stateless portfolio optimiser built on
 scipy.optimize.minimize (SLSQP). It is designed to be importable without any
-PortfoliFLOW application infrastructure — no GUI, no DataStore, no configuration
+PortfoliFLOW application infrastructure — no UI, no DataStore, no configuration
 files are required.
 
 Typical usage::
@@ -107,7 +107,7 @@ class PortfolioOptimizer:
     This class is the computational core of PortfoliFLOW's portfolio analysis.
     It is designed to be called from multiple contexts:
 
-    - Front Office GUI (efficient frontier visualisation)
+    - Front Office portfolio analysis (via :mod:`services.analytics.efficient_frontier`)
     - Strategic Asset Allocation module (Back Office, future)
     - AI Assistants (programmatic portfolio advice)
 

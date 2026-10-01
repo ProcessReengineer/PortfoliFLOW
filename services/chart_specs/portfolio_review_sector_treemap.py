@@ -4,7 +4,7 @@
 """Plotly figure spec — Portfolio Review tile 6/5 (sector split treemap).
 
 Flat treemap (no hierarchy) over sector codes. Tile size is
-NAV-weighted (``weight_pct``). Mirrors the QT
+NAV-weighted (``weight_pct``). Mirrors the reporting engine's matplotlib
 :class:`~services.reporting.chart_builders.TreemapBuilder` output for
 the Portfolio Review report's sector tile.
 """

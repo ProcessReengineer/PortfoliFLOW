@@ -36,7 +36,8 @@ class ToolClass(StrEnum):
             tools for the remainder of the current user turn.
         EXTERNAL_EFFECT: Actions with side effects outside the application
             (send email, export to a third party, place an order). Require
-            explicit user confirmation via a GUI dialog before execution.
+            explicit user confirmation before execution; no such tool is
+            registered yet, so no confirmation surface exists.
     """
 
     READ_INTERNAL = "read_internal"

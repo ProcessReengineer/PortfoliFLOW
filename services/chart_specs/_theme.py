@@ -4,7 +4,7 @@
 """Phase-5 Plotly theme — port of chart_theme.json (Phase 3).
 
 Dark canvas, ``#E8304A`` red accent. Matches the visual language of
-the QT matplotlib plots.
+the former Qt implementation (ADR-0094).
 
 Per ADR-0045 §1, the canonical theme substrate is
 ``config/chart_theme.json`` (read by :func:`services.chart_specs.base
@@ -51,7 +51,7 @@ def dark_layout_template() -> dict[str, Any]:
     """Build the Phase-5 dark-theme Plotly layout template fresh from the JSON.
 
     The values are read from the active chart theme so that a runtime
-    theme switch (the GUI Phase-B picker calling
+    theme switch (a test calling
     :meth:`ThemeService.set_active_chart_theme`) is reflected on the
     next request without further bookkeeping. Returning a fresh dict
     each call keeps :func:`apply_theme` free of cache-aliasing

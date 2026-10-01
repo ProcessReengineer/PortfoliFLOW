@@ -16,7 +16,7 @@ themes the primary axes, so the right panel's ``xaxis2``/``yaxis2`` are
 themed explicitly via :func:`themed_secondary_axis`.
 
 The function is pure — mappings in, a plain Plotly dict out — so it is
-callable from any non-GUI consumer (ADR-0013 / ADR-0045).
+callable from any consumer (ADR-0013 / ADR-0045).
 """
 
 from __future__ import annotations

@@ -79,8 +79,8 @@ class ReportTile:
             ``[invested_nav, cashflow_with_nav, multiples_timeseries,
             total_return, country, sector]``.
         figure_titles: Aligned with ``figures`` — the human-readable title
-            for each chart cell, used by the GUI widget for labelling
-            no-data placeholders.  Length must match ``figures``.
+            for each chart cell, for labelling no-data placeholders (only
+            tests read it today).  Length must match ``figures``.
         subtitle: Optional one-line metadata string rendered below the tile
             title.  Empty string for the portfolio tile.
     """

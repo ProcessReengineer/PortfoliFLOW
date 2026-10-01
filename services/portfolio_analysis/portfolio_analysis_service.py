@@ -7,7 +7,8 @@ Loads the active investment universe of the current tenant, derives
 periodic-return series from each investment's actual NAV history,
 restricts the matrix to a common observation window (so the sample
 covariance is well-conditioned for SLSQP), annualises with the
-QT-side convention, and runs the sub-stream 5d analytics layer.
+convention of the former Qt implementation (ADR-0094), and runs the
+sub-stream 5d analytics layer.
 
 Per ADR-0042 §1, the bundle is computed on demand and not persisted;
 the route handler caches nothing across requests.
@@ -186,10 +187,10 @@ class PortfolioAnalysisService:
 
         Args:
             n_points: Number of frontier samples. Range 20–500;
-                default 100. The QT widget defaults to 100.
+                default 100, as in the former Qt implementation (ADR-0094).
             risk_free_rate: Annualised risk-free rate (decimal) used
                 for tangency and CML. Defaults to ``0.025`` (2.5 %)
-                — the QT widget's default. This is where cash enters
+                — that implementation's default. This is where cash enters
                 the optimisation (ADR-0103 §8).
             as_of_date: Optional truncation date. NAVs and returns
                 are restricted to entries on or before this date.
@@ -500,9 +501,8 @@ class PortfolioAnalysisService:
     ) -> dict[str, float]:
         """Last-observation NAV share per investment.
 
-        Mirrors
-        :meth:`gui.widgets.portfolio_analysis_widget.PortfolioAnalysisWidget._compute_current_weights`:
-        for each investment, take the last non-NaN NAV value as a
+        Mirrors the former Qt implementation (ADR-0094): for each
+        investment, take the last non-NaN NAV value as a
         proxy for the current allocation; the per-investment
         weights are the share of the total. Investments not in
         ``allowed_names`` (i.e. dropped by the common-window

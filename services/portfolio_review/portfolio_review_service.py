@@ -663,7 +663,7 @@ class PortfolioReviewService:
 
         latest_nav_v = float(nav_series.iloc[-1]) if not nav_series.empty else 0.0
 
-        # Build ``cf_in`` / ``cf_out`` series shaped like the QT
+        # Build ``cf_in`` / ``cf_out`` series shaped like the report-engine
         # provider input: positive amounts → cf_in, negative amounts
         # → cf_out (the IRR helper internally negates the magnitude
         # of cf_out).
@@ -874,8 +874,9 @@ class PortfolioReviewService:
         Every input series is already in ``functional_currency`` (converted
         at the ADR-0099 §4 boundary), so the scalars carry the currency
         through unchanged as metadata. ``functional_currency`` defaults to
-        the reference ``"EUR"`` for direct static-method callers (the
-        QT-consistency test); :meth:`get_portfolio_overview` always passes
+        the reference ``"EUR"`` for direct static-method callers
+        (``tests/services/analytics/test_qt_consistency_portfolio_review.py``);
+        :meth:`get_portfolio_overview` always passes
         the tenant's resolved functional currency explicitly.
 
         Args (ADR-0100 §4 sharp edge):
@@ -888,7 +889,7 @@ class PortfolioReviewService:
                 for the headline ``nav_eur``, which feeds the front-office
                 residual (§3: the residual shrinks because cash sits inside
                 Σ NAV). Defaults to ``nav_by_inv`` — so a cash-free direct
-                caller (the QT-consistency test) keeps the pre-ADR-0100
+                caller (that parity test) keeps the pre-ADR-0100
                 behaviour where headline and performance NAV coincide.
         """
         headline_nav_by_inv = nav_by_inv if full_nav_by_inv is None else full_nav_by_inv

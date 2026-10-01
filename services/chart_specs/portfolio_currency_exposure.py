@@ -16,7 +16,7 @@ so "by position currency (unhedged)" is rendered with the figure
 (ADR-0101 §Consequences).
 
 Pure function — dataclass in, plain dict out — and matplotlib-free, so it
-stays importable from any non-GUI consumer (ADR-0042 §4). Colours come from
+stays importable from any consumer (ADR-0042 §4). Colours come from
 the theme's ``series_palette`` (crimson primary first), never a hardcoded
 hex (ADR-0021).
 """

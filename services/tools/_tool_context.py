@@ -63,8 +63,9 @@ argument would force the model to read every row as input tokens and
 then re-emit every row token-by-token as output — slow, expensive, and
 corruption-prone. Instead ``get_investment_data`` stores the envelope
 here and returns the model only a handle plus a compact summary;
-``render_chart`` looks the rows back up by handle. This is the QT
-``datastore_key`` principle adapted to the web variant — the model
+``render_chart`` looks the rows back up by handle. This is
+``generate_chart``'s ``datastore_key`` principle adapted to Postgres
+data — the model
 decides *which* data and *how* to chart it, but never transports the
 data. See ADR-0048 (amended).
 
@@ -82,7 +83,7 @@ Multi-tenant activation (ADR-0063) makes it read from the
 :class:`ToolExecutionContext` populated by the chat route from the
 authenticated session's ``tenant_id``. An unset context is a
 programming error and raises :class:`ToolContextNotSetError` so a
-GUI-style caller that never set a context produces a clear
+caller that never set a context produces a clear
 diagnostic instead of leaking onto the primary tenant.
 
 Since ADR-0132 the context carries a second, optional axis: the
@@ -170,13 +171,14 @@ def get_tool_context() -> ToolExecutionContext | None:
     """Return the current tool-execution context, or ``None`` if unset.
 
     The Postgres-native tools call this first; a ``None`` return is the
-    graceful-degradation signal (the GUI never populates the context,
-    so the tools explain that the data is unavailable rather than
-    raising).
+    graceful-degradation signal (no context is set when the web chat
+    route runs without ``DATABASE_URL`` or a Telegram dispatcher has no
+    tenant or database URL, so the tools explain that the data is
+    unavailable rather than raising).
 
     Returns:
         The context set for the current turn, or ``None`` when no turn
-        has populated it (GUI path, or between turns).
+        has populated it (no context for this turn, or between turns).
     """
     return _context
 

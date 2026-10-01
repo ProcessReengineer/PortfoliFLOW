@@ -3,33 +3,28 @@
 
 """Risk and distribution statistics — Implemented in sub-stream 5c.
 
-Pure-Python migration of the QT calculation logic embedded in
-``gui/widgets/statistics_widgets.py`` and
-``gui/widgets/_statistics_helpers.py``. The QT widgets read from the
-in-memory ``DataStore`` and call matplotlib in the same function;
-this module is the calculation half — DB-free, Qt-free,
-matplotlib-free — that both the web side (sub-stream 5c) and the
-Phase-6 GUI-on-Postgres reorientation consume.
+Pure-Python calculation of the statistics, carried over from
+the former Qt implementation (ADR-0094). This module is the calculation
+half — DB-free, Qt-free, matplotlib-free — that the web services consume.
 
-Conventions copied bit-for-bit from the QT side so the QT-consistency
-tests pass to within ``1e-12``:
+Conventions are copied bit-for-bit from that implementation, which this
+module matched to within ``1e-12``:
 
 - **Annualisation of the mean.** Arithmetic, not geometric:
-  ``mean_daily * 252``. The QT module uses ``np.nanmean(r) * 252``;
-  changing this to a geometric annualisation would break the
-  Sharpe-ratio numerics on the existing GUI screens.
+  ``mean_daily * 252`` (``np.nanmean(r) * 252``); changing this to a
+  geometric annualisation would change the Sharpe-ratio numerics.
 - **Standard deviation.** Sample std (``ddof=1``). Annualisation
   scales by ``sqrt(252)``.
 - **Variance.** Sample variance (``ddof=1``).
 - **Skewness / kurtosis.** ``scipy.stats.skew`` /
   ``scipy.stats.kurtosis`` with default flags. ``kurtosis`` returns
   Fisher's *excess* kurtosis (normal distribution = 0). Both use
-  ``nan_policy="omit"`` to match the QT call sites.
+  ``nan_policy="omit"``, as that implementation did.
 - **Sharpe ratio.** Annualised:
   ``(mean_annualised - risk_free) / std_annualised``. NaN when the
   annualised std is zero or undefined.
-- **Maximum drawdown.** Computed on a NAV series — exactly as in the
-  QT helper ``_max_drawdown`` and the QT widget table — by
+- **Maximum drawdown.** Computed on a NAV series — exactly as that
+  implementation did — by
   cumulating ``1 + r`` where ``r`` is the periodic return implied by
   the NAV ``pct_change`` and taking the minimum of
   ``(cumulative - cummax) / cummax``. This module exposes a thin
@@ -83,9 +78,8 @@ def annualise_mean_return(
 ) -> float:
     """Arithmetic annualisation of a periodic mean return.
 
-    Convention copied from the QT helper ``_annualised_mean``:
-    ``mean * periods_per_year``. The web statistics surface and the
-    QT statistics surface must agree to within ``1e-12``.
+    Convention copied from the former Qt implementation (ADR-0094):
+    ``mean * periods_per_year``, matched to within ``1e-12``.
 
     Args:
         daily_mean: Periodic mean return (decimal).
@@ -177,10 +171,10 @@ def compute_kurtosis(return_series: pd.Series) -> float:
     """Excess kurtosis via :func:`scipy.stats.kurtosis`, ignoring NaN.
 
     Default scipy flags: Fisher's definition (normal distribution =
-    0) and biased estimator. The QT widget calls
-    ``scipy.stats.kurtosis(r, nan_policy="omit")`` with these
-    defaults — this function preserves that convention so the QT
-    and web surfaces agree to within ``1e-12``.
+    0) and biased estimator. The former Qt implementation (ADR-0094)
+    called ``scipy.stats.kurtosis(r, nan_policy="omit")`` with these
+    defaults — this function preserves that convention to within
+    ``1e-12``.
 
     Args:
         return_series: Pandas Series of periodic returns.
@@ -259,11 +253,11 @@ def compute_max_return(return_series: pd.Series) -> float:
 def compute_max_drawdown(nav_series: pd.Series) -> float:
     """Maximum drawdown of a NAV series.
 
-    Mirrors the QT helper ``_max_drawdown`` but works on the NAV
-    series directly so callers can pass the chronologically-sorted
+    Mirrors the former Qt implementation (ADR-0094) but works on the
+    NAV series directly so callers can pass the chronologically-sorted
     NAV history without first deriving the period returns. The
-    function internally applies ``pct_change`` and reproduces the
-    QT formula bit-for-bit:
+    function internally applies ``pct_change`` and reproduces that
+    implementation's formula bit-for-bit:
 
     1. ``r = nav.pct_change().dropna()``
     2. ``cumulative = (1 + r).cumprod()``
@@ -298,9 +292,9 @@ def compute_max_drawdown_from_returns(return_series: pd.Series) -> float:
     """Maximum drawdown computed directly from a return series.
 
     Companion to :func:`compute_max_drawdown` for callers that
-    already hold the period returns (so the QT helper's
-    ``(1 + r).cumprod()`` short-circuit remains exact). Mirrors
-    ``gui/widgets/_statistics_helpers.py::_max_drawdown``.
+    already hold the period returns (so the ``(1 + r).cumprod()``
+    short-circuit remains exact). Mirrors
+    the former Qt implementation (ADR-0094).
 
     Args:
         return_series: Pandas Series of periodic returns.
@@ -363,21 +357,21 @@ def compute_sharpe_ratio(
 ) -> float:
     """Annualised Sharpe ratio with a configurable risk-free rate.
 
-    Mirrors the QT helper ``_sharpe`` modulo the risk-free rate
-    parameter (the QT helper hardcodes ``rf = 0.0``):
+    Mirrors the former Qt implementation (ADR-0094) modulo the
+    risk-free rate parameter (that implementation hardcoded
+    ``rf = 0.0``):
 
         mean_ann = mean(r) * periods_per_year
         std_ann  = std(r, ddof=1) * sqrt(periods_per_year)
         sharpe   = (mean_ann - rf) / std_ann
 
     NaN when the annualised standard deviation is zero or undefined
-    so the QT GUI surface and the web surface render identical "N/A"
-    cells for degenerate inputs.
+    so the web surface renders "N/A" cells for degenerate inputs.
 
     Args:
         return_series: Pandas Series of periodic returns.
         risk_free_rate_annual: Annualised risk-free rate (decimal).
-            ``0.0`` matches the QT screens.
+            ``0.0`` matches that implementation.
         periods_per_year: Number of return periods per year.
 
     Returns:
@@ -394,7 +388,7 @@ def compute_lag_1_autocorrelation(return_series: pd.Series) -> float:
     """Lag-1 autocorrelation of a return series.
 
     Defers to ``pandas.Series.autocorr(lag=1)`` so the result
-    matches the QT helper ``_lag1_autocorr`` exactly. Returns NaN
+    matches the former Qt implementation (ADR-0094) exactly. Returns NaN
     for empty / single-element series.
 
     Args:
@@ -418,14 +412,13 @@ def compute_value_at_risk(
 ) -> float:
     """Historical Value-at-Risk at the given confidence level.
 
-    Mirrors the QT helper used in
-    ``gui/widgets/statistics_widgets.py::RiskTableWidget``:
+    Mirrors the former Qt implementation (ADR-0094):
 
         var = np.nanpercentile(r, (1 - level) * 100)
 
     ``level=0.95`` → 5th percentile of the return distribution.
     Returns the percentile value directly (a negative decimal for
-    losses), matching the QT convention. NaN for empty series.
+    losses), matching that implementation. NaN for empty series.
 
     Args:
         return_series: Pandas Series of periodic returns.
@@ -451,7 +444,7 @@ def compute_conditional_value_at_risk(
 ) -> float:
     """Historical Conditional VaR (Expected Shortfall) at the given level.
 
-    Mirrors the QT helper:
+    Mirrors the former Qt implementation (ADR-0094):
 
         var = nanpercentile(r, (1-level)*100)
         tail = r[r <= var]
@@ -482,7 +475,7 @@ def compute_conditional_value_at_risk(
 def compute_ulcer_index(return_series: pd.Series) -> float:
     """Ulcer Index — root mean square of percentage drawdowns.
 
-    Mirrors the QT helper bit-for-bit:
+    Mirrors the former Qt implementation (ADR-0094) bit-for-bit:
 
         cumulative = (1 + r).cumprod()
         running_max = cumulative.cummax()
@@ -490,7 +483,7 @@ def compute_ulcer_index(return_series: pd.Series) -> float:
         ulcer = sqrt(mean(drawdown_pct ** 2))
 
     The output is dimensionless (note the ``* 100`` inside the
-    RMS — the Qt convention surfaces the index in percentage-point
+    RMS — that implementation surfaced the index in percentage-point
     units, e.g. ``11.2906``). NaN for empty / all-NaN series.
 
     Args:
@@ -518,15 +511,15 @@ def compute_downside_deviation(
 ) -> float:
     """Downside deviation — RMS of negative returns (zero-MAR).
 
-    Mirrors the QT convention:
+    Mirrors the former Qt implementation (ADR-0094):
 
         negative = np.minimum(r, 0.0)
         dd = sqrt(mean(negative ** 2))
 
-    The threshold is zero (MAR = 0.0); QT does not surface a
-    configurable MAR. Annualisation is by ``sqrt(periods_per_year)``
-    — controlled by the ``annualise`` flag because QT uses both
-    variants:
+    The threshold is zero (MAR = 0.0); that implementation did not
+    surface a configurable MAR. Annualisation is by
+    ``sqrt(periods_per_year)`` — controlled by the ``annualise`` flag
+    because both variants are used:
 
     - The **Risk** table shows the un-annualised value
       (``annualise=False``).
@@ -562,7 +555,7 @@ def compute_sortino_ratio(
 ) -> float:
     """Annualised Sortino ratio.
 
-    Mirrors the QT helper:
+    Mirrors the former Qt implementation (ADR-0094):
 
         mean_ann = mean(r) * periods_per_year
         dd_ann = sqrt(mean(min(r, 0)**2)) * sqrt(periods_per_year)
@@ -574,7 +567,7 @@ def compute_sortino_ratio(
     Args:
         return_series: Pandas Series of periodic returns.
         risk_free_rate_annual: Annualised risk-free rate (decimal).
-            ``0.0`` matches the QT screens.
+            ``0.0`` matches that implementation.
         periods_per_year: Annualisation factor.
 
     Returns:
@@ -599,7 +592,8 @@ def compute_autocorrelation(
 
     Generalisation of :func:`compute_lag_1_autocorrelation` to any
     positive integer lag. Defers to ``pandas.Series.autocorr(lag)``
-    so the result matches the QT helper exactly.
+    so the result matches the former Qt implementation (ADR-0094)
+    exactly.
 
     Args:
         return_series: Pandas Series of periodic returns.
@@ -742,10 +736,9 @@ def compute_full_distribution_stats(
     """Compute every distribution statistic in one pass.
 
     Reduces boilerplate in the service layer: a single call returns
-    all ten descriptors mirrored on the QT Distribution table. The
-    individual ``compute_*`` functions remain the primitive building
-    blocks for finer-grained callers (and are what the QT-consistency
-    tests target).
+    all ten descriptors of the Distribution table. The individual
+    ``compute_*`` functions remain the primitive building blocks for
+    finer-grained callers and for the unit tests.
 
     Args:
         return_series: Pandas Series of periodic returns.
@@ -783,9 +776,10 @@ def compute_risk_metrics(
 ) -> RiskMetrics:
     """Compute every risk / risk-return / autocorrelation metric.
 
-    All calculations follow the QT widget conventions. MDD is
-    computed from the return series (matches the QT Risk-table
-    body — note this is a behaviour change from sub-stream 5c,
+    All calculations follow the conventions of
+    the former Qt implementation (ADR-0094). MDD is computed from the return series
+    (as that implementation's Risk table did — note this is a behaviour
+    change from sub-stream 5c,
     which used the NAV-based variant; the two agree on
     well-formed data but differ on degenerate short series).
 

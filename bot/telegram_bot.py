@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Telegram bot — the first non-GUI consumer of :class:`AIServiceCore`.
+"""Telegram bot — a streaming consumer of :class:`AIServiceCore`.
 
 This module wires :meth:`services.ai_service_core.AIServiceCore.stream_response`
 to the Telegram Bot API via aiogram v3. The bot runs on its own asyncio
-event loop in a dedicated daemon thread inside the same PortfoliFLOW
-process, so it does not contend with Qt's event loop and does not require
-a separate executable.
+event loop in a dedicated daemon thread inside the web application's
+process (started by the web lifespan via :func:`start_bot`), so it does
+not contend with the uvicorn event loop and does not require a separate
+executable.
 
 Since ADR-0112 §5 that one thread serves **many tenants**: each tenant's
 BotFather token gets its own ``Bot`` + ``Dispatcher`` + polling task on the
@@ -2053,9 +2054,8 @@ def _bot_ai_core() -> AIServiceCore:
     the system prompt, the registered tools, the streaming loop — while the
     endpoint, credential and model arrive per turn as a
     :class:`~services.ai_service_core.ResolvedLLM`. With nothing endpoint-
-    shaped left on the instance, the old reason for keeping the bot's core
-    separate from the GUI singleton (``QSettings`` versus ``.env``
-    last-writer-wins) is gone; one instance per worker simply avoids
+    shaped left on the instance, there is no configuration to keep apart
+    from the web chat's singleton; one instance per worker simply avoids
     re-registering tools each turn.
 
     Cached at module level for the lifetime of the bot worker thread;

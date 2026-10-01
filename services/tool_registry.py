@@ -14,7 +14,7 @@ Adding a new tool requires only:
    The call must declare a :class:`~services.tool_classes.ToolClass`; silent
    defaults are not permitted (ADR-0022).
 
-No changes to AIService, ToolRegistry, or GUI code are needed.
+No changes to AIServiceCore or ToolRegistry code are needed.
 
 Usage::
 
@@ -291,8 +291,9 @@ class ToolRegistry:
     def begin_turn(self) -> None:
         """Reset the per-turn gating state at the start of a user turn.
 
-        Called by the AIService streaming worker at the top of
-        :meth:`services.ai_service._StreamWorker.run` (ADR-0022).
+        Called at the start of every streaming turn by
+        :meth:`services.ai_service_core.AIServiceCore.stream_response`
+        (ADR-0022).
         """
         self._locked_classes = set()
         logger.debug("ToolRegistry.begin_turn: per-turn lock state cleared.")

@@ -6,8 +6,8 @@
 Three pre-populated SAA configurations are installed for the
 sentinel tenant during ``portfoliflow bootstrap`` so the user has
 realistic starting points without having to enter a 7×7
-correlation matrix by hand. The data is copied verbatim from the
-PyQt6 reference (``gui/widgets/saa_widget.py``) — Phase 3 reuses the
+correlation matrix by hand. The data is copied verbatim from
+the former Qt implementation (ADR-0094) — Phase 3 reuses the
 same canonical numbers so a side-by-side acceptance comparison in
 sub-stream 3d is meaningful.
 
@@ -42,8 +42,8 @@ _LOG = logging.getLogger("portfoliflow.cli")
 class SeedAssetClass:
     """One asset-class entry inside a seed configuration.
 
-    All numeric values are stored as percentages — matching the
-    PyQt6 widget's UI convention. Conversion to decimals (the format
+    All numeric values are stored as percentages — matching the UI
+    convention of the former Qt implementation (ADR-0094). Conversion to decimals (the format
     the database uses) happens at install time.
     """
 
@@ -389,7 +389,7 @@ async def install_seeds_for_tenant(
             user).
     """
     # Step 1 — install asset classes, deduplicated across all seeds by
-    # ``code``. The PyQt6 templates share several classes (e.g. both
+    # ``code``. The seed templates share several classes (e.g. both
     # Conservative and Balanced use Listed Equities DM), so the
     # cross-seed lookup avoids creating duplicates.
     existing_asset_classes_by_code = {ac.code: ac for ac in await saa_service.list_asset_classes()}

@@ -1,5 +1,7 @@
 # ADR-0000: Retrofit Report
 
+> **Historical document (April 2026).** Kept unchanged because accepted ADRs cite it; it records the state at the time and is not current guidance.
+
 - **Status:** Informational (not a decision)
 - **Date:** 2026-04-24
 - **Author:** PortfoliFLOW project owner (retrofit, AI-assisted)

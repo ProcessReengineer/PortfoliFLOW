@@ -334,6 +334,73 @@ printf '%s\n' "$NEW_KEY" | portfoliflow vault-rotate-key --new-key-stdin
 Custody and rotation procedure:
 [`docs/deploy/credential-vault.md`](deploy/credential-vault.md).
 
+### `seed-watchpoints`
+
+Install any default watchpoints a tenant does not have yet (ADR-0116 §8).
+Tenant provisioning installs the defaults before the tenant has any data,
+so only the two singletons (`freshness`, `liquidity`) can be created then;
+the `fx` and `price` defaults become derivable once a workbook has been
+imported. Run the command once after that first import. It is idempotent
+on the subject key: an existing watchpoint is never touched and a revised
+threshold survives. Like every subcommand it connects as the superuser and
+scopes each write through `tenant_context`. Exits 0 on success, including
+a no-op, and non-zero on an invalid or missing tenant, an unprovisioned
+one, or a database failure.
+
+| Option | Notes |
+|---|---|
+| `--tenant` | Target tenant UUID. Defaults to the primary tenant. |
+
+```bash
+portfoliflow seed-watchpoints
+portfoliflow seed-watchpoints --tenant <uuid>
+```
+
+### `directory-refresh`
+
+Fetch the signed provider directory once and keep it if it is better than
+the local copy (ADR-0129). The served document is verified against the key
+ring shipped with this build; a version below the one already held is
+refused as a downgrade, and every refusal leaves the local copy unchanged.
+Reads no database, resolves no tenant, and does not consult the
+`provider_channel.enabled` setting.
+
+| Option | Notes |
+|---|---|
+| `--url` | The directory document URL. Must end in `.json`; the detached signature is read from beside it. Defaults to `https://portfoliflow.com/directory/v1/directory.json`. |
+| `--data-dir` | Instance data directory. Defaults to `DATA_DIR`. |
+| `--timeout` | Per-request timeout in seconds, for the document and its signature. |
+| `--json` | Emit one JSON object instead of the formatted text. |
+
+Exit codes: **0** — the copy was updated, or the server confirmed the one
+held; **2** — a caller or configuration error; **3** — the document was
+obtained and refused, the local copy untouched; **4** — the document could
+not be obtained.
+
+```bash
+portfoliflow directory-refresh
+```
+
+### `directory-status`
+
+Re-verify the local directory copy against the shipped key ring and print
+where it came from. Offline and read-only. An expired copy still prints
+(`valid: false`, a negative `days_left`) and exits 0: it remains the
+baseline a downgrade is refused against.
+
+| Option | Notes |
+|---|---|
+| `--data-dir` | Instance data directory. Defaults to `DATA_DIR`. |
+| `--json` | Emit one JSON object instead of the formatted text. |
+
+Exit codes: **0** — a local copy exists and was re-verified, expired or
+not; **2** — the data directory could not be read; **5** — no usable local
+copy.
+
+```bash
+portfoliflow directory-status --json
+```
+
 ---
 
 ## 5. Reaching a tenant in local development

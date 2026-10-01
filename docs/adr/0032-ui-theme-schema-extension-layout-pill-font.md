@@ -1,6 +1,6 @@
 # ADR-0032: UI Theme Schema Extension for Layout, Pill, and Font Tokens
 
-- **Status:** Proposed
+- **Status:** Deprecated (2026-09-30)
 - **Date:** 2026-04-29
 - **Deciders:** PortfoliFLOW project owner
 - **Tags:** ui, architecture, process
@@ -303,3 +303,4 @@ and do not yet exist in the form described.
 |------------|------------------------------|---------------------------------------------------------------------|
 | 2026-04-29 | PortfoliFLOW project owner   | Initial draft. Proposed extension of `config/ui_theme*.json` with `layout`, `pill`, and an expanded `font` section, deferring `density` to a follow-up ADR. No code yet implements the schema extension. |
 | 2026-05-04 | PortfoliFLOW project owner   | Status remains **Proposed**. Sub-Strang 2c shipped the design-token pipeline ADR-0037 §7 calls for: `scripts/generate_theme_artifacts.py` reads `config/ui_theme*.json` plus `config/chart_theme.json` and emits `web/static/css/theme.css`. The pipeline already projects the *existing* schema (background / accent / button / text / border / font / semantic) onto CSS custom properties on `:root` plus per-variant scopes, with a pre-commit hook (`.pre-commit-config.yaml`) and an idempotency-checked smoke test. The schema extension this ADR specifies — new `layout`, `pill`, and expanded `font` sections, plus the QFont-API path for `tabular_figures` — remains **unimplemented**: the new keys are not yet in the JSON files, `core/ui_theme.py` still has no validation hooks for them, `gui/theme.py` still inlines the layout magic numbers as literals, and `apply_application_font` does not exist. The token pipeline is therefore *partial* — sufficient for the web variant's MVP styling, but not a substitute for the schema extension itself. ADR stays Proposed; the extension will land together with the widget-code migration in a follow-up sub-strang or phase. Decider: PortfoliFLOW project owner. |
+| 2026-09-30 | PortfoliFLOW project owner   | Status set to **Deprecated**. The subject of this ADR, the PyQt6 widget code and its theme schema, was removed with the Qt surface (ADR-0094 Stage 1). The web variant's layout, typography and component tokens (`--ui-*`, generated into `web/static/css/theme.css`; see `docs/ux/ui-standards.md`) meet the need by other means, without this schema. The body of the ADR is unchanged. |

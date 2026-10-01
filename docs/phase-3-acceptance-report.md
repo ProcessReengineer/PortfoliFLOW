@@ -1,5 +1,7 @@
 # Phase 3 Acceptance Report
 
+> **Historical document (May 2026).** Kept unchanged because accepted ADRs cite it; it records the state at the time and is not current guidance.
+
 - **Date:** 2026-05-06
 - **Phase:** 3 — SAA Migration to Web
 - **Reporter:** Claude Code (Opus 4.7) — pending visual verification by the

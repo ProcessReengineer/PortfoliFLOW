@@ -1,5 +1,7 @@
 # Phase 4 Follow-ups for Phase 5+
 
+> **Historical document (May 2026).** Kept unchanged because accepted ADRs cite it; it records the state at the time and is not current guidance.
+
 This document tracks items that surfaced during Phase 4 but are
 deliberately deferred to Phase 5 or later, or that record post-hoc
 observations about Phase-4 commits that are intentionally not

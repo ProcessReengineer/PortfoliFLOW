@@ -1,5 +1,7 @@
 # Phase 4 — Plan-Übersicht
 
+> **Historical document (May 2026).** Kept unchanged because accepted ADRs cite it; it records the state at the time and is not current guidance. Written in German during the web migration, contrary to ADR-0008; kept as evidence rather than translated.
+
 - **Datum:** 2026-05-06
 - **Branch:** `web-migration`
 - **Tag (geplant):** `phase-4-complete` — gesetzt nach Sign-off durch den Projekt-Owner

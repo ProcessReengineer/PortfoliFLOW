@@ -1,5 +1,7 @@
 # Phase 4 Acceptance Criteria
 
+> **Historical document (May 2026).** Kept unchanged because accepted ADRs cite it; it records the state at the time and is not current guidance. Written in German during the web migration, contrary to ADR-0008; kept as evidence rather than translated.
+
 - **Status:** Template (wird zum Acceptance-Report von Sub-Strang 4e)
 - **Phase:** 4 — Investment Domain Schema und Excel-Transformation
 - **Branch:** `web-migration`

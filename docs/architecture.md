@@ -165,9 +165,9 @@ The module layer. Organised into the nine Areas that mirror a portfolio manageme
 | Transactions | `modules/transactions/` | `new`, `blotter`, `history` |
 | Planning Desk | `modules/planning_desk/` | `cash_flow_planning`, `scenario_analysis` |
 | Back Office | `modules/back_office/` | `saa`, `benchmarks_attribution`, `limits` |
-| Admin | `modules/admin/` | `application_settings` |
+| Admin | — | none; every Admin section is a web route over `services/` |
 | Investor Communication | `modules/investor_communication/` | `portfolio_review` |
-| Assistants | `modules/assistants/` | `shirley`, `ai_settings`, `report_scraper` |
+| Assistants | `modules/assistants/` | `shirley`, `report_scraper` |
 
 A module's public interface is its `run()` method plus any typed public methods it declares. Internal helpers and private state are implementation details.
 

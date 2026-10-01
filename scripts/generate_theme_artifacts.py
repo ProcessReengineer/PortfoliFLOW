@@ -5,11 +5,9 @@
 
 PortfoliFLOW keeps its design tokens — colours, fonts, chart palettes,
 spacing — in ``config/ui_theme*.json`` and ``config/chart_theme.json``.
-``gui/theme.py`` consumes those JSON files at runtime via
-``core/ui_theme.py`` (no pre-generated Qt-side artefact is produced or
-needed; QSS is composed at startup from the live token dict). The web
-variant cannot do that — browsers do not parse Python — so this script
-projects the same tokens onto the only contract a stylesheet can read:
+Python code reads those JSON files at runtime through ``core/ui_theme.py``
+and ``core/theme_service.py``. A browser cannot, so this script projects
+the same tokens onto the only contract a stylesheet can read:
 CSS custom properties on ``:root`` and per-variant scopes
 (``:root[data-theme="light"]``, ``:root[data-theme="corporate_blue"]``).
 
@@ -21,14 +19,10 @@ relevant JSON files.
 
 Output behaviour:
 
-* Emits ``web/static/css/theme.css``. The PyQt6 stylesheet is composed
-  at runtime from the same JSON sources by ``gui/theme.py`` —
-  inspecting that module shows it consumes the live theme dict via
-  ``core.ui_theme.get_ui_theme()`` and the only persisted artefact
-  needed is therefore the web CSS. Per ADR-0037 §7's "binding
-  constraint is that both worlds derive from the same JSON source",
-  the contract is satisfied: the web side reads the generated
-  ``theme.css``; the Qt side reads the same JSON directly.
+* Emits ``web/static/css/theme.css``, the only persisted artefact.
+  ADR-0037 §7 binds every consumer to the same JSON source: the web
+  shell reads the generated ``theme.css``; Python code reads the JSON
+  directly.
 * Idempotent: identical inputs produce byte-identical output. No
   timestamps, no environment-dependent paths, sorted variant order.
 * Invocable as a module (``python -m scripts.generate_theme_artifacts``)

@@ -1,5 +1,5 @@
 {
-    "_comment": "PortfoliFLOW UI Theme — Corporate Blue variant. Same dark base as the default with a blue accent instead of red — less aggressive, more institutional. Loaded by gui/theme.py via core/ui_theme.py.",
+    "_comment": "PortfoliFLOW UI Theme — Corporate Blue variant. Same dark base as the default with a blue accent instead of red — less aggressive, more institutional. Read at runtime through core/ui_theme.py and projected onto web/static/css/theme.css by scripts/generate_theme_artifacts.py.",
     "_version": "1.1.0",
     "_display_name": "Corporate Blue",
 

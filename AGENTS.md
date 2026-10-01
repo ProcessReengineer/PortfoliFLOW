@@ -78,7 +78,7 @@ core/     ──► nothing inside the project
 - `services/chart_specs/` consumes `services/analytics/` and emits
   Plotly-shaped dicts; no database access.
 - `services/ai_service_core.py` is Qt-free (`test_ai_service_core_qt_free.py`).
-  PyQt6 is not imported anywhere.
+  PyQt6 is not imported anywhere (`test_no_qt_imports.py`).
 - Circular imports are a design error. Never break a cycle with a lazy import.
 
 If a task asks you to break one of these rules, stop and say why.

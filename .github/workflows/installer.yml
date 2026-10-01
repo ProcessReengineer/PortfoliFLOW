@@ -25,10 +25,10 @@ name: installer
 
 on:
   pull_request:
-    paths: ['scripts/**', 'db/**', 'compose.yml', 'readme.md', '.github/workflows/installer.yml']
+    paths: ['scripts/**', 'db/**', 'compose.yml', 'README.md', '.github/workflows/installer.yml']
   push:
     branches: [main]
-    paths: ['scripts/**', 'db/**', 'compose.yml', 'readme.md', '.github/workflows/installer.yml']
+    paths: ['scripts/**', 'db/**', 'compose.yml', 'README.md', '.github/workflows/installer.yml']
   schedule:
     - cron: '17 5 * * 1'
   workflow_dispatch:

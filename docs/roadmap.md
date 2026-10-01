@@ -92,7 +92,7 @@ against, and what has shipped. It records no history — that lives in git and i
 | 9 | #063 | Market-data trading-hours awareness | ADR-0125 |
 | 10 | #042 | Live FX-rate supply | ADR-0099 §5, ADR-0091 |
 | 11 | #025 | Hosted deployment (Hetzner) | — |
-| 12 | #036 | Bloomberg live smoke | ADR-0091 |
+| 12 | #036 | Bloomberg live smoke | ADR-0090 – ADR-0093, ADR-0096 |
 | 13 | #007 | Investment sub-class field | — |
 | 14 | #031 | Sample-data fidelity follow-ups | ADR-0081 |
 

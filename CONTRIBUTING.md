@@ -70,7 +70,7 @@ Before pushing, the local pre-flight expectations are:
 
 - `ruff check .` passes (100-character line length, `py311` target),
 - `pytest` passes locally against a development database
-  (see `db/README.md`),
+  (see `docs/testing.md`),
 - new `.py` files carry the two-line SPDX header used across the codebase.
 
 ### House rules

@@ -165,7 +165,9 @@ OPENROUTER_API_KEY=sk-or-...
 SHIRLEY_MODEL=anthropic/claude-sonnet-4.5     # any model id your endpoint serves
 ```
 
-and restart. Alternatively — and preferably in a multi-user setup — store keys per tenant or per user under **Admin → Providers & Credentials** in the running application; those apply on the next chat turn without a restart and are encrypted at rest (this is what `CREDENTIAL_VAULT_MASTER_KEY` is for). Without any key the server starts normally; only the AI surfaces answer with a pointer back to configuration.
+`SHIRLEY_MODEL` is the default for every AI function; `IRENE_MODEL`, `SCRAPER_MODEL` and `RESEARCH_MODEL` override it for Irene, the Report Scraper and Shirley's web research tool, and each falls back to `SHIRLEY_MODEL` when left empty (see `.env.example`).
+
+Then restart. Alternatively — and preferably in a multi-user setup — store keys per tenant or per user under **Admin → Providers & Credentials** in the running application; those apply on the next chat turn without a restart and are encrypted at rest (this is what `CREDENTIAL_VAULT_MASTER_KEY` is for). Without any key the server starts normally; only the AI surfaces answer with a pointer back to configuration.
 
 Two notes: the Report Scraper needs a PDF-capable model (Anthropic models are the shipped default); voice input/output for Shirley needs a separate OpenAI (or compatible STT/TTS) key, because OpenRouter does not proxy audio.
 
@@ -182,23 +184,21 @@ Two notes: the Report Scraper needs a PDF-capable model (Anthropic models are th
 ## Documentation
 
 - **`docs/operator-handbook.md`** — tenant and user provisioning, credential vault custody, reaching tenants locally, troubleshooting.
-- **`docs/architecture.md`** — layering, dependency rules, module lifecycle.
+- **`docs/architecture.md`** — layering, the Section model, data flow, domain schema.
+- **`docs/glossary.md`** — the canonical project terms.
+- **`docs/testing.md`** — how the test suite is organised and run.
+- **`AGENTS.md`** — the rules for coding agents working on this repository.
 - **`docs/adr/`** — Architecture Decision Records, with a thematic index in `docs/adr/README.md`.
 - **`docs/roadmap.md`** — the steering document.
 - **`CONTRIBUTING.md`** — how to contribute; a signed CLA is required before the first merge.
 - **`SECURITY.md`** — how to report a vulnerability.
+- **`CHANGELOG.md`** — what changed in each release.
 
-Running the tests: `pip install -e ".[dev]"` then `pytest` (some tests need the Postgres container up).
+Running the tests: see `docs/testing.md`.
 
 ## Version history
 
-2026.09.1 - major UI overhaul, easier setup options for AI assistants & telegram bot
-
-2026.09.0 - added transactions area and recommended provider list
-
-2026.08.1 - the one line installer is included now
-
-2026.08.0 - the initial release
+See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

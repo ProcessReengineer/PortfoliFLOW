@@ -51,9 +51,19 @@ Database-backed tests run against the development PostgreSQL container
   `portfoliflow create-user` before any browser walk (both commands are
   described in `docs/operator-handbook.md`).
 - **Never run two database-backed pytest processes at once.** The second
-  truncates the schema under the first. The typical symptom is a spurious
-  `303` where a `200` was expected: the session the first run created is
-  gone. This holds for a single-module run as much as for the full suite.
+  truncates the schema under the first. Typical symptoms are a spurious
+  `303` where a `200` was expected (the session the first run created is
+  gone) and an `IntegrityError` on `users_tenant_id_fkey` (a tenant row
+  vanished between two inserts). This holds for a single-module run as much
+  as for the full suite. `tests/conftest.py` enforces it: the first time a
+  run opens a database connection, it takes a Postgres advisory lock and
+  keeps it until the run ends; a second run stops at its first connection
+  with a message naming the run that holds the lock. A run that never opens
+  a connection takes no lock. While the container is up, every module under
+  `tests/services/` opens one, because the package conftest makes the
+  truncating fixture autouse. Other database clients are not covered: do not
+  run `portfoliflow bootstrap` or another database command during a test
+  run.
 - **A skip is not a pass.** With the two URLs unset, database-bound modules
   skip at module level; with the container unreachable, each database-bound
   test skips with a reason that begins `Cannot reach Postgres`. A green run
@@ -108,14 +118,6 @@ alone accounts for roughly 85 minutes. Treat it as a session of its own.
 The other skips wait for sample workbooks under the untracked `data/sample/`
 (and for a limit-coverage reference workbook); they are being resolved in
 cleanup strand DC-CL-D.
-
-## Known hazard
-
-Order-dependent teardown can remove the Sentinel tenant inside one shared
-pytest process. It shows as an `IntegrityError` on `users_tenant_id_fkey` in a
-mixed selection while every module passes on its own. It is under
-investigation in DC-CL-D; until it is closed, re-run the affected module alone
-before treating such a failure as a defect.
 
 ## What the suite does not prove
 

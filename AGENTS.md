@@ -200,7 +200,8 @@ If a task asks you to break one of these rules, stop and say why.
 - A database-backed test run empties the development database. Afterwards,
   restore it with `portfoliflow bootstrap`.
 - Never run two database-backed pytest processes at once — not even two
-  single modules.
+  single modules. `tests/conftest.py` stops the second run at its first
+  database connection; do not work around it.
 - A skip is not a pass: a log with `Cannot reach Postgres` proves nothing
   about the database half.
 - A test that judges a dated document derives its dates from the document,

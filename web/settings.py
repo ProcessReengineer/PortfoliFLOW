@@ -116,6 +116,17 @@ class WebSettings(BaseSettings):
     # due — only how promptly a due tenant is noticed. Bounds-checked below.
     tick_scheduler_interval_seconds: int = 60
 
+    # Upper bound for one Excel workbook on the Data Import section, in
+    # megabytes (``WEB_MAX_UPLOAD_SIZE_MB``). ``web/routes/data_import.py``
+    # reads it from the app's settings, so it is fixed at startup like every
+    # other field. Bounds-checked below.
+    web_max_upload_size_mb: int = 50
+
+    # Short build identifier the status bar and the login footer show and
+    # pin the AGPL §13 source link to (ADR-0108). Set by the deployment
+    # (``BUILD_SHA``); unset or blank renders as ``"dev"``.
+    build_sha: str = "dev"
+
     @field_validator("log_level")
     @classmethod
     def _validate_log_level(cls, value: str) -> str:
@@ -172,6 +183,44 @@ class WebSettings(BaseSettings):
                 f"seconds (got {value})."
             )
         return value
+
+    @field_validator("web_max_upload_size_mb")
+    @classmethod
+    def _validate_max_upload_size(cls, value: int) -> int:
+        """Reject an upload cap below one megabyte at settings load.
+
+        The same fail-fast rule as the tick interval: a value that silently
+        degraded to a default would look like a working configuration while
+        the deployment enforced a limit nobody set. A non-integer value is
+        already refused by the ``int`` annotation.
+
+        Args:
+            value: The configured cap in megabytes.
+
+        Returns:
+            The value, unchanged, when it is at least 1.
+
+        Raises:
+            ValueError: If the value is below 1. Pydantic surfaces this as a
+                ``ValidationError`` from ``WebSettings()``, i.e. before the
+                app is built.
+        """
+        if value < 1:
+            raise ValueError(f"WEB_MAX_UPLOAD_SIZE_MB must be at least 1 (got {value}).")
+        return value
+
+    @field_validator("build_sha")
+    @classmethod
+    def _normalise_build_sha(cls, value: str) -> str:
+        """Strip ``BUILD_SHA``; a blank value means a development build.
+
+        Args:
+            value: The configured identifier.
+
+        Returns:
+            The stripped identifier, or ``"dev"`` when it is blank.
+        """
+        return value.strip() or "dev"
 
 
 def get_web_settings() -> WebSettings:

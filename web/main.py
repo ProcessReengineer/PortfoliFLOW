@@ -90,7 +90,6 @@ from web.routes.transactions import router as transactions_router
 from web.settings import WebSettings, get_web_settings
 from web.shell import (
     all_areas,
-    build_sha,
     config_ok,
     is_sidebar_collapsed,
     section_title,
@@ -245,7 +244,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
                         )
                 telegram_bot.start_bot(
                     tenant_id=bot_tenant_id,
-                    database_url=resolved_settings.database_url,
+                    database_url=resolved_settings.database_url or "",
                     superuser_url=resolved_settings.database_url_superuser or "",
                 )
         except Exception:  # noqa: BLE001 — bot must never block web startup
@@ -359,7 +358,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
         user = getattr(request.state, "user", None)
         return {
             "sidebar_collapsed": is_sidebar_collapsed(request),
-            "build_sha": build_sha(),
+            "build_sha": resolved_settings.build_sha,
             "config_ok": config_ok(request),
             "tenant_name": getattr(request.state, "tenant_name", ""),
             "redirect_to": request.url.path,

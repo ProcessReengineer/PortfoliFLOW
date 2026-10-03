@@ -107,7 +107,6 @@ import asyncio
 import base64
 import contextlib
 import logging
-import os
 import threading
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -151,12 +150,13 @@ from services.voice import (
     DEFAULT_STT_MODEL,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_VOICE,
-    DEFAULT_VOICE_PROVIDER,
     EmptyTranscriptError,
     ResolvedVoice,
     UnsupportedAudioFormatError,
     VoiceError,
     build_provider,
+    env_stt_provider,
+    env_tts_provider,
 )
 
 if TYPE_CHECKING:  # pragma: no cover — type-check-only imports
@@ -2247,8 +2247,8 @@ async def _resolve_bot_voice_through(
     # The two provider keys are env-only by design: the taxonomy deliberately
     # does not declare them until a second adapter's ADR does (ADR-0118 §1),
     # so there is no per-tenant chain here for the façade to walk.
-    stt_provider = os.getenv("VOICE_STT_PROVIDER", DEFAULT_VOICE_PROVIDER)
-    tts_provider = os.getenv("VOICE_TTS_PROVIDER", DEFAULT_VOICE_PROVIDER)
+    stt_provider = env_stt_provider()
+    tts_provider = env_tts_provider()
 
     return ResolvedVoice(
         stt_provider=stt_provider,

@@ -22,13 +22,11 @@ selects it, and :func:`landing_section_for` names the section the area
 opens on when the fragment is absent.
 
 Per ADR-0046 the shell is a presentational concern. This module never
-imports from ``modules/``; it only depends on FastAPI and the
-read-only environment surface.
+imports from ``modules/``; it only depends on FastAPI.
 """
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from fastapi import Request
@@ -439,11 +437,6 @@ def is_htmx_request(request: Request) -> bool:
         partial fragment.
     """
     return request.headers.get("HX-Request", "").lower() == "true"
-
-
-def build_sha() -> str:
-    """Read the build SHA from the environment; fallback to ``"dev"``."""
-    return os.getenv("BUILD_SHA", "").strip() or "dev"
 
 
 def config_ok(request: Request) -> bool:

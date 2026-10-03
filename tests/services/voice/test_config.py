@@ -20,6 +20,8 @@ from services.voice.config import (
     DEFAULT_TTS_VOICE,
     DEFAULT_VOICE_PROVIDER,
     VoiceConfig,
+    env_stt_provider,
+    env_tts_provider,
 )
 from services.voice.errors import VoiceConfigurationError
 
@@ -129,3 +131,26 @@ def test_env_override_beats_the_code_default(
 
     assert cfg.tts_voice == "alloy"
     assert cfg.tts_model == DEFAULT_TTS_MODEL
+
+
+def test_provider_readers_default_when_unset(clean_voice_env) -> None:
+    """With no provider env set, both readers return the code default."""
+    assert env_stt_provider() == DEFAULT_VOICE_PROVIDER
+    assert env_tts_provider() == DEFAULT_VOICE_PROVIDER
+
+
+def test_provider_readers_read_at_call_time(
+    clean_voice_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each call sees the current environment, and ``VoiceConfig`` uses them."""
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "stt-env")
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "tts-env")
+
+    assert env_stt_provider() == "stt-env"
+    assert env_tts_provider() == "tts-env"
+    cfg = VoiceConfig()
+    assert cfg.stt_provider == "stt-env"
+    assert cfg.tts_provider == "tts-env"
+
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "stt-changed")
+    assert env_stt_provider() == "stt-changed"

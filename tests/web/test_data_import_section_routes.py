@@ -167,9 +167,16 @@ async def seeded_bootstrap(
     return seeded_user
 
 
+@pytest.fixture
+def web_max_upload_size_mb() -> int:
+    """The upload cap ``web_client`` builds its app with; tests parametrize it."""
+    return 50
+
+
 @pytest_asyncio.fixture
 async def web_client(
     seeded_user: tuple[UUID, str, str],
+    web_max_upload_size_mb: int,
 ) -> AsyncGenerator[AsyncClient, None]:
     settings = WebSettings(
         web_host="127.0.0.1",
@@ -179,6 +186,7 @@ async def web_client(
         database_url=DATABASE_URL,
         database_url_superuser=DATABASE_URL_SUPERUSER,
         session_cookie_secure=False,
+        web_max_upload_size_mb=web_max_upload_size_mb,
     )
     app = create_app(settings)
     transport = ASGITransport(app=app)
@@ -452,16 +460,15 @@ async def test_post_section_upload_dedups_returns_existing_preview(
         assert count.scalar_one() == 1
 
 
+@pytest.mark.parametrize("web_max_upload_size_mb", [1])
 async def test_post_section_upload_oversized_returns_413(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A file larger than the configured cap is rejected with 413."""
+    """A file larger than the configured cap (1 MB here) is rejected with 413."""
     _id, email, password = seeded_user
     csrf = await _login_and_get_csrf(web_client, email, password)
 
-    monkeypatch.setenv("WEB_MAX_UPLOAD_SIZE_MB", "1")
     blob = b"\x00" * (2 * 1024 * 1024)
 
     response = await web_client.post(

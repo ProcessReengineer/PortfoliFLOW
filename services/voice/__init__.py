@@ -29,6 +29,8 @@ from services.voice.config import (
     DEFAULT_TTS_VOICE,
     DEFAULT_VOICE_PROVIDER,
     VoiceConfig,
+    env_stt_provider,
+    env_tts_provider,
 )
 from services.voice.errors import (
     EmptyTranscriptError,
@@ -56,6 +58,8 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "DEFAULT_STT_BASE_URL",
     "DEFAULT_TTS_MODEL",
     "DEFAULT_TTS_VOICE",
+    "env_stt_provider",
+    "env_tts_provider",
     # Errors
     "VoiceError",
     "VoiceConfigurationError",

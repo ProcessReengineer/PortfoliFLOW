@@ -137,6 +137,9 @@ If a task asks you to break one of these rules, stop and say why.
 - Exceptions are typed and derive from `PortfoliFlowError`
   (`core/exceptions.py`, ADR-0044).
 - No `print()` outside the CLI; log through `logging.getLogger(__name__)`.
+- `web/` reads no environment variable itself: web configuration is a
+  `WebSettings` field read through `request.app.state.settings`
+  (`tests/regression/test_web_no_env_reads.py`).
 - Repositories are async; service methods that perform I/O are async; pure
   calculation in `services/analytics/` is synchronous.
 - Module-Scope Rule (ADR-0016): adding a module touches as few existing lines

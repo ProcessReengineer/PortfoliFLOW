@@ -53,6 +53,33 @@ DEFAULT_TTS_MODEL = "gpt-4o-mini-tts"
 DEFAULT_TTS_VOICE = "nova"
 
 
+def env_stt_provider() -> str:
+    """Return the speech-to-text provider key from ``VOICE_STT_PROVIDER``.
+
+    The two provider keys are environment-only by design: the settings
+    taxonomy declares no per-tenant chain for them until a second adapter's
+    ADR does (ADR-0118 §1). This is their one reader: the web surface, the
+    Telegram bot and :class:`VoiceConfig` all call it. Read at call time, so
+    each resolution sees the current environment.
+
+    Returns:
+        The configured key, or :data:`DEFAULT_VOICE_PROVIDER` when unset.
+    """
+    return os.getenv("VOICE_STT_PROVIDER", DEFAULT_VOICE_PROVIDER)
+
+
+def env_tts_provider() -> str:
+    """Return the text-to-speech provider key from ``VOICE_TTS_PROVIDER``.
+
+    The twin of :func:`env_stt_provider`; the same environment-only rule
+    applies (ADR-0118 §1).
+
+    Returns:
+        The configured key, or :data:`DEFAULT_VOICE_PROVIDER` when unset.
+    """
+    return os.getenv("VOICE_TTS_PROVIDER", DEFAULT_VOICE_PROVIDER)
+
+
 @dataclass
 class VoiceConfig:
     """Configuration for the optional voice service.
@@ -86,17 +113,13 @@ class VoiceConfig:
     enabled: bool = field(
         default_factory=lambda: os.getenv("VOICE_ENABLED", "false").lower() == "true"
     )
-    stt_provider: str = field(
-        default_factory=lambda: os.getenv("VOICE_STT_PROVIDER", DEFAULT_VOICE_PROVIDER)
-    )
+    stt_provider: str = field(default_factory=env_stt_provider)
     stt_model: str = field(default_factory=lambda: os.getenv("VOICE_STT_MODEL", DEFAULT_STT_MODEL))
     stt_api_key: str = field(default_factory=lambda: os.getenv("VOICE_STT_API_KEY", ""))
     stt_base_url: str = field(
         default_factory=lambda: os.getenv("VOICE_STT_BASE_URL", DEFAULT_STT_BASE_URL)
     )
-    tts_provider: str = field(
-        default_factory=lambda: os.getenv("VOICE_TTS_PROVIDER", DEFAULT_VOICE_PROVIDER)
-    )
+    tts_provider: str = field(default_factory=env_tts_provider)
     tts_model: str = field(default_factory=lambda: os.getenv("VOICE_TTS_MODEL", DEFAULT_TTS_MODEL))
     tts_voice: str = field(default_factory=lambda: os.getenv("VOICE_TTS_VOICE", DEFAULT_TTS_VOICE))
     tts_api_key: str = field(default_factory=lambda: os.getenv("VOICE_TTS_API_KEY", ""))

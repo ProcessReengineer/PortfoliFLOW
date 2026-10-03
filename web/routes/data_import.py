@@ -35,7 +35,8 @@ that shell, which only tests run, writes the ``DataStore``.
 
 Validation
 ----------
-- File-size limit: ``WEB_MAX_UPLOAD_SIZE_MB`` env var, default 50.
+- File-size limit: ``WEB_MAX_UPLOAD_SIZE_MB`` (a ``WebSettings`` field),
+  default 50.
   Oversized uploads return 413 with a user-facing message.
 - MIME type / parseability: the route trusts the actual parse, not the
   declared MIME type — non-Excel content surfaces as a
@@ -53,7 +54,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import pathlib
 import tempfile
 import uuid
@@ -131,6 +131,7 @@ from services.investments import InvestmentService
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import require_role
+from web.settings import WebSettings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -140,7 +141,6 @@ router = APIRouter()
 # Tunables
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MAX_UPLOAD_SIZE_MB: int = 50
 # The literal "v2" is the persisted database format-version
 # identifier (see data_uploads.format_version). It remains
 # unchanged for audit-trail integrity per ADR-0059. User-facing
@@ -151,18 +151,15 @@ _FILENAME_MAX_LEN: int = 255
 _RECENT_UPLOAD_LIMIT: int = 20
 
 
-def _max_upload_bytes() -> int:
+def _max_upload_bytes(request: Request) -> int:
     """Return the configured upload-size cap in bytes.
 
-    Read at request time (rather than at import time) so tests can
-    override ``WEB_MAX_UPLOAD_SIZE_MB`` between cases.
+    ``WEB_MAX_UPLOAD_SIZE_MB`` is a :class:`~web.settings.WebSettings` field,
+    bounds-checked when the settings load, so the route reads the app's
+    settings rather than the environment.
     """
-    raw = os.getenv("WEB_MAX_UPLOAD_SIZE_MB")
-    try:
-        mb = int(raw) if raw is not None else _DEFAULT_MAX_UPLOAD_SIZE_MB
-    except ValueError:
-        mb = _DEFAULT_MAX_UPLOAD_SIZE_MB
-    return max(1, mb) * 1024 * 1024
+    settings = cast(WebSettings, request.app.state.settings)
+    return settings.web_max_upload_size_mb * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +270,7 @@ async def load_data_import_section_context(
 
     return {
         "csrf_token": session.csrf_token,
-        "max_upload_mb": _max_upload_bytes() // (1024 * 1024),
+        "max_upload_mb": _max_upload_bytes(request) // (1024 * 1024),
         "recent_uploads": recent,
         "uploader_emails": uploader_emails,
         "info": info,
@@ -497,7 +494,7 @@ async def post_data_import_section_upload(
     server-rendered. On parse / sanitisation error the response body
     is the upload-form fragment with an inline alert.
     """
-    max_bytes = _max_upload_bytes()
+    max_bytes = _max_upload_bytes(request)
     engine = _engine(request)
 
     # ``verify_csrf`` parses the multipart form to read the CSRF token

@@ -54,7 +54,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import time
 import uuid
 from collections import OrderedDict
@@ -101,12 +100,13 @@ from services.voice import (
     DEFAULT_STT_MODEL,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_VOICE,
-    DEFAULT_VOICE_PROVIDER,
     EmptyTranscriptError,
     ResolvedVoice,
     UnsupportedAudioFormatError,
     VoiceError,
     build_provider,
+    env_stt_provider,
+    env_tts_provider,
 )
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
@@ -1342,8 +1342,8 @@ async def _resolve_voice_through(
     # The two provider keys are env-only by design: the taxonomy deliberately
     # does not declare them until a second adapter's ADR does (ADR-0118 §1),
     # so there is no per-tenant chain here for the façade to walk.
-    stt_provider = os.getenv("VOICE_STT_PROVIDER", DEFAULT_VOICE_PROVIDER)
-    tts_provider = os.getenv("VOICE_TTS_PROVIDER", DEFAULT_VOICE_PROVIDER)
+    stt_provider = env_stt_provider()
+    tts_provider = env_tts_provider()
 
     return ResolvedVoice(
         stt_provider=stt_provider,

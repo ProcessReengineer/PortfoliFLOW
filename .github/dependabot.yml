@@ -1,0 +1,16 @@
+# Keep the GitHub Actions current. Every `uses:` line in .github/workflows
+# pins a full commit SHA with the release as a trailing comment; Dependabot
+# rewrites both together. Python dependencies are deliberately not covered
+# here: their bounds in pyproject.toml carry documented reasons.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci

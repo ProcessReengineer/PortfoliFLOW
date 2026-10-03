@@ -23,7 +23,14 @@ tools live in the virtual environment — activate it, or call
 | `integration` marker | on demand only | Tests that call a live external service (the model routing eval). Deselected by default through `addopts = "-m 'not integration'"` in `pyproject.toml`; run deliberately with `pytest -m integration` and valid credentials. |
 | `timing` marker | on demand only | Tests that depend on wall-clock timing and are flaky under shared load. Excluded by the selection string of both workflows. |
 
-CI runs on Python 3.11, the `requires-python` floor.
+Lint, the typing islands and the full suite run once, on Ubuntu 24.04 with
+Python 3.11 (the `requires-python` floor). The fast tier runs on the
+reference platforms: Ubuntu 24.04 with Python 3.11 and 3.13, and macOS 26
+with Python 3.13. Runner images are pinned by name and actions by commit
+SHA; `.github/dependabot.yml` proposes action updates weekly. The one
+exception is `installer.yml`, which deliberately follows `ubuntu-latest`
+and `macos-latest` as an early warning for runner-image drift (see its
+header).
 
 The selection strings, as the workflows run them:
 

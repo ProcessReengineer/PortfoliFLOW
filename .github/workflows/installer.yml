@@ -11,6 +11,12 @@
 # in as a support issue. workflow_dispatch is there so a red weekly run
 # can be retried by hand once the cause is understood.
 #
+# Runner labels: unlike every other workflow in this repository, this one
+# deliberately runs on ubuntu-latest and macos-latest. Following the
+# moving labels is what makes the weekly run an early warning for the
+# drift described above; pinning them would silence exactly that signal.
+# The actions themselves are pinned by commit SHA like everywhere else.
+#
 # Deviation D1 from ADR-0124 §6: the ADR asks for a macos-latest
 # end-to-end install with Podman, started by the job via
 # `podman machine`. GitHub's macOS runners are arm64 and do not support
@@ -45,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: shellcheck must ship with the runner
         run: |
@@ -63,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Container engine preflight
         run: |
@@ -134,7 +140,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: System bash is the 3.2 line
         run: /bin/bash -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"' | grep -qx '3.2'

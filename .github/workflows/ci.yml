@@ -1,7 +1,14 @@
 # Fast tier — the merge contract (ADR-0109 §4, §6).
 #
 # Runs on every push and PR: lint, format check, pyright islands, and the
-# fast test tier. The fast tier runs WITHOUT a database:
+# fast test tier. Lint and typecheck run once, on Ubuntu 24.04 with Python
+# 3.11 (the requires-python floor). The fast tier runs on the reference
+# platforms the README names: Ubuntu 24.04 with Python 3.11 and 3.13, and
+# macOS 26 with Python 3.13 (Windows is supported through WSL2 only).
+# Runner images are pinned by name and actions by commit SHA;
+# .github/dependabot.yml proposes the action updates.
+#
+# The fast tier runs WITHOUT a database:
 #   * tests/repositories, tests/services, tests/auth, tests/web are
 #     ignored explicitly (DB-heavy; covered by full-suite.yml),
 #   * any remaining DB-bound test self-skips by fixture design
@@ -18,13 +25,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -37,11 +47,11 @@ jobs:
         run: ruff format --check .
 
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
@@ -52,13 +62,24 @@ jobs:
         run: pyright
 
   fast-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: fast-tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: "3.11"
+          - os: ubuntu-24.04
+            python: "3.13"
+          - os: macos-26
+            python: "3.13"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install

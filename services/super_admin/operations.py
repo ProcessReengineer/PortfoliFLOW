@@ -52,12 +52,25 @@ from core.repositories import (
     tenant_context,
 )
 from core.repositories.country_repository import CountryRepository
+from core.repositories.irene_schedule_repository import IreneScheduleRepository
+from core.repositories.market_data_schedule_repository import (
+    MarketDataScheduleRepository,
+)
 from core.tenant_constants import (
     PRIMARY_TENANT_ID,
     SYSTEM_TENANT_ID,
 )
 from services.password_hashing import hash_password
 from services.saa import SAAService, install_seeds_for_tenant
+from services.tenant_defaults import (
+    install_default_asset_classes,
+    install_default_regions,
+    install_irene_schedule,
+    install_market_data_schedule,
+    install_market_data_system_actor,
+    install_unclassified_asset_class,
+    install_unclassified_sector,
+)
 
 # EmailInvalidError / RoleInvalidError are re-imported rather than defined
 # here since ADR-0121 §2 moved them alongside the validators they belong
@@ -1036,19 +1049,19 @@ async def seed_tenant_defaults(
     - SAA configurations (3 templates) + the asset classes they
       reference, via :func:`services.saa.install_seeds_for_tenant`.
     - The ``unclassified`` asset class (Excel-import safety net,
-      ADR-0043 §1), via
-      :func:`cli.bootstrap.install_unclassified_asset_class`.
+      ADR-0043 §1).
     - The Phase-7 default asset-class catalogue (AnlV /
-      Anlagegrenzen vocabulary), via
-      :func:`cli.bootstrap.install_default_asset_classes`.
+      Anlagegrenzen vocabulary).
     - The ``unclassified`` sector (Excel-import safety net).
     - The default region catalogue + memberships (ADR-0046 M1).
     - The market-data system actor and the (disabled) market-data
-      schedule row (Live Data Import, ADR-0093 §0.1 / §1), via the
-      :mod:`cli.bootstrap` installers.
-    - The (enabled) Irene schedule row (ADR-0119 §4), via
-      :func:`cli.bootstrap.install_irene_schedule`, so the Watch Desk
+      schedule row (Live Data Import, ADR-0093 §0.1 / §1).
+    - The (enabled) Irene schedule row (ADR-0119 §4), so the Watch Desk
       has a cadence out of the box.
+
+    Every step but the SAA seeds and the watchpoints calls an installer
+    from :mod:`services.tenant_defaults`, the module ``portfoliflow
+    bootstrap`` installs the primary tenant's defaults with.
     - The Watch Desk default watchpoints (ADR-0116 §8), via
       :func:`services.watch_desk.seeding.install_default_watchpoints_for_tenant`.
 
@@ -1090,13 +1103,8 @@ async def seed_tenant_defaults(
             tenant_id,
         )
 
-    # Unclassified asset class — re-uses the bootstrap installer so the
-    # ADR-0043 fallback bucket is present for every tenant, not just the
-    # bootstrapped primary tenant (ADR-0077). Function-scope import
-    # mirrors the install_default_regions pattern below: it avoids the
-    # load-time services -> cli circular import.
-    from cli.bootstrap import install_unclassified_asset_class  # noqa: PLC0415
-
+    # Unclassified asset class — the ADR-0043 fallback bucket, present for
+    # every tenant, not just the bootstrapped primary tenant (ADR-0077).
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
         await install_unclassified_asset_class(AssetClassRepository(session))
         _LOG.info(
@@ -1107,8 +1115,6 @@ async def seed_tenant_defaults(
     # Phase-7 default asset-class catalogue — restores AnlV /
     # Anlagegrenzen parity with the primary tenant (ADR-0077). Runs after
     # the unclassified step so the fallback row is always present.
-    from cli.bootstrap import install_default_asset_classes  # noqa: PLC0415
-
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
         await install_default_asset_classes(AssetClassRepository(session))
         _LOG.info(
@@ -1118,22 +1124,13 @@ async def seed_tenant_defaults(
 
     # Unclassified sector.
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
-        sectors = SectorRepository(session)
-        if await sectors.get_by_code("unclassified") is None:
-            await sectors.create(
-                code="unclassified",
-                display_name="Unclassified",
-                created_by=actor_user_id,
-            )
+        await install_unclassified_sector(SectorRepository(session), actor_user_id)
         _LOG.info(
             "seed_tenant_defaults: unclassified sector ensured for tenant %s",
             tenant_id,
         )
 
-    # Default regions + memberships — re-imports the same catalogue
-    # bootstrap.py uses, via the bootstrap helper.
-    from cli.bootstrap import install_default_regions  # noqa: PLC0415
-
+    # Default regions + memberships — the same catalogue bootstrap installs.
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
         await install_default_regions(
             RegionRepository(session),
@@ -1145,19 +1142,8 @@ async def seed_tenant_defaults(
         )
 
     # Live Data Import (#036, ADR-0093) — the per-tenant market-data system
-    # actor and the (disabled) schedule row, via the same bootstrap
-    # installers so create-tenant tenants reach full seed parity with the
-    # bootstrapped primary tenant (ADR-0077). Function-scope imports mirror
-    # the pattern above and keep the market-data refresh core / provider
-    # adapters out of this module's (web-reachable) import graph.
-    from cli.bootstrap import (  # noqa: PLC0415
-        install_market_data_schedule,
-        install_market_data_system_actor,
-    )
-    from core.repositories.market_data_schedule_repository import (  # noqa: PLC0415
-        MarketDataScheduleRepository,
-    )
-
+    # actor and the (disabled) schedule row, so create-tenant tenants reach
+    # full seed parity with the bootstrapped primary tenant (ADR-0077).
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
         await install_market_data_system_actor(UserRepository(session))
         await install_market_data_schedule(
@@ -1172,13 +1158,6 @@ async def seed_tenant_defaults(
     # Watch Desk cadence (ADR-0119 §4) — the tenant-level irene_schedule
     # row, seeded *enabled* so the area is alive from the first render
     # rather than waiting for an operator to save the cadence panel once.
-    # Same function-scope-import pattern as the steps above, for the same
-    # reason: it keeps cli.bootstrap out of this module's load-time graph.
-    from cli.bootstrap import install_irene_schedule  # noqa: PLC0415
-    from core.repositories.irene_schedule_repository import (  # noqa: PLC0415
-        IreneScheduleRepository,
-    )
-
     async with tenant_context(engine, tenant_id, user_id=actor_user_id) as session:
         await install_irene_schedule(
             IreneScheduleRepository(session),
@@ -1194,9 +1173,6 @@ async def seed_tenant_defaults(
     # A freshly created tenant has no book yet, so only the singletons land
     # here; the installer is idempotent and re-runnable, and
     # `portfoliflow seed-watchpoints` picks up the rest once data arrives.
-    # Called directly on the service (not through cli.bootstrap like the
-    # steps above) because it lives in services/ already — no function-scope
-    # import is needed to keep the import graph acyclic.
     created = await install_default_watchpoints_for_tenant(engine, tenant_id, actor_user_id)
     _LOG.info(
         "seed_tenant_defaults: %d default watchpoint(s) installed for tenant %s",

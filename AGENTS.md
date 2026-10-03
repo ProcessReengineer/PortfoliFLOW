@@ -58,9 +58,8 @@ core/     ──► nothing inside the project
 
 - `core/` imports nothing from within the project.
 - `services/` imports only from `core/` and other `services/` packages —
-  never from `modules/`, `web/`, `bot/` or `cli/`. One known violation
-  (`services/super_admin/operations.py` importing `cli.bootstrap`) is
-  scheduled for removal; do not copy it.
+  never from `modules/`, `web/`, `bot/` or `cli/`
+  (`test_layer_imports.py`, which pins `core/` and `bot/` as well).
 - `modules/` imports from `core/` and `services/`. A module never imports a
   sibling module and never imports from `web/`; shared code goes down into
   `services/`.

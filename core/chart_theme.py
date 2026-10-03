@@ -28,6 +28,8 @@ from typing import Any
 
 import matplotlib.font_manager
 
+from core.theme_service import get_theme_service
+
 _theme_cache: dict[str, Any] | None = None
 _logger = logging.getLogger(__name__)
 
@@ -68,11 +70,6 @@ def _config_path() -> Path:
     Returns:
         Path to the active chart theme JSON file under ``<repo_root>/config/``.
     """
-    # Function-local import: see the matching note in ``core/ui_theme.py``.
-    # ``core.theme_service`` reads JSON files from ``config/`` at construction
-    # time, so a top-level import would risk a circular path.
-    from core.theme_service import get_theme_service
-
     filename = get_theme_service().get_active_chart_theme_filename()
     return Path(__file__).resolve().parent.parent / "config" / filename
 

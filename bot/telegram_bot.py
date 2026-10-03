@@ -906,8 +906,8 @@ def _run_bot_in_thread(config: BotSettings) -> None:
     global _bot_loop, _bot_engine
 
     try:
-        from aiogram import Bot, Dispatcher, F
-        from aiogram.exceptions import (
+        from aiogram import Bot, Dispatcher, F  # noqa: PLC0415 - optional `bot` extra
+        from aiogram.exceptions import (  # noqa: PLC0415 - optional `bot` extra
             TelegramNetworkError,
             TelegramUnauthorizedError,
         )
@@ -1719,7 +1719,7 @@ async def _run_turn(
             )
         if audio_bytes:
             try:
-                from aiogram.types import BufferedInputFile
+                from aiogram.types import BufferedInputFile  # noqa: PLC0415 - optional `bot` extra
             except ImportError:
                 logger.error("Telegram bot: aiogram unavailable; cannot send voice note.")
             else:
@@ -1753,7 +1753,7 @@ async def _run_turn(
 
     if charts:
         try:
-            from aiogram.types import BufferedInputFile
+            from aiogram.types import BufferedInputFile  # noqa: PLC0415 - optional `bot` extra
         except ImportError:
             logger.error("Telegram bot: aiogram unavailable while sending charts; skipping.")
         else:

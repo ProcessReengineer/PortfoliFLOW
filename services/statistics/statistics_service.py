@@ -43,8 +43,10 @@ from services.analytics import (
     DistributionStats,
     KeyMetricsCard,
     RiskMetrics,
+    annualise_mean_return,
     compute_correlation_matrix,
     compute_full_distribution_stats,
+    compute_mean_return,
     compute_risk_metrics,
     compute_total_return_series,
 )
@@ -335,9 +337,4 @@ def _safe_mean_annualised(return_series: pd.Series) -> float:
     investment without returns still gets a KPI card with NaN return,
     while the distribution dict simply omits the entry).
     """
-    from services.analytics import (
-        annualise_mean_return,
-        compute_mean_return,
-    )
-
     return annualise_mean_return(compute_mean_return(return_series))

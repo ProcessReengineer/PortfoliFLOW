@@ -53,6 +53,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from bot import telegram_bot
+from bot.config import get_bot_config
 from core.logging_setup import configure_logging
 from services.ai_service_core import get_ai_service_core
 from services.auth.local_password import LocalPasswordAuthBackend
@@ -211,8 +213,6 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
         # single-worker assumption already made by ``pending_turns`` and the
         # process-wide ``_TURN_LOCK`` — see docs/deploy/telegram-multi-bot.md.
         try:
-            from bot.config import get_bot_config
-
             bot_cfg = get_bot_config()
             if bot_cfg.enabled:
                 bot_tenant_id = None
@@ -243,9 +243,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
                             bot_cfg.tenant_subdomain,
                             bot_tenant_id,
                         )
-                from bot.telegram_bot import start_bot
-
-                start_bot(
+                telegram_bot.start_bot(
                     tenant_id=bot_tenant_id,
                     database_url=resolved_settings.database_url,
                     superuser_url=resolved_settings.database_url_superuser or "",
@@ -290,9 +288,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
             # reach Postgres through their own short-lived engine; signal
             # shutdown before disposing the app engines below.
             try:
-                from bot.telegram_bot import stop_bot
-
-                stop_bot()
+                telegram_bot.stop_bot()
             except Exception:  # noqa: BLE001 — never let bot teardown mask shutdown
                 _LOG.exception("Telegram bot stop raised; ignored.")
             # Then the tick scheduler — before either engine is disposed,

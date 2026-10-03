@@ -82,7 +82,7 @@ PortfoliFLOW is a strict layered system with one-way dependencies (ADR-0001):
 
 `core/` sits at the bottom and imports nothing from the project, so every layer can depend on it while it depends on none. `services/` holds the integrations, the orchestration and — in `services/analytics/` — the pure calculations; it is what the three entry points call. `modules/` holds the registered module classes of each Area; they consume `services/` and are not on the web request path (see `modules/` below). `web/`, `bot/` and `cli/` are the entry points: `web/` and `bot/` serve requests as the unprivileged application role (the few sanctioned superuser uses are named where they occur below), while `cli/` connects as the superuser (ADR-0040 §2).
 
-The binding import rules — what each layer may import, the documented exception (`cli/irene_tick.py` reading `web.settings`) and the regression tests that enforce them — are in `AGENTS.md`, "Dependency rules". This section describes the shape; `AGENTS.md` decides.
+The binding import rules — what each layer may import, the documented exceptions (`cli/irene_tick.py` reading `web.settings`, `web/` starting and querying the in-process bot, and the AI core's default-tool registration) and the regression tests that enforce them — are in `AGENTS.md`, "Dependency rules". This section describes the shape; `AGENTS.md` decides.
 
 ---
 

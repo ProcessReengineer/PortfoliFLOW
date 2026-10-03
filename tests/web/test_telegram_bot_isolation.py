@@ -69,9 +69,9 @@ async def test_app_lifespan_does_not_start_the_bot(monkeypatch) -> None:
     def _sentinel_start_bot(**kwargs: object) -> None:
         calls.append(kwargs)
 
-    # The lifespan imports ``start_bot`` inside the enabled-branch, so the
-    # module attribute is resolved at call time and patching it here is
-    # enough to observe the branch being taken.
+    # The lifespan calls ``telegram_bot.start_bot`` through the module, so
+    # the attribute is resolved at call time and patching it here is enough
+    # to observe the branch being taken.
     monkeypatch.setattr(bot.telegram_bot, "start_bot", _sentinel_start_bot)
 
     app = create_app(_settings())

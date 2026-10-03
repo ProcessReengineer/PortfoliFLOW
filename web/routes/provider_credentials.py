@@ -107,6 +107,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from bot import telegram_bot
 from core.repositories._session import tenant_context
 from core.repositories.scoped_setting_repository import (
     ScopedSettingDTO,
@@ -663,12 +664,6 @@ async def _render_section(
     Returns:
         The rendered section body for an ``outerHTML`` swap.
     """
-    # Imported here, not at module scope, mirroring the lifespan's own
-    # ``from bot.telegram_bot import start_bot``: the web surface must render
-    # on a deployment installed without the ``[bot]`` extra, and this read is
-    # the only thing on it that knows the bot exists.
-    from bot.telegram_bot import bot_status
-
     is_owner = user.has_role("owner")
     async with tenant_context(
         _engine(request), session.tenant_id, user_id=session.user_id
@@ -690,7 +685,7 @@ async def _render_section(
         # pairing state alone left an owner storing a token, setting Enabled
         # and minting codes against a bot that was switched off in ``.env``,
         # with nothing on the card saying so.
-        "telegram_bot": bot_status(session.tenant_id),
+        "telegram_bot": telegram_bot.bot_status(session.tenant_id),
         "success": success,
         "error": error,
     }

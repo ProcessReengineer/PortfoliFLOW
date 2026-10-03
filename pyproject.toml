@@ -82,11 +82,13 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# PLC0415 keeps imports at module level, the AGENTS.md dependency rule against
+# lazy imports; tests are exempt below. DC-CL-D, P-CL-D7b.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PLC0415"]
 # Rule families deliberately outside the selected set but referenced by
 # existing intent-documenting `# noqa` directives; listing them here keeps
 # RUF100 from flagging those directives as unused. ADR-0109 §1.
-external = ["ARG", "BLE", "PL", "PT", "SLF"]
+external = ["ARG", "BLE", "PLC2701", "PLR0913", "PT", "SLF"]
 ignore = [
     # Over the >50-hit threshold at adoption time — staged adoption, ADR-0109 §1.
     "RUF002", # 276 hits — staged adoption, ADR-0109 §1
@@ -120,6 +122,9 @@ ignore = [
 "core/data_store.py" = []                            # all findings already covered by staged adoption
 "modules/**" = ["RUF022", "RUF100", "SIM102", "SIM910"]
 "services/reporting/**" = ["RUF022", "SIM103", "SIM108"]
+# Tests import inside test functions on purpose (fixtures, monkeypatched
+# modules, optional dependencies); PLC0415 guards production code only.
+"tests/**" = ["PLC0415"]
 
 [tool.pyright]
 # Typing islands per ADR-0109 §3 as amended by ADR-0110; analytics enters

@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from core.exceptions import ConfigurationError
+from core.theme_service import get_theme_service
 
 _DEFAULT_THEME_FILENAME = "ui_theme.json"
 
@@ -58,13 +59,6 @@ def _config_path() -> Path:
     Returns:
         Path to the active UI theme JSON file under ``<repo_root>/config/``.
     """
-    # Function-local import: ``core.theme_service`` reads JSON files from
-    # ``config/`` at construction time, so importing it at module-load time
-    # would create a circular path (theme_service → ui_theme → theme_service)
-    # if either side starts touching the other on import. Keeping this local
-    # is the one acceptable function-local import in this project.
-    from core.theme_service import get_theme_service
-
     filename = get_theme_service().get_active_ui_theme_filename()
     return Path(__file__).resolve().parent.parent / "config" / filename
 

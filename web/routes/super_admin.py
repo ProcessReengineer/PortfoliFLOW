@@ -25,6 +25,7 @@ walks this file's import AST and enforces the rule.
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
@@ -33,6 +34,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from core.repositories.user_repository import UserDTO
@@ -112,8 +114,6 @@ def _client_ip(request: Request) -> str | None:
     parsing against a trusted-proxy list (roadmap C0 item); for now
     the direct, validated value is the right thing.
     """
-    import ipaddress
-
     raw = request.client.host if request.client else None
     if not raw:
         return None
@@ -262,8 +262,6 @@ async def create_tenant_route(
             new_tenant_id = summary.id
             # Resolve owner id for seed attribution; the user always
             # exists at this point (just created or pre-existing).
-            from sqlalchemy import text  # noqa: PLC0415
-
             owner_row = (
                 await conn.execute(
                     text("SELECT id FROM users WHERE tenant_id = :tid AND email = :email"),

@@ -114,6 +114,7 @@ from services.irene.beat import run_beat
 from services.irene.embedding import OpenRouterEmbedder
 from services.irene.scheduling import advisory_lock_key, compute_next_due_at
 from services.irene.scheduling import find_due_tenants as find_due_irene_tenants
+from services.web_research import service as web_research_service
 
 # The tick's log lines are an operational contract (ADR-0117 §Compliance:
 # "the same structured log lines per tick and per tenant beat in both
@@ -224,9 +225,7 @@ def _harvest_rss_items() -> list:
         beat internal-only).
     """
     try:
-        from services.web_research.service import WebResearchService
-
-        return list(WebResearchService().harvest_items())
+        return list(web_research_service.WebResearchService().harvest_items())
     except Exception as exc:  # noqa: BLE001 — RSS is best-effort on the tick
         _LOG.warning(
             "irene-tick: RSS harvest unavailable (%s) — beating internal-only.",

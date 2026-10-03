@@ -500,8 +500,8 @@ def test_C_17a_lock_serialises_concurrent_turns() -> None:
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(side_effect=slow_streaming_create)
             mock_client.close = AsyncMock()
-            # `get_tool_registry` is imported lazily inside
-            # `stream_response`, so the patch target is the source module.
+            # `stream_response` calls `tool_registry.get_tool_registry()`
+            # through the module, so the patch target is the source module.
             with (
                 patch.object(core, "_make_async_client", return_value=mock_client),
                 patch("services.tool_registry.get_tool_registry") as mock_get_reg,

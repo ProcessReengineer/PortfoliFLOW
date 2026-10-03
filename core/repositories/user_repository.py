@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text, update
 
 from core.models.user import User
 from core.repositories.base import BaseRepository
@@ -183,8 +183,6 @@ class UserRepository(BaseRepository):
         # arguments. RLS WITH CHECK then re-validates the value, which
         # is the defence-in-depth ADR-0035 §6 calls for — both layers
         # would have to be wrong for a leak to happen.
-        from sqlalchemy import text
-
         roles_list = list(roles)
         if not roles_list:
             raise ValueError("UserRepository.create: roles must be non-empty")
@@ -228,8 +226,6 @@ class UserRepository(BaseRepository):
         than the CLI-only rotation paths. It has no in-tree caller yet
         by design; do not flag it as dead code.
         """
-        from sqlalchemy import update
-
         await self._session.execute(
             update(User).where(User.id == user_id).values(password_hash=password_hash)
         )

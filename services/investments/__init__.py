@@ -37,6 +37,7 @@ library executes at package import.
 from __future__ import annotations
 
 import importlib
+import pkgutil
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - static resolution for mypy / IDEs
@@ -267,7 +268,5 @@ def __dir__() -> list[str]:
         ``services.investments``, so interactive completion sees the same
         surface an eager façade would have offered.
     """
-    import pkgutil
-
     submodules = [info.name for info in pkgutil.iter_modules(__path__)]
     return sorted(set(__all__) | set(submodules))

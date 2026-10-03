@@ -48,7 +48,7 @@ session — no sprawling diffs, no edits outside the stated scope.
 ## Dependency rules
 
 ```
-web/      ──► modules.module_registry, services/, core/
+web/      ──► modules.module_registry, services/, core/ (and bot/ for the in-process bot)
 modules/  ──► services/, core/
 services/ ──► services/, core/
 bot/      ──► services/, core/
@@ -69,6 +69,10 @@ core/     ──► nothing inside the project
   `DataStore` (`test_web_does_not_import_persistent_data_store.py`) or a
   market-data provider (`test_web_layer_has_no_market_data_provider_imports.py`).
 - `bot/` imports only from `core/` and `services/` (ADR-0030).
+- `web/` imports `bot/` only to start, stop and report on the optional
+  in-process bot (`web/main.py`, `web/routes/provider_credentials.py`).
+  `bot/` imports aiogram inside functions, so this works without the `bot`
+  extra.
 - `services/analytics/` is pure (ADR-0013, ADR-0045): no database session, no
   FastAPI, no PyQt6; data arrives as arguments. It may import DTO dataclasses
   from `core/repositories/` and exceptions from `core.exceptions`
@@ -78,7 +82,15 @@ core/     ──► nothing inside the project
   Plotly-shaped dicts; no database access.
 - `services/ai_service_core.py` is Qt-free (`test_ai_service_core_qt_free.py`).
   PyQt6 is not imported anywhere (`test_no_qt_imports.py`).
+- Imports sit at module level; ruff enforces it (`PLC0415`, tests exempt). A
+  function-level import is allowed only for an optional dependency (aiogram,
+  `blpapi`, the web app in `tools/ux_inventory.py`) and carries
+  `# noqa: PLC0415 - <reason>`.
 - Circular imports are a design error. Never break a cycle with a lazy import.
+  The one sanctioned exception is the default-tool registration in
+  `AIServiceCore._register_default_tools`: the web-research tool imports the
+  AI core, so the core loads the tool modules on first construction. Moving
+  that registration into the composition root is on the roadmap.
 
 If a task asks you to break one of these rules, stop and say why.
 

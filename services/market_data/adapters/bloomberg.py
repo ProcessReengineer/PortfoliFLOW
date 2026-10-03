@@ -446,7 +446,7 @@ class BlpapiDesktopGateway:
             # environment CI can build — the typechecker is told so here, and
             # the ImportError branch below is the supported path.
             # Lazy by design (#036 §0.4).
-            import blpapi  # type: ignore[import-not-found]  # noqa: PLC0415
+            import blpapi  # type: ignore[import-not-found]  # noqa: PLC0415 - optional, not on PyPI
         except ImportError as exc:
             raise MarketDataConfigurationError(
                 "The 'blpapi' package is required for the Bloomberg adapter but "

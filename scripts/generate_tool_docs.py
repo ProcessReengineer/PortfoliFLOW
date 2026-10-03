@@ -42,6 +42,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from services.ai_service_core import get_ai_service_core
+from services.tool_registry import get_tool_registry
+
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -76,8 +79,6 @@ def _ensure_tools_registered() -> None:
     default tools in one place — this script never duplicates it. No
     network I/O occurs; endpoint credentials are configured separately.
     """
-    from services.ai_service_core import get_ai_service_core
-
     get_ai_service_core()
 
 
@@ -122,8 +123,6 @@ def render_markdown() -> str:
         registered tools and their registration order.
     """
     _ensure_tools_registered()
-
-    from services.tool_registry import get_tool_registry
 
     registry = get_tool_registry()
     tool_defs = registry.get_tool_definitions()

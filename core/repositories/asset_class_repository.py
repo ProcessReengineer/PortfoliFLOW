@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text, update
 
 from core.models.asset_class import AssetClass
@@ -197,7 +198,5 @@ class AssetClassRepository(BaseRepository):
         configuration raises an :class:`IntegrityError` at flush time.
         Callers must remove references first.
         """
-        from sqlalchemy import delete as sa_delete
-
         await self._session.execute(sa_delete(AssetClass).where(AssetClass.id == asset_class_id))
         await self._session.flush()

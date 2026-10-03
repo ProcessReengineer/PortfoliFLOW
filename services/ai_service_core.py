@@ -86,6 +86,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import openai
 
+from services import tool_registry
 from services.ai_models import (
     ConnectionStatus,
     Conversation,
@@ -630,8 +631,6 @@ class AIServiceCore:
             )
             return
 
-        from services.tool_registry import get_tool_registry
-
         # Acquire the process-wide turn lock before any ToolRegistry
         # mutation, and hold it across every yield until the generator
         # finishes or is closed. The acquire runs via
@@ -648,7 +647,7 @@ class AIServiceCore:
                 conversation,
                 system_prompt,
                 temperature,
-                get_tool_registry(),
+                tool_registry.get_tool_registry(),
                 tool_context,
                 llm=llm,
             ):
@@ -1372,9 +1371,7 @@ class AIServiceCore:
             un-grounded form.
         """
         try:
-            from services.tool_registry import get_tool_registry
-
-            registry = get_tool_registry()
+            registry = tool_registry.get_tool_registry()
             tool_defs = registry.get_tool_definitions()
         except Exception as exc:  # noqa: BLE001 — grounding must never break prompt assembly
             logger.warning(
@@ -1445,12 +1442,18 @@ class AIServiceCore:
 
         Imports happen at first instance construction; Python's import
         cache prevents re-registration on subsequent instantiations.
+
+        These are the project's one sanctioned function-level imports
+        (``AGENTS.md``, "Dependency rules"): the web-research tool imports
+        this module through :mod:`services.web_research`, so the core can
+        load the tool modules only once it exists itself. Registering the
+        tools from the composition root instead is a roadmap item.
         """
-        import services.tools.datastore_tools
-        import services.tools.chart_tools
-        import services.tools.web_research_tool
-        import services.tools.investment_tools
-        import services.tools.analysis_tools  # noqa: F401
+        import services.tools.datastore_tools  # noqa: PLC0415 - see docstring
+        import services.tools.chart_tools  # noqa: PLC0415 - see docstring
+        import services.tools.web_research_tool  # noqa: PLC0415 - see docstring
+        import services.tools.investment_tools  # noqa: PLC0415 - see docstring
+        import services.tools.analysis_tools  # noqa: F401, PLC0415 - see docstring
 
         logger.info("AIServiceCore: default tools registered with ToolRegistry.")
 

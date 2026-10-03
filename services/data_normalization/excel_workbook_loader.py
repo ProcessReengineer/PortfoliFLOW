@@ -56,6 +56,7 @@ import logging
 import pathlib
 from typing import Any
 
+import openpyxl
 import pandas as pd
 
 from core.exceptions import DataImportError, ValidationError
@@ -647,17 +648,9 @@ def load_excel(
     if not path.exists() or not path.is_file():
         raise DataImportError(f"File not found or not a regular file: {path}")
 
-    # Guard: openpyxl is a required runtime dependency for Excel support
-    try:
-        import openpyxl as _openpyxl
-    except ImportError as exc:
-        raise DataImportError(
-            "openpyxl is required for Excel import.  Install it with: pip install 'openpyxl>=3.1'"
-        ) from exc
-
     try:
         # data_only=True: return computed cell values rather than formula strings
-        wb = _openpyxl.load_workbook(path, data_only=True)
+        wb = openpyxl.load_workbook(path, data_only=True)
     except Exception as exc:
         raise DataImportError(f"Cannot parse '{path.name}': {type(exc).__name__}: {exc}") from exc
 

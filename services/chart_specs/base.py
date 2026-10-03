@@ -33,6 +33,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from core.theme_service import get_theme_service
+
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -54,8 +56,6 @@ def _resolve_active_filename() -> str:
         repo's ``config/`` directory.
     """
     try:
-        from core.theme_service import get_theme_service
-
         return get_theme_service().get_active_chart_theme_filename()
     except Exception as exc:  # noqa: BLE001 - fall back to the default
         logger.debug(

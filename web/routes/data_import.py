@@ -67,7 +67,7 @@ from fastapi import (
     Request,
     status,
 )
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from starlette.datastructures import UploadFile
@@ -797,8 +797,6 @@ async def post_import_upload_as_investments(
           (:class:`ImportFormatError`).
         * 404 — ``upload_id`` is not visible in the active tenant.
     """
-    from fastapi.responses import JSONResponse
-
     engine = _engine(request)
 
     benchmark_result = None

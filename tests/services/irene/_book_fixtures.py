@@ -11,8 +11,7 @@ known coverage status at the latest Stichtag. Shared by
 end-to-end) so the two exercise the identical book.
 
 The leading underscore keeps pytest from collecting this as a test
-module — it is a helper, mirroring
-``tests/services/analytics/_reference_loader.py``.
+module — it is a helper.
 """
 
 from __future__ import annotations

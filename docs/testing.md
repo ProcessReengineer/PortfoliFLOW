@@ -115,9 +115,10 @@ alone accounts for roughly 85 minutes. Treat it as a session of its own.
 | `tests/auth/test_local_password_backend.py::test_constant_time_unknown_user_vs_wrong_password` | `@pytest.mark.timing` plus an unconditional `@pytest.mark.skip` | Timing comparisons are flaky under variable load, so the test is kept for manual verification only. `-m timing` alone still skips it; a manual check means lifting the skip locally for that run. |
 | `tests/core/test_chart_theme_alternatives.py::test_all_chart_themes_have_same_schema` | `xfail(strict=True)` | `chart_theme_light.json` lacks the ADR-0058 `pf.*` web-chrome keys until the light theme is authored. Being strict, the test turns red on the day it passes; remove the marker then. |
 
-The other skips wait for sample workbooks under the untracked `data/sample/`
-(and for a limit-coverage reference workbook); they are being resolved in
-cleanup strand DC-CL-D.
+No other test skips for a missing file. Tests that need a realistic book
+import the committed `sample_data/PortfoliFLOW_example_portfolio.xlsx`;
+tests that need only a valid workbook build one in memory
+(`tests/fixtures/workbooks.py`).
 
 ## What the suite does not prove
 

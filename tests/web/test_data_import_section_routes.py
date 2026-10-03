@@ -9,7 +9,7 @@ seeds the bootstrap-required ``unclassified`` asset class so the
 dry-run extraction the upload endpoint now performs has the
 deployment-time row it needs. The per-test client is bound via
 ``ASGITransport``; an in-process ``openpyxl`` workbook keeps the
-suite free of ``data/sample/`` file dependencies.
+suite free of workbook-file dependencies.
 
 Coverage targets — sub-stream 6F (single-button workflow):
 

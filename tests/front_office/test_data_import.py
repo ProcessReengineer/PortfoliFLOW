@@ -19,7 +19,7 @@ Coverage targets
 * Headless importability: no display required at import time.
 
 All tests use in-memory Excel fixtures from ``conftest.py``; none depend on
-real sample files in ``data/sample/``.
+a workbook file on disk.
 """
 
 from __future__ import annotations

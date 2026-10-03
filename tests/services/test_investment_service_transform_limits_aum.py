@@ -1,35 +1,39 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""End-to-end Phase-7 importer test: v21 workbook → DB.
+"""End-to-end importer test: the example portfolio → DB, limit sets included.
 
-Loads ``data/sample/PortfoliFLOW_Testdaten_v21.xlsx`` through
-:func:`modules.front_office.data_import.load_excel`, persists the
-resulting sheets as a real ``data_uploads`` row, and runs
-:meth:`InvestmentService.transform_upload_to_investments` with the
-new opt-in repositories wired up (anlv_categories, limits). Verifies the
-documented Block-A acceptance criteria:
+Loads the committed ``sample_data/PortfoliFLOW_example_portfolio.xlsx``
+through :func:`services.data_normalization.excel_workbook_loader.load_excel`,
+persists the sheets as a real ``data_uploads`` row, and runs
+:meth:`InvestmentService.transform_upload_to_investments` with the opt-in
+AnlV and limits repositories wired up. Verifies:
 
-* 7 investments created with expected ``anlv_code``.
-* No AUM is persisted. ADR-0103 §3 demoted the AUM sheet to an optional
-  reconciliation control (compared against Σ NAV, reported on, never
-  written), and ADR-0103 §7 then dropped the ``portfolio_aum`` table
-  outright (migration b030) — so there is no longer a table to assert the
-  absence of rows in. The ~5,479 daily rows this test once asserted have no
-  destination left; the schema-level proof lives in
-  ``tests/regression/test_rls_schema_invariants.py``.
-* 2 limit sets for ``family='saa'``, 2 for ``family='anlv'``.
-* Sum-to-100 holds for every persisted set.
+* the 21 lettered investments and the two cash positions are created,
+  each with the ``anlv_code`` its ``AnlV`` attribute names (the cash
+  positions carry none);
+* the two ``Limit Set SAA`` sets and the two ``Limit Set 2`` (AnlV) sets
+  land with their effective dates, each summing to 100, with the 0 % rows
+  dropped.
 
-Plus two negative paths:
+AUM is not asserted: ADR-0103 §3 demoted the AUM sheet to a reconciliation
+control and ADR-0103 §7 dropped the ``portfolio_aum`` table (migration
+b030), so there is nothing left to persist; the schema-level proof lives in
+``tests/regression/test_rls_schema_invariants.py``.
 
-* Sum-not-100 synthetic sheet → :class:`LimitValidationError`.
-* Duplicate import of an already-persisted limit set →
-  :class:`LimitValidationError` referencing immutability.
+Plus two negative paths on synthetic sheets:
+
+* importing an already-persisted limit set again →
+  :class:`LimitValidationError` referencing immutability;
+* a set whose limits sum to 90 → :class:`LimitValidationError`.
+
+The workbook is tracked in the repository, so no test here skips for a
+missing file.
 """
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -55,13 +59,26 @@ from core.repositories import (
     UserRepository,
     tenant_context,
 )
-from services.data_normalization.excel_workbook_loader import load_excel
 from services.data_normalization import InvestmentExtractor
+from services.data_normalization.excel_workbook_loader import load_excel
 from services.investments import InvestmentService
 
-V21_PATH = (
-    Path(__file__).resolve().parents[2] / "data" / "sample" / "PortfoliFLOW_Testdaten_v21.xlsx"
+_WORKBOOK_PATH = (
+    Path(__file__).resolve().parents[2] / "sample_data" / "PortfoliFLOW_example_portfolio.xlsx"
 )
+
+#: ``anlv_code`` per position, read off the workbook's ``AnlV`` attribute
+#: row (``"Nr. 12"`` → ``"anlv_12"``). The two cash positions carry none.
+_EXPECTED_ANLV: dict[str, str | None] = {
+    **{f"Investment {c}": "anlv_12" for c in "ABCH"},
+    **{f"Investment {c}": "anlv_14" for c in "DS"},
+    **{f"Investment {c}": "anlv_13" for c in "EFGNU"},
+    **{f"Investment {c}": "anlv_7" for c in "IJKLM"},
+    **{f"Investment {c}": "anlv_17" for c in "OPQR"},
+    "Investment T": "anlv_15",
+    "Cash USD": None,
+    "Cash EUR": None,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +104,9 @@ async def _create_upload(
     user_id: UUID,
     *,
     sheets: dict[str, pd.DataFrame],
-    filename: str = "PortfoliFLOW_Testdaten_v21.xlsx",
+    filename: str = "PortfoliFLOW_example_portfolio.xlsx",
 ):
-    import hashlib
-
-    digest = hashlib.sha256(filename.encode("utf-8")).hexdigest()
-    file_hash = digest[:64]
+    file_hash = hashlib.sha256(filename.encode("utf-8")).hexdigest()
     async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
         return await DataUploadRepository(session).create_upload(
             uploaded_by=user_id,
@@ -134,40 +148,50 @@ async def _run_transform(
         return await service.transform_upload_to_investments(upload_id, **kwargs)
 
 
+def _synthetic_attributes() -> pd.DataFrame:
+    """A one-investment ``attributes`` sheet that keeps the upload invariants happy."""
+    return pd.DataFrame(
+        data=[
+            ["Aktien"],
+            [None],
+            ["EUR"],
+            ["equities"],
+            ["GP"],
+        ],
+        index=[
+            "Investment Type",
+            "Investment Sub-Class",
+            "Währung",
+            "Asset Class",
+            "Manager / Fondsname",
+        ],
+        columns=["Investment Z"],
+    )
+
+
 # ---------------------------------------------------------------------------
-# IT-V21: v21 end-to-end roundtrip
+# The example portfolio end to end
 # ---------------------------------------------------------------------------
 
 
-async def test_v21_roundtrip_landing_investments_aum_and_limits(
+async def test_example_portfolio_roundtrip_lands_investments_and_limits(
     app_engine: AsyncEngine, seed_tenant
 ) -> None:
-    if not V21_PATH.exists():
-        pytest.skip(f"v21 testdata not at {V21_PATH}; skipping roundtrip.")
-    tenant_id = await seed_tenant("v21-roundtrip")
-    actor = await _seed_actor(app_engine, tenant_id, email="v21-actor@example.com")
+    tenant_id = await seed_tenant("example-roundtrip")
+    actor = await _seed_actor(app_engine, tenant_id, email="example-actor@example.com")
     await _bootstrap_catalogues(app_engine, tenant_id, actor.id)
 
-    datasets = load_excel(V21_PATH)
+    datasets = load_excel(_WORKBOOK_PATH)
     upload = await _create_upload(app_engine, tenant_id, actor.id, sheets=datasets)
 
     await _run_transform(app_engine, tenant_id, actor.id, upload.id)
 
-    # ---- Assert investments ---------------------------------------------
+    # ---- Investments and their AnlV codes --------------------------------
     async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
-        inv_repo = InvestmentRepository(session)
-        investments = await inv_repo.list_all()
-        anlv_by_name = {i.name: i.anlv_code for i in investments}
-    assert {i.name for i in investments} == {f"Investment {c}" for c in "ABCDEFG"}
-    assert anlv_by_name["Investment A"] == "anlv_15"
-    assert anlv_by_name["Investment B"] == "anlv_15"
-    assert anlv_by_name["Investment C"] == "anlv_15"
-    assert anlv_by_name["Investment D"] == "anlv_14"
-    assert anlv_by_name["Investment E"] == "anlv_13"
-    assert anlv_by_name["Investment F"] == "anlv_13"
-    assert anlv_by_name["Investment G"] == "anlv_13"
+        investments = await InvestmentRepository(session).list_all()
+    assert {i.name: i.anlv_code for i in investments} == _EXPECTED_ANLV
 
-    # ---- Assert limit sets ----------------------------------------------
+    # ---- Limit sets ------------------------------------------------------
     async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
         limits_repo = LimitsRepository(session)
         saa_sets = await limits_repo.list_sets("saa")
@@ -183,7 +207,7 @@ async def test_v21_roundtrip_landing_investments_aum_and_limits(
         date(2025, 4, 1),
     }
 
-    # ---- Sum-to-100 sanity for every persisted set ----------------------
+    # ---- Sum-to-100 for every persisted set; 0 % rows dropped ------------
     async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
         limits_repo = LimitsRepository(session)
         for limit_set in [*saa_sets, *anlv_sets]:
@@ -192,15 +216,13 @@ async def test_v21_roundtrip_landing_investments_aum_and_limits(
             assert abs(total - Decimal("100")) < Decimal("0.01"), (
                 f"Set {limit_set.label!r} sums to {total}, expected 100"
             )
-        # 12 class keys for SAA (one set per the two effective_from
-        # dates) and 8 for AnlV; cash_keys excluded class keys with 0%.
+        # The initial SAA set lists 12 class keys; its three 0 % rows
+        # (infra_debt, hedge_funds, cash) are dropped by the importer, as
+        # the DB CHECK refuses a zero limit.
         saa_first = await limits_repo.list_limits(
             next(s for s in saa_sets if s.effective_from == date(2016, 1, 1)).id
         )
-        # The v21 SAA "initial" set has 4 zero-pct rows (infra_debt,
-        # hedge_funds, cash, real_estate is non-zero); zeros are
-        # dropped by the importer so the count is < 12.
-        assert len(saa_first) >= 7
+        assert len(saa_first) == 9
         anlv_first = await limits_repo.list_limits(
             next(s for s in anlv_sets if s.effective_from == date(2016, 1, 1)).id
         )
@@ -215,24 +237,32 @@ async def test_v21_roundtrip_landing_investments_aum_and_limits(
 async def test_duplicate_import_raises_limit_validation_error(
     app_engine: AsyncEngine, seed_tenant
 ) -> None:
-    if not V21_PATH.exists():
-        pytest.skip(f"v21 testdata not at {V21_PATH}; skipping.")
-    tenant_id = await seed_tenant("v21-dup")
-    actor = await _seed_actor(app_engine, tenant_id, email="v21-dup@example.com")
+    """Persisted limit sets are immutable: importing them again is refused.
+
+    Only the sheets the limit path needs ride along — a synthetic
+    one-investment ``attributes`` sheet and the workbook's two limit-set
+    sheets — so the two transforms stay cheap.
+    """
+    tenant_id = await seed_tenant("example-dup")
+    actor = await _seed_actor(app_engine, tenant_id, email="example-dup@example.com")
     await _bootstrap_catalogues(app_engine, tenant_id, actor.id)
 
-    datasets = load_excel(V21_PATH)
-    upload = await _create_upload(app_engine, tenant_id, actor.id, sheets=datasets)
+    limit_sheets = {
+        key: frame
+        for key, frame in load_excel(_WORKBOOK_PATH).items()
+        if key in ("limit_set_saa", "limit_set_2")
+    }
+    assert set(limit_sheets) == {"limit_set_saa", "limit_set_2"}
+    sheets = {"attributes": _synthetic_attributes(), **limit_sheets}
+
+    upload = await _create_upload(
+        app_engine, tenant_id, actor.id, sheets=sheets, filename="limits-first.xlsx"
+    )
     await _run_transform(app_engine, tenant_id, actor.id, upload.id)
 
     upload2 = await _create_upload(
-        app_engine,
-        tenant_id,
-        actor.id,
-        sheets=datasets,
-        filename="duplicate-v21.xlsx",
+        app_engine, tenant_id, actor.id, sheets=sheets, filename="limits-again.xlsx"
     )
-
     with pytest.raises(LimitValidationError) as excinfo:
         await _run_transform(app_engine, tenant_id, actor.id, upload2.id)
     assert "immutable" in str(excinfo.value).lower()
@@ -246,8 +276,8 @@ async def test_duplicate_import_raises_limit_validation_error(
 async def test_sum_not_100_raises_limit_validation_error(
     app_engine: AsyncEngine, seed_tenant
 ) -> None:
-    tenant_id = await seed_tenant("v21-bad-sum")
-    actor = await _seed_actor(app_engine, tenant_id, email="v21-bad-sum@example.com")
+    tenant_id = await seed_tenant("example-bad-sum")
+    actor = await _seed_actor(app_engine, tenant_id, email="example-bad-sum@example.com")
     await _bootstrap_catalogues(app_engine, tenant_id, actor.id)
 
     # Synthetic limit-set sheet: a single set whose limits sum to 90,
@@ -274,28 +304,7 @@ async def test_sum_not_100_raises_limit_validation_error(
         ],
         columns=[0],
     )
-    sheets = {
-        # Attributes + at least one row sheet keep the upload-side
-        # invariants happy; the limits sheet is what matters here.
-        "attributes": pd.DataFrame(
-            data=[
-                ["Aktien"],
-                [None],
-                ["EUR"],
-                ["equities"],
-                ["GP"],
-            ],
-            index=[
-                "Investment Type",
-                "Investment Sub-Class",
-                "Währung",
-                "Asset Class",
-                "Manager / Fondsname",
-            ],
-            columns=["Investment Z"],
-        ),
-        "limit_set_saa": saa_bad,
-    }
+    sheets = {"attributes": _synthetic_attributes(), "limit_set_saa": saa_bad}
     upload = await _create_upload(
         app_engine,
         tenant_id,

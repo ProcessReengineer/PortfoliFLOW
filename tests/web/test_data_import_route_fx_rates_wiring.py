@@ -15,13 +15,15 @@ programme) is exactly the same shape of hazard: a fully-tested transform
 that the route must actually call, or the ``FX rates`` sheet is silently
 dropped from the import write path.
 
-The benchmark guard is a live-DB behavioural test driven by the real v24
-sample workbook. No FX-bearing sample workbook exists yet — the owner
-produces ``Testdaten_v31`` (with ``USD/EUR`` / ``GBP/EUR`` series)
-manually after this block lands — so the FX guard is instead a static
-AST check: it fails the moment the ``transform_fx_rates_from_upload``
-call disappears from the route module, needs no database, and cannot
-be fooled by the call surviving only inside a comment or docstring.
+The behavioural route guard for both sheets is the live-DB test in
+``test_data_import_route_benchmarks.py``: it uploads the committed
+``sample_data/PortfoliFLOW_example_portfolio.xlsx`` and asserts the
+``fx_rates_created`` counter alongside the benchmark counters. This
+module is the database-free half: a static AST check that fails the
+moment the ``transform_fx_rates_from_upload`` call disappears from the
+route module, and cannot be fooled by the call surviving only inside a
+comment or docstring. It runs in the fast CI tier, which has no
+database.
 
 The end-to-end round-trip (hand-built ``FX rates`` workbook → ``fx_rates``
 rows whose triples match the headers and cells) is covered behaviourally

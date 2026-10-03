@@ -29,17 +29,12 @@ Test categories mirror Kickoff #2 §6.2:
 * G. Stateless / reentrancy.
 * H. Input validation (sorted family lists, warn_threshold range,
   empty evaluation dates).
-
-§6.3's Excel-reference parity test is included as a skipped placeholder
-(see :func:`test_engine_matches_excel_reference_three_dates`); the
-helper schema lives in :mod:`tests.services.analytics._reference_loader`.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 from uuid import UUID, uuid4
 
 import pandas as pd
@@ -1196,41 +1191,3 @@ def test_empty_evaluation_dates_returns_empty_dataframes() -> None:
     assert result.saa.set_history == []
     assert result.anlv.set_history == []
     assert result.aum_used.empty
-
-
-# ---------------------------------------------------------------------
-# §6.3 Excel-reference parity (skipped until the reference XLSX lands)
-# ---------------------------------------------------------------------
-
-
-_REFERENCE_XLSX: Path = (
-    Path(__file__).resolve().parents[3]
-    / "data"
-    / "sample"
-    / "PortfoliFLOW_Limit_Coverage_Reference_v1.xlsx"
-)
-
-
-@pytest.mark.skipif(
-    not _REFERENCE_XLSX.exists(),
-    reason=(
-        f"Reference XLSX not yet provided (expected at {_REFERENCE_XLSX}). See Kickoff #2 §6.3."
-    ),
-)
-def test_engine_matches_excel_reference_three_dates() -> None:
-    """Parity check against the hand-validated reference workbook.
-
-    Loads three stichtage (2020-12-31, 2023-06-30, 2026-03-31) from
-    the reference XLSX and compares engine output row-by-row with
-    Decimal tolerances (±0.01 EUR for money, ±0.0001 pp for shares).
-    """
-    # The loader skeleton currently raises NotImplementedError. When
-    # the workbook is added the loader will return real
-    # ExpectedCoverage rows and this test will construct the engine
-    # inputs from the same workbook's Engine_Inputs sheet.
-    from tests.services.analytics._reference_loader import load_reference
-
-    expected = load_reference(_REFERENCE_XLSX)
-    assert expected, "loader returned no expected rows"
-    # Inputs and per-row assertions will be wired up once the workbook
-    # is committed; the skipif above guards activation.

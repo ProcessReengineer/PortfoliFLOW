@@ -6,8 +6,8 @@
 
 All fixtures are self-contained: they generate workbooks programmatically with
 ``openpyxl`` and write to a ``tmp_path`` provided by pytest.  No fixture depends
-on real sample files in ``data/sample/``, so the test suite runs in any CI
-environment without extra data files.
+on a workbook file on disk, so the test suite runs in any CI environment
+without extra data files.
 
 Fixture overview
 ----------------

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Web integration test: the upload route persists benchmark sheets.
+"""Web integration test: the upload route persists benchmark and FX sheets.
 
 Regression coverage for the hotfix where
 ``InvestmentService.transform_benchmarks_from_upload`` was tested in
@@ -9,25 +9,28 @@ isolation but **not** invoked by ``web/routes/data_import.py``. The
 JSONB ``data_upload_sheets`` row carried ``benchmarks_actual`` and
 ``benchmark_mapping`` payloads, but nothing landed in
 ``benchmarks`` / ``benchmark_observations`` /
-``asset_class_benchmark_mapping``.
+``asset_class_benchmark_mapping``. ``transform_fx_rates_from_upload``
+carries the same hazard for the ``FX rates`` sheet (ADR-0099 §5).
 
-Focus is on the *wiring*; the end-to-end semantics of the benchmark
-transformer itself are covered in
-``tests/services/test_investment_service_transform_benchmarks.py``.
+Focus is on the *wiring*; the end-to-end semantics of the transformers
+are covered in ``tests/services/test_investment_service_transform_benchmarks.py``
+and ``tests/services/test_investment_service_transform_fx_rates.py``.
+``test_data_import_route_fx_rates_wiring.py`` keeps a database-free AST
+guard for the FX call.
 
 Two cases:
 
 * ``test_upload_endpoint_persists_benchmarks_when_sheets_present`` —
-  the v24 workbook (Bootstrap-aligned asset-class strings + the two
-  Phase-7 sheets) goes through the route; benchmark tables hold
-  rows and the response payload exposes the new ``benchmarks_*``
-  counters.
+  the committed ``sample_data/PortfoliFLOW_example_portfolio.xlsx``
+  (``Benchmarks actual``, ``Benchmark Mapping`` and ``FX rates``
+  sheets) goes through the route; benchmark tables hold rows, and the
+  response payload exposes the ``benchmarks_*`` and ``fx_*`` counters.
 * ``test_upload_endpoint_skips_benchmarks_when_sheets_absent`` — the
-  v21 (pre-benchmark) workbook returns 200 with ``benchmarks_created
-  == 0`` and no benchmark rows are written.
+  in-memory minimal workbook (:mod:`tests.fixtures.workbooks`, no
+  benchmark sheets) returns 200 with ``benchmarks_created == 0`` and no
+  benchmark rows are written.
 
-Skip-friendly: requires ``DATABASE_URL`` + ``DATABASE_URL_SUPERUSER``
-plus the relevant sample workbooks under ``data/sample/``.
+Requires ``DATABASE_URL`` + ``DATABASE_URL_SUPERUSER``.
 """
 
 from __future__ import annotations
@@ -38,7 +41,6 @@ import re
 from collections.abc import AsyncGenerator
 from uuid import UUID, uuid4
 
-import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
@@ -63,19 +65,17 @@ from tests._db_fixtures import (  # noqa: F401 — fixture re-exports
     reset_schema,
     superuser_engine,
 )
+from tests.fixtures.workbooks import minimal_import_workbook
 from web.main import create_app
 from web.settings import WebSettings
 
 load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
 
-_SAMPLE_DIR = pathlib.Path(__file__).resolve().parents[2] / "data" / "sample"
-V21_PATH = _SAMPLE_DIR / "PortfoliFLOW_Testdaten_v21.xlsx"
-V24_PATH = _SAMPLE_DIR / "PortfoliFLOW_Testdaten_v24.xlsx"
-
-
-def _require(path: pathlib.Path) -> None:
-    if not path.exists():
-        pytest.skip(f"testdata not at {path}; skipping.")
+_WORKBOOK_PATH = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "sample_data"
+    / "PortfoliFLOW_example_portfolio.xlsx"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ async def seeded_tenant(
     fixture truncates ``tenants`` between tests, so each test
     re-inserts it here.
 
-    Bootstrap default asset classes are needed because the v24
+    Bootstrap default asset classes are needed because the example
     workbook's ``Benchmark Mapping`` sheet uses Excel strings that
     normalise to the bootstrap-installed codes (e.g. ``"Gov Bonds
     DM"`` → ``"gov_bonds_dm"``). Without the bootstrap catalogue the
@@ -198,15 +198,14 @@ async def _login_and_get_csrf(client: AsyncClient, email: str, password: str) ->
     return match.group(1)
 
 
-async def _upload_workbook(client: AsyncClient, csrf: str, path: pathlib.Path) -> UUID:
-    """Upload a workbook via the section endpoint; return upload id."""
-    payload = path.read_bytes()
+async def _upload_workbook(client: AsyncClient, csrf: str, filename: str, payload: bytes) -> UUID:
+    """Upload workbook bytes via the section endpoint; return upload id."""
     response = await client.post(
         "/api/data-import/section/upload",
         data={"csrf_token": csrf},
         files={
             "file": (
-                path.name,
+                filename,
                 payload,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ),
@@ -227,30 +226,25 @@ async def _upload_workbook(client: AsyncClient, csrf: str, path: pathlib.Path) -
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.timeout(600)
 async def test_upload_endpoint_persists_benchmarks_when_sheets_present(
     web_client: AsyncClient,
     seeded_tenant: tuple[UUID, UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """v24 workbook → upload endpoint → benchmark tables populated.
+    """Example workbook → upload endpoint → benchmark and FX rows written.
 
     Before the hotfix, the route silently dropped the Phase-7
     benchmark payload: the JSONB upload row carried the two sheets,
     but ``transform_benchmarks_from_upload`` was never called from
-    the write branch.
-
-    The v24 workbook carries ~30k benchmark observations on top of
-    the full investment-domain payload; the per-row inserts push the
-    end-to-end transform well past the pytest-timeout default. The
-    longer timeout is realistic for a single full-workbook write
-    cycle on the local Postgres.
+    the write branch. The workbook's ``FX rates`` sheet prices USD in
+    EUR, so the FX counters prove the second wiring on the same upload.
     """
-    _require(V24_PATH)
     tenant_id, user_id, email, password = seeded_tenant
 
     csrf = await _login_and_get_csrf(web_client, email, password)
-    upload_id = await _upload_workbook(web_client, csrf, V24_PATH)
+    upload_id = await _upload_workbook(
+        web_client, csrf, _WORKBOOK_PATH.name, _WORKBOOK_PATH.read_bytes()
+    )
 
     commit = await web_client.post(
         f"/api/data-uploads/{upload_id}/import-as-investments",
@@ -268,6 +262,12 @@ async def test_upload_endpoint_persists_benchmarks_when_sheets_present(
     assert body.get("benchmark_observations_inserted", 0) > 0
     assert body.get("benchmark_mappings_created", 0) > 0
     assert "benchmark_warnings" in body
+    assert body.get("fx_rates_created", 0) > 0, (
+        "Response payload reports zero fx_rates_created — the "
+        "transform_fx_rates_from_upload call is not wired into the "
+        "write branch."
+    )
+    assert "USD" in body.get("fx_currencies", [])
 
     # Verify in a fresh tenant-scoped session so the assertion path
     # is independent from the route handler's connection.
@@ -286,18 +286,19 @@ async def test_upload_endpoint_skips_benchmarks_when_sheets_absent(
     seeded_tenant: tuple[UUID, UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """v21 (pre-benchmark) workbook → no benchmark rows, no exceptions.
+    """Workbook without benchmark sheets → no benchmark rows, no exceptions.
 
     The benchmark transformer must short-circuit cleanly when the
     workbook has no ``Benchmarks actual`` / ``Benchmark Mapping``
     sheets; the route must return 200 with ``benchmarks_created ==
     0``.
     """
-    _require(V21_PATH)
     tenant_id, user_id, email, password = seeded_tenant
 
     csrf = await _login_and_get_csrf(web_client, email, password)
-    upload_id = await _upload_workbook(web_client, csrf, V21_PATH)
+    upload_id = await _upload_workbook(
+        web_client, csrf, "minimal-no-benchmarks.xlsx", minimal_import_workbook()
+    )
 
     commit = await web_client.post(
         f"/api/data-uploads/{upload_id}/import-as-investments",

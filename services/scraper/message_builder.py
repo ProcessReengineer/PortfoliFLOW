@@ -42,7 +42,7 @@ def build_extraction_messages(
        ``model_format``.
 
     Args:
-        system_prompt: The system prompt (loaded from ``docs/Scraper_Prompt.md``).
+        system_prompt: The system prompt (loaded from ``prompts/Scraper_Prompt.md``).
         user_instruction: Short instruction text; keyword list is appended.
         keywords: Keywords to include in the user instruction.
         attachments: Files (bytes or pre-extracted text) to attach.

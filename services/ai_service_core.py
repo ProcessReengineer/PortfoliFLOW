@@ -108,6 +108,10 @@ logger = logging.getLogger(__name__)
 # Repo root — services/ai_service_core.py → repo root is two levels up.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Runtime prompts (the Soul files and Shirley's context files) live in
+# ``prompts/`` beside ``config/``; tests point this seam at a temp dir.
+_PROMPT_DIR = _REPO_ROOT / "prompts"
+
 # Maximum number of tool-call iterations per user message. Mirrored
 # verbatim from the legacy _MAX_TOOL_ITERATIONS in services/ai_service.py.
 _MAX_TOOL_ITERATIONS = 10
@@ -355,7 +359,7 @@ class AIServiceCore:
     * OpenAI / OpenRouter client construction (``openai.AsyncOpenAI``).
     * The full tool-execution loop (:meth:`stream_response`), shared by
       the web chat's SSE route and the Telegram bot's message handler.
-    * Soul-identity injection from ``docs/Soul_Shirley.md`` (see
+    * Soul-identity injection from ``prompts/Soul_Shirley.md`` (see
       :meth:`get_system_prompt`).
     * ``ToolRegistry`` integration with the ADR-0022 ``begin_turn`` /
       ``end_turn`` brackets.
@@ -1247,7 +1251,7 @@ class AIServiceCore:
     # ------------------------------------------------------------------
 
     def get_system_prompt(self, prompt_name: str = "shirley") -> str:
-        """Load a system prompt from ``docs/Soul_<Name>.md``.
+        """Load a system prompt from ``prompts/Soul_<Name>.md``.
 
         Parsing rules: extract the content between
         the first triple-backtick fence pair, then append any
@@ -1263,13 +1267,13 @@ class AIServiceCore:
 
         Args:
             prompt_name: Base name of the soul file. Default
-                ``"shirley"`` resolves to ``docs/Soul_Shirley.md``.
+                ``"shirley"`` resolves to ``prompts/Soul_Shirley.md``.
 
         Returns:
             The composed system prompt string, beginning with the
             grounding block.
         """
-        soul_path = _REPO_ROOT / "docs" / f"Soul_{prompt_name.capitalize()}.md"
+        soul_path = _PROMPT_DIR / f"Soul_{prompt_name.capitalize()}.md"
         fallback = "You are Shirley, an AI assistant for institutional portfolio management."
         grounded_fallback = _temporal_grounding_block() + "\n\n" + fallback
         if not soul_path.exists():
@@ -1315,8 +1319,8 @@ class AIServiceCore:
                 prompt = prompt + "\n\n" + inventory
 
             context_files = [
-                _REPO_ROOT / "docs" / "Shirley_AnalysisResults_Context.md",
-                _REPO_ROOT / "docs" / "Shirley_ToolOrchestration_Context.md",
+                _PROMPT_DIR / "Shirley_AnalysisResults_Context.md",
+                _PROMPT_DIR / "Shirley_ToolOrchestration_Context.md",
             ]
             for ctx_path in context_files:
                 if ctx_path.exists():

@@ -9,10 +9,10 @@ single tool of class :class:`~services.tool_classes.ToolClass.READ_EXTERNAL_UNTR
 Stage 1 — HTTP fetch against a curated domain allowlist
 (``config/web_research.yaml``). Candidate articles are resolved from RSS/Atom
 feeds declared per allowlist entry (ADR-0024) and pre-filtered for relevance
-by an isolated Feed-Filter-LLM (``docs/Feed_Filter_Prompt.md``).
+by an isolated Feed-Filter-LLM (``prompts/Feed_Filter_Prompt.md``).
 
 Stage 2 — isolated, tool-free Fetcher-LLM extraction into a validated
-pydantic schema (``docs/Fetcher_Prompt.md``).
+pydantic schema (``prompts/Fetcher_Prompt.md``).
 
 Both LLMs run on a resolution the **caller** supplies per tool call, walked
 per tenant through the credential façade by :mod:`services.web_research.llm`

@@ -6,7 +6,7 @@
 :class:`WebResearchResult` is the structured envelope produced by the
 Fetcher-LLM for a single article. Its shape is the public output of the
 capability and must stay stable — the field list mirrors
-``docs/Fetcher_Prompt.md`` and drift between them is an audit-relevant
+``prompts/Fetcher_Prompt.md`` and drift between them is an audit-relevant
 defect.
 
 :class:`FeedItem` and :class:`FeedFilterResult` are new under ADR-0024 and
@@ -14,7 +14,7 @@ support the RSS-based resolution flow:
 
 - :class:`FeedItem` represents one entry parsed from an RSS/Atom feed.
 - :class:`FeedFilterResult` is the output envelope of the Feed-Filter-LLM
-  (``docs/Feed_Filter_Prompt.md``) — a list of candidate URLs the filter
+  (``prompts/Feed_Filter_Prompt.md``) — a list of candidate URLs the filter
   judged relevant to the query.
 
 Neither intermediate type is exposed to Shirley. Only validated
@@ -71,7 +71,7 @@ class WebResearchResult(BaseModel):
         key_facts: Up to ``_MAX_KEY_FACTS`` short factual statements. Each
             entry is capped at ``_MAX_FACT_LEN`` characters.
         relevant_asset_classes: Zero or more values from a fixed set
-            documented in ``docs/Fetcher_Prompt.md``. Unknown values are
+            documented in ``prompts/Fetcher_Prompt.md``. Unknown values are
             rejected at validation time.
         injection_detected: True if the Fetcher-LLM saw text that appeared
             to be an instruction targeted at an AI agent inside the input.

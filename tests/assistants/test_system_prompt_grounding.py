@@ -189,7 +189,7 @@ def test_prompt_begins_with_current_date_block() -> None:
 def test_fallback_prompt_carries_date_block() -> None:
     """A missing soul file still yields a temporally grounded prompt.
 
-    Temporal grounding must not depend on ``docs/Soul_<Name>.md`` being
+    Temporal grounding must not depend on ``prompts/Soul_<Name>.md`` being
     present and well-formed (ADR-0127 T1), so the minimal fallback
     carries the block too.
     """

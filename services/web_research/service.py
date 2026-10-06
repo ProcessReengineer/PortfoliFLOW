@@ -50,8 +50,9 @@ from services.web_research.models import FeedFilterResult, FeedItem, WebResearch
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_FETCHER_PROMPT_PATH = _REPO_ROOT / "docs" / "Fetcher_Prompt.md"
-_FEED_FILTER_PROMPT_PATH = _REPO_ROOT / "docs" / "Feed_Filter_Prompt.md"
+_PROMPT_DIR = _REPO_ROOT / "prompts"
+_FETCHER_PROMPT_PATH = _PROMPT_DIR / "Fetcher_Prompt.md"
+_FEED_FILTER_PROMPT_PATH = _PROMPT_DIR / "Feed_Filter_Prompt.md"
 
 # Matches a bare ``` fence at the start of a line with no language specifier.
 # Identical convention to services/scraper/service.py::_FENCE_RE.
@@ -96,7 +97,7 @@ def _load_prompt(path: Path) -> str:
 
 
 def load_fetcher_prompt(path: Path | None = None) -> str:
-    """Load the Fetcher-LLM system prompt from ``docs/Fetcher_Prompt.md``.
+    """Load the Fetcher-LLM system prompt from ``prompts/Fetcher_Prompt.md``.
 
     Args:
         path: Override path (for tests). If ``None``, uses the default.
@@ -112,7 +113,7 @@ def load_fetcher_prompt(path: Path | None = None) -> str:
 
 
 def load_feed_filter_prompt(path: Path | None = None) -> str:
-    """Load the Feed-Filter-LLM system prompt from ``docs/Feed_Filter_Prompt.md``.
+    """Load the Feed-Filter-LLM system prompt from ``prompts/Feed_Filter_Prompt.md``.
 
     Args:
         path: Override path (for tests). If ``None``, uses the default.
@@ -154,10 +155,10 @@ class WebResearchService:
                 :func:`~services.web_research.allowlist.load_allowlist`.
             fetcher_prompt: Pre-loaded Fetcher-LLM system prompt (mainly
                 for tests). If ``None``, loads from
-                ``docs/Fetcher_Prompt.md``.
+                ``prompts/Fetcher_Prompt.md``.
             feed_filter_prompt: Pre-loaded Feed-Filter-LLM system prompt
                 (mainly for tests). If ``None``, loads from
-                ``docs/Feed_Filter_Prompt.md``.
+                ``prompts/Feed_Filter_Prompt.md``.
 
         Raises:
             AllowlistError: If the allowlist cannot be loaded.

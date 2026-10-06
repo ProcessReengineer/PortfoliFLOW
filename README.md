@@ -74,6 +74,8 @@ pip install -e .
 
 This installs everything the platform needs at runtime — FastAPI/Uvicorn, SQLAlchemy + asyncpg, Alembic, pandas/SciPy, Plotly, the `portfoliflow` operator CLI and the `portfoliflow-web` server. Add `".[dev]"` for the test and lint tooling, `".[bot]"` for the optional Telegram bot.
 
+PortfoliFLOW runs from this source checkout; there is no wheel or PyPI package. The editable install keeps the code in place, and the runtime files beside it — `config/` and the system prompts in `prompts/` — are read from the checkout.
+
 #### 3. Configure
 
 ```bash

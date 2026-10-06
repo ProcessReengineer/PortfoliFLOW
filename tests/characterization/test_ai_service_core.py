@@ -580,11 +580,9 @@ def _grounded(*parts: str) -> str:
     return "\n\n".join((_temporal_grounding_block(), *parts))
 
 
-def _seed_fake_repo(root: Any) -> None:
-    """Create ``docs/Soul_Shirley.md`` with a minimal fenced soul prompt."""
-    docs = root / "docs"
-    docs.mkdir(parents=True, exist_ok=True)
-    (docs / "Soul_Shirley.md").write_text(_SOUL_FENCE, encoding="utf-8")
+def _seed_prompt_dir(prompt_dir: Any) -> None:
+    """Write ``Soul_Shirley.md`` with a minimal fenced soul prompt into ``prompt_dir``."""
+    (prompt_dir / "Soul_Shirley.md").write_text(_SOUL_FENCE, encoding="utf-8")
 
 
 def test_context_files_appended_in_declared_order(tmp_path: Any, monkeypatch: Any) -> None:
@@ -597,15 +595,13 @@ def test_context_files_appended_in_declared_order(tmp_path: Any, monkeypatch: An
     """
     import services.ai_service_core as core_mod
 
-    _seed_fake_repo(tmp_path)
-    (tmp_path / "docs" / "Shirley_AnalysisResults_Context.md").write_text(
-        "ANALYSIS_BODY", encoding="utf-8"
-    )
-    (tmp_path / "docs" / "Shirley_ToolOrchestration_Context.md").write_text(
+    _seed_prompt_dir(tmp_path)
+    (tmp_path / "Shirley_AnalysisResults_Context.md").write_text("ANALYSIS_BODY", encoding="utf-8")
+    (tmp_path / "Shirley_ToolOrchestration_Context.md").write_text(
         "TOOLORCH_BODY", encoding="utf-8"
     )
 
-    monkeypatch.setattr(core_mod, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(core_mod, "_PROMPT_DIR", tmp_path)
     # B8 injects a registry-derived tool inventory between the soul and the
     # context files. This test pins context-file assembly only, so empty the
     # registry to keep the generated block out and the assertion deterministic.
@@ -631,13 +627,11 @@ def test_tool_orchestration_context_missing_falls_back_cleanly(
     """
     import services.ai_service_core as core_mod
 
-    _seed_fake_repo(tmp_path)
-    (tmp_path / "docs" / "Shirley_AnalysisResults_Context.md").write_text(
-        "ANALYSIS_BODY", encoding="utf-8"
-    )
+    _seed_prompt_dir(tmp_path)
+    (tmp_path / "Shirley_AnalysisResults_Context.md").write_text("ANALYSIS_BODY", encoding="utf-8")
     # No Shirley_ToolOrchestration_Context.md written.
 
-    monkeypatch.setattr(core_mod, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(core_mod, "_PROMPT_DIR", tmp_path)
     # Empty the registry so B8's generated tool inventory is not injected;
     # this test pins context-file degradation only (see the companion test).
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)
@@ -658,15 +652,11 @@ def test_empty_tool_orchestration_context_does_not_append_separator(
     """
     import services.ai_service_core as core_mod
 
-    _seed_fake_repo(tmp_path)
-    (tmp_path / "docs" / "Shirley_AnalysisResults_Context.md").write_text(
-        "ANALYSIS_BODY", encoding="utf-8"
-    )
-    (tmp_path / "docs" / "Shirley_ToolOrchestration_Context.md").write_text(
-        "   \n   \n", encoding="utf-8"
-    )
+    _seed_prompt_dir(tmp_path)
+    (tmp_path / "Shirley_AnalysisResults_Context.md").write_text("ANALYSIS_BODY", encoding="utf-8")
+    (tmp_path / "Shirley_ToolOrchestration_Context.md").write_text("   \n   \n", encoding="utf-8")
 
-    monkeypatch.setattr(core_mod, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(core_mod, "_PROMPT_DIR", tmp_path)
     # Empty the registry so B8's generated tool inventory is not injected;
     # this test pins the empty-context-file separator guard only.
     monkeypatch.setattr("services.tool_registry.get_tool_registry", ToolRegistry)

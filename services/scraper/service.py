@@ -48,7 +48,8 @@ from services.scraper.models import (
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_PROMPT_PATH = _REPO_ROOT / "docs" / "Scraper_Prompt.md"
+_PROMPT_DIR = _REPO_ROOT / "prompts"
+_PROMPT_PATH = _PROMPT_DIR / "Scraper_Prompt.md"
 
 # Matches a bare ``` fence at the start of a line with no language specifier.
 # This is intentionally stricter than a plain str.find("```") so that inline
@@ -61,11 +62,11 @@ CancelCheck = Callable[[], bool]
 
 
 def load_scraper_prompt(path: Path | None = None) -> str:
-    """Load the scraper system prompt from ``docs/Scraper_Prompt.md``.
+    """Load the scraper system prompt from ``prompts/Scraper_Prompt.md``.
 
     Extracts the content between the first pair of bare triple-backtick
     fences (fences with no language specifier), following the same structural
-    convention as ``docs/Soul_Shirley.md``.
+    convention as ``prompts/Soul_Shirley.md``.
 
     Args:
         path: Override path (for tests). If ``None``, uses the default.

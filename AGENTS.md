@@ -43,6 +43,7 @@ session — no sprawling diffs, no edits outside the stated scope.
 | `web/` | FastAPI app, routes, templates, static assets, the shell catalogue (`web/shell.py`) |
 | `bot/` | The optional Telegram bot |
 | `cli/` | The `portfoliflow` console commands |
+| `prompts/` | Runtime system prompts — the Soul files, Shirley's context files, the Scraper, Fetcher and Feed-Filter prompts. Loaded by `services/`; runtime code never reads from `docs/` (`tests/regression/test_no_runtime_reads_from_docs.py`) |
 | `tests/` | The suite; `tests/regression/` holds the architectural guards |
 
 ## Dependency rules

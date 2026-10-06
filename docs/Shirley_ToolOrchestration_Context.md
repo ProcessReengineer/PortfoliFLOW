@@ -27,11 +27,10 @@ data from these tools, you have read the real portfolio data the user
 imported. Present what you found; do not apologise for the source or
 qualify it as if the data lived elsewhere.
 
-A separate family of tools reads an in-memory store that the desktop
-GUI populates on Excel import. On the web variant that store is empty
-by design: if those tools return "no datasets", that is expected, not a
-problem to report — reach for the database-backed investment and
-analysis tools instead.
+A separate family of tools reads a legacy in-memory store that nothing
+in this deployment fills. That store is empty by design: if those tools
+return "no datasets", that is expected, not a problem to report — reach
+for the database-backed investment and analysis tools instead.
 
 ### When to use which tool
 

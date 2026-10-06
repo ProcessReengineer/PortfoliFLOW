@@ -8,7 +8,7 @@ diff.
 
 The bundle is tracked in git on purpose: a checkout is deployable without
 a package manager, and nothing about a render depends on a third party
-being reachable. It is excluded from `repomix.config.json` so repository
+being reachable. It is listed in `.repomixignore` so repository
 slices do not carry several megabytes of minified JavaScript.
 
 | Package | Version | Files | Licence | Upstream |

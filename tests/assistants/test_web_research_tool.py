@@ -9,8 +9,8 @@ since ADR-0132 — the per-call LLM resolution the wrapper performs before it
 runs the pipeline.
 
 The resolution tests come in both shapes the wrapper supports: without a
-tool-execution context (the degraded, environment-only path a desktop or
-DB-less host takes) and with one (the web and Telegram path, where a
+tool-execution context (the degraded, environment-only path a caller
+without a database takes) and with one (the web and Telegram path, where a
 tenant-scope ``research_model`` row must outrank the environment). The
 second needs Postgres and skips cleanly without it, like
 ``test_investment_tools.py``.

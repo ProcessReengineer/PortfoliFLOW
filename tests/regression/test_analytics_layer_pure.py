@@ -5,28 +5,18 @@
 
 ADR-0013 establishes the analytics-layer purity contract: every public
 function takes pandas / numpy inputs and returns plain Python data
-structures, with no database or FastAPI coupling and no Qt imports. The contract
-applies to **both** analytics roots:
+structures, with no database or FastAPI coupling and no Qt imports.
 
-1. ``services/analytics/`` — the DB-aware foundation introduced in
-   ADR-0045 §3 (five submodules: ``investment_returns``,
-   ``statistics``, ``correlation``, ``efficient_frontier``,
-   ``portfolio_aggregation``). Its files may import DTO dataclasses
-   from ``core/repositories/*_repository.py`` modules; those
-   repository files co-locate the DTO with the Repository class —
-   which imports SQLAlchemy at top level. The fresh-subprocess check
-   below deliberately permits ``sqlalchemy`` to land in
-   ``sys.modules`` for this root, while the source scan still pins
-   direct SQL-session usage in the analytics files themselves.
-2. ``analytics/`` (top-level) — the algorithmic engines that are
-   intentionally **stricter** per ADR-0013. They must not pull in
-   SQLAlchemy, DTOs or FastAPI at all, and have no Qt imports. Kickoff #2's limit-
-   coverage engine briefly lived here before Kickoff #3a relocated
-   it to :mod:`services.analytics.limit_coverage` (the engine
-   consumes repository DTOs, which belong under the more permissive
-   ``services/analytics/`` root); the split-guard layout remains so
-   future stricter engines (``portfolio_optimizer``, ``sample_window``)
-   stay pinned.
+The layer has one root, ``services/analytics/`` (ADR-0045 §3). The
+former top-level ``analytics/`` package, with ``portfolio_optimizer``
+and ``sample_window``, was folded into it by ADR-0094, so the stricter
+second root this guard once pinned no longer exists. Files under the
+root may import DTO dataclasses from ``core/repositories/*_repository.py``
+modules; those repository files co-locate the DTO with the Repository
+class — which imports SQLAlchemy at top level. The fresh-subprocess
+check below therefore deliberately permits ``sqlalchemy`` to land in
+``sys.modules``, while the source scan still pins direct SQL-session
+usage in the analytics files themselves.
 
 Three complementary checks:
 
@@ -39,13 +29,11 @@ Three complementary checks:
   the anchored-start pattern used by
   ``test_no_matplotlib_in_web.py`` — comments are skipped; docstring
   mentions never start with these tokens.
-* **Fresh-subprocess import.** Import the analytics root in a clean
+* **Fresh-subprocess import.** Import ``services.analytics`` in a clean
   subprocess and assert that no ``fastapi`` or ``PyQt6`` module ends
   up in :data:`sys.modules`. The subprocess form isolates the
   assertion from the parent pytest process, which has typically
-  already imported these via other test modules. The check is split
-  into two dedicated tests — one per root — so that a failure
-  points at exactly one namespace.
+  already imported these via other test modules.
 * **Type-blindness scan (ADR-0103 §8).** Walk the AST of every file
   under the root and reject any ``investment_type`` identifier or any
   ``'cash'`` string constant. The cash exclusion from the efficient-
@@ -89,8 +77,8 @@ _FORBIDDEN_CONTAINS: tuple[str, ...] = (
 def test_analytics_layer_has_no_db_imports() -> None:
     """Source-level scan for forbidden DB / FastAPI / Qt imports.
 
-    Covers both ``services/analytics/`` and the top-level
-    ``analytics/`` package (ADR-0013).
+    Covers ``services/analytics/``, the layer's one root (ADR-0013,
+    ADR-0094).
     """
     offenders: list[tuple[Path, int, str]] = []
     for analytics_root in _ANALYTICS_ROOTS:
@@ -120,8 +108,7 @@ def _assert_fresh_import_clean(module_name: str) -> None:
 
     Args:
         module_name: Dotted module path to import in the fresh
-            subprocess (e.g. ``'services.analytics'`` or
-            ``'analytics'``).
+            subprocess (e.g. ``'services.analytics'``).
 
     Raises:
         AssertionError: If the subprocess exits non-zero or reports

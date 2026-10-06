@@ -1,7 +1,7 @@
 # Module Specification: [module_name]
 
 ## Area
-<!-- One of: front_office, back_office, admin, investor_communication, assistants -->
+<!-- One of the values in VALID_AREAS (core/base_module.py). A new Area needs an ADR. -->
 
 ## Purpose
 <!-- One paragraph: what does this module do and why does it exist? -->
@@ -21,13 +21,15 @@
 ## Public API
 <!-- List method signatures with brief descriptions. -->
 
-## DataStore interaction
-<!-- What datasets does this module read from the DataStore? (name, expected schema) -->
-<!-- What datasets does this module write to the DataStore? (name, schema) -->
-<!-- Write "None" if the module does not interact with the DataStore. -->
+## Persistence
+<!-- Which tables does this module read or write, through which core/repositories/ classes? -->
+<!-- New modules do not use the in-memory DataStore; it is legacy (roadmap #035). -->
+<!-- Write "None" if the module persists nothing. -->
 
-## GUI view
-<!-- Describe the planned UI, or state "Placeholder only" for scaffold phase. -->
+## Web view
+<!-- The route in web/routes/, the Section (SectionMeta in web/shell.py) and the partials it adds. -->
+<!-- See AGENTS.md, "Adding a module or a view", and docs/ux/ui-standards.md §7. -->
 
 ## Test plan
-<!-- List the test cases to be written in tests/<area>/test_<module_name>.py. -->
+<!-- Route tests in tests/web/, service tests in tests/services/, repository tests in -->
+<!-- tests/repositories/ (AGENTS.md, "Adding a module or a view", step 6). -->

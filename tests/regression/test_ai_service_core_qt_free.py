@@ -13,9 +13,9 @@ This test imports ``services.ai_service_core`` in a *fresh
 subprocess* — so the assertion is independent of whatever the
 parent test process happened to import before — and asserts that
 no module whose name contains ``PyQt6`` or ``PySide`` ends up in
-``sys.modules``. Mirrors the regression guard ADR-0029 introduced
-for :mod:`services.headless_shirley`
-(``tests/services/test_headless_shirley.py::test_no_qt_import_in_fresh_subprocess``).
+``sys.modules``. The fresh-subprocess pattern is the one ADR-0029
+introduced; ``tests/services/voice/test_voice_layering.py`` and
+``tests/regression/test_no_matplotlib_in_web.py`` use it too.
 
 If this test goes red the most likely cause is a transitive import:
 something the core depends on (a tool module, a registry helper, a

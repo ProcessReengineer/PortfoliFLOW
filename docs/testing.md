@@ -12,7 +12,10 @@ The suite lives under `tests/` and runs on pytest with `pytest-asyncio` in
 `auto` mode (`[tool.pytest.ini_options]` in `pyproject.toml`). Install the
 development extra first: `pip install -e ".[dev]"`. In a local checkout the
 tools live in the virtual environment — activate it, or call
-`.venv/bin/pytest`, `.venv/bin/ruff` and `.venv/bin/pyright` directly.
+`.venv/bin/pytest`, `.venv/bin/ruff` and
+`.venv/bin/pyright --pythonpath .venv/bin/python` directly. Pyright needs
+`--pythonpath` when the venv is not activated; otherwise it may resolve
+another interpreter and report installed packages as unresolved imports.
 
 ## Tiers
 

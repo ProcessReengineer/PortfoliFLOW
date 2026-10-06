@@ -208,7 +208,10 @@ If a task asks you to break one of these rules, stop and say why.
 
 - The tools live in the virtual environment, not on `PATH`:
   `.venv/bin/ruff check .`, `.venv/bin/ruff format --check .`,
-  `.venv/bin/pyright`, `.venv/bin/pytest`. Ruff's line length is 100.
+  `.venv/bin/pyright --pythonpath .venv/bin/python`, `.venv/bin/pytest`.
+  Without `--pythonpath`, pyright outside an activated venv may resolve
+  another interpreter and report installed packages as unresolved.
+  Ruff's line length is 100.
   Pyright covers only the typing islands listed under `[tool.pyright]` in
   `pyproject.toml`.
 - A database-backed test run empties the development database. Afterwards,

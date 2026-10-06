@@ -120,8 +120,8 @@ class ModuleRegistry:
         """Return all module classes belonging to *area*.
 
         Args:
-            area: One of ``"front_office"``, ``"back_office"``, ``"admin"``,
-                ``"investor_communication"``, ``"assistants"``.
+            area: One of the values in
+                :data:`core.base_module.VALID_AREAS`.
 
         Returns:
             List of module classes; empty list if the area has no registrations.

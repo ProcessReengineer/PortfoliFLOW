@@ -264,9 +264,12 @@ async def test_constant_time_unknown_user_vs_wrong_password(
 ) -> None:
     """The unknown-user path must be timing-comparable to wrong-password.
 
-    Marked as a manual-verification test: timing comparisons are
-    flaky under variable CI load. Run locally with
-    ``pytest -m timing`` and inspect the ratio.
+    Kept for manual verification only: timing comparisons are flaky
+    under variable load, so an unconditional skip sits on top of the
+    ``timing`` marker and ``pytest -m timing`` alone still skips it.
+    To check by hand, lift the skip locally for that run and inspect
+    the ratio (``docs/testing.md``, "Deliberately kept skips and
+    expected failures").
     """
     import time
 

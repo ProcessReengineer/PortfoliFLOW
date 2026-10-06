@@ -3,7 +3,7 @@
 
 """Mock tool callables and a fresh-registry helper for tool-loop tests.
 
-The characterization tests for the streaming worker need to drive the
+The characterization tests for ``AIServiceCore.stream_response`` drive the
 ``ToolRegistry`` with predictable tools — including tools that raise
 exceptions and tools that artificially slow down to expose lock /
 concurrency behaviour. This module collects the helpers in one place so

@@ -30,7 +30,7 @@ Usage examples::
 
     # Programmatic (CLI / headless) — canonical import path
     from services.data_normalization.excel_workbook_loader import load_excel
-    datasets = load_excel("data/sample/PortfoliFLOW_Test_V2.xlsx")
+    datasets = load_excel("sample_data/PortfoliFLOW_example_portfolio.xlsx")
     navs = datasets["navs_actual"]
     print(navs.shape)       # (n_dates, n_investments)
     print(navs.index.name)  # 'Date'
@@ -40,7 +40,7 @@ Usage examples::
     from core.config import get_config
     cls = registry.get("data_import")
     mod = cls(config=get_config())
-    result = mod.run(action="load_excel", source="data/sample/PortfoliFLOW_Test_V2.xlsx")
+    result = mod.run(action="load_excel", source="sample_data/PortfoliFLOW_example_portfolio.xlsx")
     navs = result["datasets"]["navs_actual"]
 """
 

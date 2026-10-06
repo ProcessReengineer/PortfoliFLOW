@@ -301,8 +301,10 @@ class ToolRegistry:
     def end_turn(self) -> None:
         """Release the per-turn gating state at the end of a user turn.
 
-        Called by the AIService streaming worker when its tool-execution loop
-        exits, whether normally or via an error path (ADR-0022).
+        Called from the ``finally`` block of
+        :meth:`services.ai_service_core.AIServiceCore.stream_response` when
+        its tool-execution loop exits, whether normally or via an error path
+        (ADR-0022).
         """
         self._locked_classes = set()
         logger.debug("ToolRegistry.end_turn: per-turn lock state cleared.")

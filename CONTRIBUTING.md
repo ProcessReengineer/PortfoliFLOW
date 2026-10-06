@@ -82,8 +82,8 @@ ones contributors most often trip over:
   German is permitted only as domain data values.
 - Python 3.11+ with modern type syntax; Google-style docstrings on all
   public APIs; all exceptions subclass `PortfoliFlowError`.
-- `services/analytics/` is pure: no database access, no web-framework or
-  GUI coupling. This is enforced by a regression test.
+- `services/analytics/` is pure: no database access and no web-framework
+  or other presentation coupling. This is enforced by a regression test.
 - Adding a module must touch at most three lines in existing files
   (ADR-0016).
 - Conventional Commits (`feat(scope): …`, `fix(scope): …`, `docs(scope): …`).

@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-06
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#071`.**
+  bucket and is never reused. **Next free ID: `#076`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -81,20 +81,33 @@ against, and what has shipped. It records no history — that lives in git and i
 
 | Rank | ID | Title | ADR |
 |---|---|---|---|
-| 1 | #065 | openai SDK 3.x migration | — |
-| 2 | #066 | Installer: `--doctor` re-resolves the engine | ADR-0124 §1.1 |
-| 3 | #064 | Provider retry policy in the tick | ADR-0091, ADR-0125 |
-| 4 | #035 | DataStore decommission | ADR-0094 §5 |
-| 5 | #041 | Functional-currency identifier renames (`*_eur`) | ADR-0099, ADR-0101 |
-| 6 | #019 | Limit-set editing | ADR-0055–0057 |
-| 7 | #046 | Portfolio Review restructure (hierarchical tile sets) | — |
-| 8 | #001 | Portfolio Review PDF export and detail areas | ADR-0073 §5, ADR-0020 |
-| 9 | #063 | Market-data trading-hours awareness | ADR-0125 |
-| 10 | #042 | Live FX-rate supply | ADR-0099 §5, ADR-0091 |
-| 11 | #025 | Hosted deployment (Hetzner) | — |
-| 12 | #036 | Bloomberg live smoke | ADR-0090 – ADR-0093, ADR-0096 |
-| 13 | #007 | Investment sub-class field | — |
-| 14 | #031 | Sample-data fidelity follow-ups | ADR-0081 |
+| 1 | #072 | Tenant and credential resolution in the bot and the AI core | — |
+| 2 | #065 | openai SDK 3.x migration | — |
+| 3 | #071 | Per-user / per-tenant AI turn lock | — |
+| 4 | #066 | Installer: `--doctor` re-resolves the engine | ADR-0124 §1.1 |
+| 5 | #064 | Provider retry policy in the tick | ADR-0091, ADR-0125 |
+| 6 | #035 | DataStore decommission | ADR-0094 §5 |
+| 7 | #041 | Functional-currency identifier renames (`*_eur`) | ADR-0099, ADR-0101 |
+| 8 | #019 | Limit-set editing | ADR-0055–0057 |
+| 9 | #046 | Portfolio Review restructure (hierarchical tile sets) | — |
+| 10 | #001 | Portfolio Review PDF export and detail areas | ADR-0073 §5, ADR-0020 |
+| 11 | #063 | Market-data trading-hours awareness | ADR-0125 |
+| 12 | #042 | Live FX-rate supply | ADR-0099 §5, ADR-0091 |
+| 13 | #025 | Hosted deployment (Hetzner) | — |
+| 14 | #036 | Bloomberg live smoke | ADR-0090 – ADR-0093, ADR-0096 |
+| 15 | #007 | Investment sub-class field | — |
+| 16 | #031 | Sample-data fidelity follow-ups | ADR-0081 |
+| 17 | #073 | Scope the autouse `reset_schema` in `tests/services` | — |
+| 18 | #074 | Register default AI tools from the composition root | — |
+| 19 | #075 | Speed up the example-portfolio roundtrip test | — |
+
+### #072 — Tenant and credential resolution in the bot and the AI core
+
+- **Purpose:** the bot's environment-token dispatcher runs without a tenant
+  when `TELEGRAM_BOT_TOKEN` is set and `DATABASE_URL_SUPERUSER` is not; the AI
+  core's stored-credential path is reached only from tests.
+- **Remaining:** investigate first, then fix or document.
+- **Why rank 1:** tenant isolation is the first thing a reviewer checks.
 
 ### #065 — openai SDK 3.x migration
 
@@ -103,6 +116,12 @@ against, and what has shipped. It records no history — that lives in git and i
   intercept.
 - **Remaining:** move the LLM and voice clients to 3.x and the test doubles off
   transport-level `httpx` mocking; then remove the bound.
+
+### #071 — Per-user / per-tenant AI turn lock
+
+- **Purpose:** `_TURN_LOCK` (ADR-0031) is still process-wide although
+  multi-user has shipped, so turns of different users and tenants serialise.
+- **Remaining:** scope the lock per user and per tenant; needs an ADR.
 
 ### #066 — Installer: `--doctor` re-resolves the engine
 
@@ -226,6 +245,24 @@ against, and what has shipped. It records no history — that lives in git and i
   multiples. (Cash treatment is settled by ADR-0100 and ADR-0103.)
 - **ADR:** ADR-0081.
 
+### #073 — Scope the autouse `reset_schema` in `tests/services`
+
+- **Purpose:** scope the autouse `reset_schema` fixture in `tests/services`
+  (Q-CL-D-8); its behaviour is documented in `docs/testing.md`.
+- **Remaining:** the refactor, deferred from the cleanup.
+
+### #074 — Register default AI tools from the composition root
+
+- **Purpose:** removes the last sanctioned lazy import
+  (`_register_default_tools`, Q-CL-D-9).
+- **Remaining:** move the default-tool registration to the composition root.
+
+### #075 — Speed up the example-portfolio roundtrip test
+
+- **Purpose:** `test_example_portfolio_roundtrip_lands_investments_and_limits`
+  takes ~550 s — DB import, not parsing (Q-CL-D-16).
+- **Remaining:** a slow marker or a smaller fixture.
+
 ---
 
 ## Ideas
@@ -304,6 +341,9 @@ drill-down from asset class to investments.
 against the plan; a thinking record in
 [`docs/concepts/course-hold-assistance.md`](concepts/course-hold-assistance.md),
 not before #023.
+
+**Workflow linting.** Lint the GitHub Actions workflows with `actionlint` and
+`zizmor`; needs tool installs.
 
 ---
 

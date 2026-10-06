@@ -19,6 +19,12 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   steps, ideas, decisions against, and a record of what shipped.
 - `docs/architecture.md` is reconciled with the code.
 - `readme.md` is renamed to `README.md`.
+- The AI assistants' runtime prompts moved from `docs/` to `prompts/`.
+- CI actions are pinned by commit SHA and watched by Dependabot; the fast tier
+  runs on Ubuntu 24.04 (Python 3.11 and 3.13) and macOS 26 (Python 3.13).
+- The web server reads its configuration through `WebSettings` instead of raw
+  environment variables; an invalid `WEB_MAX_UPLOAD_SIZE_MB` now refuses
+  startup.
 
 ### Removed
 

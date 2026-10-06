@@ -38,6 +38,7 @@ from services.ai_service_core import ResolvedLLM, SynthesisResult
 from services.irene.beat import BeatResult, run_beat
 from services.irene.delta_config import DEFAULT_DELTA_THRESHOLDS
 from services.irene.rss_clustering import build_rss_buckets
+from services.irene.synthesis_tool import SURFACE_FINDING_TOOL
 from tests.services.irene._book_fixtures import (
     CALM_NAV,
     seed_book,
@@ -72,8 +73,10 @@ class _StubCore:
         self._tool_calls = tool_calls or []
         self._raise = raise_exc
         self.calls: list[dict[str, Any]] = []
+        self.prompt_names: list[str] = []
 
     def get_system_prompt(self, prompt_name: str = "irene") -> str:
+        self.prompt_names.append(prompt_name)
         return "You are Irene."
 
     async def run_synthesis(
@@ -87,7 +90,17 @@ class _StubCore:
         timeout: float = 120.0,
         llm: Any = None,
     ) -> SynthesisResult:
-        self.calls.append({"tool": tool, "llm": llm, "context": context_messages})
+        self.calls.append(
+            {
+                "tool": tool,
+                "llm": llm,
+                "context": context_messages,
+                "system_prompt": system_prompt,
+                "model": model,
+                "temperature": temperature,
+                "timeout": timeout,
+            }
+        )
         if self._raise is not None:
             raise self._raise
         return SynthesisResult(tool_calls=self._tool_calls, raw_text="")
@@ -116,6 +129,19 @@ async def test_beat_silence_writes_nothing(app_engine: AsyncEngine, seed_tenant)
     # The model reaches synthesis on the resolution, not as a second argument.
     assert core.calls[0]["llm"] is _TEST_LLM
     assert core.calls[0]["llm"].model == "test-model"
+    # The finding call is unchanged by the persona split (ADR-0133 §1.6):
+    # Irene's prompt, exactly one tool, and run_synthesis's defaults — whose
+    # body hard-codes tool_choice="auto" (pinned on the wire by
+    # tests/assistants/test_run_synthesis.py). The stub's signature takes no
+    # tool_choice, so the beat cannot pass one.
+    assert core.prompt_names == ["irene"]
+    assert core.calls[0]["system_prompt"] == "You are Irene."
+    assert core.calls[0]["tool"] is SURFACE_FINDING_TOOL
+    assert (core.calls[0]["model"], core.calls[0]["temperature"], core.calls[0]["timeout"]) == (
+        None,
+        0.0,
+        120.0,
+    )
 
 
 async def test_beat_uneligible_subject_dropped_and_warned(

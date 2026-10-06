@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
@@ -575,6 +576,60 @@ def test_no_qt_import() -> None:
     assert completed.returncode == 0, (
         f"subprocess failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# System-prompt assembly (ADR-0133 §1.6, D-WD-22)
+# ---------------------------------------------------------------------------
+
+
+async def test_run_turn_passes_default_persona_prompt_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bot's turn sends ``core.get_system_prompt()`` — Shirley's — unchanged.
+
+    The persona split must not reach the bot: it composes with the default
+    persona and hands that string to ``stream_response`` as is, byte-equal
+    to the Shirley composition under the same registry.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    import bot.telegram_bot as tb
+    from services.ai_service_core import AIServiceCore
+
+    class _RecordingCore(AIServiceCore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.prompt_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+            self.received: list[str] = []
+
+        def get_system_prompt(self, *args: Any, **kwargs: Any) -> str:
+            self.prompt_calls.append((args, kwargs))
+            return super().get_system_prompt(*args, **kwargs)
+
+        async def stream_response(  # type: ignore[override]
+            self, conversation: Any, system_prompt: str = "", *args: Any, **kwargs: Any
+        ) -> Any:
+            self.received.append(system_prompt)
+            for event in ():
+                yield event
+
+    core = _RecordingCore()
+    monkeypatch.setattr(tb, "_bot_ai_core", lambda: core)
+
+    await tb._run_turn(
+        AsyncMock(),
+        MagicMock(),
+        binding=tb._BotBinding(tenant_id=None, source="env-fallback", label="test"),
+        chat_id=1,
+        user_id=1,
+        incoming_text="hi",
+        attachment=None,
+        llm=MagicMock(),
+    )
+
+    assert core.prompt_calls == [((), {})]
+    assert core.received == [AIServiceCore().get_system_prompt("shirley")]
 
 
 # ---------------------------------------------------------------------------

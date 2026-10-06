@@ -77,6 +77,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass, field
@@ -111,6 +112,20 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # Runtime prompts (the Soul files and Shirley's context files) live in
 # ``prompts/`` beside ``config/``; tests point this seam at a temp dir.
 _PROMPT_DIR = _REPO_ROOT / "prompts"
+
+# Persona fallbacks for a missing or malformed Soul file. Every persona
+# other than Irene — unknown names included — falls back to Shirley.
+_SHIRLEY_FALLBACK = "You are Shirley, an AI assistant for institutional portfolio management."
+_IRENE_FALLBACK = (
+    "You are Irene, the Watch Desk's background analyst for institutional portfolio management."
+)
+
+# The H2 heading in ``Soul_Irene.md`` whose fenced block is the briefing
+# prompt (ADR-0133 §1.6, D-WD-16). Located by heading, never by fence
+# position: the file carries two fences with identical inner headings.
+_BRIEFING_HEADING_RE = re.compile(r"^## Briefing Prompt[ \t]*$", re.MULTILINE)
+_FENCE_LINE_RE = re.compile(r"^```", re.MULTILINE)
+_H2_LINE_RE = re.compile(r"^## ", re.MULTILINE)
 
 # Maximum number of tool-call iterations per user message. Mirrored
 # verbatim from the legacy _MAX_TOOL_ITERATIONS in services/ai_service.py.
@@ -1258,6 +1273,14 @@ class AIServiceCore:
         companion context files. Falls back to a minimal default if
         the soul file is missing or malformed.
 
+        Composition is split by persona (ADR-0133 §1.6, D-WD-22). Irene
+        (any spelling that resolves to ``Soul_Irene.md``) receives only
+        the grounding block and her System Prompt block — her finding
+        prompt — and her own fallback. Every other name, unknown ones
+        included, takes Shirley's composition: Soul block, generated tool
+        inventory and the two ``Shirley_*_Context.md`` files, with
+        Shirley's fallback.
+
         Every return path — the composed prompt and each fallback
         alike — is prefixed with the current-date grounding block
         (:func:`_temporal_grounding_block`, ADR-0127 T1), generated
@@ -1273,8 +1296,10 @@ class AIServiceCore:
             The composed system prompt string, beginning with the
             grounding block.
         """
-        soul_path = _PROMPT_DIR / f"Soul_{prompt_name.capitalize()}.md"
-        fallback = "You are Shirley, an AI assistant for institutional portfolio management."
+        persona = prompt_name.capitalize()
+        is_irene = persona == "Irene"
+        soul_path = _PROMPT_DIR / f"Soul_{persona}.md"
+        fallback = _IRENE_FALLBACK if is_irene else _SHIRLEY_FALLBACK
         grounded_fallback = _temporal_grounding_block() + "\n\n" + fallback
         if not soul_path.exists():
             logger.warning(
@@ -1307,6 +1332,11 @@ class AIServiceCore:
                     soul_path,
                 )
                 return grounded_fallback
+
+            # Irene's finding prompt carries none of Shirley's appended
+            # material (ADR-0133 §1.6, D-WD-22).
+            if is_irene:
+                return _temporal_grounding_block() + "\n\n" + prompt
 
             # Ground the prompt in the live ToolRegistry: inject the generated
             # tool inventory after the Soul content and before the hand-authored
@@ -1347,6 +1377,82 @@ class AIServiceCore:
                 exc,
             )
             return grounded_fallback
+
+    def get_briefing_prompt(self) -> str:
+        """Load Irene's briefing prompt from ``prompts/Soul_Irene.md``.
+
+        Returns the fenced block under the H2 heading ``## Briefing
+        Prompt`` (ADR-0133 §1.6, D-WD-16), found by heading and never by
+        fence position: the file holds two fences, both carrying the same
+        inner headings. The block must open before the next H2 heading.
+        Like Irene's finding prompt, it carries no tool inventory and no
+        context files.
+
+        Every return path is prefixed with the current-date grounding
+        block (:func:`_temporal_grounding_block`, ADR-0127 T1). A missing
+        file, a missing heading, or a missing, unclosed or empty fence
+        returns Irene's grounded fallback.
+
+        Returns:
+            The briefing prompt, beginning with the grounding block.
+        """
+        soul_path = _PROMPT_DIR / "Soul_Irene.md"
+        grounded_fallback = _temporal_grounding_block() + "\n\n" + _IRENE_FALLBACK
+        if not soul_path.exists():
+            logger.warning(
+                "AIServiceCore.get_briefing_prompt: '%s' not found, using fallback.",
+                soul_path,
+            )
+            return grounded_fallback
+
+        try:
+            text = soul_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.error(
+                "AIServiceCore.get_briefing_prompt: could not read '%s': %s",
+                soul_path,
+                exc,
+            )
+            return grounded_fallback
+
+        heading = _BRIEFING_HEADING_RE.search(text)
+        if heading is None:
+            logger.warning(
+                "AIServiceCore.get_briefing_prompt: no '## Briefing Prompt' heading in '%s', "
+                "using fallback.",
+                soul_path,
+            )
+            return grounded_fallback
+
+        next_h2 = _H2_LINE_RE.search(text, heading.end())
+        section_end = next_h2.start() if next_h2 is not None else len(text)
+        opening = _FENCE_LINE_RE.search(text, heading.end(), section_end)
+        if opening is None:
+            logger.warning(
+                "AIServiceCore.get_briefing_prompt: no ``` fence under '## Briefing Prompt' "
+                "in '%s', using fallback.",
+                soul_path,
+            )
+            return grounded_fallback
+
+        start = text.find("\n", opening.start()) + 1
+        closing = _FENCE_LINE_RE.search(text, start) if start > 0 else None
+        if closing is None:
+            logger.warning(
+                "AIServiceCore.get_briefing_prompt: unclosed ``` fence in '%s', using fallback.",
+                soul_path,
+            )
+            return grounded_fallback
+
+        prompt = text[start : closing.start()].strip()
+        if not prompt:
+            logger.warning(
+                "AIServiceCore.get_briefing_prompt: empty fence block in '%s', using fallback.",
+                soul_path,
+            )
+            return grounded_fallback
+
+        return _temporal_grounding_block() + "\n\n" + prompt
 
     # ------------------------------------------------------------------
     # Private helpers

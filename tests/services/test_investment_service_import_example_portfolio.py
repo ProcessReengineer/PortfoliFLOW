@@ -36,10 +36,13 @@ The workbook is tracked in the repository, so the test is unconditional.
 
 from __future__ import annotations
 
+import copy
 import json
 import pathlib
 from datetime import date
 from decimal import Decimal
+
+import pytest
 
 from services.data_normalization import InvestmentExtractor
 from services.data_normalization.excel_workbook_loader import load_excel
@@ -86,16 +89,28 @@ def _payload(sheets) -> dict:
     }
 
 
-def _extract() -> tuple[InvestmentExtractor, dict, dict]:
+@pytest.fixture(scope="module")
+def example_payload() -> dict:
+    """The parsed, serialised example workbook, loaded once for this module.
+
+    Parsing the full workbook is the slow step here. Each test extracts
+    from its own deep copy, so no test can see another's state.
+    """
+    return _payload(load_excel(_WORKBOOK_PATH))
+
+
+def _extract(example_payload: dict) -> tuple[InvestmentExtractor, dict, dict]:
     extractor = InvestmentExtractor()
-    payload = _payload(load_excel(_WORKBOOK_PATH))
+    payload = copy.deepcopy(example_payload)
     investments = extractor.extract(payload)
     by_name = {i.name: i for i in investments}
     return extractor, by_name, payload
 
 
-def test_example_portfolio_extracts_units_rows_with_cash_carrying_none() -> None:
-    extractor, by_name, _ = _extract()
+def test_example_portfolio_extracts_units_rows_with_cash_carrying_none(
+    example_payload: dict,
+) -> None:
+    extractor, by_name, _ = _extract(example_payload)
     assert extractor.errors == []
     assert set(by_name) == set(_ALL_INVESTMENTS)
 
@@ -111,9 +126,11 @@ def test_example_portfolio_extracts_units_rows_with_cash_carrying_none() -> None
             assert inv.units_as_of is None, name
 
 
-def test_example_portfolio_cash_positions_and_money_market_land_correctly() -> None:
+def test_example_portfolio_cash_positions_and_money_market_land_correctly(
+    example_payload: dict,
+) -> None:
     """ADR-0100 Block-4 and ADR-0103 §3: the cash columns and the MMF."""
-    extractor, by_name, payload = _extract()
+    extractor, by_name, payload = _extract(example_payload)
     assert extractor.errors == []
 
     # The explicit foreign-currency cash positions.

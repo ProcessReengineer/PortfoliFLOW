@@ -51,6 +51,7 @@ from services.credential_vault import (
     VaultCipher,
     VaultDecryptError,
 )
+from tests._run_lock import RunLockRefused, redacted_url
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_REPO_ROOT / ".env")
@@ -107,6 +108,9 @@ async def _reachable(url: str) -> bool:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return True
+    except RunLockRefused:
+        # Another run holds the test database: an error, never a skip.
+        raise
     except Exception:  # noqa: BLE001 — any connection failure means "skip"
         return False
     finally:
@@ -119,7 +123,7 @@ def scratch_url() -> Iterator[str]:
     if not DATABASE_URL_SUPERUSER:
         pytest.skip("DATABASE_URL_SUPERUSER not set; cannot run vault CLI tests.")
     if not asyncio.run(_reachable(DATABASE_URL_SUPERUSER)):
-        pytest.skip(f"Cannot reach Postgres at {DATABASE_URL_SUPERUSER!r}.")
+        pytest.skip(f"Cannot reach Postgres at {redacted_url(DATABASE_URL_SUPERUSER)!r}.")
 
     name = f"portfoliflow_vault_{uuid4().hex[:8]}"
     url = _rebound(DATABASE_URL_SUPERUSER, name)

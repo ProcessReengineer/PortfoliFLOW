@@ -8,7 +8,8 @@
 # has run for the same tag.
 #
 # Creating releases needs only the workflow's own GITHUB_TOKEN —
-# releases are not covered by branch rulesets.
+# releases are not covered by branch rulesets. `gh` reads it from GH_TOKEN,
+# so the checkout persists no git credentials.
 
 name: release-assets
 
@@ -28,6 +29,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Version must match tag
         run: grep -qx "version = \"$GITHUB_REF_NAME\"" pyproject.toml

@@ -467,6 +467,7 @@ def test_C_17a_lock_serialises_concurrent_turns() -> None:
     import time
 
     from services.ai_models import ConnectionStatus, Conversation, Message, MessageRole
+    import services.tool_registry as tool_registry_module
     from services.ai_service_core import AIServiceCore
 
     sleep_seconds = 0.3
@@ -490,26 +491,20 @@ def test_C_17a_lock_serialises_concurrent_turns() -> None:
 
         return empty_iter()
 
-    def call() -> None:
+    def make_core() -> tuple[AIServiceCore, MagicMock]:
+        core = AIServiceCore()
+        core.configure("https://example.invalid", "k")
+        core.set_status(ConnectionStatus.CONNECTED)
+        core.set_model("test-model")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = MagicMock(side_effect=slow_streaming_create)
+        mock_client.close = AsyncMock()
+        return core, mock_client
+
+    def call(core: AIServiceCore, mock_client: MagicMock) -> None:
         async def _drive() -> None:
-            core = AIServiceCore()
-            core.configure("https://example.invalid", "k")
-            core.set_status(ConnectionStatus.CONNECTED)
-            core.set_model("test-model")
-
-            mock_client = MagicMock()
-            mock_client.chat.completions.create = MagicMock(side_effect=slow_streaming_create)
-            mock_client.close = AsyncMock()
-            # `stream_response` calls `tool_registry.get_tool_registry()`
-            # through the module, so the patch target is the source module.
-            with (
-                patch.object(core, "_make_async_client", return_value=mock_client),
-                patch("services.tool_registry.get_tool_registry") as mock_get_reg,
-            ):
-                mock_reg = MagicMock()
-                mock_reg.get_tool_definitions.return_value = []
-                mock_get_reg.return_value = mock_reg
-
+            with patch.object(core, "_make_async_client", return_value=mock_client):
                 conv = Conversation()
                 conv.add_message(Message(role=MessageRole.USER, content="go"))
                 async for _event in core.stream_response(conv, ""):
@@ -517,13 +512,30 @@ def test_C_17a_lock_serialises_concurrent_turns() -> None:
 
         asyncio.run(_drive())
 
-    t1 = threading.Thread(target=call)
-    t2 = threading.Thread(target=call)
-    t1.start()
-    t2.start()
-    t1.join(timeout=5.0)
-    t2.join(timeout=5.0)
+    # Build both cores here, before the registry patch: the first
+    # `AIServiceCore()` in a process imports the tool modules, and they bind
+    # their registry at import time. Built under the patch, they would bind the
+    # mock and the real registry would stay empty for the rest of the process.
+    first, second = make_core(), make_core()
 
+    # `stream_response` calls `tool_registry.get_tool_registry()` through the
+    # module, so the patch target is the source module. It is entered once, on
+    # this thread, around both workers: `unittest.mock.patch` is not
+    # thread-safe, and two threads entering and leaving their own patch out of
+    # order left the MagicMock installed for the rest of the process.
+    mock_reg = MagicMock()
+    mock_reg.get_tool_definitions.return_value = []
+    with patch("services.tool_registry.get_tool_registry", return_value=mock_reg):
+        t1 = threading.Thread(target=call, args=first)
+        t2 = threading.Thread(target=call, args=second)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5.0)
+        t2.join(timeout=5.0)
+
+    assert not isinstance(tool_registry_module.get_tool_registry, MagicMock), (
+        "the registry patch must be restored when the test ends"
+    )
     assert not t1.is_alive() and not t2.is_alive()
     assert len(call_start_times) == 2, (
         f"expected exactly 2 API-call entries, got {call_start_times!r}"

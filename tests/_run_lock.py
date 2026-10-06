@@ -79,6 +79,15 @@ def database_url(rootdir: Path) -> str | None:
     return url or None
 
 
+def redacted_url(url: str) -> str:
+    """Return ``url`` with its password masked, for skip and error messages.
+
+    The test database URLs carry the superuser password, and a skip reason
+    ends up in every console log, JUnit file and CI transcript.
+    """
+    return make_url(url).render_as_string(hide_password=True)
+
+
 def _application_name() -> str:
     started = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"{APPLICATION_NAME_PREFIX} pid={os.getpid()} {started}"

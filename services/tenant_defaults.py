@@ -78,14 +78,14 @@ async def install_unclassified_asset_class(
     """
     existing = await asset_classes.get_by_code(_UNCLASSIFIED_ASSET_CLASS_CODE)
     if existing is not None:
-        _LOG.info("bootstrap: 'unclassified' asset class already present (no-op)")
+        _LOG.info("tenant defaults: 'unclassified' asset class already present (no-op)")
         return
     created = await asset_classes.create(
         code=_UNCLASSIFIED_ASSET_CLASS_CODE,
         display_name=_UNCLASSIFIED_ASSET_CLASS_DISPLAY_NAME,
         description=_UNCLASSIFIED_ASSET_CLASS_DESCRIPTION,
     )
-    _LOG.info("bootstrap: created 'unclassified' asset class (%s)", created.id)
+    _LOG.info("tenant defaults: created 'unclassified' asset class (%s)", created.id)
 
 
 _DEFAULT_ASSET_CLASSES_FIXTURE_PATH: Path = (
@@ -151,7 +151,7 @@ async def install_default_asset_classes(
         existing = await asset_classes.get_by_code(code)
         if existing is not None:
             _LOG.info(
-                "bootstrap: default asset class %r already present (no-op)",
+                "tenant defaults: default asset class %r already present (no-op)",
                 code,
             )
             continue
@@ -161,7 +161,7 @@ async def install_default_asset_classes(
             display_name=str(entry["display_name"]),
             description=(str(description) if isinstance(description, str) else None),
         )
-        _LOG.info("bootstrap: created default asset class %r (%s)", code, created.id)
+        _LOG.info("tenant defaults: created default asset class %r (%s)", code, created.id)
 
 
 _UNCLASSIFIED_SECTOR_CODE: str = "unclassified"
@@ -190,14 +190,14 @@ async def install_unclassified_sector(
     """
     existing = await sectors.get_by_code(_UNCLASSIFIED_SECTOR_CODE)
     if existing is not None:
-        _LOG.info("bootstrap: 'unclassified' sector already present (no-op)")
+        _LOG.info("tenant defaults: 'unclassified' sector already present (no-op)")
         return
     created = await sectors.create(
         code=_UNCLASSIFIED_SECTOR_CODE,
         display_name=_UNCLASSIFIED_SECTOR_DISPLAY_NAME,
         created_by=created_by,
     )
-    _LOG.info("bootstrap: created 'unclassified' sector (%s)", created.id)
+    _LOG.info("tenant defaults: created 'unclassified' sector (%s)", created.id)
 
 
 # Canonical region catalogue per ADR-0046 M1 (strict partition).
@@ -432,7 +432,7 @@ async def install_default_regions(
         code = str(spec["code"])
         if code in existing_by_code:
             region_id = existing_by_code[code]
-            _LOG.info("bootstrap: region %r already present (no-op)", code)
+            _LOG.info("tenant defaults: region %r already present (no-op)", code)
         else:
             created = await regions.create(
                 code=code,
@@ -441,7 +441,7 @@ async def install_default_regions(
                 sort_order=int(spec["sort_order"]),  # type: ignore[arg-type]
             )
             region_id = created.id
-            _LOG.info("bootstrap: created region %r (%s)", code, region_id)
+            _LOG.info("tenant defaults: created region %r (%s)", code, region_id)
 
         existing_memberships = await regions.list_memberships_by_region(region_id)
         attached: set[str] = {m.country_iso_code.upper() for m in existing_memberships}
@@ -453,14 +453,14 @@ async def install_default_regions(
             country = await countries.get_by_iso_code(normalised)
             if country is None:
                 raise PortfoliFlowError(
-                    f"bootstrap: ISO code {normalised!r} for region "
+                    f"tenant defaults: ISO code {normalised!r} for region "
                     f"{code!r} is not present in the countries "
                     "stammtabelle. Update the ISO fixture before "
                     "re-seeding regions."
                 )
             await regions.add_membership(region_id, normalised)
             attached.add(normalised)
-            _LOG.info("bootstrap: attached %s to region %r", normalised, code)
+            _LOG.info("tenant defaults: attached %s to region %r", normalised, code)
 
 
 # Seed defaults for the tenant's disabled market-data schedule. The cadence
@@ -513,7 +513,7 @@ async def install_market_data_system_actor(users: UserRepository) -> None:
     """
     existing = await users.get_by_email(MARKET_DATA_SYSTEM_ACTOR_EMAIL)
     if existing is not None:
-        _LOG.info("bootstrap: market-data system actor already present (no-op)")
+        _LOG.info("tenant defaults: market-data system actor already present (no-op)")
         return
     # Unusable, locked credential: a hash of a random secret satisfies the
     # authenticatable CHECK; is_active=False guarantees no login is possible.
@@ -524,7 +524,7 @@ async def install_market_data_system_actor(users: UserRepository) -> None:
         is_active=False,
         display_name=MARKET_DATA_SYSTEM_ACTOR_DISPLAY_NAME,
     )
-    _LOG.info("bootstrap: created market-data system actor")
+    _LOG.info("tenant defaults: created market-data system actor")
 
 
 async def install_market_data_schedule(
@@ -559,7 +559,7 @@ async def install_market_data_schedule(
             ``next_due_at``.
     """
     if await schedules.get_for_tenant() is not None:
-        _LOG.info("bootstrap: market-data schedule already present (no-op)")
+        _LOG.info("tenant defaults: market-data schedule already present (no-op)")
         return
     await schedules.upsert_tenant_schedule(
         cadence=_MARKET_DATA_DEFAULT_CADENCE,
@@ -569,7 +569,7 @@ async def install_market_data_schedule(
         next_due_at=now,
     )
     _LOG.info(
-        "bootstrap: created market-data schedule (cadence=%s hour=%s, disabled)",
+        "tenant defaults: created market-data schedule (cadence=%s hour=%s, disabled)",
         _MARKET_DATA_DEFAULT_CADENCE,
         _MARKET_DATA_DEFAULT_HOUR,
     )
@@ -605,7 +605,7 @@ async def install_irene_schedule(schedules: IreneScheduleRepository, *, now: dat
             ``next_due_at`` is computed from.
     """
     if await schedules.get_for_tenant() is not None:
-        _LOG.info("bootstrap: irene schedule already present (no-op)")
+        _LOG.info("tenant defaults: irene schedule already present (no-op)")
         return
     await schedules.upsert_tenant_schedule(
         cadence=_IRENE_DEFAULT_CADENCE,
@@ -619,4 +619,4 @@ async def install_irene_schedule(schedules: IreneScheduleRepository, *, now: dat
             _IRENE_DEFAULT_TIMEZONE,
         ),
     )
-    _LOG.info("bootstrap: created irene schedule (enabled)")
+    _LOG.info("tenant defaults: created irene schedule (enabled)")

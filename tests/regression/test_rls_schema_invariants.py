@@ -37,6 +37,8 @@ from dotenv import load_dotenv
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from tests._run_lock import RunLockRefused, redacted_url
+
 # .env may not yet be loaded in this collection path — load it
 # explicitly here so DATABASE_URL_SUPERUSER is visible.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -68,10 +70,14 @@ async def superuser_engine() -> AsyncGenerator[AsyncEngine, None]:
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
+    except RunLockRefused:
+        # Another run holds the test database: an error, never a skip.
+        await engine.dispose()
+        raise
     except Exception as exc:  # noqa: BLE001
         await engine.dispose()
         pytest.skip(
-            f"Cannot reach Postgres at {DATABASE_URL_SUPERUSER!r}: {exc}.",
+            f"Cannot reach Postgres at {redacted_url(DATABASE_URL_SUPERUSER)!r}: {exc}.",
             allow_module_level=False,
         )
     try:

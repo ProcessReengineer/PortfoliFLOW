@@ -169,19 +169,29 @@ def _synthetic_attributes() -> pd.DataFrame:
     )
 
 
+@pytest.fixture(scope="module")
+def example_workbook() -> dict[str, pd.DataFrame]:
+    """The parsed example workbook, loaded once for this module.
+
+    Parsing the full workbook is slow. Each test takes copies of the
+    frames it uses, so no test can see another's state.
+    """
+    return load_excel(_WORKBOOK_PATH)
+
+
 # ---------------------------------------------------------------------------
 # The example portfolio end to end
 # ---------------------------------------------------------------------------
 
 
 async def test_example_portfolio_roundtrip_lands_investments_and_limits(
-    app_engine: AsyncEngine, seed_tenant
+    app_engine: AsyncEngine, seed_tenant, example_workbook: dict[str, pd.DataFrame]
 ) -> None:
     tenant_id = await seed_tenant("example-roundtrip")
     actor = await _seed_actor(app_engine, tenant_id, email="example-actor@example.com")
     await _bootstrap_catalogues(app_engine, tenant_id, actor.id)
 
-    datasets = load_excel(_WORKBOOK_PATH)
+    datasets = {key: frame.copy() for key, frame in example_workbook.items()}
     upload = await _create_upload(app_engine, tenant_id, actor.id, sheets=datasets)
 
     await _run_transform(app_engine, tenant_id, actor.id, upload.id)
@@ -235,7 +245,7 @@ async def test_example_portfolio_roundtrip_lands_investments_and_limits(
 
 
 async def test_duplicate_import_raises_limit_validation_error(
-    app_engine: AsyncEngine, seed_tenant
+    app_engine: AsyncEngine, seed_tenant, example_workbook: dict[str, pd.DataFrame]
 ) -> None:
     """Persisted limit sets are immutable: importing them again is refused.
 
@@ -248,8 +258,8 @@ async def test_duplicate_import_raises_limit_validation_error(
     await _bootstrap_catalogues(app_engine, tenant_id, actor.id)
 
     limit_sheets = {
-        key: frame
-        for key, frame in load_excel(_WORKBOOK_PATH).items()
+        key: frame.copy()
+        for key, frame in example_workbook.items()
         if key in ("limit_set_saa", "limit_set_2")
     }
     assert set(limit_sheets) == {"limit_set_saa", "limit_set_2"}

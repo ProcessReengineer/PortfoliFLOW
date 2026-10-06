@@ -48,6 +48,8 @@ from sqlalchemy import NullPool, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from tests._run_lock import RunLockRefused, redacted_url
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_REPO_ROOT / ".env")
 
@@ -155,9 +157,13 @@ async def scratch_db() -> AsyncGenerator[ScratchDatabase, None]:
     try:
         async with maintenance.connect() as conn:
             await conn.execute(text("SELECT 1"))
+    except RunLockRefused:
+        # Another run holds the test database: an error, never a skip.
+        await maintenance.dispose()
+        raise
     except Exception as exc:  # noqa: BLE001
         await maintenance.dispose()
-        pytest.skip(f"Cannot reach Postgres at {DATABASE_URL_SUPERUSER!r}: {exc}.")
+        pytest.skip(f"Cannot reach Postgres at {redacted_url(DATABASE_URL_SUPERUSER)!r}: {exc}.")
 
     name = f"{_SCRATCH_PREFIX}{uuid4().hex[:8]}"
     scratch = ScratchDatabase(

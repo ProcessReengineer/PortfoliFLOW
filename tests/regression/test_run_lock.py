@@ -19,7 +19,13 @@ import pytest
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests._run_lock import APPLICATION_NAME_PREFIX, RUN_LOCK_KEY, RunLockRefused, database_url
+from tests._run_lock import (
+    APPLICATION_NAME_PREFIX,
+    RUN_LOCK_KEY,
+    RunLockRefused,
+    database_url,
+    redacted_url,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -42,7 +48,7 @@ async def test_a_database_backed_run_holds_the_run_lock() -> None:
         except RunLockRefused:
             raise
         except Exception as exc:  # noqa: BLE001 - unreachable database is a skip, as elsewhere
-            pytest.skip(f"Cannot reach Postgres at {url!r}: {exc}")
+            pytest.skip(f"Cannot reach Postgres at {redacted_url(url)!r}: {exc}")
         try:
             taken_here = await conn.scalar(
                 text("SELECT pg_try_advisory_lock(:key)"), {"key": RUN_LOCK_KEY}

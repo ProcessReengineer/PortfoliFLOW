@@ -17,7 +17,11 @@ places". This guard makes that structural rather than conventional, at all
 2. **Fetch** — the four families' batched reads live in exactly one module,
    :mod:`services.watch_desk.signal_observation`, which the beat and the
    monitor both call. Before P6 they lived inside the beat's delta layer,
-   which is why the monitor could only have grown a second copy.
+   which is why the monitor could only have grown a second copy. A second,
+   approved batched read sits **outside** this layer —
+   :mod:`services.watch_desk.market_read` feeds the briefing writer
+   (D-WD-14, D-WD-20) and never a family classification — so the four
+   families' fetch still lives in ``signal_observation`` alone.
 3. **Producer** — the pure producers are called from that one module and
    from nowhere else, so a monitor row is literally the number the next beat
    will classify rather than a recomputation that agrees today.
@@ -49,6 +53,7 @@ import services.analytics.signal_watch as signal_watch_module
 import services.irene.beat as beat_module
 import services.irene.internal_delta as internal_delta_module
 import services.irene.signal_delta as signal_delta_module
+import services.watch_desk.family_status as family_status_module
 import services.watch_desk.overlay as overlay_module
 import services.watch_desk.seeding as seeding_module
 import services.watch_desk.signal_observation as observation_module
@@ -189,15 +194,31 @@ def test_the_beat_and_the_monitor_share_one_observation_path() -> None:
     diverge on the first change to either copy — and the divergence would be
     invisible, because both surfaces would still render a number.
     """
-    for module in (signal_delta_module, watch_desk_route):
+    for module in (signal_delta_module, family_status_module):
         assert "observe_signal_families(" in inspect.getsource(module), (
             f"{module.__name__} does not observe through the shared path "
             "(services.watch_desk.signal_observation, ADR-0116 §6)."
         )
 
+    # The route reaches the monitor through the service entry alone (D-WD-14):
+    # it neither observes itself nor keeps the call as a dead reference.
+    route_source = inspect.getsource(watch_desk_route)
+    assert "observe_signal_families(" not in route_source, (
+        f"{watch_desk_route.__name__} observes the signal families itself; the "
+        "monitor observes through services.watch_desk.family_status (ADR-0116 §6)."
+    )
+    assert vars(watch_desk_route).get("build_monitor") is family_status_module.build_monitor, (
+        f"{watch_desk_route.__name__} does not import the monitor entry from "
+        "services.watch_desk.family_status (ADR-0116 §6)."
+    )
+    assert "build_monitor(" in route_source, (
+        f"{watch_desk_route.__name__} does not reach the monitor through "
+        "services.watch_desk.family_status.build_monitor (ADR-0116 §6)."
+    )
+
     for repository in _FETCH_ONLY_REPOSITORIES:
         assert repository in vars(observation_module)
-        for module in (signal_delta_module, watch_desk_route):
+        for module in (signal_delta_module, watch_desk_route, family_status_module):
             assert repository not in vars(module), (
                 f"{module.__name__} holds {repository}; the signal families' "
                 "fetch belongs to the observation layer alone."

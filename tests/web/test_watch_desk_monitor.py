@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pandas as pd
@@ -22,19 +24,23 @@ import pytest
 from core.repositories.irene_finding_repository import IreneFindingDTO
 from core.repositories.irene_watch_state_repository import IreneWatchStateDTO
 from services.analytics.irene_floor import DEFAULT_FLOOR_CONFIG, DEFAULT_WARN_THRESHOLD_PCT
+from services.analytics.signal_watch import NoObservation, SignalObservation, SignalResult
 from services.watch_desk.overlay import (
+    SignalWatchpoint,
     SubjectOverlay,
     WatchDeskResolution,
     rss_overlay_subject_key,
 )
-from services.web_research.allowlist import _KNOWN_TAGS
-from web.routes.watch_desk import (
+import services.watch_desk.family_status as _monitor_home
+from services.watch_desk.family_status import (
     _build_family_group,
     _build_rss_group,
     _fired_this_beat,
     _irene_note,
     _utilisation_pct,
 )
+from services.watch_desk.family_status import build_monitor as _build_monitor
+from services.web_research.allowlist import _KNOWN_TAGS
 
 _TENANT: UUID = uuid4()
 
@@ -654,3 +660,622 @@ def test_a_muted_press_dimension_is_tagged_and_counted() -> None:
     assert rows["macro"]["mute_locked"] is False
     assert rows["equities"]["muted"] is False
     assert group["muted_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Characterization pin — the whole monitor context (P-WD-B1, D-WD-14)
+#
+# Captured on the tree *before* the family-status lift and compared against
+# a literal, so the lift is proven to move code and change no value. The
+# three DB collaborators are replaced by fixed stand-ins on the module that
+# hosts the monitor; everything between them and the context — the fired
+# split, both internal groups, the RSS group, the signal grouping and the
+# footer — runs for real.
+# ---------------------------------------------------------------------------
+
+_PIN_NOW = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
+_PIN_BEAT = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
+
+
+def _pin_id(n: int) -> UUID:
+    return UUID(int=n)
+
+
+def _pin_overlay(
+    subject_key: str,
+    n: int,
+    *,
+    muted: bool = False,
+    warn_threshold_pct: str | None = None,
+    re_trigger_delta: str | None = None,
+) -> SubjectOverlay:
+    return SubjectOverlay(
+        watchpoint_id=_pin_id(n),
+        subject_key=subject_key,
+        family=subject_key.split(":", 1)[0],
+        display_name=subject_key,
+        muted=muted,
+        warn_threshold_pct=(
+            Decimal(warn_threshold_pct) if warn_threshold_pct is not None else None
+        ),
+        re_trigger_delta=(Decimal(re_trigger_delta) if re_trigger_delta is not None else None),
+        notes=None,
+    )
+
+
+def _pin_watchpoint(
+    family: str,
+    subject_key: str,
+    n: int,
+    *,
+    threshold_pct: str,
+    window_days: int | None = None,
+    max_age_days: int | None = None,
+    muted: bool = False,
+) -> SignalWatchpoint:
+    return SignalWatchpoint(
+        watchpoint_id=_pin_id(n),
+        subject_key=subject_key,
+        family=family,
+        display_name=subject_key,
+        muted=muted,
+        warn_threshold_pct=None,
+        re_trigger_delta=None,
+        instrument_id=_pin_id(n + 100) if family == "price" else None,
+        currency_pair="USD/EUR" if family == "fx" else None,
+        threshold_pct=Decimal(threshold_pct),
+        window_days=window_days,
+        notes=None,
+        max_age_days=max_age_days,
+    )
+
+
+def _pin_observation(
+    subject_key: str, *, magnitude: str, status: str, threshold_pct: str, window_days: int
+) -> SignalObservation:
+    return SignalObservation(
+        subject_key=subject_key,
+        magnitude=Decimal(magnitude),
+        status=status,
+        threshold_pct=Decimal(threshold_pct),
+        window_days=window_days,
+        reference_value=Decimal("100"),
+        reference_date=date(2026, 7, 9),
+        latest_value=Decimal("92"),
+        latest_date=date(2026, 7, 14),
+    )
+
+
+def _pin_finding(subject_key: str, n: int, created_at: datetime, payload: dict) -> IreneFindingDTO:
+    return IreneFindingDTO(
+        id=_pin_id(n),
+        tenant_id=_pin_id(1),
+        subject_key=subject_key,
+        payload=payload,
+        urgency=7,
+        band="noteworthy",
+        resolution="open",
+        resolved_at=None,
+        resolved_by=None,
+        created_at=created_at,
+    )
+
+
+def _pin_scenario(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Install the stand-ins and return the keyword arguments of one render."""
+    price = _pin_watchpoint("price", "price:00000000", 11, threshold_pct="5.0", window_days=5)
+    fx = _pin_watchpoint("fx", "fx:USD/EUR", 12, threshold_pct="3.0", window_days=10)
+    freshness = _pin_watchpoint(
+        "freshness", "freshness:*", 13, threshold_pct="45", max_age_days=45, muted=True
+    )
+    resolution = WatchDeskResolution(
+        config=DEFAULT_FLOOR_CONFIG,
+        warn_default_pct=DEFAULT_WARN_THRESHOLD_PCT,
+        overlays={
+            overlay.subject_key: overlay
+            for overlay in (
+                _pin_overlay("saa:equity", 21, muted=True),
+                _pin_overlay("anlv:fonds", 22, warn_threshold_pct="70", re_trigger_delta="1.5"),
+                _pin_overlay(rss_overlay_subject_key("macro"), 23, muted=True),
+            )
+        },
+        signals={wp.subject_key: wp for wp in (price, fx, freshness)},
+    )
+
+    saa = _coverage_frame(
+        [
+            _row(class_key="equity", max_pct="25", coverage_pct="10.0", status="OK"),
+            _row(class_key="bonds", max_pct="25", coverage_pct="23.0", status="WARN"),
+            _row(class_key="real_estate", max_pct="10", coverage_pct="12.5", status="BREACH"),
+            _row(class_key="cash", max_pct=None, coverage_pct="4.0", status="NO_LIMIT"),
+            _row(
+                class_key="equity",
+                max_pct="25",
+                coverage_pct="30.0",
+                status="BREACH",
+                as_of=date(2026, 5, 31),
+            ),
+        ]
+    )
+    anlv = _coverage_frame(
+        [
+            _row(class_key="fonds", max_pct="20", coverage_pct="15.0", status="OK"),
+            _row(class_key="zero", max_pct="0", coverage_pct="0", status="OK"),
+        ]
+    )
+    bundle = SimpleNamespace(
+        saa=SimpleNamespace(coverage=saa),
+        anlv=SimpleNamespace(coverage=anlv),
+        latest_as_of_date=date(2026, 6, 30),
+    )
+
+    class _CoverageService:
+        async def get_coverage(self, *, warn_threshold_pct: Decimal) -> SimpleNamespace:
+            assert warn_threshold_pct == resolution.warn_default_pct
+            return bundle
+
+    watch_rows = [
+        IreneWatchStateDTO(
+            id=_pin_id(31),
+            tenant_id=_pin_id(1),
+            subject_key="saa:bonds",
+            magnitude=None,
+            band=None,
+            acknowledged_at=datetime(2026, 7, 10, 9, 0, tzinfo=timezone.utc),
+            acknowledged_magnitude=Decimal("22.4"),
+            last_seen_at=_PIN_BEAT,
+            created_at=_PIN_BEAT,
+            updated_at=_PIN_BEAT,
+        ),
+        IreneWatchStateDTO(
+            id=_pin_id(32),
+            tenant_id=_pin_id(1),
+            subject_key="fx:USD/EUR",
+            magnitude=None,
+            band=None,
+            acknowledged_at=datetime(2026, 7, 11, 9, 0, tzinfo=timezone.utc),
+            acknowledged_magnitude=Decimal("1.0"),
+            last_seen_at=_PIN_BEAT,
+            created_at=_PIN_BEAT,
+            updated_at=_PIN_BEAT,
+        ),
+    ]
+
+    class _WatchStates:
+        def __init__(self, session: object) -> None:
+            assert session is _PIN_SESSION
+
+        async def list_all(self) -> list[IreneWatchStateDTO]:
+            return watch_rows
+
+    observed: list[tuple[SignalWatchpoint, SignalResult]] = [
+        (
+            price,
+            _pin_observation(
+                "price:00000000",
+                magnitude="8.0",
+                status="BREACH",
+                threshold_pct="5.0",
+                window_days=5,
+            ),
+        ),
+        (fx, NoObservation(subject_key="fx:USD/EUR", reason="no rate observations at all")),
+        (
+            _pin_watchpoint("freshness", "freshness:" + str(_pin_id(41)), 13, threshold_pct="45"),
+            _pin_observation(
+                "freshness:" + str(_pin_id(41)),
+                magnitude="12",
+                status="OK",
+                threshold_pct="45",
+                window_days=0,
+            ),
+        ),
+        (
+            _pin_watchpoint("freshness", "freshness:" + str(_pin_id(42)), 13, threshold_pct="45"),
+            _pin_observation(
+                "freshness:" + str(_pin_id(42)),
+                magnitude="40",
+                status="WARN",
+                threshold_pct="45",
+                window_days=0,
+            ),
+        ),
+    ]
+
+    async def _observe(
+        session: object, *, as_of: date, resolution: WatchDeskResolution
+    ) -> list[tuple[SignalWatchpoint, SignalResult]]:
+        assert session is _PIN_SESSION
+        assert as_of == _PIN_NOW.date()
+        assert resolution is resolution_given
+        return observed
+
+    resolution_given = resolution
+    monkeypatch.setattr(_monitor_home, "_build_coverage_service", lambda _s: _CoverageService())
+    monkeypatch.setattr(_monitor_home, "IreneWatchStateRepository", _WatchStates)
+    monkeypatch.setattr(_monitor_home, "observe_signal_families", _observe)
+
+    findings = [
+        _pin_finding("saa:real_estate", 51, _PIN_NOW - timedelta(minutes=30), {}),
+        _pin_finding("rss:cluster", 52, _PIN_NOW - timedelta(minutes=20), {"tag": "macro"}),
+        _pin_finding("price:00000000", 53, _PIN_NOW - timedelta(minutes=10), {}),
+        _pin_finding("saa:bonds", 54, _PIN_BEAT - timedelta(hours=1), {}),
+    ]
+    return {
+        "findings": findings,
+        "schedule": SimpleNamespace(last_beat_at=_PIN_BEAT),
+        "effective_labels": {"saa": "SAA 2026"},
+        "resolution": resolution,
+        "now": _PIN_NOW,
+    }
+
+
+_PIN_SESSION = object()
+
+#: Captured from the unchanged tree; see the section comment above.
+_PIN_EXPECTED: dict[str, Any] = {
+    "coverage_available": True,
+    "groups": [
+        {
+            "family": "saa",
+            "name": "SAA limits",
+            "badges": [
+                {"text": "1 BREACH", "modifier": "breach"},
+                {"text": "1 WARN", "modifier": "warn"},
+                {"text": "1 OK", "modifier": "ok"},
+            ],
+            "subject_count": 3,
+            "muted_count": 1,
+            "effective_label": "SAA 2026",
+            "rows": [
+                {
+                    "subject_key": "saa:equity",
+                    "family": "saa",
+                    "status": "OK",
+                    "modifier": "ok",
+                    "coverage_pct": 10.0,
+                    "max_pct": 25.0,
+                    "utilisation": 40.0,
+                    "fill_pct": 40.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": True,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-overlay-saa-equity",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "Calm — below the 90% WARN threshold.",
+                },
+                {
+                    "subject_key": "saa:bonds",
+                    "family": "saa",
+                    "status": "WARN",
+                    "modifier": "warn",
+                    "coverage_pct": 23.0,
+                    "max_pct": 25.0,
+                    "utilisation": 92.0,
+                    "fill_pct": 92.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-overlay-saa-bonds",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "Silent — OK acknowledged at 22.40% on 10 Jul 2026; +0.60 "
+                    "pp is below the 5.0 pp re-trigger.",
+                },
+                {
+                    "subject_key": "saa:real_estate",
+                    "family": "saa",
+                    "status": "BREACH",
+                    "modifier": "breach",
+                    "coverage_pct": 12.5,
+                    "max_pct": 10.0,
+                    "utilisation": 125.0,
+                    "fill_pct": 100.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": True,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-overlay-saa-real-estate",
+                    "fired_this_beat": True,
+                    "finding_anchor": "#dc-card-00000000-0000-0000-0000-000000000033",
+                    "note": "Fired this beat — now at BREACH.",
+                },
+            ],
+        },
+        {
+            "family": "anlv",
+            "name": "AnlV quotas",
+            "badges": [{"text": "1 WARN", "modifier": "warn"}, {"text": "1 OK", "modifier": "ok"}],
+            "subject_count": 2,
+            "muted_count": 0,
+            "effective_label": None,
+            "rows": [
+                {
+                    "subject_key": "anlv:fonds",
+                    "family": "anlv",
+                    "status": "WARN",
+                    "modifier": "warn",
+                    "coverage_pct": 15.0,
+                    "max_pct": 20.0,
+                    "utilisation": 75.0,
+                    "fill_pct": 75.0,
+                    "warn_threshold_pct": 70.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": True,
+                    "delta_customised": True,
+                    "editor_id": "dc-overlay-anlv-fonds",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "WARN — not yet reviewed.",
+                },
+                {
+                    "subject_key": "anlv:zero",
+                    "family": "anlv",
+                    "status": "OK",
+                    "modifier": "ok",
+                    "coverage_pct": 0.0,
+                    "max_pct": 0.0,
+                    "utilisation": 0.0,
+                    "fill_pct": 0.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-overlay-anlv-zero",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "Calm — below the 90% WARN threshold.",
+                },
+            ],
+        },
+    ],
+    "rss": {
+        "name": "Press dimensions (RSS)",
+        "meta": "7 curated tags · corroboration only, never a source of figures",
+        "muted_count": 1,
+        "rows": [
+            {
+                "tag": "credit",
+                "subject_key": "rss:credit",
+                "family": "rss",
+                "corroborates": ["listed_bonds", "private_debt"],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-credit",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+            {
+                "tag": "equities",
+                "subject_key": "rss:equities",
+                "family": "rss",
+                "corroborates": ["equities", "listed_equity"],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-equities",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+            {
+                "tag": "macro",
+                "subject_key": "rss:macro",
+                "family": "rss",
+                "corroborates": [],
+                "muted": True,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-macro",
+                "fired_this_beat": True,
+                "finding_anchor": "#dc-card-00000000-0000-0000-0000-000000000034",
+                "note": "Folded into an open finding as corroboration.",
+            },
+            {
+                "tag": "private_markets",
+                "subject_key": "rss:private_markets",
+                "family": "rss",
+                "corroborates": ["private_equity", "private_debt", "real_estate", "infra_equity"],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-private-markets",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+            {
+                "tag": "real_estate",
+                "subject_key": "rss:real_estate",
+                "family": "rss",
+                "corroborates": ["real_estate"],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-real-estate",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+            {
+                "tag": "regulator",
+                "subject_key": "rss:regulator",
+                "family": "rss",
+                "corroborates": [],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-regulator",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+            {
+                "tag": "swiss_finance",
+                "subject_key": "rss:swiss_finance",
+                "family": "rss",
+                "corroborates": [],
+                "muted": False,
+                "mute_locked": False,
+                "editor_id": "dc-overlay-rss-swiss-finance",
+                "fired_this_beat": False,
+                "finding_anchor": None,
+                "note": "",
+            },
+        ],
+    },
+    "signal_groups": [
+        {
+            "family": "price",
+            "name": "Price moves",
+            "measure": "adverse move over each watchpoint's window",
+            "badges": [{"text": "1 Triggered", "modifier": "triggered"}],
+            "subject_count": 1,
+            "muted_count": 0,
+            "rows": [
+                {
+                    "subject_key": "price:00000000",
+                    "family": "price",
+                    "watchpoint_id": "00000000-0000-0000-0000-00000000000b",
+                    "display_name": "price:00000000",
+                    "status": "Triggered",
+                    "modifier": "triggered",
+                    "has_data": True,
+                    "calm": False,
+                    "value": "8.00%",
+                    "threshold": "5.00%",
+                    "fill_pct": 100.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-watchpoint-price-00000000",
+                    "fired_this_beat": True,
+                    "finding_anchor": "#dc-card-00000000-0000-0000-0000-000000000035",
+                    "note": "Fired this beat — now Triggered.",
+                }
+            ],
+            "collapsed_rows": [],
+            "collapsed_summary": None,
+            "can_add": True,
+        },
+        {
+            "family": "fx",
+            "name": "FX moves",
+            "measure": "absolute move over each watchpoint's window",
+            "badges": [{"text": "1 no data", "modifier": "nodata"}],
+            "subject_count": 1,
+            "muted_count": 0,
+            "rows": [
+                {
+                    "subject_key": "fx:USD/EUR",
+                    "family": "fx",
+                    "watchpoint_id": "00000000-0000-0000-0000-00000000000c",
+                    "display_name": "fx:USD/EUR",
+                    "status": "No data",
+                    "modifier": "nodata",
+                    "has_data": False,
+                    "calm": False,
+                    "value": "—",
+                    "threshold": "—",
+                    "fill_pct": 0.0,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-watchpoint-fx-USD-EUR",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "No data — no rate observations at all.",
+                }
+            ],
+            "collapsed_rows": [],
+            "collapsed_summary": None,
+            "can_add": True,
+        },
+        {
+            "family": "freshness",
+            "name": "NAV freshness",
+            "measure": "age of the newest actual NAV",
+            "badges": [
+                {"text": "1 Approaching", "modifier": "approaching"},
+                {"text": "1 Calm", "modifier": "calm"},
+            ],
+            "subject_count": 2,
+            "muted_count": 0,
+            "rows": [
+                {
+                    "subject_key": "freshness:00000000-0000-0000-0000-00000000002a",
+                    "family": "freshness",
+                    "watchpoint_id": "00000000-0000-0000-0000-00000000000d",
+                    "display_name": "freshness:00000000-0000-0000-0000-00000000002a",
+                    "status": "Approaching",
+                    "modifier": "approaching",
+                    "has_data": True,
+                    "calm": False,
+                    "value": "40 days",
+                    "threshold": "45 days",
+                    "fill_pct": 88.88888888888889,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-watchpoint-freshness-00000000-0000-0000-0000-00000000002a",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "Approaching — not yet reviewed.",
+                }
+            ],
+            "collapsed_rows": [
+                {
+                    "subject_key": "freshness:00000000-0000-0000-0000-000000000029",
+                    "family": "freshness",
+                    "watchpoint_id": "00000000-0000-0000-0000-00000000000d",
+                    "display_name": "freshness:00000000-0000-0000-0000-000000000029",
+                    "status": "Calm",
+                    "modifier": "calm",
+                    "has_data": True,
+                    "calm": True,
+                    "value": "12 days",
+                    "threshold": "45 days",
+                    "fill_pct": 26.666666666666668,
+                    "warn_threshold_pct": 90.0,
+                    "muted": False,
+                    "mute_locked": False,
+                    "warn_customised": False,
+                    "delta_customised": False,
+                    "editor_id": "dc-watchpoint-freshness-00000000-0000-0000-0000-000000000029",
+                    "fired_this_beat": False,
+                    "finding_anchor": None,
+                    "note": "Calm — below the 90% Approaching mark.",
+                }
+            ],
+            "collapsed_summary": "1 fresh — show all",
+            "can_add": False,
+        },
+    ],
+    "signal_footer": [
+        {
+            "family": "liquidity",
+            "name": "Cash coverage",
+            "measure": "cash cover of the calls projected inside the horizon",
+            "can_add": True,
+            "watched": False,
+        }
+    ],
+}
+
+
+async def test_the_monitor_context_is_pinned_across_the_lift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole ``monitor`` context for one fixed scenario, value for value."""
+    context = await _build_monitor(_PIN_SESSION, **_pin_scenario(monkeypatch))
+    assert context == _PIN_EXPECTED

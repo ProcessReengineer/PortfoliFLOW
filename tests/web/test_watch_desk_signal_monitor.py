@@ -41,13 +41,13 @@ from services.analytics.signal_watch import (
     SignalObservation,
     SignalResult,
 )
-from services.watch_desk.overlay import SignalWatchpoint, WatchDeskResolution
-from web.routes.watch_desk import (
+from services.watch_desk.family_status import (
     _build_signal_group,
     _signal_figures,
     _signal_footer,
     _signal_note,
 )
+from services.watch_desk.overlay import SignalWatchpoint, WatchDeskResolution
 
 _TENANT: UUID = uuid4()
 _AS_OF = date(2026, 8, 11)

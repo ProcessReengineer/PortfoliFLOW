@@ -36,6 +36,12 @@ never be the first to discover an inverted configuration (ADR-0116 §5).
 The only schema-level rules are shape rules: the two band boundaries are
 one setting and must be set together or not at all, and
 ``options_min_band`` must name a real final band.
+
+The six per-family WARN columns ``warn_pct_<family>`` (migration b036,
+ADR-0133 §3.1) differ from every other column in what NULL means: NULL
+inherits the **tenant** default ``warn_default_pct``, not a code default.
+The sensitivity presets write them; ``rss`` has none, having no scalar
+magnitude to warn on.
 """
 
 from __future__ import annotations
@@ -100,6 +106,14 @@ class FloorCalibration(Base):
 
     # --- tenant-wide WARN default -------------------------------------------
     warn_default_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+
+    # --- per-family WARN (ADR-0133 §3.1; NULL inherits warn_default_pct) ---
+    warn_pct_saa: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    warn_pct_anlv: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    warn_pct_price: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    warn_pct_fx: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    warn_pct_freshness: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    warn_pct_liquidity: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
 
     # --- per-family magnitude re-trigger deltas (all seven families) --------
     re_trigger_delta_saa: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)

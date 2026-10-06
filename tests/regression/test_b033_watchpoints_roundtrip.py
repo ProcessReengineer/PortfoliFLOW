@@ -27,6 +27,11 @@ so a relative downgrade silently stops undoing *this* migration the moment
 a newer one lands. Naming b033's own ``down_revision`` keeps the guard
 honest for every future head.
 
+The column sets are **head-relative**: the shape is asserted after
+``upgrade head``, so a later migration that adds a column to these tables
+extends the guard by a named constant (``_B036_FAMILY_WARN_COLUMNS``)
+while b033's own set stays verbatim.
+
 Runs against a **per-test scratch database** (``tests/regression/conftest.py``)
 like the other migration guards, so no downgrade ever touches the shared
 dev database. If the server is unreachable the test skips.
@@ -108,6 +113,19 @@ _EXPECTED_CALIBRATION_COLUMNS: frozenset[str] = frozenset(
         "notes",
         "created_at",
         "updated_at",
+    }
+)
+
+#: Added to floor_calibration by b036 — the per-family WARN fraction
+#: (ADR-0133 §3.1). Part of head, so part of the head-relative shape.
+_B036_FAMILY_WARN_COLUMNS: frozenset[str] = frozenset(
+    {
+        "warn_pct_saa",
+        "warn_pct_anlv",
+        "warn_pct_price",
+        "warn_pct_fx",
+        "warn_pct_freshness",
+        "warn_pct_liquidity",
     }
 )
 
@@ -233,10 +251,12 @@ async def _assert_full_shape(engine: AsyncEngine) -> None:
     )
 
     calibration_columns = await _columns(engine, _CALIBRATION)
-    assert calibration_columns == _EXPECTED_CALIBRATION_COLUMNS, (
-        "floor_calibration column set drifted from the ADR-0116 §7 shape: "
-        f"missing={sorted(_EXPECTED_CALIBRATION_COLUMNS - calibration_columns)}, "
-        f"extra={sorted(calibration_columns - _EXPECTED_CALIBRATION_COLUMNS)}"
+    expected_calibration = _EXPECTED_CALIBRATION_COLUMNS | _B036_FAMILY_WARN_COLUMNS
+    assert calibration_columns == expected_calibration, (
+        "floor_calibration column set at head drifted from the ADR-0116 §7 shape "
+        "plus the b036 per-family WARN columns: "
+        f"missing={sorted(expected_calibration - calibration_columns)}, "
+        f"extra={sorted(calibration_columns - expected_calibration)}"
     )
 
     # ADR-0116 §7 invariant 1, as a schema fact rather than a convention.

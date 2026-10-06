@@ -115,6 +115,10 @@ from core.repositories.investment_sector_weights_repository import (
     SectorWeightDTO,
     SectorWeightInput,
 )
+from core.repositories.irene_briefing_repository import (
+    IreneBriefingDTO,
+    IreneBriefingRepository,
+)
 from core.repositories.irene_finding_repository import (
     IreneFindingDTO,
     IreneFindingRepository,
@@ -169,6 +173,10 @@ from core.repositories.trade_ticket_repository import (
     TradeTicketRepository,
 )
 from core.repositories.user_repository import UserDTO, UserRepository
+from core.repositories.watch_family_scope_repository import (
+    WatchFamilyScopeDTO,
+    WatchFamilyScopeRepository,
+)
 from core.repositories.watchpoint_repository import (
     WatchpointDTO,
     WatchpointRepository,
@@ -222,6 +230,8 @@ __all__ = [
     "InvestmentRegionWeightsRepository",
     "InvestmentRepository",
     "InvestmentSectorWeightsRepository",
+    "IreneBriefingDTO",
+    "IreneBriefingRepository",
     "IreneFindingDTO",
     "IreneFindingRepository",
     "IreneScheduleDTO",
@@ -258,6 +268,8 @@ __all__ = [
     "TradeTicketRepository",
     "UserDTO",
     "UserRepository",
+    "WatchFamilyScopeDTO",
+    "WatchFamilyScopeRepository",
     "WatchpointDTO",
     "WatchpointRepository",
     "create_engine_from_url",

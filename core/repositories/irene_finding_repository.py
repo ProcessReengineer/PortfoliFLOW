@@ -13,6 +13,7 @@ Findings are append-only: a row is never mutated except to record its
 resolution. :meth:`IreneFindingRepository.resolve` is the only writer
 that touches an existing row, and it validates the resolution value
 against the canonical vocabulary before writing.
+:meth:`count_open_by_family` counts open findings per family (ADR-0133 §2.5).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from sqlalchemy import func, select, text, update
 
 from core.exceptions import IreneResolutionInvalid
 from core.models.irene_finding import IreneFinding
+from core.models.watchpoint import WATCHPOINT_FAMILIES
 from core.repositories.base import BaseRepository
 
 # Canonical lowercase resolution vocabulary (ADR-0085 / ADR-0088 / ADR-0107).
@@ -189,6 +191,32 @@ class IreneFindingRepository(BaseRepository):
             select(func.count()).select_from(IreneFinding).where(IreneFinding.created_at >= since)
         )
         return int(result.scalar_one())
+
+    async def count_open_by_family(self) -> dict[str, int]:
+        """Count the open findings of each watchpoint family.
+
+        Backs the family switch (ADR-0133 §2.5): switching a family off
+        names its open findings in the confirmation. The family is the
+        rule-formed prefix of ``subject_key`` before the first ``:``
+        (``rss:cluster:…`` → ``rss``). Only the seven families of
+        ``WATCHPOINT_FAMILIES`` are counted; findings with any other prefix
+        are not. Tenant-scoped by the active RLS context.
+
+        Returns:
+            One entry per family, in ``WATCHPOINT_FAMILIES`` order, zeros
+            included.
+        """
+        family = func.split_part(IreneFinding.subject_key, ":", 1)
+        result = await self._session.execute(
+            select(family, func.count())
+            .where(
+                IreneFinding.resolution == "open",
+                family.in_(WATCHPOINT_FAMILIES),
+            )
+            .group_by(family)
+        )
+        counts = {row[0]: int(row[1]) for row in result.all()}
+        return {name: counts.get(name, 0) for name in WATCHPOINT_FAMILIES}
 
     async def list_journal(self, limit: int = 100) -> list[IreneFindingDTO]:
         """Return the full finding history, newest first.

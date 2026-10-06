@@ -18,6 +18,10 @@ Coverage
   typed :class:`IreneResolutionInvalid`.
 * IF-04: a finding written under tenant A is invisible from a session
   under tenant B (RLS smoke).
+* IF-07: ``count_open_by_family`` returns all seven watchpoint families,
+  zeros included, counting open findings by the ``subject_key`` prefix
+  before the first ``:``; resolved findings, out-of-vocabulary prefixes
+  and other tenants' findings are not counted (ADR-0133 §2.5).
 """
 
 from __future__ import annotations
@@ -320,3 +324,70 @@ async def test_if06_get_present_absent_and_cross_tenant(
     # Cross-tenant: tenant B cannot see tenant A's finding by id (RLS).
     async with tenant_context(app_engine, tenant_b) as session:
         assert await IreneFindingRepository(session).get(created.id) is None
+
+
+# ---------------------------------------------------------------------------
+# IF-07: count_open_by_family (ADR-0133 §2.5)
+# ---------------------------------------------------------------------------
+
+
+async def test_if07_count_open_by_family(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_a = await seed_tenant(name="A")
+    tenant_b = await seed_tenant(name="B")
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        assert await IreneFindingRepository(session).count_open_by_family() == {
+            "saa": 0,
+            "anlv": 0,
+            "rss": 0,
+            "price": 0,
+            "fx": 0,
+            "freshness": 0,
+            "liquidity": 0,
+        }
+
+    open_keys = [
+        "saa:equity",
+        "anlv:16",
+        "rss:cluster:3f9a1c",
+        f"price:{uuid4()}",
+        f"freshness:{uuid4()}",
+        f"freshness:{uuid4()}",
+        "liquidity:cash_coverage",
+        "legacy:x",
+    ]
+    async with tenant_context(app_engine, tenant_a) as session:
+        repo = IreneFindingRepository(session)
+        for key in open_keys:
+            await repo.append(
+                subject_key=key, payload={"trigger": key}, urgency=3, band="noteworthy"
+            )
+        resolved = await repo.append(
+            subject_key="fx:USD/EUR", payload={"trigger": "fx"}, urgency=3, band="noteworthy"
+        )
+        await repo.resolve(
+            finding_id=resolved.id,
+            resolution="acted",
+            resolved_by=None,
+            resolved_at=datetime(2026, 10, 6, 9, 0, tzinfo=timezone.utc),
+        )
+
+    # Tenant B's open findings must not reach tenant A's counts.
+    async with tenant_context(app_engine, tenant_b) as session:
+        await IreneFindingRepository(session).append(
+            subject_key="saa:equity", payload={"trigger": "b"}, urgency=3, band="noteworthy"
+        )
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        counts = await IreneFindingRepository(session).count_open_by_family()
+
+    assert list(counts) == ["saa", "anlv", "rss", "price", "fx", "freshness", "liquidity"]
+    assert counts == {
+        "saa": 1,
+        "anlv": 1,
+        "rss": 1,
+        "price": 1,
+        "fx": 0,
+        "freshness": 2,
+        "liquidity": 1,
+    }

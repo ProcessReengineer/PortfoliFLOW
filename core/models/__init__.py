@@ -34,6 +34,7 @@ from core.models.investment_rating_weight import InvestmentRatingWeight
 from core.models.investment_region_weight import InvestmentRegionWeight
 from core.models.investment_sector_weight import InvestmentSectorWeight
 from core.models.instrument_price import InstrumentPrice
+from core.models.irene_briefing import IreneBriefing
 from core.models.irene_finding import IreneFinding
 from core.models.irene_schedule import IreneSchedule
 from core.models.irene_watch_state import IreneWatchState
@@ -51,6 +52,7 @@ from core.models.sector import Sector
 from core.models.tenant import Tenant
 from core.models.trade_ticket import TradeTicket, TradeTicketEffect
 from core.models.user import User
+from core.models.watch_family_scope import WatchFamilyScope
 from core.models.watchpoint import Watchpoint
 
 __all__ = [
@@ -81,6 +83,7 @@ __all__ = [
     "InvestmentRatingWeight",
     "InvestmentRegionWeight",
     "InvestmentSectorWeight",
+    "IreneBriefing",
     "IreneFinding",
     "IreneSchedule",
     "IreneWatchState",
@@ -99,5 +102,6 @@ __all__ = [
     "TradeTicket",
     "TradeTicketEffect",
     "User",
+    "WatchFamilyScope",
     "Watchpoint",
 ]

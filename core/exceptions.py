@@ -221,6 +221,29 @@ class FloorCalibrationInvalid(ValidationError):
     """
 
 
+class IreneBriefingInvalid(ValidationError):
+    """Raised when a briefing append violates the ``irene_briefing`` shape.
+
+    Per ADR-0133 §1.1 a briefing row is ``written`` with both texts or
+    ``skipped`` with a ``skip_reason`` from its vocabulary and no text —
+    the shape the schema CHECKs pin. The repository checks the same rules,
+    and that every timestamp is timezone-aware, **before** any SQL, so the
+    caller sees a named ``field`` rather than an ``IntegrityError`` from
+    the CHECK underneath.
+    """
+
+
+class WatchFamilyScopeInvalid(ValidationError):
+    """Raised when a family-scope revision would be invalid.
+
+    Per ADR-0133 §2 a revision names one of the seven watchpoint families,
+    a preset from the vocabulary or none (and never one on ``rss``), and a
+    timezone-aware ``effective_from`` that advances past the family's
+    newest revision — revisions are immutable, a change takes effect later
+    and never rewrites what was in force.
+    """
+
+
 class CoverageInputOutOfRange(PortfoliFlowError):
     """Raised when a coverage-engine input lies outside its supported range.
 

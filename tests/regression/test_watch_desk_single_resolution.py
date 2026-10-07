@@ -53,6 +53,7 @@ import re
 
 import services.analytics.irene_floor as irene_floor_module
 import services.analytics.signal_watch as signal_watch_module
+import services.irene.briefing_material as briefing_material_module
 import services.irene.beat as beat_module
 import services.irene.internal_delta as internal_delta_module
 import services.irene.signal_delta as signal_delta_module
@@ -302,6 +303,60 @@ def test_the_family_status_observes_once_for_both_of_its_readers() -> None:
             f"{entry.__qualname__} does not call {helper!r}; the monitor and the "
             "typed read classify through the same helpers."
         )
+
+
+def test_the_briefing_material_reads_status_and_market_through_their_services() -> None:
+    """The briefing states what the watch strip shows (ADR-0133 §1.2).
+
+    The defect this forbids is a briefing whose Part 2 states a status the
+    watch strip does not show, because the material classified or resolved
+    for itself. The material reads the family status and the market through
+    their services alone, is handed the resolution with no default to fall
+    back on, and holds none of the fetch, producer or calibration seams a
+    second derivation would need.
+    """
+    source = inspect.getsource(briefing_material_module)
+    for service in ("read_family_status(", "read_market("):
+        assert service in source, f"the briefing material does not call {service!r}"
+
+    second_paths = (
+        "observe_signal_families(",
+        "build_monitor(",
+        "resolve_watch_desk(",
+        "effective_revisions(",
+        ".get_coverage(",
+        "classify_coverage_status(",
+        "run_synthesis",
+    )
+    for second_path in second_paths:
+        assert second_path not in source, (
+            f"the briefing material performs {second_path!r}; status and market "
+            "arrive through read_family_status and read_market alone."
+        )
+    assert not _HARDCODED_WARN.search(source), (
+        "the briefing material restates a WARN threshold; it is resolved per "
+        "tenant and per subject since ADR-0116 §3."
+    )
+
+    namespace = vars(briefing_material_module)
+    held_elsewhere = (
+        *_FETCH_ONLY_REPOSITORIES,
+        *_PRODUCERS,
+        "FloorCalibrationRepository",
+        "WatchpointRepository",
+        "WatchFamilyScopeRepository",
+        "DEFAULT_FLOOR_CONFIG",
+    )
+    for name in held_elsewhere:
+        assert name not in namespace, (
+            f"the briefing material holds {name}; it is handed a resolution and "
+            "reads through the shared services."
+        )
+
+    resolution = inspect.signature(briefing_material_module.gather_briefing_material).parameters[
+        "resolution"
+    ]
+    assert resolution.default is inspect.Parameter.empty
 
 
 def test_the_producers_are_called_from_the_observation_layer_alone() -> None:

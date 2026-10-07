@@ -189,7 +189,8 @@ async def observe_signal_families(
     Returns:
         ``(watchpoint, result)`` pairs in ``(price, fx, freshness,
         liquidity)`` family order, then registry order. Empty when the
-        tenant watches nothing. A pair whose result is a
+        tenant watches nothing. A family switched off through the
+        watch-point scope (ADR-0133 §2.4) is absent. A pair whose result is a
         :class:`~services.analytics.signal_watch.NoObservation` is
         **returned, not dropped**: the caller decides what silence means —
         the beat writes no watch-state row for it, the monitor renders it as
@@ -229,8 +230,13 @@ async def observe_signal_family(
         resolution: The tenant's effective calibration.
 
     Returns:
-        The family's ``(watchpoint, result)`` pairs, in registry order.
+        The family's ``(watchpoint, result)`` pairs, in registry order. A
+        family switched off through the watch-point scope (ADR-0133 §2.4)
+        yields an empty list: it is not observed, so nothing downstream can
+        classify or render it.
     """
+    if not resolution.is_family_enabled(family):
+        return []
     watchpoints = resolution.signals_for(family)
     if not watchpoints:
         return []

@@ -569,6 +569,7 @@ def _build_tiles(
     findings_since_beat: int | None,
     internal_subject_count: int,
     signal_subject_count: int,
+    press_watched: bool,
     now: datetime,
 ) -> dict[str, Any]:
     """Project the four Briefing status tiles (ADR-0089).
@@ -586,10 +587,14 @@ def _build_tiles(
             or ``None`` when no beat has run (the never-ran state).
         internal_subject_count: Number of limit rows across the effective
             ``saa`` / ``anlv`` sets — the internal subjects the beat watches.
+            Counts only the switched-on limit families.
         signal_subject_count: Number of signal-family subjects, summed off
             the monitor's own group figures by
             :func:`_signal_subject_count`. Never enumerated here: the tile
             and the group headers below it are one count rendered twice.
+        press_watched: Whether the monitor renders the press group. Read
+            off the monitor, never off the resolution; while it is false the
+            press term is omitted.
         now: The current instant (timezone-aware UTC).
 
     Returns:
@@ -632,12 +637,18 @@ def _build_tiles(
     # A zero signals term is omitted rather than rendered as "+ 0": a tenant
     # who watches no signal family reads exactly the tile they read before,
     # and "0 signal subjects" is a clause that states nothing.
-    rss_subject_count = len(_KNOWN_TAGS)
-    figures = [str(internal_subject_count), str(rss_subject_count)]
+    #
+    # The press term follows the monitor's press group: while Press coverage
+    # is switched off the group is not rendered, so the term is omitted. The
+    # internal term is always present, "0 internal limits" included.
+    rss_subject_count = len(_KNOWN_TAGS) if press_watched else 0
+    figures = [str(internal_subject_count)]
     breakdown = [
         f"{internal_subject_count} internal {'limit' if internal_subject_count == 1 else 'limits'}",
-        f"{rss_subject_count} press dimensions",
     ]
+    if press_watched:
+        figures.append(str(rss_subject_count))
+        breakdown.append(f"{rss_subject_count} press dimensions")
     if signal_subject_count:
         figures.append(str(signal_subject_count))
         breakdown.append(_plural(signal_subject_count, "signal subject"))
@@ -985,6 +996,11 @@ async def _briefing_context(
     if schedule is not None and schedule.last_beat_at is not None:
         findings_since_beat = await finding_repo.count_since(since=schedule.last_beat_at)
 
+    # One resolution for the whole render — the same function the beat
+    # resolves through, so a monitor row and the beat's classification
+    # of that subject cannot disagree (ADR-0116 §1).
+    resolution = await resolve_watch_desk(db_session, as_of=now)
+
     # The internal subjects the beat watches. A family with no effective
     # set contributes 0.
     # The set labels are carried on for the monitor's group meta.
@@ -992,16 +1008,16 @@ async def _briefing_context(
     internal_subject_count = 0
     effective_labels: dict[str, str] = {}
     for family in _LIMIT_FAMILIES:
+        # A switched-off family is not watched, so it is neither counted in
+        # the tile nor rendered in the monitor (ADR-0133 §2.4).
+        if not resolution.is_family_enabled(family):
+            continue
         effective = await limits_repo.get_effective_set(family, now.date())
         if effective is None:
             continue
         effective_labels[family] = effective.label
         internal_subject_count += len(await limits_repo.list_limits(effective.id))
 
-    # One resolution for the whole render — the same function the beat
-    # resolves through, so a monitor row and the beat's classification
-    # of that subject cannot disagree (ADR-0116 §1).
-    resolution = await resolve_watch_desk(db_session, as_of=now)
     monitor = await build_monitor(
         db_session,
         findings=findings,
@@ -1023,6 +1039,8 @@ async def _briefing_context(
             # The monitor's own group figures, summed — so the tile and the
             # group headers beneath it are one count rendered twice.
             signal_subject_count=_signal_subject_count(monitor["signal_groups"]),
+            # The press term is read off the monitor the tile sits above.
+            press_watched=monitor["rss"] is not None,
             now=now,
         ),
         "monitor": monitor,

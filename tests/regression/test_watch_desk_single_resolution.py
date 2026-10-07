@@ -394,3 +394,25 @@ def test_the_subjects_watched_tile_counts_the_monitors_own_groups() -> None:
             f"_build_tiles takes {counted_with!r}; the tiles project figures "
             "the route already derived and derive none of their own."
         )
+
+
+def test_the_family_switch_is_read_off_the_resolution_on_both_sides() -> None:
+    """Beat and monitor skip a switched-off family through one predicate.
+
+    ADR-0133 §2.3/§2.4: every entry point that decides whether a family is
+    watched asks ``is_family_enabled`` on the one resolution it was handed,
+    so the beat and the monitor cannot disagree about what is on.
+    """
+    entries = (
+        internal_delta_module.evaluate_internal_deltas,
+        observation_module.observe_signal_family,
+        beat_module.run_beat,
+        family_status_module.build_monitor,
+        family_status_module._signal_footer,
+        watch_desk_route._briefing_context,
+    )
+    for entry in entries:
+        assert "is_family_enabled(" in inspect.getsource(entry), (
+            f"{entry.__qualname__} does not read the family switch off the "
+            "resolution (ADR-0133 §2.4)."
+        )

@@ -26,7 +26,7 @@ Coverage:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from core.repositories import tenant_context
 from core.repositories.irene_finding_repository import IreneFindingRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from services.ai_service_core import ResolvedLLM, SynthesisResult
 from services.irene.beat import BeatResult, run_beat
 from services.irene.delta_config import DEFAULT_DELTA_THRESHOLDS
@@ -299,6 +300,54 @@ async def test_beat_rss_finding_persists_membership_for_freeze(
         assert finding.payload["day_bucket"] == "2026-06-30"
         assert len(finding.payload["member_ids"]) == 2
         assert len(finding.payload["members"]) == 2
+
+
+async def test_press_coverage_off_skips_the_rss_delta(
+    app_engine: AsyncEngine, superuser_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Press coverage switched off: no RSS watch state, no cluster shown to Irene.
+
+    ADR-0133 §2.4 — the RSS delta is skipped, so the same two ``macro``
+    items that form a cluster above leave no trace in ``irene_watch_state``
+    and never reach the synthesis context.
+    """
+    tenant_id = await seed_tenant("beat-rss-off")
+    user_id = await seed_user(superuser_engine, tenant_id)
+    now = datetime.now(timezone.utc)
+    async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+        await WatchFamilyScopeRepository(session).insert_revision(
+            family="rss",
+            effective_from=now - timedelta(hours=1),
+            enabled=False,
+            changed_by=user_id,
+        )
+
+    published = datetime(2026, 6, 30, 9, tzinfo=timezone.utc)
+    items = [
+        make_item("https://a/1", "RATE: one", published, tags=("macro",), source="ECB"),
+        make_item("https://a/2", "RATE: two", published, tags=("macro",), source="FT"),
+    ]
+    core = _StubCore()
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        result = await run_beat(
+            session,
+            core,
+            llm=_TEST_LLM,
+            now=now,
+            rss_items=items,
+            embedder=StubEmbedder(),
+        )
+        assert result.error is None
+
+        rss_rows = (
+            await session.execute(
+                text("SELECT count(*) FROM irene_watch_state WHERE subject_key LIKE 'rss:%'")
+            )
+        ).scalar_one()
+        assert rss_rows == 0
+
+    assert "rss:cluster:" not in str(core.calls[0]["context"])
 
 
 async def test_beat_error_is_isolated_and_reported(app_engine: AsyncEngine, seed_tenant) -> None:

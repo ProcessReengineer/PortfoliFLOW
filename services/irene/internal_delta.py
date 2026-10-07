@@ -384,6 +384,10 @@ async def evaluate_internal_deltas(
       that is treated as "cannot assess this beat", i.e. ``[]`` (not a
       beat error), so a misconfigured tenant does not error every tick.
       The config gap surfaces through the Limits surface, not Irene.
+    * A family switched off through the watch-point scope (ADR-0133 §2.4)
+      is not evaluated, so it raises nothing and writes no watch state. Its
+      acknowledged state is left exactly as it was, so the first check
+      after re-enabling judges against it.
 
     Args:
         session: A tenant-scoped session.
@@ -397,7 +401,8 @@ async def evaluate_internal_deltas(
 
     Returns:
         The eligible findings, in ``(saa, anlv)`` family order then
-        DataFrame row order. Empty on any silence path.
+        DataFrame row order; a switched-off family is absent. Empty on any
+        silence path.
     """
     service = _build_service(session)
     try:
@@ -421,6 +426,8 @@ async def evaluate_internal_deltas(
 
     eligible: list[EligibleFinding] = []
     for family_result in (bundle.saa, bundle.anlv):
+        if not resolution.is_family_enabled(family_result.family):
+            continue
         eligible.extend(
             await _evaluate_family(
                 family_result=family_result,

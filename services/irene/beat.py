@@ -369,12 +369,16 @@ async def run_beat(
        delta (:func:`services.irene.signal_delta.evaluate_signal_deltas`):
        evaluate this tenant's ``price`` and ``fx`` watchpoints over the
        same pipeline (ADR-0116 §4). A tenant with no watchpoints — and
-       every tenant before this programme — takes the empty path.
+       every tenant before this programme — takes the empty path. Each
+       delta skips a family switched off through the watch-point scope
+       (ADR-0133 §2.4), which the resolution of step 0 carries.
     2. If an ``embedder`` and ``rss_items`` are supplied, run the RSS delta
        (:func:`services.irene.rss_delta.evaluate_rss_deltas`): cluster the
        feed items into keyed buckets (freeze-aware) and edge-gate each
        against ``irene_watch_state``. Both deltas decide *what is worth
-       showing Irene*.
+       showing Irene*. The RSS delta runs only while Press coverage
+       (``rss``) is on; while it is off this module forms no bucket at all,
+       ``macro`` and ``regulator`` included.
     3. Render the eligible findings as grounded context — internal and
        watchpoint figures to interpret (never invent), RSS clusters as
        titles/sources only — applying the correlation lift (a coincident
@@ -449,7 +453,7 @@ async def run_beat(
         internal_eligible = await evaluate_internal_deltas(session, now=now, resolution=resolution)
         signal_eligible = await evaluate_signal_deltas(session, now=now, resolution=resolution)
         rss_eligible: list[RssEligibleFinding] = []
-        if embedder is not None and rss_items:
+        if embedder is not None and rss_items and resolution.is_family_enabled("rss"):
             rss_eligible = await evaluate_rss_deltas(
                 session,
                 embedder,

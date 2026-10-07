@@ -24,6 +24,10 @@ takes it as an argument, resolved by the caller through
 beat resolves through (ADR-0116 §1). Which caller resolved it is not this
 module's concern.
 
+A family switched off through the watch-point scope (ADR-0133 §2.4) is not
+rendered at all: no group, no footer line. The scope arrives on the
+resolution like everything else.
+
 The structural guard in ``tests/regression/test_watch_desk_single_resolution.py``
 pins that this module observes through the shared path and holds none of the
 fetch-only repositories.
@@ -790,6 +794,10 @@ def _signal_footer(rendered: set[str], *, resolution: WatchDeskResolution) -> li
     house empty-state idiom: prose in ``.pf-empty-state``, with the action
     beside it (see ``_cases_body.html``).
 
+    A family switched off through the watch-point scope (ADR-0133 §2.4) is
+    skipped as well: it is not watched, so it is neither a group nor an
+    "Add watchpoint" invitation.
+
     The two singleton families are offered an "Add" only when **no live
     identity** exists. ``signals_for`` answers about the *effective* set, so
     a version dated in the future would read as absent here while the
@@ -801,11 +809,11 @@ def _signal_footer(rendered: set[str], *, resolution: WatchDeskResolution) -> li
         resolution: The tenant's effective calibration.
 
     Returns:
-        One entry per absent family, in the shared family order.
+        One entry per absent, switched-on family, in the shared family order.
     """
     footer: list[dict[str, Any]] = []
     for family in SIGNAL_FAMILY_ORDER:
-        if family in rendered:
+        if family in rendered or not resolution.is_family_enabled(family):
             continue
         watched = bool(resolution.signals_for(family))
         footer.append(
@@ -898,7 +906,8 @@ async def build_monitor(
             the same subject agree by construction.
 
     Returns:
-        The ``monitor`` template context.
+        The ``monitor`` template context. A switched-off family has no group;
+        ``rss`` is ``None`` while Press coverage is off.
     """
     service = _build_coverage_service(db_session)
     bundle: LimitsCoverageBundle | None
@@ -937,6 +946,7 @@ async def build_monitor(
             resolution=resolution,
         )
         for family in _LIMIT_FAMILIES
+        if resolution.is_family_enabled(family)
     ]
 
     # Grouped in the order the observation layer returned them, which is the
@@ -963,7 +973,11 @@ async def build_monitor(
     return {
         "coverage_available": coverage_available,
         "groups": groups,
-        "rss": _build_rss_group(fired_by_tag, resolution=resolution),
+        "rss": (
+            _build_rss_group(fired_by_tag, resolution=resolution)
+            if resolution.is_family_enabled("rss")
+            else None
+        ),
         "signal_groups": signal_groups,
         "signal_footer": _signal_footer(set(observations), resolution=resolution),
     }

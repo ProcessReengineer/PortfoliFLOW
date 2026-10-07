@@ -40,7 +40,7 @@
    Class names are the mock's verbatim (decision-console-mockup-B-final-v3)
    so DC5 can lift the mock CSS cleanly.
 
-   Context: monitor — coverage_available, groups, rss. #}
+   Context: monitor — coverage_available, groups, rss (None while Press coverage is off). #}
 <div id="dc-monitor" class="pf-dc-monitor">
     <div class="pf-dc-monitor__head">
         <span class="pf-dc-monitor__title">On watch</span>
@@ -159,61 +159,63 @@
        The fourth column is the mute affordance, which an rss overlay
        carries alone: a cluster subject is non-scalar, so there is no
        threshold to move and the schema refuses one. #}
-    <details class="pf-dc-group">
-        <summary>
-            <span class="pf-dc-group__chevron">▶</span>
-            <span class="pf-dc-group__name">{{ monitor.rss.name }}</span>
-            <span class="pf-dc-group__badges">
-                {%- if monitor.rss.muted_count -%}
-                    <span class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
-                {%- endif -%}
-            </span>
-            <span class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
-        </summary>
-        <div class="pf-dc-group__body">
-            <table>
-                <thead>
-                    <tr>
-                        <th scope="col">Tag</th>
-                        <th scope="col">Corroborates</th>
-                        <th scope="col">Note</th>
-                        <th scope="col">Sensitivity</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in monitor.rss.rows %}
+    {% if monitor.rss %}
+        <details class="pf-dc-group">
+            <summary>
+                <span class="pf-dc-group__chevron">▶</span>
+                <span class="pf-dc-group__name">{{ monitor.rss.name }}</span>
+                <span class="pf-dc-group__badges">
+                    {%- if monitor.rss.muted_count -%}
+                        <span class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
+                    {%- endif -%}
+                </span>
+                <span class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
+            </summary>
+            <div class="pf-dc-group__body">
+                <table>
+                    <thead>
                         <tr>
-                            <td class="mono">
-                                {{ row.tag }}
-                                {% if row.muted %}
-                                    <span class="tag tag--muted">muted</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ row.corroborates|join(', ') or '—' }}</td>
-                            <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
-                                {{ row.note }}
-                                {% if row.finding_anchor %}
-                                    <a href="{{ row.finding_anchor }}">▲ open finding</a>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <button type="button"
-                                        class="pf-dc-sensitivity__open"
-                                        hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
-                                        hx-target="#{{ row.editor_id }}"
-                                        hx-swap="innerHTML">
-                                    Adjust sensitivity
-                                </button>
-                            </td>
+                            <th scope="col">Tag</th>
+                            <th scope="col">Corroborates</th>
+                            <th scope="col">Note</th>
+                            <th scope="col">Sensitivity</th>
                         </tr>
-                        <tr class="pf-dc-sensitivity__slot">
-                            <td colspan="4" id="{{ row.editor_id }}"></td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </details>
+                    </thead>
+                    <tbody>
+                        {% for row in monitor.rss.rows %}
+                            <tr>
+                                <td class="mono">
+                                    {{ row.tag }}
+                                    {% if row.muted %}
+                                        <span class="tag tag--muted">muted</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ row.corroborates|join(', ') or '—' }}</td>
+                                <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+                                    {{ row.note }}
+                                    {% if row.finding_anchor %}
+                                        <a href="{{ row.finding_anchor }}">▲ open finding</a>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button type="button"
+                                            class="pf-dc-sensitivity__open"
+                                            hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
+                                            hx-target="#{{ row.editor_id }}"
+                                            hx-swap="innerHTML">
+                                        Adjust sensitivity
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr class="pf-dc-sensitivity__slot">
+                                <td colspan="4" id="{{ row.editor_id }}"></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    {% endif %}
 
     {# The four defined signal families (ADR-0116 §4). Their own fragment,
        because its vocabulary is asserted separately: a signal group renders

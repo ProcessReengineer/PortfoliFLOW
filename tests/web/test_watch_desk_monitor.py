@@ -26,6 +26,7 @@ from core.repositories.irene_watch_state_repository import IreneWatchStateDTO
 from services.analytics.irene_floor import DEFAULT_FLOOR_CONFIG, DEFAULT_WARN_THRESHOLD_PCT
 from services.analytics.signal_watch import NoObservation, SignalObservation, SignalResult
 from services.watch_desk.overlay import (
+    DisabledFamily,
     SignalWatchpoint,
     SubjectOverlay,
     WatchDeskResolution,
@@ -1279,3 +1280,82 @@ async def test_the_monitor_context_is_pinned_across_the_lift(
     """The whole ``monitor`` context for one fixed scenario, value for value."""
     context = await _build_monitor(_PIN_SESSION, **_pin_scenario(monkeypatch))
     assert context == _PIN_EXPECTED
+
+
+# ---------------------------------------------------------------------------
+# A switched-off family leaves the monitor (ADR-0133 §2.4)
+# ---------------------------------------------------------------------------
+
+
+async def test_switched_off_families_leave_the_monitor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No group, no press group and no footer line for a family that is off.
+
+    The signal observation is stubbed empty, as the gated observation layer
+    returns it for a switched-off family; the footer must still not invite
+    an "Add watchpoint" for ``price``.
+    """
+    session = object()
+    switched_off_at = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    disabled = {
+        family: DisabledFamily(family=family, effective_from=switched_off_at, changed_by=_TENANT)
+        for family in ("saa", "rss", "price")
+    }
+    resolution = WatchDeskResolution(
+        config=DEFAULT_FLOOR_CONFIG,
+        warn_default_pct=DEFAULT_WARN_THRESHOLD_PCT,
+        overlays={},
+        enabled_families=frozenset({"anlv", "fx", "freshness", "liquidity"}),
+        disabled_families=disabled,
+    )
+    bundle = SimpleNamespace(
+        saa=SimpleNamespace(
+            coverage=_coverage_frame(
+                [_row(class_key="equity", max_pct="25", coverage_pct="10.0", status="OK")]
+            )
+        ),
+        anlv=SimpleNamespace(
+            coverage=_coverage_frame(
+                [_row(class_key="fonds", max_pct="20", coverage_pct="15.0", status="OK")]
+            )
+        ),
+        latest_as_of_date=date(2026, 6, 30),
+    )
+
+    class _CoverageService:
+        async def get_coverage(self, *, warn_threshold_pct: Decimal) -> SimpleNamespace:
+            return bundle
+
+    class _WatchStates:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def list_all(self) -> list[IreneWatchStateDTO]:
+            return []
+
+    async def _observe(
+        _session: object, *, as_of: date, resolution: WatchDeskResolution
+    ) -> list[tuple[SignalWatchpoint, SignalResult]]:
+        return []
+
+    monkeypatch.setattr(_monitor_home, "_build_coverage_service", lambda _s: _CoverageService())
+    monkeypatch.setattr(_monitor_home, "IreneWatchStateRepository", _WatchStates)
+    monkeypatch.setattr(_monitor_home, "observe_signal_families", _observe)
+
+    context = await _build_monitor(
+        session,
+        findings=[],
+        schedule=None,
+        effective_labels={"saa": "SAA 2026", "anlv": "AnlV 2026"},
+        resolution=resolution,
+        now=_PIN_NOW,
+    )
+
+    assert [group["family"] for group in context["groups"]] == ["anlv"]
+    assert context["rss"] is None
+    assert [entry["family"] for entry in context["signal_footer"]] == [
+        "fx",
+        "freshness",
+        "liquidity",
+    ]

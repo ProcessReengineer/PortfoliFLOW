@@ -577,3 +577,118 @@ async def test_the_resolution_carries_family_warn_and_scope_together(
     assert disabled.changed_by == user_id
     assert resolved.is_family_enabled("saa")
     assert resolved.is_family_enabled("fx")
+
+
+# ---------------------------------------------------------------------------
+# A switched-off family is not watched (ADR-0133 §2.4)
+# ---------------------------------------------------------------------------
+
+
+async def _switch(
+    app_engine: AsyncEngine,
+    tenant_id: UUID,
+    user_id: UUID,
+    *,
+    family: str,
+    effective_from: datetime,
+    enabled: bool,
+) -> None:
+    """Write one revision of one family's switch."""
+    async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+        await WatchFamilyScopeRepository(session).insert_revision(
+            family=family,
+            effective_from=effective_from,
+            enabled=enabled,
+            changed_by=user_id,
+        )
+
+
+async def test_a_switched_off_quota_family_is_not_evaluated_and_writes_no_watch_state(
+    app_engine: AsyncEngine,
+    superuser_engine: AsyncEngine,
+    seed_tenant,
+) -> None:
+    """A breaching SAA book raises nothing while ``saa`` is switched off."""
+    tenant_id = await seed_tenant("ovl-scope-off")
+    user_id = await seed_user(superuser_engine, tenant_id)
+    await seed_book(app_engine, tenant_id, user_id, latest_nav=BREACH_NAV)
+    await _switch(
+        app_engine,
+        tenant_id,
+        user_id,
+        family="saa",
+        effective_from=_now() - timedelta(hours=1),
+        enabled=False,
+    )
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        eligible = await evaluate_internal_deltas(
+            session, now=_now(), resolution=await resolution(session)
+        )
+        watch = await IreneWatchStateRepository(session).get_by_subject(SAA_SUBJECT)
+
+    assert [item for item in eligible if item.subject_key.startswith("saa:")] == []
+    assert watch is None
+
+
+async def test_re_enabling_judges_against_the_last_acknowledged_state(
+    app_engine: AsyncEngine,
+    superuser_engine: AsyncEngine,
+    seed_tenant,
+) -> None:
+    """Nothing is written while off; the first check back on edges against it."""
+    tenant_id = await seed_tenant("ovl-scope-reon")
+    user_id = await seed_user(superuser_engine, tenant_id)
+    investment_id = await seed_book(app_engine, tenant_id, user_id, latest_nav=BREACH_NAV)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        rising = await evaluate_internal_deltas(
+            session, now=_now(), resolution=await resolution(session)
+        )
+        kept = await IreneWatchStateRepository(session).get_by_subject(SAA_SUBJECT)
+
+    saa_rising = [item for item in rising if item.subject_key == SAA_SUBJECT]
+    assert len(saa_rising) == 1
+    assert saa_rising[0].kind == "rising_edge"
+    assert saa_rising[0].status == "BREACH"
+    assert kept is not None
+
+    # Off, and the book unwinds under the ceiling while nobody watches.
+    await _switch(
+        app_engine,
+        tenant_id,
+        user_id,
+        family="saa",
+        effective_from=_now() - timedelta(hours=2),
+        enabled=False,
+    )
+    await set_latest_nav(app_engine, tenant_id, user_id, investment_id, CALM_NAV)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        silent = await evaluate_internal_deltas(
+            session, now=_now(), resolution=await resolution(session)
+        )
+        untouched = await IreneWatchStateRepository(session).get_by_subject(SAA_SUBJECT)
+
+    assert [item for item in silent if item.subject_key.startswith("saa:")] == []
+    assert untouched == kept
+
+    # On again: the edge is judged against the state acknowledged before.
+    await _switch(
+        app_engine,
+        tenant_id,
+        user_id,
+        family="saa",
+        effective_from=_now() - timedelta(hours=1),
+        enabled=True,
+    )
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        falling = await evaluate_internal_deltas(
+            session, now=_now(), resolution=await resolution(session)
+        )
+
+    saa_falling = [item for item in falling if item.subject_key == SAA_SUBJECT]
+    assert len(saa_falling) == 1
+    assert saa_falling[0].kind == "falling_edge"
+    assert saa_falling[0].status == "OK"

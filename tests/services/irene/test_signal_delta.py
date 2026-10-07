@@ -47,6 +47,7 @@ from core.repositories import (
 )
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.repositories.irene_watch_state_repository import IreneWatchStateRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from core.repositories.watchpoint_repository import WatchpointRepository
 from services.ai_service_core import ResolvedLLM
 from services.irene.beat import run_beat
@@ -54,6 +55,7 @@ from services.irene.signal_delta import (
     SignalEligibleFinding,
     evaluate_signal_deltas,
 )
+from services.watch_desk.signal_observation import observe_signal_families
 from tests.services.irene._book_fixtures import D, SurfacingCore, resolution, seed_user
 
 _TEST_LLM = ResolvedLLM(
@@ -472,6 +474,32 @@ async def test_retiring_a_watchpoint_stops_evaluation(
     async with tenant_context(app_engine, tenant_id) as session:
         versions = await WatchpointRepository(session).list_versions(current.watchpoint_id)
     assert len(versions) == 2 and versions[-1].retired
+
+
+async def test_a_switched_off_signal_family_is_neither_evaluated_nor_observed(
+    app_engine: AsyncEngine, superuser_engine: AsyncEngine, seed_tenant
+) -> None:
+    """``price`` switched off: no finding, no watch state, no monitor row (ADR-0133 §2.4)."""
+    tenant_id = await seed_tenant("sig-price-off")
+    user_id, _, subject_key = await _triggered_price_book(app_engine, superuser_engine, tenant_id)
+    async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+        await WatchFamilyScopeRepository(session).insert_revision(
+            family="price",
+            effective_from=_now() - timedelta(hours=1),
+            enabled=False,
+            changed_by=user_id,
+        )
+
+    assert await _evaluate(app_engine, tenant_id) == []
+    assert await _watch_state(app_engine, tenant_id, subject_key) is None
+
+    # The monitor's path: the observation layer the monitor reads yields
+    # nothing for the switched-off family either.
+    async with tenant_context(app_engine, tenant_id) as session:
+        observed = await observe_signal_families(
+            session, as_of=_now().date(), resolution=await resolution(session)
+        )
+    assert [pair for pair in observed if pair[0].family == "price"] == []
 
 
 async def test_missing_prices_write_no_watch_state_row(

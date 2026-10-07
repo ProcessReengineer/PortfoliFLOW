@@ -51,6 +51,7 @@ from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.repositories.limits_repository import LimitsRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.password_hashing import hash_password
 from services.web_research.allowlist import _KNOWN_TAGS
@@ -3896,3 +3897,93 @@ async def test_a_retired_identity_leaves_the_count(
     # The family is named in the footer as unwatched, never as a live group.
     assert "— not watched:" in after
     assert _tile_total(after) == _monitor_subject_total(after)
+
+
+# ---------------------------------------------------------------------------
+# A switched-off family is not watched (ADR-0133 §2.4)
+# ---------------------------------------------------------------------------
+
+
+async def _switch_off(engine: AsyncEngine, user_id: UUID, *families: str) -> None:
+    """Switch families off for the primary tenant, effective an hour ago."""
+    async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        for family in families:
+            await WatchFamilyScopeRepository(session).insert_revision(
+                family=family,
+                effective_from=datetime.now(timezone.utc) - timedelta(hours=1),
+                enabled=False,
+                changed_by=user_id,
+            )
+
+
+async def test_a_switched_off_family_leaves_the_monitor_and_the_tile(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """``saa`` and ``rss`` off: no group, no press group, no tile term."""
+    user_id, email, password = seeded_user
+    await _seed_limit_set(
+        fresh_superuser_engine,
+        tenant_id=SENTINEL_TENANT_ID,
+        created_by=user_id,
+        family="saa",
+        class_keys={"equity": 40.0, "credit": 60.0},
+    )
+    await _seed_limit_set(
+        fresh_superuser_engine,
+        tenant_id=SENTINEL_TENANT_ID,
+        created_by=user_id,
+        family="anlv",
+        class_keys={"anlv_1": 35.0, "anlv_2": 50.0},
+    )
+    await _switch_off(fresh_superuser_engine, user_id, "saa", "rss")
+    await _login(web_client, email, password)
+
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = response.text
+
+    assert "AnlV quotas" in body
+    assert "SAA limits" not in body
+    assert "Press dimensions (RSS)" not in body
+    # Only the switched-on limit family is counted, and the press term is
+    # omitted with the press group it is read off.
+    assert _subjects_tile(body) == ("2", "2 internal limits")
+
+
+async def test_an_open_finding_of_a_switched_off_family_stays_resolvable(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Switching ``saa`` off leaves its open finding on the feed and resolvable."""
+    user_id, email, password = seeded_user
+    fid = await _seed_finding(
+        fresh_superuser_engine,
+        subject_key="saa:switched_off",
+        payload=_card_payload(
+            trigger="Breach", finding="Still over the ceiling.", basis="104% of cap."
+        ),
+        urgency=8,
+        band="critical",
+    )
+    await _switch_off(fresh_superuser_engine, user_id, "saa")
+    await _login(web_client, email, password)
+
+    briefing = await web_client.get("/api/watch-desk/briefing")
+    assert briefing.status_code == 200
+    assert "Still over the ceiling." in briefing.text
+
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    resolved = await web_client.post(
+        f"/api/watch-desk/findings/{fid}/resolve",
+        data={"resolution": "acted"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert resolved.status_code == 200
+
+    journal = await web_client.get("/api/watch-desk/journal")
+    assert journal.status_code == 200
+    assert "saa:switched_off" in journal.text
+    assert "Acted" in journal.text

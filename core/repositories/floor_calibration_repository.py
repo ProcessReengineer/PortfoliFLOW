@@ -110,6 +110,22 @@ DELTA_COLUMNS: Mapping[str, str] = MappingProxyType(
     }
 )
 
+#: Subject family → column, for the per-family WARN step (ADR-0133 §3.1).
+#: The six scalar families in ``WATCHPOINT_FAMILIES`` order; ``rss`` has no
+#: scalar magnitude and so no column. Unlike every other group, NULL here
+#: does not mean "code default": it **inherits** the tenant-wide
+#: ``warn_default_pct``, which itself falls back to the code default.
+WARN_COLUMNS: Mapping[str, str] = MappingProxyType(
+    {
+        "saa": "warn_pct_saa",
+        "anlv": "warn_pct_anlv",
+        "price": "warn_pct_price",
+        "fx": "warn_pct_fx",
+        "freshness": "warn_pct_freshness",
+        "liquidity": "warn_pct_liquidity",
+    }
+)
+
 #: The one key a caller might plausibly supply that is refused on purpose
 #: rather than for being unknown.
 _PINNED_KEY: str = "fund_closure"
@@ -119,7 +135,7 @@ _PINNED_KEY: str = "fund_closure"
 class FloorCalibrationDTO:
     """One tenant's stored deviations from ``DEFAULT_FLOOR_CONFIG``.
 
-    The three maps are **sparse**: a key is present only where the tenant
+    The four maps are **sparse**: a key is present only where the tenant
     deviates. A tenant that never opened the editor has no row at all, so
     ``None`` from :meth:`FloorCalibrationRepository.effective_calibration`
     reads as "pure defaults".
@@ -135,6 +151,9 @@ class FloorCalibrationDTO:
         floor: Sparse trigger type → floor overrides.
         cap: Sparse source/trigger → cap overrides.
         re_trigger_delta: Sparse family → delta overrides.
+        warn_pct: Sparse family → WARN threshold overrides. An absent
+            family inherits ``warn_default_pct`` rather than the code
+            default (ADR-0133 §3.1).
         notes: Optional free-text annotation.
         created_at: Row insertion timestamp.
         updated_at: Row update timestamp (rows are never updated; present
@@ -150,13 +169,14 @@ class FloorCalibrationDTO:
     floor: Mapping[str, int] = field(default_factory=dict)
     cap: Mapping[str, int] = field(default_factory=dict)
     re_trigger_delta: Mapping[str, Decimal] = field(default_factory=dict)
+    warn_pct: Mapping[str, Decimal] = field(default_factory=dict)
     notes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
 def _to_dto(model: FloorCalibration) -> FloorCalibrationDTO:
-    """Fold the wide nullable row back into three sparse maps."""
+    """Fold the wide nullable row back into four sparse maps."""
     boundaries: tuple[int, int] | None = None
     if model.band_boundary_0 is not None and model.band_boundary_1 is not None:
         boundaries = (model.band_boundary_0, model.band_boundary_1)
@@ -171,6 +191,7 @@ def _to_dto(model: FloorCalibration) -> FloorCalibrationDTO:
         floor=MappingProxyType(_sparse(model, FLOOR_COLUMNS)),
         cap=MappingProxyType(_sparse(model, CAP_COLUMNS)),
         re_trigger_delta=MappingProxyType(_sparse(model, DELTA_COLUMNS)),
+        warn_pct=MappingProxyType(_sparse(model, WARN_COLUMNS)),
         notes=model.notes,
         created_at=model.created_at,
         updated_at=model.updated_at,
@@ -240,6 +261,7 @@ class FloorCalibrationRepository(BaseRepository):
         floor: Mapping[str, int] | None = None,
         cap: Mapping[str, int] | None = None,
         re_trigger_delta: Mapping[str, Decimal] | None = None,
+        warn_pct: Mapping[str, Decimal] | None = None,
         notes: str | None = None,
     ) -> FloorCalibrationDTO:
         """Persist one calibration revision from its **deviations**.
@@ -251,6 +273,11 @@ class FloorCalibrationRepository(BaseRepository):
         :func:`services.watch_desk.calibration.save_calibration_revision`,
         which is the sanctioned write path and calls this method last.
 
+        The one exception to "NULL means code default" is ``warn_pct``: a
+        NULL family column inherits the tenant-wide ``warn_default_pct``
+        (ADR-0133 §3.1), so the write path reduces it against that value
+        instead.
+
         Args:
             effective_from: When the revision takes effect (timezone-aware,
                 strictly after the newest existing revision).
@@ -261,6 +288,8 @@ class FloorCalibrationRepository(BaseRepository):
                 refused: it is pinned and has no column.
             cap: Source or trigger → cap overrides. Same refusal.
             re_trigger_delta: Subject family → delta overrides.
+            warn_pct: Subject family → WARN threshold overrides, stored
+                as given. ``rss`` has no column and is refused as unknown.
             notes: Optional annotation.
 
         Returns:
@@ -275,8 +304,11 @@ class FloorCalibrationRepository(BaseRepository):
         floors = dict(floor or {})
         caps = dict(cap or {})
         deltas = dict(re_trigger_delta or {})
+        warns = dict(warn_pct or {})
 
-        require_known_calibration_keys(floor=floors, cap=caps, re_trigger_delta=deltas)
+        require_known_calibration_keys(
+            floor=floors, cap=caps, re_trigger_delta=deltas, warn_pct=warns
+        )
 
         newest = await self.newest_revision()
         if newest is not None and effective_from <= newest.effective_from:
@@ -300,6 +332,8 @@ class FloorCalibrationRepository(BaseRepository):
             columns[column] = caps.get(key)
         for key, column in DELTA_COLUMNS.items():
             columns[column] = deltas.get(key)
+        for key, column in WARN_COLUMNS.items():
+            columns[column] = warns.get(key)
         columns["band_boundary_0"] = band_boundaries[0] if band_boundaries else None
         columns["band_boundary_1"] = band_boundaries[1] if band_boundaries else None
         columns["options_min_band"] = options_min_band
@@ -321,6 +355,7 @@ def require_known_calibration_keys(
     floor: Mapping[str, object] | None = None,
     cap: Mapping[str, object] | None = None,
     re_trigger_delta: Mapping[str, object] | None = None,
+    warn_pct: Mapping[str, object] | None = None,
 ) -> None:
     """Assert every supplied key has a column, before anything else runs.
 
@@ -335,6 +370,8 @@ def require_known_calibration_keys(
         floor: Supplied trigger-type → floor overrides.
         cap: Supplied source/trigger → cap overrides.
         re_trigger_delta: Supplied family → delta overrides.
+        warn_pct: Supplied family → WARN threshold overrides. ``rss`` has
+            no column and is refused like any unknown key.
 
     Raises:
         FloorCalibrationInvalid: On an unknown key, or on ``fund_closure``
@@ -344,6 +381,7 @@ def require_known_calibration_keys(
     _require_known_keys(floor or {}, FLOOR_COLUMNS, kind="floor")
     _require_known_keys(cap or {}, CAP_COLUMNS, kind="cap")
     _require_known_keys(re_trigger_delta or {}, DELTA_COLUMNS, kind="re_trigger_delta")
+    _require_known_keys(warn_pct or {}, WARN_COLUMNS, kind="warn_pct")
 
 
 def _require_known_keys(

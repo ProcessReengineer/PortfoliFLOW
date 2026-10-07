@@ -204,3 +204,10 @@ def test_an_unpinned_fund_closure_default_is_caught() -> None:
     )
     with pytest.raises(ValueError, match="pinned level"):
         compose_floor_config(tampered, None)
+
+
+def test_composition_ignores_the_family_warn_map() -> None:
+    """The family WARN group is not a ``FloorConfig`` field (ADR-0133 §3.1)."""
+    assert compose_floor_config(
+        DEFAULT_FLOOR_CONFIG, _calibration(warn_pct={"saa": Decimal("80")})
+    ) == compose_floor_config(DEFAULT_FLOOR_CONFIG, _calibration())

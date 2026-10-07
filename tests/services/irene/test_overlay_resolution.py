@@ -14,7 +14,10 @@ code defaults, these pin what a **watchpoint overlay** and a
 * a breach edge fires under mute, and the all-clear that closes it passes
   under mute too;
 * a stored revision that no longer composes fails the tenant's beat loudly
-  and is journalled as an error, never degraded to the code defaults.
+  and is journalled as an error, never degraded to the code defaults;
+* the per-family WARN step sits between the subject override and the
+  tenant default, and the family scope arrives with it (ADR-0133 §2.3,
+  §3.1).
 
 They run against the compose Postgres through the shared ``app_engine`` /
 ``superuser_engine`` / ``seed_tenant`` fixtures, over the same two-
@@ -33,9 +36,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from core.exceptions import FloorCalibrationInvalid
+from core.models.watchpoint import WATCHPOINT_FAMILIES
 from core.repositories import tenant_context
 from core.repositories.floor_calibration_repository import FloorCalibrationRepository
 from core.repositories.irene_watch_state_repository import IreneWatchStateRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from core.repositories.watchpoint_repository import WatchpointRepository
 from services.ai_service_core import ResolvedLLM, SynthesisResult
 from services.analytics.irene_floor import (
@@ -45,7 +50,12 @@ from services.analytics.irene_floor import (
 from services.irene.beat import run_beat
 from services.irene.internal_delta import evaluate_internal_deltas
 from services.watch_desk.calibration import save_calibration_revision
-from services.watch_desk.overlay import resolve_watch_desk
+from services.watch_desk.overlay import (
+    DisabledFamily,
+    SubjectOverlay,
+    WatchDeskResolution,
+    resolve_watch_desk,
+)
 from tests.services.irene._book_fixtures import (
     BREACH_NAV,
     CALM_NAV,
@@ -435,3 +445,135 @@ async def test_uncomposable_calibration_fails_the_tenant_beat_loudly(
     assert "calibration invalid" in result.error
     assert result.findings_written == 0
     assert any("refusing to beat on the code defaults" in rec.message for rec in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# The family WARN step and the family scope (ADR-0133 §2.3, §3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_the_family_warn_step_sits_between_override_and_tenant_default() -> None:
+    """Override → family column → tenant default, and ``rss`` always inherits."""
+    overlay = SubjectOverlay(
+        watchpoint_id=UUID(int=1),
+        subject_key=SAA_SUBJECT,
+        family="saa",
+        display_name=SAA_SUBJECT,
+        muted=False,
+        warn_threshold_pct=D("70"),
+        re_trigger_delta=None,
+        notes=None,
+    )
+    resolved = WatchDeskResolution(
+        config=DEFAULT_FLOOR_CONFIG,
+        warn_default_pct=D("85"),
+        overlays={SAA_SUBJECT: overlay},
+        family_warn_pct={"saa": D("80")},
+    )
+
+    assert resolved.warn_threshold_for(SAA_SUBJECT) == D("70")
+    assert resolved.warn_threshold_for("saa:other") == D("80")
+    assert resolved.warn_threshold_for("anlv:16") == D("85")
+    assert resolved.family_warn_threshold_for("rss") == D("85")
+
+
+def test_the_resolution_partitions_the_seven_families() -> None:
+    """Defaults watch everything; a half-built scope fails loudly."""
+    resolved = WatchDeskResolution(
+        config=DEFAULT_FLOOR_CONFIG,
+        warn_default_pct=DEFAULT_WARN_THRESHOLD_PCT,
+        overlays={},
+    )
+    assert resolved.enabled_families == frozenset(WATCHPOINT_FAMILIES)
+    assert resolved.disabled_families == {}
+
+    off = DisabledFamily(family="fx", effective_from=_now(), changed_by=UUID(int=3))
+    # A family both on and off.
+    with pytest.raises(ValueError):
+        WatchDeskResolution(
+            config=DEFAULT_FLOOR_CONFIG,
+            warn_default_pct=DEFAULT_WARN_THRESHOLD_PCT,
+            overlays={},
+            disabled_families={"fx": off},
+        )
+    # A family neither on nor off.
+    with pytest.raises(ValueError):
+        WatchDeskResolution(
+            config=DEFAULT_FLOOR_CONFIG,
+            warn_default_pct=DEFAULT_WARN_THRESHOLD_PCT,
+            overlays={},
+            enabled_families=frozenset(WATCHPOINT_FAMILIES) - {"fx"},
+        )
+
+
+async def test_without_scope_rows_every_family_is_on(
+    app_engine: AsyncEngine,
+    seed_tenant,
+) -> None:
+    """No revision in force means on (ADR-0133 §2.1)."""
+    tenant_id = await seed_tenant("ovl-scope-none")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        resolved = await resolve_watch_desk(session, as_of=_now())
+
+    assert resolved.enabled_families == frozenset(WATCHPOINT_FAMILIES)
+    assert dict(resolved.disabled_families) == {}
+    assert dict(resolved.family_warn_pct) == {}
+
+
+async def test_the_resolution_carries_family_warn_and_scope_together(
+    app_engine: AsyncEngine,
+    superuser_engine: AsyncEngine,
+    seed_tenant,
+) -> None:
+    """One call returns the family WARN map and the scope beside the rest."""
+    tenant_id = await seed_tenant("ovl-scope")
+    user_id = await seed_user(superuser_engine, tenant_id)
+    now = _now()
+
+    async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+        await save_calibration_revision(
+            FloorCalibrationRepository(session),
+            effective_from=now - timedelta(hours=1),
+            warn_default_pct=D("85"),
+            warn_pct={"saa": D("80"), "price": D("90")},
+        )
+        scope = WatchFamilyScopeRepository(session)
+        anlv_off = await scope.insert_revision(
+            family="anlv",
+            effective_from=now - timedelta(hours=1),
+            enabled=False,
+            changed_by=user_id,
+        )
+        await scope.insert_revision(
+            family="saa",
+            effective_from=now - timedelta(hours=2),
+            enabled=False,
+            changed_by=user_id,
+        )
+        await scope.insert_revision(
+            family="saa",
+            effective_from=now - timedelta(hours=1),
+            enabled=True,
+            changed_by=user_id,
+        )
+        # Not yet in force.
+        await scope.insert_revision(
+            family="fx",
+            effective_from=now + timedelta(hours=1),
+            enabled=False,
+            changed_by=user_id,
+        )
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        resolved = await resolve_watch_desk(session, as_of=_now())
+
+    assert dict(resolved.family_warn_pct) == {"saa": D("80"), "price": D("90")}
+    assert resolved.warn_threshold_for("saa:x") == D("80")
+    assert resolved.warn_threshold_for("anlv:y") == D("85")
+    assert set(resolved.disabled_families) == {"anlv"}
+    disabled = resolved.disabled_families["anlv"]
+    assert disabled.effective_from == anlv_off.effective_from
+    assert disabled.changed_by == user_id
+    assert resolved.is_family_enabled("saa")
+    assert resolved.is_family_enabled("fx")

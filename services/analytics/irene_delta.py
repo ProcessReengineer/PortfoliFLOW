@@ -130,7 +130,8 @@ def subject_type_from_key(subject_key: str) -> str:
 
     The subject type is the rule-formed prefix before the first ``:``
     (``saa:private_equity`` → ``saa``). Pure and deterministic — no DB,
-    no LLM. Used only to look up the per-type ``re_trigger_delta``.
+    no LLM. Used to look up the per-type ``re_trigger_delta`` and the
+    family WARN step of ``WatchDeskResolution.warn_threshold_for``.
 
     Args:
         subject_key: A rule-formed subject key (e.g. ``anlv:16``).

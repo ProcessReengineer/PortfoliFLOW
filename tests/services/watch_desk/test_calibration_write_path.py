@@ -19,6 +19,9 @@ is only the tenant's deviations.
 * FC-05: ``effective_floor_config`` composes the stored revision for the
   beat, and ``effective_warn_threshold_pct`` resolves the WARN default
   that is deliberately not part of ``FloorConfig``.
+* FC-06: the per-family WARN group (ADR-0133 §3.1/§3.3) — bounded like
+  the tenant default, reduced against *this revision's* tenant default
+  rather than the code default, and absent for ``rss``.
 """
 
 from __future__ import annotations
@@ -313,3 +316,85 @@ async def test_fc05_calibration_is_invisible_across_tenants(
         repository = FloorCalibrationRepository(session)
         assert await repository.effective_calibration(_T1) is None
         assert await effective_floor_config(repository, _T1) is DEFAULT_FLOOR_CONFIG
+
+
+# ---------------------------------------------------------------------------
+# FC-06: the per-family WARN group (ADR-0133 §3.1, §3.3)
+# ---------------------------------------------------------------------------
+
+
+async def test_fc06_family_warn_must_lie_strictly_inside_50_to_100(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("FC-06a")
+    async with tenant_context(app_engine, tenant_id) as session:
+        repository = FloorCalibrationRepository(session)
+        for family, warn in (
+            ("saa", Decimal("50")),
+            ("anlv", Decimal("100")),
+            ("price", Decimal("49.9")),
+            ("fx", Decimal("100.1")),
+        ):
+            with pytest.raises(FloorCalibrationInvalid) as excinfo:
+                await save_calibration_revision(
+                    repository, effective_from=_T0, warn_pct={family: warn}
+                )
+            assert excinfo.value.field == f"warn_pct_{family}"
+        assert await repository.list_revisions() == []
+
+        low = await save_calibration_revision(
+            repository, effective_from=_T0, warn_pct={"freshness": Decimal("50.001")}
+        )
+        high = await save_calibration_revision(
+            repository, effective_from=_T1, warn_pct={"liquidity": Decimal("99.999")}
+        )
+
+    assert dict(low.warn_pct) == {"freshness": Decimal("50.001")}
+    assert dict(high.warn_pct) == {"liquidity": Decimal("99.999")}
+
+
+async def test_fc06_family_warn_deviates_from_the_revisions_tenant_default(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """The base is this revision's tenant default, not the code default.
+
+    Under a tenant default of 85, a family at the code default's 90 is a
+    deviation and is stored, while a family at 85 inherits and is not.
+    """
+    tenant_id = await seed_tenant("FC-06b")
+    async with tenant_context(app_engine, tenant_id) as session:
+        repository = FloorCalibrationRepository(session)
+        await save_calibration_revision(
+            repository,
+            effective_from=_T0,
+            warn_default_pct=Decimal("85"),
+            warn_pct={"saa": Decimal("90"), "anlv": Decimal("85"), "price": None},
+        )
+        at_t0 = await repository.effective_calibration(_T0)
+
+        # No tenant default: the base falls back to the code default (90).
+        await save_calibration_revision(
+            repository,
+            effective_from=_T1,
+            warn_default_pct=None,
+            warn_pct={"saa": Decimal("90"), "fx": Decimal("80")},
+        )
+        at_t1 = await repository.effective_calibration(_T1)
+
+    assert at_t0 is not None and dict(at_t0.warn_pct) == {"saa": Decimal("90")}
+    assert at_t1 is not None and dict(at_t1.warn_pct) == {"fx": Decimal("80")}
+
+
+async def test_fc06_press_coverage_and_unknown_families_carry_no_warn(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("FC-06c")
+    async with tenant_context(app_engine, tenant_id) as session:
+        repository = FloorCalibrationRepository(session)
+        for family in ("rss", "pacing"):
+            with pytest.raises(FloorCalibrationInvalid, match="Unknown warn_pct key") as excinfo:
+                await save_calibration_revision(
+                    repository, effective_from=_T0, warn_pct={family: Decimal("90")}
+                )
+            assert excinfo.value.field == "warn_pct"
+        assert await repository.list_revisions() == []

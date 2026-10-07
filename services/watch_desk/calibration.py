@@ -34,6 +34,14 @@ has always been a call parameter of the coverage engine rather than a
 config field (ADR-0116 §Context), so it is resolved separately by
 :func:`effective_warn_threshold_pct` and threaded to the engine by its
 caller.
+
+The per-family WARN group (``warn_pct``, ADR-0133 §3.1) sits beside it
+and is likewise not a ``FloorConfig`` field. Its NULL means something
+different from every other group's: a family without a stored value
+**inherits** the tenant-wide default rather than the code default. The
+write path therefore reduces it against this revision's own effective
+tenant default (§3.3), and :func:`effective_family_warn_pcts` hands the
+sparse map to the resolution, which applies the inheritance.
 """
 
 from __future__ import annotations
@@ -41,6 +49,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
+from types import MappingProxyType
 from uuid import UUID
 
 from core.exceptions import FloorCalibrationInvalid
@@ -57,15 +66,17 @@ from services.analytics.irene_floor import (
 )
 
 __all__ = [
+    "effective_family_warn_pcts",
     "effective_floor_config",
     "effective_warn_threshold_pct",
     "save_calibration_revision",
 ]
 
 #: Exclusive bounds on the tenant-wide WARN default — the same rule the
-#: per-subject override obeys (ADR-0116 §3). Below 50 the "warning" fires
-#: at less than half the ceiling; at or above 100 it fires only once the
-#: ceiling is already breached, which is not a warning at all.
+#: per-subject override (ADR-0116 §3) and the per-family value obey. Below
+#: 50 the "warning" fires at less than half the ceiling; at or above 100 it
+#: fires only once the ceiling is already breached, which is not a warning
+#: at all.
 _WARN_MIN_EXCLUSIVE: Decimal = Decimal("50")
 _WARN_MAX_EXCLUSIVE: Decimal = Decimal("100")
 
@@ -123,6 +134,26 @@ def effective_warn_threshold_pct(calibration: FloorCalibrationDTO | None) -> Dec
     return calibration.warn_default_pct
 
 
+def effective_family_warn_pcts(calibration: FloorCalibrationDTO | None) -> Mapping[str, Decimal]:
+    """Return the stored per-family WARN thresholds, sparse.
+
+    A family absent from the map inherits the tenant-wide default; that
+    step belongs to the resolution
+    (:meth:`services.watch_desk.overlay.WatchDeskResolution.family_warn_threshold_for`),
+    not to this read.
+
+    Args:
+        calibration: The tenant's effective revision, or ``None``.
+
+    Returns:
+        The stored ``warn_pct`` map, or an empty mapping when there is no
+        revision.
+    """
+    if calibration is None:
+        return MappingProxyType({})
+    return calibration.warn_pct
+
+
 async def save_calibration_revision(
     repository: FloorCalibrationRepository,
     *,
@@ -133,6 +164,7 @@ async def save_calibration_revision(
     floor: Mapping[str, int] | None = None,
     cap: Mapping[str, int] | None = None,
     re_trigger_delta: Mapping[str, Decimal] | None = None,
+    warn_pct: Mapping[str, Decimal | None] | None = None,
     notes: str | None = None,
     defaults: FloorConfig = DEFAULT_FLOOR_CONFIG,
 ) -> FloorCalibrationDTO:
@@ -146,6 +178,12 @@ async def save_calibration_revision(
     never overrode it, and what lets the editor mark each field
     "default / customised" from the row alone (ADR-0116 §7).
 
+    ``warn_pct`` is reduced against a different base: a family value is
+    stored only where it differs from **this revision's** effective
+    tenant-wide default — ``warn_default_pct`` as passed, else
+    ``DEFAULT_WARN_THRESHOLD_PCT`` — because a NULL family column inherits
+    that default rather than the code default (ADR-0133 §3.3).
+
     Args:
         repository: Calibration repository bound to a tenant-scoped
             session.
@@ -158,6 +196,9 @@ async def save_calibration_revision(
         floor: Trigger type → floor. ``fund_closure`` is refused.
         cap: Source or trigger → cap. ``fund_closure`` is refused.
         re_trigger_delta: Subject family → magnitude delta.
+        warn_pct: Subject family → WARN threshold, each in ``(50, 100)``.
+            A ``None`` value means "inherit the tenant default" and is
+            dropped. ``rss`` carries none and is refused as unknown.
         notes: Optional annotation.
         defaults: The code defaults to compose and compare against.
 
@@ -167,16 +208,18 @@ async def save_calibration_revision(
 
     Raises:
         FloorCalibrationInvalid: On an unknown or pinned key, a WARN
-            default out of bounds, a negative delta, or any composed
-            configuration the ``FloorConfig`` constructor or the pinned
-            invariants reject.
+            default or family value out of bounds, a negative delta, or any
+            composed configuration the ``FloorConfig`` constructor or the
+            pinned invariants reject.
     """
     floors = dict(floor or {})
     caps = dict(cap or {})
     deltas = dict(re_trigger_delta or {})
+    # A None entry means "inherit the tenant default": nothing to store.
+    warns = {family: value for family, value in (warn_pct or {}).items() if value is not None}
 
     # First, so a typo is reported as a typo rather than as a missing cap.
-    require_known_calibration_keys(floor=floors, cap=caps, re_trigger_delta=deltas)
+    require_known_calibration_keys(floor=floors, cap=caps, re_trigger_delta=deltas, warn_pct=warns)
 
     if warn_default_pct is not None and not (
         _WARN_MIN_EXCLUSIVE < Decimal(str(warn_default_pct)) < _WARN_MAX_EXCLUSIVE
@@ -186,6 +229,13 @@ async def save_calibration_revision(
             f"{_WARN_MAX_EXCLUSIVE}; got {warn_default_pct}.",
             field="warn_default_pct",
         )
+    for family, warn in warns.items():
+        if not _WARN_MIN_EXCLUSIVE < Decimal(str(warn)) < _WARN_MAX_EXCLUSIVE:
+            raise FloorCalibrationInvalid(
+                f"warn_pct[{family!r}] must lie strictly between {_WARN_MIN_EXCLUSIVE} "
+                f"and {_WARN_MAX_EXCLUSIVE}; got {warn}.",
+                field=f"warn_pct_{family}",
+            )
     for family, delta in deltas.items():
         if Decimal(str(delta)) < 0:
             raise FloorCalibrationInvalid(
@@ -208,6 +258,7 @@ async def save_calibration_revision(
         floor=floors,
         cap=caps,
         re_trigger_delta=deltas,
+        warn_pct=warns,
     )
     try:
         compose_floor_config(defaults, candidate)
@@ -215,6 +266,12 @@ async def save_calibration_revision(
         raise FloorCalibrationInvalid(
             f"The revision would not be a valid Floor Config: {exc}"
         ) from exc
+
+    # The family values deviate from this revision's own tenant default, not
+    # from the code default: that is what a NULL family column inherits.
+    tenant_warn_default = (
+        warn_default_pct if warn_default_pct is not None else DEFAULT_WARN_THRESHOLD_PCT
+    )
 
     return await repository.save_revision(
         effective_from=effective_from,
@@ -224,6 +281,7 @@ async def save_calibration_revision(
         floor=_deviating_entries(floors, defaults.floor),
         cap=_deviating_entries(caps, defaults.cap),
         re_trigger_delta=_deviating_entries(deltas, defaults.re_trigger_delta),
+        warn_pct={family: warn for family, warn in warns.items() if warn != tenant_warn_default},
         notes=notes,
     )
 

@@ -25,10 +25,13 @@ No database and no migration run: this compares two Python objects.
 
 from __future__ import annotations
 
+from core.models.floor_calibration import FloorCalibration
+from core.models.watchpoint import WATCHPOINT_FAMILIES
 from core.repositories.floor_calibration_repository import (
     CAP_COLUMNS,
     DELTA_COLUMNS,
     FLOOR_COLUMNS,
+    WARN_COLUMNS,
 )
 from services.analytics.irene_floor import DEFAULT_FLOOR_CONFIG, TRIGGER_FUND_CLOSURE
 
@@ -61,6 +64,22 @@ def test_delta_columns_cover_every_family() -> None:
     )
 
 
+def test_warn_columns_cover_every_scalar_family() -> None:
+    """One WARN column per family with a scalar magnitude (ADR-0133 §3.1).
+
+    ``rss`` has none (D-WD-13): a press subject has no scalar magnitude and
+    no ceiling, so there is nothing a WARN threshold could be a fraction of.
+    """
+    expected = set(DEFAULT_FLOOR_CONFIG.re_trigger_delta) - {"rss"}
+    assert set(WARN_COLUMNS) == expected == set(WATCHPOINT_FAMILIES) - {"rss"}, (
+        "floor_calibration must carry one WARN column per scalar family. "
+        f"missing={sorted(expected - set(WARN_COLUMNS))}, "
+        f"extra={sorted(set(WARN_COLUMNS) - expected)}"
+    )
+    for column in WARN_COLUMNS.values():
+        assert hasattr(FloorCalibration, column), column
+
+
 def test_the_pinned_trigger_has_no_column_in_either_group() -> None:
     assert TRIGGER_FUND_CLOSURE not in FLOOR_COLUMNS
     assert TRIGGER_FUND_CLOSURE not in CAP_COLUMNS
@@ -75,6 +94,14 @@ def test_the_pinned_trigger_has_no_column_in_either_group() -> None:
 
 
 def test_column_names_are_unique_across_the_three_groups() -> None:
-    """A shared column between groups would silently alias two settings."""
-    names = [*FLOOR_COLUMNS.values(), *CAP_COLUMNS.values(), *DELTA_COLUMNS.values()]
+    """A shared column between groups would silently alias two settings.
+
+    Spans all four key maps since the family WARN group joined them.
+    """
+    names = [
+        *FLOOR_COLUMNS.values(),
+        *CAP_COLUMNS.values(),
+        *DELTA_COLUMNS.values(),
+        *WARN_COLUMNS.values(),
+    ]
     assert len(names) == len(set(names)), "duplicate column name across the key maps"

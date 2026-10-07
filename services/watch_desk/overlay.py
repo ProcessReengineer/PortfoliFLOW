@@ -18,14 +18,23 @@ structural: **one** function resolves, per tenant and per instant,
 3. the per-subject **overlay** map for the derived families (``saa`` /
    ``anlv`` / ``rss``), keyed by ``subject_key``;
 4. the effective **signal watchpoints** for the four defined families,
-   also keyed by ``subject_key``.
+   also keyed by ``subject_key``;
+5. the per-family **WARN step** (ADR-0133 §3.1, via
+   :func:`services.watch_desk.calibration.effective_family_warn_pcts`) —
+   the stored family columns only, each absent family inheriting the
+   tenant-wide default;
+6. the **family scope** (ADR-0133 §2.3): which of the seven families
+   Irene watches, from ``watch_family_scope``. A family without a
+   revision in force is on.
 
 Three call sites consume it — ``services.irene.internal_delta`` and
 ``services.irene.signal_delta`` on the beat side, ``web.routes.watch_desk``
-on the monitor side — and none of them resolves anything of its own. That
-is the point: a monitor row and the beat's edge classification for the same
-subject cannot disagree about the threshold they were measured against,
-because there is nowhere for a second answer to come from.
+on the monitor side — and none of them resolves anything of its own; no
+consumer reads the calibration, the registry or the scope table itself.
+That is the point: a monitor row and the beat's edge classification for
+the same subject cannot disagree about the threshold they were measured
+against, or about whether its family is watched at all, because there is
+nowhere for a second answer to come from.
 
 Overlays define nothing; signal watchpoints define everything
 -------------------------------------------------------------
@@ -63,7 +72,7 @@ must mean; per-investment overrides are a commissioned successor
 
 Layering
 --------
-Impure by construction — it reads two tenant-scoped tables — so it lives
+Impure by construction — it reads three tenant-scoped tables — so it lives
 under ``services/watch_desk/`` beside the calibration write path and not
 under ``services/analytics/``. The values it returns are handed to the
 pure layers as plain arguments (ADR-0116 §5), which is what keeps the
@@ -82,8 +91,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models.watchpoint import OVERLAY_FAMILIES
+from core.models.watchpoint import OVERLAY_FAMILIES, WATCHPOINT_FAMILIES
 from core.repositories.floor_calibration_repository import FloorCalibrationRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from core.repositories.watchpoint_repository import WatchpointDTO, WatchpointRepository
 from services.analytics.cash_coverage_watch import COVERAGE_THRESHOLD_PCT
 from services.analytics.irene_delta import subject_type_from_key
@@ -96,6 +106,7 @@ from services.analytics.signal_watch import (
     SINGLETON_SUBJECT_KEY_BY_FAMILY,
 )
 from services.watch_desk.calibration import (
+    effective_family_warn_pcts,
     effective_floor_config,
     effective_warn_threshold_pct,
 )
@@ -179,6 +190,7 @@ _SHAPE_BY_FAMILY: Mapping[str, Callable[[WatchpointDTO], _SignalShape]] = Mappin
 )
 
 __all__ = [
+    "DisabledFamily",
     "SignalWatchpoint",
     "SubjectOverlay",
     "WatchDeskResolution",
@@ -316,6 +328,21 @@ class SignalWatchpoint:
     min_coverage_ratio: Decimal | None = None
 
 
+@dataclass(frozen=True)
+class DisabledFamily:
+    """One family switched off by the revision in force (ADR-0133 §2).
+
+    Attributes:
+        family: The switched-off watchpoint family.
+        effective_from: When the switching-off revision took effect.
+        changed_by: The user who switched it off.
+    """
+
+    family: str
+    effective_from: datetime
+    changed_by: UUID
+
+
 #: What the sensitivity lookups read. The two halves of the registry share
 #: these three fields and nothing else, which is exactly the amount of
 #: commonality the lookups need.
@@ -339,12 +366,47 @@ class WatchDeskResolution:
             for the defined families with a producer. Empty by default so
             a caller that predates them — or a test stating only the
             quota half — constructs a resolution unchanged.
+        family_warn_pct: The stored per-family WARN thresholds, sparse
+            (ADR-0133 §3.1). An absent family inherits
+            ``warn_default_pct``; read through
+            :meth:`family_warn_threshold_for`, never directly.
+        enabled_families: The families Irene watches (ADR-0133 §2.3).
+            All seven by default — a family without a scope revision in
+            force is on.
+        disabled_families: The switched-off families, each with the
+            revision that switched it off. Together with
+            ``enabled_families`` it partitions ``WATCHPOINT_FAMILIES``.
     """
 
     config: FloorConfig
     warn_default_pct: Decimal
     overlays: Mapping[str, SubjectOverlay]
     signals: Mapping[str, SignalWatchpoint] = field(default_factory=lambda: MappingProxyType({}))
+    family_warn_pct: Mapping[str, Decimal] = field(default_factory=lambda: MappingProxyType({}))
+    enabled_families: frozenset[str] = frozenset(WATCHPOINT_FAMILIES)
+    disabled_families: Mapping[str, DisabledFamily] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        """Reject a scope that does not partition the seven families.
+
+        A half-built resolution — a family both on and off, or neither —
+        would let the beat and the monitor each pick an answer, which is
+        the disagreement this object exists to rule out.
+        """
+        disabled = set(self.disabled_families)
+        if self.enabled_families & disabled:
+            raise ValueError(
+                "WatchDeskResolution: families both enabled and disabled: "
+                f"{sorted(self.enabled_families & disabled)}."
+            )
+        if set(self.enabled_families) | disabled != set(WATCHPOINT_FAMILIES):
+            raise ValueError(
+                "WatchDeskResolution: enabled and disabled families must together "
+                f"be exactly {list(WATCHPOINT_FAMILIES)}; got enabled="
+                f"{sorted(self.enabled_families)}, disabled={sorted(disabled)}."
+            )
 
     def overlay_for(self, subject_key: str) -> SubjectOverlay | None:
         """Return the subject's overlay, or ``None`` when it has none.
@@ -376,16 +438,32 @@ class WatchDeskResolution:
     def warn_threshold_for(self, subject_key: str) -> Decimal:
         """Return the WARN threshold in force for one subject.
 
-        The per-subject override when there is one, else the tenant
-        default. This is the value that replaces the former global 90% at
-        *every* point it was read — the coverage classification, the
+        A four-step chain (ADR-0133 §3.1): the per-subject override
+        (overlay or signal watchpoint, singleton fallback included), else
+        the subject's family column, else the tenant-wide default — whose
+        own fallback, ``DEFAULT_WARN_THRESHOLD_PCT``, is applied by
+        :func:`~services.watch_desk.calibration.effective_warn_threshold_pct`.
+        This is the value that replaces the former global 90% at *every*
+        point it was read — the coverage classification, the
         re-classification of an acknowledged magnitude, the signal
         producers' Approaching band, and the monitor's gauge mark.
         """
         sensitivity = self._sensitivity_for(subject_key)
         if sensitivity is not None and sensitivity.warn_threshold_pct is not None:
             return sensitivity.warn_threshold_pct
-        return self.warn_default_pct
+        return self.family_warn_threshold_for(subject_type_from_key(subject_key))
+
+    def family_warn_threshold_for(self, family: str) -> Decimal:
+        """Return the WARN threshold a family's subjects default to.
+
+        The family's stored column when there is one, else the tenant-wide
+        default. ``rss`` never has a column and always inherits.
+        """
+        return self.family_warn_pct.get(family, self.warn_default_pct)
+
+    def is_family_enabled(self, family: str) -> bool:
+        """Return whether Irene watches one family (ADR-0133 §2.3)."""
+        return family in self.enabled_families
 
     def re_trigger_delta_for(self, subject_key: str) -> Decimal:
         """Return the magnitude re-trigger delta in force for one subject.
@@ -440,7 +518,7 @@ async def resolve_watch_desk(
 ) -> WatchDeskResolution:
     """Resolve one tenant's effective Watch Desk calibration at ``as_of``.
 
-    Must run on a **tenant-scoped** session: both reads are RLS-policed,
+    Must run on a **tenant-scoped** session: every read is RLS-policed,
     so the resolution is the active tenant's and nobody else's.
 
     Args:
@@ -464,11 +542,26 @@ async def resolve_watch_desk(
     """
     calibration_repo = FloorCalibrationRepository(session)
     # Two reads of a one-row table. `effective_floor_config` owns the
-    # composition and the typed error; `effective_warn_threshold_pct` needs
-    # the DTO because the WARN threshold is not a FloorConfig field. Forking
-    # either contract to save one indexed read would be a poor trade.
+    # composition and the typed error; the two WARN helpers need the DTO
+    # because neither WARN group is a FloorConfig field. Forking either
+    # contract to save one indexed read would be a poor trade.
     config = await effective_floor_config(calibration_repo, as_of, defaults=defaults)
-    warn_default = effective_warn_threshold_pct(await calibration_repo.effective_calibration(as_of))
+    calibration = await calibration_repo.effective_calibration(as_of)
+    warn_default = effective_warn_threshold_pct(calibration)
+    family_warn = effective_family_warn_pcts(calibration)
+
+    # A family without a revision in force is absent from the read and on
+    # (ADR-0133 §2.1): only an explicit `enabled = False` switches one off.
+    disabled: dict[str, DisabledFamily] = {
+        revision.family: DisabledFamily(
+            family=revision.family,
+            effective_from=revision.effective_from,
+            changed_by=revision.changed_by,
+        )
+        for revision in await WatchFamilyScopeRepository(session).effective_revisions(as_of)
+        if not revision.enabled
+    }
+    enabled = frozenset(family for family in WATCHPOINT_FAMILIES if family not in disabled)
 
     overlays: dict[str, SubjectOverlay] = {}
     signals: dict[str, SignalWatchpoint] = {}
@@ -506,6 +599,9 @@ async def resolve_watch_desk(
         warn_default_pct=warn_default,
         overlays=MappingProxyType(overlays),
         signals=MappingProxyType(signals),
+        family_warn_pct=family_warn,
+        enabled_families=enabled,
+        disabled_families=MappingProxyType(disabled),
     )
 
 

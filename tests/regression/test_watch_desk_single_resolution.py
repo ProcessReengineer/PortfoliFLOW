@@ -37,6 +37,9 @@ checks below target the effective **reads** on that side, and the one
 registry read it does perform is pinned to the editor's inventory rather
 than to anything that classifies a subject.
 
+Since ADR-0133 the resolution also carries the family scope and the
+per-family WARN step, so those reach every consumer through it alone.
+
 ADR-0116 §4 is the test of the promise the resolution's own docstring made
 — "when the producers land they extend the same resolution rather than
 growing a second one". All four defined families kept it, and P6's
@@ -66,6 +69,7 @@ _CONSUMERS = (
     signal_delta_module,
     observation_module,
     watch_desk_route,
+    family_status_module,
 )
 
 #: Everything behind the web surface. None of these may read the registry
@@ -92,9 +96,9 @@ _PRODUCERS = (
 )
 
 #: Repositories only the signal fetch has any business holding. Deliberately
-#: not ``FxRateRepository``: the route legitimately holds that one for the
-#: coverage engine, so it would not distinguish a second fetch path from the
-#: wiring that was always there.
+#: not ``FxRateRepository``: ``family_status`` holds that one for the coverage
+#: engine and ``market_read`` for its FX legs, so it would not distinguish a
+#: second fetch path from the wiring that was always there.
 _FETCH_ONLY_REPOSITORIES = (
     "InstrumentPriceRepository",
     "InvestmentCashflowRepository",
@@ -139,6 +143,30 @@ def test_the_beat_side_holds_no_calibration_repository_at_all() -> None:
         assert "WatchpointRepository" not in namespace
 
 
+def test_the_scope_reaches_consumers_through_the_resolution_alone() -> None:
+    """Beat and monitor cannot disagree about what is switched on (ADR-0133 §2.3).
+
+    The effective scope read happens once, inside the resolution. The route
+    is deliberately absent from the import sweep: like the two calibration
+    repositories, it may hold the scope repository for the Watch points
+    writes and revision history — the guard targets the effective read,
+    never the import.
+    """
+    assert "WatchFamilyScopeRepository" in vars(overlay_module)
+    assert "effective_revisions(" in inspect.getsource(overlay_module.resolve_watch_desk)
+
+    for module in _CONSUMERS:
+        assert "effective_revisions(" not in inspect.getsource(module), (
+            f"{module.__name__} reads the family scope itself; it arrives "
+            "through resolve_watch_desk (ADR-0133 §2.3)."
+        )
+    for module in (*_BEAT_SIDE, family_status_module):
+        assert "WatchFamilyScopeRepository" not in vars(module), (
+            f"{module.__name__} holds WatchFamilyScopeRepository; the scope "
+            "reaches it through the resolution alone."
+        )
+
+
 def test_beat_and_monitor_both_resolve_through_the_shared_function() -> None:
     assert "resolve_watch_desk(" in inspect.getsource(beat_module)
     assert "resolve_watch_desk(" in inspect.getsource(watch_desk_route)
@@ -161,7 +189,7 @@ def test_only_the_beat_names_the_defaults_and_only_as_composition_input() -> Non
     assert "defaults: FloorConfig = DEFAULT_FLOOR_CONFIG" in beat_source
     assert "thresholds = resolution.config" in beat_source
 
-    for module in (*_DELTA_LAYERS, observation_module, watch_desk_route):
+    for module in (*_DELTA_LAYERS, observation_module, watch_desk_route, family_status_module):
         assert "DEFAULT_FLOOR_CONFIG" not in vars(module), (
             f"{module.__name__} imports the code defaults; it must take the "
             "tenant's effective config as an argument."
@@ -229,7 +257,7 @@ def test_the_producers_are_called_from_the_observation_layer_alone() -> None:
     """The third layer: one call site per producer, shared by both surfaces."""
     for producer in _PRODUCERS:
         assert producer in vars(observation_module), producer
-        for module in (signal_delta_module, watch_desk_route, beat_module):
+        for module in (signal_delta_module, watch_desk_route, beat_module, family_status_module):
             assert producer not in vars(module), (
                 f"{module.__name__} calls {producer} itself; a second producer "
                 "call is a second observation (ADR-0116 §6)."

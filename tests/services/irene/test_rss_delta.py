@@ -19,15 +19,19 @@ Coverage:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from core.repositories import tenant_context
 from core.repositories.irene_watch_state_repository import (
     IreneWatchStateRepository,
 )
+from services.irene.delta_config import DEFAULT_DELTA_THRESHOLDS
+from services.irene.rss_clustering import RssBucket, build_rss_buckets
 from services.irene.rss_delta import evaluate_rss_deltas
+from services.web_research.models import FeedItem
 from tests.services.irene._rss_fixtures import StubEmbedder, make_item
 
 
@@ -37,6 +41,12 @@ def _dt(day: int, hour: int) -> datetime:
 
 def _now() -> datetime:
     return datetime(2026, 6, 30, 12, 0, tzinfo=timezone.utc)
+
+
+async def _buckets(session: AsyncSession, items: Sequence[FeedItem]) -> list[RssBucket]:
+    return await build_rss_buckets(
+        session, StubEmbedder(), items, now=_now(), thresholds=DEFAULT_DELTA_THRESHOLDS
+    )
 
 
 def _event_items() -> list:
@@ -58,7 +68,7 @@ async def test_cross_source_event_one_bucket_one_eligible(
     items = _event_items()
 
     async with tenant_context(app_engine, tenant_id) as session:
-        eligible = await evaluate_rss_deltas(session, StubEmbedder(), items, now=_now())
+        eligible = await evaluate_rss_deltas(session, await _buckets(session, items), now=_now())
 
         assert len(eligible) == 1
         finding = eligible[0]
@@ -84,18 +94,18 @@ async def test_second_identical_beat_is_silent(app_engine: AsyncEngine, seed_ten
     items = _event_items()
 
     async with tenant_context(app_engine, tenant_id) as session:
-        first = await evaluate_rss_deltas(session, StubEmbedder(), items, now=_now())
+        first = await evaluate_rss_deltas(session, await _buckets(session, items), now=_now())
         assert len(first) == 1
 
     # Same items again: the bucket key is identical and already
     # acknowledged in watch-state, so the edge does not re-fire.
     async with tenant_context(app_engine, tenant_id) as session:
-        second = await evaluate_rss_deltas(session, StubEmbedder(), items, now=_now())
+        second = await evaluate_rss_deltas(session, await _buckets(session, items), now=_now())
         assert second == []
 
 
 async def test_no_items_is_silent(app_engine: AsyncEngine, seed_tenant) -> None:
     tenant_id = await seed_tenant("rss-empty")
     async with tenant_context(app_engine, tenant_id) as session:
-        eligible = await evaluate_rss_deltas(session, StubEmbedder(), [], now=_now())
+        eligible = await evaluate_rss_deltas(session, await _buckets(session, []), now=_now())
         assert eligible == []

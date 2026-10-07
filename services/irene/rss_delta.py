@@ -6,10 +6,14 @@
 This module turns the deterministically-formed RSS buckets
 (:func:`services.irene.rss_clustering.build_rss_buckets`) into a list of
 *eligible findings* — the RSS half of Irene's delta layer. It is the
-non-scalar sibling of :mod:`services.irene.internal_delta`: it clusters
-feed items into keyed buckets, diffs each bucket's ``rss:cluster:*``
-subject against ``irene_watch_state``, and writes the acknowledgement that
-suppresses a bucket from re-firing on the next beat.
+non-scalar sibling of :mod:`services.irene.internal_delta`: it diffs each
+bucket's ``rss:cluster:*`` subject against ``irene_watch_state`` and writes
+the acknowledgement that suppresses a bucket from re-firing on the next
+beat.
+
+It no longer clusters. The beat forms the buckets once per check with
+``build_rss_buckets`` and hands them here to be edge-gated, so the same
+buckets can serve another reader of that check.
 
 Edge-triggering (ADR-0087): a **newly-formed** bucket (no prior
 acknowledged ``rss:cluster:`` state) is a rising edge → an
@@ -42,18 +46,11 @@ from collections.abc import Sequence
 from core.repositories.irene_watch_state_repository import (
     IreneWatchStateRepository,
 )
-from services.irene.delta_config import (
-    DEFAULT_DELTA_THRESHOLDS,
-    DeltaThresholds,
-)
-from services.irene.rss_clustering import RssBucket, RssItemRef, build_rss_buckets
+from services.irene.rss_clustering import RssBucket, RssItemRef
 from services.watch_desk.overlay import WatchDeskResolution, rss_overlay_subject_key
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-
-    from services.irene.embedding import Embedder
-    from services.web_research.models import FeedItem
 
 _LOG = logging.getLogger(__name__)
 
@@ -127,18 +124,15 @@ def _make_rss_eligible(bucket: RssBucket) -> RssEligibleFinding:
 
 async def evaluate_rss_deltas(
     session: AsyncSession,
-    embedder: Embedder,
-    items: Sequence[FeedItem],
+    buckets: Sequence[RssBucket],
     *,
     now: datetime,
-    thresholds: DeltaThresholds = DEFAULT_DELTA_THRESHOLDS,
     resolution: WatchDeskResolution | None = None,
 ) -> list[RssEligibleFinding]:
     """Return the RSS eligible findings for the active tenant.
 
-    Clusters ``items`` into keyed buckets (freeze-aware), then edge-gates
-    each bucket against ``irene_watch_state``: a newly-formed / never
-    acknowledged bucket is a rising edge and yields an
+    Edge-gates each of ``buckets`` against ``irene_watch_state``: a
+    newly-formed / never acknowledged bucket is a rising edge and yields an
     :class:`RssEligibleFinding` (and is acknowledged so it does not
     re-fire); an already-acknowledged bucket stays silent. Must run on a
     **tenant-scoped** session (opened by the tick via ``tenant_context``);
@@ -150,14 +144,11 @@ async def evaluate_rss_deltas(
 
     Args:
         session: A tenant-scoped session.
-        embedder: The injected vectorisation seam (the only model call in
-            the RSS path).
-        items: The feed items to cluster (each carrying its source's tags).
+        buckets: The fresh buckets formed this check by
+            :func:`services.irene.rss_clustering.build_rss_buckets`,
+            already keyed, in their stable order.
         now: The beat clock (timezone-aware UTC), stamped as
             ``last_seen_at`` / ``acknowledged_at``.
-        thresholds: The delta calibration values — the clustering
-            parameters (window, embedding model, similarity threshold) the
-            bucket former needs.
         resolution: This tenant's effective calibration, for the ``rss``
             overlays. ``None`` means "no overlays apply", which is what a
             caller that is not the beat wants. An ``rss`` overlay carries
@@ -168,7 +159,6 @@ async def evaluate_rss_deltas(
         The RSS eligible findings, in ``(day_bucket, tag, subject_key)``
         bucket order. Empty when nothing is fresh.
     """
-    buckets = await build_rss_buckets(session, embedder, items, now=now, thresholds=thresholds)
     if not buckets:
         return []
 

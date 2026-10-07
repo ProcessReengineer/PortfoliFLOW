@@ -25,6 +25,7 @@ Coverage:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -131,10 +132,10 @@ async def test_beat_silence_writes_nothing(app_engine: AsyncEngine, seed_tenant)
     assert core.calls[0]["llm"] is _TEST_LLM
     assert core.calls[0]["llm"].model == "test-model"
     # The finding call is unchanged by the persona split (ADR-0133 §1.6):
-    # Irene's prompt, exactly one tool, and run_synthesis's defaults — whose
-    # body hard-codes tool_choice="auto" (pinned on the wire by
-    # tests/assistants/test_run_synthesis.py). The stub's signature takes no
-    # tool_choice, so the beat cannot pass one.
+    # Irene's prompt, exactly one tool, and run_synthesis's defaults —
+    # `tool_choice` defaults to "auto" (pinned on the wire by
+    # tests/assistants/test_run_synthesis.py); the stub's signature takes no
+    # `tool_choice`, so the finding call cannot pass one.
     assert core.prompt_names == ["irene"]
     assert core.calls[0]["system_prompt"] == "You are Irene."
     assert core.calls[0]["tool"] is SURFACE_FINDING_TOOL
@@ -328,6 +329,7 @@ async def test_press_coverage_off_skips_the_rss_delta(
         make_item("https://a/2", "RATE: two", published, tags=("macro",), source="FT"),
     ]
     core = _StubCore()
+    embedder = StubEmbedder()
 
     async with tenant_context(app_engine, tenant_id) as session:
         result = await run_beat(
@@ -336,7 +338,7 @@ async def test_press_coverage_off_skips_the_rss_delta(
             llm=_TEST_LLM,
             now=now,
             rss_items=items,
-            embedder=StubEmbedder(),
+            embedder=embedder,
         )
         assert result.error is None
 
@@ -348,6 +350,20 @@ async def test_press_coverage_off_skips_the_rss_delta(
         assert rss_rows == 0
 
     assert "rss:cluster:" not in str(core.calls[0]["context"])
+    # The buckets are still formed while Press coverage is off: only the
+    # edge gate is switch-bound (ADR-0133 §1.2).
+    assert embedder.calls
+
+
+def test_run_beat_has_one_success_exit() -> None:
+    """The silence path no longer returns early (ADR-0133 §1.3).
+
+    One success exit and two failure exits remain, and a step that must run
+    on every completed check sits before the success exit.
+    """
+    source = inspect.getsource(run_beat)
+    assert source.count("return BeatResult(") == 3
+    assert "silence=not surfacing" in source
 
 
 async def test_beat_error_is_isolated_and_reported(app_engine: AsyncEngine, seed_tenant) -> None:

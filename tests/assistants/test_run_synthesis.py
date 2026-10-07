@@ -7,7 +7,8 @@ Like the extraction tests, these mock the HTTP layer (httpx via
 pytest-httpx), not the method itself — the only way to assert the shape
 of the outgoing request body, which is where the Irene synthesis contract
 lives: a **non-streaming** call with ``tool_choice="auto"`` offering the
-single ``surface_finding`` tool.
+single ``surface_finding`` tool. ``"auto"`` is the default the finding call
+relies on; a forced choice a caller passes is forwarded verbatim.
 
 They also guard the concurrency invariant: ``run_synthesis`` must not
 touch the process-wide ``_TURN_LOCK`` that serialises Shirley's streaming
@@ -74,7 +75,7 @@ def configured_core() -> AIServiceCore:
 async def test_run_synthesis_sends_tool_choice_auto_non_streaming(
     configured_core: AIServiceCore, httpx_mock: Any
 ) -> None:
-    """The request is non-streaming, tool_choice=auto, single tool offered."""
+    """The request is non-streaming, tool_choice=auto (the default), single tool offered."""
     httpx_mock.add_response(
         method="POST",
         url=_COMPLETIONS_URL,
@@ -102,6 +103,39 @@ async def test_run_synthesis_sends_tool_choice_auto_non_streaming(
     # System prompt is prepended, then the context turns, in order.
     assert body["messages"][0] == {"role": "system", "content": "You are Irene."}
     assert body["messages"][1] == {"role": "user", "content": "beat"}
+
+
+def test_run_synthesis_defaults_tool_choice_to_auto() -> None:
+    """``tool_choice`` defaults to ``"auto"``, which the finding call relies on."""
+    parameter = inspect.signature(AIServiceCore.run_synthesis).parameters["tool_choice"]
+    assert parameter.default == "auto"
+
+
+@pytest.mark.asyncio
+async def test_run_synthesis_forwards_a_forced_tool_choice(
+    configured_core: AIServiceCore, httpx_mock: Any
+) -> None:
+    """A named-tool choice reaches the wire verbatim, beside the one tool."""
+    httpx_mock.add_response(
+        method="POST",
+        url=_COMPLETIONS_URL,
+        json=_completion(content="Calm book."),
+    )
+    forced: dict[str, Any] = {"type": "function", "function": {"name": "surface_finding"}}
+
+    await configured_core.run_synthesis(
+        system_prompt="You are Irene.",
+        context_messages=[{"role": "user", "content": "beat"}],
+        tool=SURFACE_FINDING_TOOL_V0,
+        tool_choice=forced,
+        model=_MODEL,
+    )
+
+    req = next(r for r in httpx_mock.get_requests() if r.method == "POST")
+    body = json.loads(req.content)
+
+    assert body["tool_choice"] == forced
+    assert len(body["tools"]) == 1
 
 
 @pytest.mark.asyncio

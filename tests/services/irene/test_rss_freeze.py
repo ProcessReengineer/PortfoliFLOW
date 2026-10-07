@@ -86,7 +86,9 @@ async def test_model_change_freezes_open_bucket_no_storm(
     # (exactly what run_beat does), so the bucket becomes a frozen anchor.
     async with tenant_context(app_engine, tenant_id) as session:
         eligible = await evaluate_rss_deltas(
-            session, embedder, items, now=_now(), thresholds=thresholds_a
+            session,
+            await build_rss_buckets(session, embedder, items, now=_now(), thresholds=thresholds_a),
+            now=_now(),
         )
         assert len(eligible) == 1
         key_a = eligible[0].subject_key
@@ -106,7 +108,9 @@ async def test_model_change_freezes_open_bucket_no_storm(
     # absorbed by the frozen anchor → no fresh buckets, no new eligibles.
     async with tenant_context(app_engine, tenant_id) as session:
         eligible_b = await evaluate_rss_deltas(
-            session, embedder, items, now=_now(), thresholds=thresholds_b
+            session,
+            await build_rss_buckets(session, embedder, items, now=_now(), thresholds=thresholds_b),
+            now=_now(),
         )
         assert eligible_b == []
 

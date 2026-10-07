@@ -80,6 +80,7 @@ from services.irene.internal_delta import (
     EligibleFinding,
     evaluate_internal_deltas,
 )
+from services.irene.rss_clustering import RssBucket, build_rss_buckets
 from services.irene.rss_delta import (
     RssEligibleFinding,
     evaluate_rss_deltas,
@@ -372,13 +373,15 @@ async def run_beat(
        every tenant before this programme — takes the empty path. Each
        delta skips a family switched off through the watch-point scope
        (ADR-0133 §2.4), which the resolution of step 0 carries.
-    2. If an ``embedder`` and ``rss_items`` are supplied, run the RSS delta
-       (:func:`services.irene.rss_delta.evaluate_rss_deltas`): cluster the
-       feed items into keyed buckets (freeze-aware) and edge-gate each
-       against ``irene_watch_state``. Both deltas decide *what is worth
-       showing Irene*. The RSS delta runs only while Press coverage
-       (``rss``) is on; while it is off this module forms no bucket at all,
-       ``macro`` and ``regulator`` included.
+    2. If an ``embedder`` and ``rss_items`` are supplied, cluster the feed
+       items into keyed buckets (freeze-aware,
+       :func:`services.irene.rss_clustering.build_rss_buckets`). The
+       buckets are formed once per check, whatever the Press switch says.
+       Then run the RSS delta
+       (:func:`services.irene.rss_delta.evaluate_rss_deltas`) on them: it
+       edge-gates each bucket against ``irene_watch_state``. Both deltas
+       decide *what is worth showing Irene*. The RSS edge gate runs only
+       while Press coverage (``rss``) is on (ADR-0133 §2.4).
     3. Render the eligible findings as grounded context — internal and
        watchpoint figures to interpret (never invent), RSS clusters as
        titles/sources only — applying the correlation lift (a coincident
@@ -388,7 +391,10 @@ async def run_beat(
     4. Call :meth:`AIServiceCore.run_synthesis` with the
        ``surface_finding`` tool and ``tool_choice="auto"`` — Irene's
        decision of *how to phrase and whether to surface*.
-    5. Zero ``surface_finding`` calls ⇒ silence. For each surfaced call,
+    5. Zero ``surface_finding`` calls ⇒ silence; the silence path does not
+       return early (ADR-0133 §1.3). Both outcomes reach the single success
+       exit at the end of the ``try`` body, which is where a step that must
+       run on every completed check belongs. For each surfaced call,
        resolve the trigger type and source from the eligible-finding
        lookup, apply the deterministic floor
        (:mod:`services.analytics.irene_floor`) to turn the model's
@@ -452,15 +458,18 @@ async def run_beat(
 
         internal_eligible = await evaluate_internal_deltas(session, now=now, resolution=resolution)
         signal_eligible = await evaluate_signal_deltas(session, now=now, resolution=resolution)
+        rss_buckets: list[RssBucket] = []
+        if embedder is not None and rss_items:
+            # Formed once per check, whatever the Press switch says: the
+            # macro/regulator clusters belong to the briefing's market read
+            # (ADR-0133 §1.2), and embedding is the RSS path's one model call.
+            rss_buckets = await build_rss_buckets(
+                session, embedder, rss_items, now=now, thresholds=thresholds
+            )
         rss_eligible: list[RssEligibleFinding] = []
-        if embedder is not None and rss_items and resolution.is_family_enabled("rss"):
+        if rss_buckets and resolution.is_family_enabled("rss"):
             rss_eligible = await evaluate_rss_deltas(
-                session,
-                embedder,
-                rss_items,
-                now=now,
-                thresholds=thresholds,
-                resolution=resolution,
+                session, rss_buckets, now=now, resolution=resolution
             )
         system_prompt = ai_core.get_system_prompt("irene")
         context_messages = _build_delta_context(
@@ -478,99 +487,94 @@ async def run_beat(
         )
 
         surfacing = [tc for tc in result.tool_calls if tc.get("name") == SURFACE_FINDING_TOOL_NAME]
+        written = 0
         if not surfacing:
             logger.info("irene-beat: tenant %s — silence.", tenant_id)
-            return BeatResult(
-                tenant_id=tenant_id,
-                findings_written=0,
-                silence=True,
-                error=None,
-            )
+        else:
+            findings = IreneFindingRepository(session)
+            # The eligible set: only these subjects may be surfaced. The three
+            # namespaces are disjoint by key prefix (saa/anlv vs price/fx vs
+            # rss:cluster), so a subject is at most one of internal / signal /
+            # RSS.
+            internal_by_key = {e.subject_key: e for e in internal_eligible}
+            signal_by_key = {s.subject_key: s for s in signal_eligible}
+            rss_by_key = {r.subject_key: r for r in rss_eligible}
+            for tc in surfacing:
+                args = tc.get("arguments") or {}
+                subject_key = str(args.get("subject_key", ""))
 
-        findings = IreneFindingRepository(session)
-        # The eligible set: only these subjects may be surfaced. The three
-        # namespaces are disjoint by key prefix (saa/anlv vs price/fx vs
-        # rss:cluster), so a subject is at most one of internal / signal /
-        # RSS.
-        internal_by_key = {e.subject_key: e for e in internal_eligible}
-        signal_by_key = {s.subject_key: s for s in signal_eligible}
-        rss_by_key = {r.subject_key: r for r in rss_eligible}
-        written = 0
-        for tc in surfacing:
-            args = tc.get("arguments") or {}
-            subject_key = str(args.get("subject_key", ""))
+                # Resolve the floor's axes (trigger type + source) from the
+                # eligible-finding lookup. A subject the delta layer did not make
+                # eligible is a grounding violation — drop it with a warning
+                # rather than persist a fabricated urgency (ADR-0088 §0.3).
+                internal_elig = internal_by_key.get(subject_key)
+                signal_elig = signal_by_key.get(subject_key)
+                rss_elig = rss_by_key.get(subject_key)
+                if internal_elig is not None:
+                    source = SOURCE_INTERNAL
+                    trigger_type = derive_trigger_type(
+                        source=SOURCE_INTERNAL,
+                        kind=internal_elig.kind,
+                        status=internal_elig.status,
+                    )
+                elif signal_elig is not None:
+                    # A watchpoint signal is internal-sourced like a limit edge;
+                    # its family is the third floor axis (ADR-0116 §4), which is
+                    # what floors a price move to 4 instead of a limit's 5/7.
+                    source = SOURCE_INTERNAL
+                    trigger_type = derive_trigger_type(
+                        source=SOURCE_INTERNAL,
+                        kind=signal_elig.kind,
+                        status=signal_elig.status,
+                        family=signal_elig.family,
+                    )
+                elif rss_elig is not None:
+                    source = SOURCE_RSS
+                    trigger_type = derive_trigger_type(source=SOURCE_RSS, kind=None, status=None)
+                else:
+                    logger.warning(
+                        "irene-beat: tenant %s — dropping surfaced subject_key "
+                        "%r not in the eligible set (grounding violation).",
+                        tenant_id,
+                        subject_key,
+                    )
+                    continue
 
-            # Resolve the floor's axes (trigger type + source) from the
-            # eligible-finding lookup. A subject the delta layer did not make
-            # eligible is a grounding violation — drop it with a warning
-            # rather than persist a fabricated urgency (ADR-0088 §0.3).
-            internal_elig = internal_by_key.get(subject_key)
-            signal_elig = signal_by_key.get(subject_key)
-            rss_elig = rss_by_key.get(subject_key)
-            if internal_elig is not None:
-                source = SOURCE_INTERNAL
-                trigger_type = derive_trigger_type(
-                    source=SOURCE_INTERNAL,
-                    kind=internal_elig.kind,
-                    status=internal_elig.status,
+                # The model suggests; deterministic rules decide.
+                suggestion = clamp_suggestion(int(args.get("urgency_suggestion", 0)))
+                urgency = final_urgency(
+                    suggestion=suggestion,
+                    trigger_type=trigger_type,
+                    source=source,
+                    config=thresholds,
                 )
-            elif signal_elig is not None:
-                # A watchpoint signal is internal-sourced like a limit edge;
-                # its family is the third floor axis (ADR-0116 §4), which is
-                # what floors a price move to 4 instead of a limit's 5/7.
-                source = SOURCE_INTERNAL
-                trigger_type = derive_trigger_type(
-                    source=SOURCE_INTERNAL,
-                    kind=signal_elig.kind,
-                    status=signal_elig.status,
-                    family=signal_elig.family,
+                band = band_from_final_urgency(urgency, thresholds)
+
+                payload: dict[str, Any] = dict(args)
+                if rss_elig is not None:
+                    # RSS finding: enrich the payload with the bucket membership
+                    # so the bucket can be frozen on a later beat.
+                    payload = _augment_rss_payload(payload, rss_elig)
+                # Options are the advise-half — gated by band. On an
+                # informational card they are dropped even if Irene supplied them
+                # (a level-1 card is pure fact, never counsel).
+                if not options_allowed(band, thresholds):
+                    payload.pop("options", None)
+
+                await findings.append(
+                    subject_key=subject_key,
+                    payload=payload,
+                    urgency=urgency,
+                    band=band,
                 )
-            elif rss_elig is not None:
-                source = SOURCE_RSS
-                trigger_type = derive_trigger_type(source=SOURCE_RSS, kind=None, status=None)
-            else:
-                logger.warning(
-                    "irene-beat: tenant %s — dropping surfaced subject_key "
-                    "%r not in the eligible set (grounding violation).",
-                    tenant_id,
-                    subject_key,
-                )
-                continue
+                written += 1
 
-            # The model suggests; deterministic rules decide.
-            suggestion = clamp_suggestion(int(args.get("urgency_suggestion", 0)))
-            urgency = final_urgency(
-                suggestion=suggestion,
-                trigger_type=trigger_type,
-                source=source,
-                config=thresholds,
-            )
-            band = band_from_final_urgency(urgency, thresholds)
+            logger.info("irene-beat: tenant %s — wrote %d finding(s).", tenant_id, written)
 
-            payload: dict[str, Any] = dict(args)
-            if rss_elig is not None:
-                # RSS finding: enrich the payload with the bucket membership
-                # so the bucket can be frozen on a later beat.
-                payload = _augment_rss_payload(payload, rss_elig)
-            # Options are the advise-half — gated by band. On an
-            # informational card they are dropped even if Irene supplied them
-            # (a level-1 card is pure fact, never counsel).
-            if not options_allowed(band, thresholds):
-                payload.pop("options", None)
-
-            await findings.append(
-                subject_key=subject_key,
-                payload=payload,
-                urgency=urgency,
-                band=band,
-            )
-            written += 1
-
-        logger.info("irene-beat: tenant %s — wrote %d finding(s).", tenant_id, written)
         return BeatResult(
             tenant_id=tenant_id,
             findings_written=written,
-            silence=False,
+            silence=not surfacing,
             error=None,
         )
     except FloorCalibrationInvalid as exc:

@@ -86,6 +86,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import openai
+from openai.types.chat import ChatCompletionToolChoiceOptionParam
 
 from services import tool_registry
 from services.ai_models import (
@@ -1138,6 +1139,7 @@ class AIServiceCore:
         system_prompt: str,
         context_messages: list[dict[str, Any]],
         tool: dict[str, Any],
+        tool_choice: ChatCompletionToolChoiceOptionParam = "auto",
         model: str | None = None,
         temperature: float = 0.0,
         timeout: float = 120.0,
@@ -1146,9 +1148,11 @@ class AIServiceCore:
         """Issue one non-streaming, structured synthesis call (ADR-0086).
 
         Irene's heartbeat is structurally unlike Shirley's turn: it needs
-        a **single, non-streaming** completion offering exactly one tool
-        (``surface_finding``) with ``tool_choice="auto"`` so that zero
-        tool calls falls out natively as *silence*. This method is that
+        a **single, non-streaming** completion offering exactly one tool.
+        The finding call (``surface_finding``) leaves ``tool_choice`` at
+        its default ``"auto"``, so zero tool calls falls out natively as
+        *silence*. A caller that needs the tool called every time forces
+        it, as the briefing call does (ADR-0133 §1.3). This method is that
         entry point.
 
         It deliberately does **not** reuse :meth:`stream_response`:
@@ -1173,7 +1177,11 @@ class AIServiceCore:
                 message.
             tool: The OpenAI function-tool dict to offer — for Irene, the
                 ``surface_finding`` schema. Passed as the sole entry of
-                the request ``tools`` array with ``tool_choice="auto"``.
+                the request ``tools`` array.
+            tool_choice: ``"auto"`` (default) lets the model decide whether
+                to call the tool. A named-tool choice
+                (``{"type": "function", "function": {"name": …}}``)
+                requires that call.
             model: Model id for this call (Irene's model, which need not
                 equal Shirley's — see ``IRENE_MODEL``). Required on the
                 singleton path; **forbidden** together with ``llm``, which
@@ -1237,7 +1245,7 @@ class AIServiceCore:
                 model=active_model,
                 messages=messages,
                 tools=[tool],
-                tool_choice="auto",
+                tool_choice=tool_choice,
                 temperature=temperature,
                 timeout=timeout,
                 stream=False,

@@ -18,9 +18,15 @@
    kept in ``save_cadence``'s docstring and in the ADR, so do not restore it
    here as a missing rationale.
 
-   Context: the editor context (see _calibration_context), the watchpoint
-   list context (see _watchpoint_list_context) and the cadence-panel context
-   (see _cadence_context). #}
+   The editor is owner-only (D-WD-18): for any other role the route never
+   builds its context and `calibration_owner_only` is true, so a one-line
+   notice takes its place. The watchpoint list and the cadence panel stay
+   rendered for every role — members may read this page and mute.
+
+   Context: calibration_owner_only, the editor context (see
+   _calibration_context; owner only), the watchpoint list context (see
+   _watchpoint_list_context) and the cadence-panel context (see
+   _cadence_context). #}
 <div class="pf-dc-calibration">
     <p class="pf-dc-calibration__note">
         What the beat considers material, for this tenant. Fields show the
@@ -28,7 +34,11 @@
         change to the platform default still reaches you.
     </p>
 
-    {% include "_partials/watch_desk_calibration_editor.html" %}
+    {% if calibration_owner_only %}
+        <p class="pf-dc-calibration__note" role="note">Advanced tuning is managed by the tenant owner.</p>
+    {% else %}
+        {% include "_partials/watch_desk_calibration_editor.html" %}
+    {% endif %}
 
     <section class="pf-dc-calibration__watchpoints">
         {% include "_partials/watch_desk_watchpoint_list.html" %}

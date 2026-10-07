@@ -110,11 +110,12 @@ from core.repositories.floor_calibration_repository import (
     CAP_COLUMNS,
     DELTA_COLUMNS,
     FLOOR_COLUMNS,
+    WARN_COLUMNS,
     FloorCalibrationDTO,
     FloorCalibrationRepository,
 )
 from core.repositories.limits_repository import LimitsRepository
-from core.repositories.user_repository import UserRepository
+from core.repositories.user_repository import UserDTO, UserRepository
 from core.repositories.watchpoint_repository import WatchpointDTO, WatchpointRepository
 from services.analytics.irene_floor import (
     BAND_CRITICAL,
@@ -162,6 +163,7 @@ from web.htmx_poll import (
     parse_poll_since,
     poll_stop,
 )
+from web.permissions import get_authenticated_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -372,6 +374,7 @@ _EDITOR_FIELD_NAMES: frozenset[str] = frozenset(
     | {f"floor_{key}" for key in FLOOR_COLUMNS}
     | {f"cap_{key}" for key in CAP_COLUMNS}
     | {f"re_trigger_delta_{family}" for family in DELTA_COLUMNS}
+    | {f"warn_pct_{family}" for family in WARN_COLUMNS}
 )
 
 # Hints on the two fields whose meaning is easiest to misread.
@@ -1627,6 +1630,8 @@ def _calibration_field(
     hint: str | None = None,
     errors: Mapping[str, str] | None = None,
     supplied: Mapping[str, str] | None = None,
+    placeholder: str | None = None,
+    marker_off: str = "default",
 ) -> dict[str, Any]:
     """Assemble one editor field, with its provenance marker and any error.
 
@@ -1634,6 +1639,11 @@ def _calibration_field(
     beat would run on, never a blank for "not overridden". ``customised``
     carries the provenance separately, derived from the stored revision
     (a NULL column means the code default, ADR-0116 §7).
+
+    The one exception is an *inheriting* field — the family WARN group
+    (ADR-0133 §3.4) — whose ``value`` is the stored figure or ``""``, with
+    the inherited value in ``placeholder`` and ``marker_off`` reading
+    ``inherits`` rather than ``default``.
 
     On a rejected save the attempted text is reflected back through
     ``supplied`` so the operator can correct it in place; the provenance
@@ -1648,6 +1658,8 @@ def _calibration_field(
         "customised": customised,
         "hint": hint,
         "error": (errors or {}).get(name),
+        "placeholder": placeholder,
+        "marker_off": marker_off,
     }
 
 
@@ -1672,6 +1684,12 @@ def _calibration_context(
     stored as NULL again) is that function's job and is deliberately not
     duplicated here or in the browser.
 
+    The one group that does not render effective values is ``family_warns``
+    (ADR-0133 §3.4): a NULL family column inherits the WARN default on the
+    same form, so each field shows the stored value or a blank, with the
+    inherited default as its placeholder. An always-effective field would
+    freeze every inheriting family at the old default on the next save.
+
     Args:
         resolution: The tenant's effective calibration.
         calibration: The stored revision behind it, or ``None`` for a
@@ -1689,6 +1707,9 @@ def _calibration_context(
     stored_floor = calibration.floor if calibration is not None else {}
     stored_cap = calibration.cap if calibration is not None else {}
     stored_delta = calibration.re_trigger_delta if calibration is not None else {}
+    stored_warn = calibration.warn_pct if calibration is not None else {}
+    # ``normalize`` + ``"f"`` so 90.0 reads "90" and 85.000 reads "85".
+    inherited_warn = format(resolution.warn_default_pct.normalize(), "f")
 
     def field(name: str, value: Any, label: str, customised: bool) -> dict[str, Any]:
         return _calibration_field(
@@ -1778,6 +1799,21 @@ def _calibration_context(
             for family in DELTA_COLUMNS
             if family in config.re_trigger_delta
         ],
+        # Blank inherits (ADR-0133 §3.4): the stored value or "", never the
+        # effective one — see the docstring for why.
+        "family_warns": [
+            _calibration_field(
+                name=f"warn_pct_{family}",
+                value=stored_warn.get(family, ""),
+                label=_DELTA_FAMILY_LABELS.get(family, family),
+                customised=family in stored_warn,
+                errors=errors,
+                supplied=supplied,
+                placeholder=inherited_warn,
+                marker_off="inherits",
+            )
+            for family in WARN_COLUMNS
+        ],
         # The pinned level, rendered as a locked row with its rationale and
         # no input at all — not submittable rather than merely styled
         # (ADR-0116 §7 invariant 1). The write path refuses the key too.
@@ -1800,6 +1836,7 @@ def _calibration_context(
 async def get_calibration(
     request: Request,
     session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
 ) -> HTMLResponse:
     """Return the Calibration section body — the editor plus cadence.
 
@@ -1808,9 +1845,17 @@ async def get_calibration(
     WARN default, the per-family re-trigger deltas, the band boundaries,
     the trigger-type floors, the source/trigger caps and the options gate,
     each showing its effective value with a default / customised marker.
+    The six per-family WARN fields (ADR-0133 §3.4) are the exception: blank
+    inherits the WARN default, which their placeholder shows.
     The four pinned invariants are not editable — ``fund_closure`` renders
     as a locked row, and the three coupling rules render as constraint
     hints on the fields they bind.
+
+    The editor is **owner-only** (D-WD-18, ADR-0133 §3.4): it is neither
+    built nor rendered for anyone else, who sees a one-line notice in its
+    place. The section itself stays member-readable — members may read the
+    Watch points page and mute — so the watchpoint list and the cadence
+    panel render for every role.
 
     Beneath it, the **watchpoint list** (ADR-0116 §7): one row per live
     identity of every family, with adjust / retire / history. It is not the
@@ -1830,7 +1875,13 @@ async def get_calibration(
             db_session, now=now, csrf_token=session.csrf_token
         )
 
-    context = _calibration_context(resolution, calibration, session.csrf_token)
+    owner = user.has_role("owner")
+    # True where the viewer is not the owner: the template renders the
+    # owner-only notice instead of the editor, whose context is never built.
+    context: dict[str, Any] = (
+        _calibration_context(resolution, calibration, session.csrf_token) if owner else {}
+    )
+    context["calibration_owner_only"] = not owner
     context.update(watchpoint_list)
     context.update(_cadence_context(schedule, session.csrf_token))
     return cast(
@@ -1870,6 +1921,11 @@ def _read_calibration_form(form: Mapping[str, Any]) -> dict[str, Any]:
     left at their defaults — which is precisely the shape the write path
     takes, so nothing is reduced or filtered here.
 
+    The six ``warn_pct_<family>`` fields (ADR-0133 §3.4) are the exception
+    to "effective values": an empty one posts ``None``, which means inherit
+    the WARN default, and a value equal to that default is stored as NULL
+    by the write path. Each is returned under ``warn_pct`` only when posted.
+
     A ``fund_closure`` key is deliberately passed **through** rather than
     dropped: it has no input in the editor, so its presence means something
     posted it directly, and the sanctioned write path refuses it with the
@@ -1889,6 +1945,7 @@ def _read_calibration_form(form: Mapping[str, Any]) -> dict[str, Any]:
     floors: dict[str, int] = {}
     caps: dict[str, int] = {}
     deltas: dict[str, Decimal] = {}
+    warns: dict[str, Decimal | None] = {}
 
     for key in (*FLOOR_COLUMNS, TRIGGER_FUND_CLOSURE):
         name = f"floor_{key}"
@@ -1902,6 +1959,11 @@ def _read_calibration_form(form: Mapping[str, Any]) -> dict[str, Any]:
         name = f"re_trigger_delta_{family}"
         if name in form:
             deltas[family] = _form_decimal(str(form[name]), field=name)
+    for family in WARN_COLUMNS:
+        name = f"warn_pct_{family}"
+        if name in form:
+            raw = str(form[name])
+            warns[family] = None if not raw.strip() else _form_decimal(raw, field=name)
 
     notes = str(form.get("notes", "")).strip()
     return {
@@ -1916,11 +1978,16 @@ def _read_calibration_form(form: Mapping[str, Any]) -> dict[str, Any]:
         "floor": floors,
         "cap": caps,
         "re_trigger_delta": deltas,
+        "warn_pct": warns,
         "notes": notes or None,
     }
 
 
-@router.post("/api/watch-desk/calibration", response_class=HTMLResponse)
+@router.post(
+    "/api/watch-desk/calibration",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
 async def save_calibration(
     request: Request,
     session: SessionDTO = Depends(require_session),
@@ -1945,6 +2012,8 @@ async def save_calibration(
 
     The cadence panel is a sibling of this editor inside the section and is
     untouched by this endpoint.
+
+    Owner-only (D-WD-18): any other role receives 403 and nothing is written.
     """
     form = getattr(request.state, "form", None) or await request.form()
     engine = _engine(request)
@@ -2141,7 +2210,8 @@ def _overlay_editor_context(
             else ""
         ),
         "notes": (overlay.notes if overlay is not None else None) or "",
-        "warn_default_pct": float(resolution.warn_default_pct),
+        # A subject without its own WARN inherits its family's (ADR-0133 §3.3).
+        "warn_inherited_pct": float(resolution.family_warn_threshold_for(family)),
         "delta_default": float(resolution.config.re_trigger_delta.get(family, Decimal("0"))),
     }
 
@@ -2169,7 +2239,7 @@ async def get_overlay_editor(
     """Return the sensitivity editor for one derived subject (ADR-0116 §6).
 
     Read-only: it renders the overlay currently in force (or an empty form
-    when the subject has none) beside the tenant defaults the blanks fall
+    when the subject has none) beside the family defaults the blanks fall
     back to, so "leave it empty" reads as "follow the default" rather than
     as "zero".
     """
@@ -2700,7 +2770,9 @@ def _watchpoint_form_context(
             value = getattr(current, field.name, None)
             values[field.name] = "" if value is None else str(value)
 
-    warn_default = float(resolution.warn_default_pct) if resolution is not None else 0.0
+    warn_inherited = (
+        float(resolution.family_warn_threshold_for(family)) if resolution is not None else 0.0
+    )
     delta_default = (
         float(resolution.config.re_trigger_delta.get(family, Decimal("0")))
         if resolution is not None
@@ -2738,7 +2810,7 @@ def _watchpoint_form_context(
             else ""
         ),
         "notes": (current.notes if current is not None else None) or "",
-        "warn_default_pct": warn_default,
+        "warn_inherited_pct": warn_inherited,
         "delta_default": delta_default,
         "return_to": return_to,
         "target": _return_target(return_to),

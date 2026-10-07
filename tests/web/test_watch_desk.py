@@ -22,6 +22,7 @@ Prompt 1; these tests never touch the delta/floor/synthesis layers.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -2036,6 +2037,176 @@ async def test_calibration_save_requires_csrf(
     await _login(web_client, email, password)
     response = await web_client.post("/api/watch-desk/calibration", data=_calibration_form())
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Advanced tuning — family WARN fields, owner gates, inherited hints (S-4c)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_member(engine: AsyncEngine) -> tuple[str, str]:
+    """Insert one ``member`` into the primary tenant, as ``seeded_user`` does the owner."""
+    plaintext = "member-horse-battery-staple"
+    email = "dc-member@example.com"
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                INSERT INTO users
+                    (id, tenant_id, email, password_hash, roles, is_active)
+                VALUES
+                    (:id, :tid, :email, :hash, ARRAY['member']::text[], TRUE)
+                """
+            ),
+            {
+                "id": str(uuid4()),
+                "tid": str(SENTINEL_TENANT_ID),
+                "email": email,
+                "hash": hash_password(plaintext),
+            },
+        )
+    return email, plaintext
+
+
+async def test_calibration_renders_six_family_warn_fields_that_inherit(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """Blank inherits: no stored value, the WARN default as placeholder (D-B-61)."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/calibration")
+    assert response.status_code == 200
+    body = response.text
+
+    for family in ("saa", "anlv", "price", "fx", "freshness", "liquidity"):
+        assert f'name="warn_pct_{family}" value="" placeholder="90"' in body
+    # Press clusters have no scalar magnitude and so no WARN column.
+    assert 'name="warn_pct_rss"' not in body
+    assert body.count("inherits") >= 6
+    assert "customised" not in body
+
+
+async def test_calibration_save_stores_a_family_warn_against_the_tenant_default(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A family value equal to the posted WARN default is stored as NULL."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/calibration",
+        data=_calibration_form(
+            warn_default_pct="85", warn_pct_saa="80", warn_pct_anlv="85", warn_pct_price=""
+        ),
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+
+    async with fresh_superuser_engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text("SELECT warn_pct_saa, warn_pct_anlv, warn_pct_price FROM floor_calibration")
+            )
+        ).first()
+    assert row is not None
+    assert row.warn_pct_saa == Decimal("80")
+    assert row.warn_pct_anlv is None
+    assert row.warn_pct_price is None
+
+    body = response.text
+    saa = body.split('name="warn_pct_saa"')[0].rsplit('<label class="pf-dc-calib__field">', 1)[1]
+    assert "customised" in saa
+    assert 'name="warn_pct_saa" value="80.000" placeholder="85"' in body
+    assert 'name="warn_pct_anlv" value="" placeholder="85"' in body
+
+
+async def test_calibration_save_refuses_a_family_warn_out_of_bounds_inline(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The service's bounds message renders at the field it names."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/calibration",
+        data=_calibration_form(warn_pct_fx="100"),
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 422
+    body = html.unescape(response.text)
+    # Inline: the error sits inside the warn_pct_fx field, not as a form notice.
+    fx_field = body.split('name="warn_pct_fx"', 1)[1].split("</label>", 1)[0]
+    assert "pf-dc-calib__field-error" in fx_field
+    assert "warn_pct['fx']" in fx_field
+    assert "Nothing was saved." not in body
+
+    async with fresh_superuser_engine.connect() as conn:
+        count = (await conn.execute(text("SELECT count(*) FROM floor_calibration"))).scalar_one()
+    assert count == 0
+
+
+async def test_a_member_neither_reads_nor_saves_advanced_tuning(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The editor is owner-only; the rest of the section stays readable (D-B-62)."""
+    email, password = await _seed_member(fresh_superuser_engine)
+    await _login(web_client, email, password)
+
+    response = await web_client.get("/api/watch-desk/calibration")
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="dc-calibration-editor"' not in body
+    assert "Advanced tuning is managed by the tenant owner." in body
+    assert 'id="dc-watchpoint-list"' in body
+    assert 'id="dc-cadence-panel"' in body
+
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    saved = await web_client.post(
+        "/api/watch-desk/calibration",
+        data=_calibration_form(warn_default_pct="85"),
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert saved.status_code == 403
+    async with fresh_superuser_engine.connect() as conn:
+        count = (await conn.execute(text("SELECT count(*) FROM floor_calibration"))).scalar_one()
+    assert count == 0
+
+
+async def test_the_inherited_warn_hints_name_the_family_value(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A subject without its own WARN follows its family's, not the tenant's."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    saved = await web_client.post(
+        "/api/watch-desk/calibration",
+        data=_calibration_form(warn_pct_saa="80"),
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert saved.status_code == 200
+
+    drawer = await web_client.get("/api/watch-desk/watchpoints/overlay?subject_key=saa%3Aequities")
+    assert drawer.status_code == 200
+    drawer_body = " ".join(drawer.text.split())
+    assert 'placeholder="80"' in drawer_body
+    assert "Empty follows the family default (80%)" in drawer_body
+
+    form = await web_client.get("/api/watch-desk/watchpoints/new?family=price")
+    assert form.status_code == 200
+    assert "Empty follows the family default (90%)" in " ".join(form.text.split())
 
 
 # ---------------------------------------------------------------------------

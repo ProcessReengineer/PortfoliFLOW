@@ -25,7 +25,7 @@
    Context (via _watchpoint_form_context): csrf_token, mode, family,
    family_label, singleton, fields, instruments, currency_pair,
    display_name, muted, warn_threshold_pct, re_trigger_delta, notes,
-   warn_default_pct, delta_default, return_to, target, action, slot_id. #}
+   warn_inherited_pct, delta_default, return_to, target, action, slot_id. #}
 <form class="pf-dc-sensitivity pf-dc-watchpoint-form"
       hx-post="{{ action }}"
       hx-target="{{ target }}"
@@ -116,11 +116,11 @@
             <span class="pf-dc-sensitivity__label">Approaching mark</span>
             <input type="text" inputmode="decimal" name="warn_threshold_pct"
                    value="{{ warn_threshold_pct }}"
-                   placeholder="{{ '%.0f'|format(warn_default_pct) }}">
+                   placeholder="{{ '%.0f'|format(warn_inherited_pct) }}">
             <span class="pf-dc-sensitivity__hint">
                 % of the trigger threshold, strictly between 50 and 100.
-                Empty follows the tenant default
-                ({{ '%.0f'|format(warn_default_pct) }}%).
+                Empty follows the family default
+                ({{ '%.0f'|format(warn_inherited_pct) }}%).
             </span>
         </label>
 

@@ -23,7 +23,7 @@
 
    Context: csrf_token, subject_key, family, scalar, editor_id, muted,
    mute_locked, warn_threshold_pct, re_trigger_delta, notes,
-   warn_default_pct, delta_default, return_to, target. #}
+   warn_inherited_pct, delta_default, return_to, target. #}
 <form class="pf-dc-sensitivity"
       hx-post="/api/watch-desk/watchpoints/overlay"
       hx-target="{{ target }}"
@@ -38,10 +38,10 @@
                 <span class="pf-dc-sensitivity__label">WARN threshold</span>
                 <input type="text" inputmode="decimal" name="warn_threshold_pct"
                        value="{{ warn_threshold_pct }}"
-                       placeholder="{{ '%.0f'|format(warn_default_pct) }}">
+                       placeholder="{{ '%.0f'|format(warn_inherited_pct) }}">
                 <span class="pf-dc-sensitivity__hint">
                     % of ceiling, strictly between 50 and 100. Empty follows
-                    the tenant default ({{ '%.0f'|format(warn_default_pct) }}%).
+                    the family default ({{ '%.0f'|format(warn_inherited_pct) }}%).
                 </span>
             </label>
 

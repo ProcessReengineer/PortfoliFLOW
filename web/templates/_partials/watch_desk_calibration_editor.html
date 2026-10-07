@@ -7,7 +7,12 @@
      * Every field shows its **effective** value — defaults ⊕ this tenant's
        revision — and carries a separate default / customised marker taken
        from the stored row. Never render a blank for "not overridden": the
-       operator must see what the beat would actually run on.
+       operator must see what the beat would actually run on. The one
+       exception is the "WARN per family" group (ADR-0133 §3.4): a NULL
+       family column inherits the WARN default on this same form, so blank
+       means inherit, the placeholder shows the inherited value and the
+       marker reads "inherits". An always-effective field there would freeze
+       every inheriting family at the old default on the next save.
      * The form posts the complete desired configuration, defaults
        included. Reducing it back to deviations (so a field returned to its
        default is stored as NULL again) belongs to
@@ -20,8 +25,8 @@
        path enforces all four regardless of what this renders.
 
    Context (via _calibration_context): csrf_token, calibration_saved,
-   calibration_error, warn_default, band_boundaries, options_gate, floors,
-   caps, deltas, pinned, notes. #}
+   calibration_error, warn_default, band_boundaries, options_gate,
+   family_warns, floors, caps, deltas, pinned, notes. #}
 <form id="dc-calibration-editor"
       class="pf-dc-calib"
       hx-post="/api/watch-desk/calibration"
@@ -94,6 +99,19 @@
                     <span class="pf-dc-calib__field-error" role="alert">{{ options_gate.error }}</span>
                 {% endif %}
             </div>
+        </div>
+    </section>
+
+    {# D-WD-25 stop-gap on the existing pf-dc-calib vocabulary; A-6 restyles it. #}
+    <section class="pf-dc-calib__block">
+        <h3 class="pf-dc-calib__heading">WARN per family</h3>
+        <p class="pf-dc-calib__note">
+            Coverage above this percentage of a ceiling, or a signal above this percentage of its trigger threshold, is WARN for every subject of the family. Empty follows the WARN default above. Strictly between 50 and 100.
+        </p>
+        <div class="pf-dc-calib__fields">
+            {% for f in family_warns %}
+                {% include "_partials/watch_desk_calibration_field.html" %}
+            {% endfor %}
         </div>
     </section>
 

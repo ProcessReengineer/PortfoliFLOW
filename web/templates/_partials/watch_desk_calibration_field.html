@@ -1,20 +1,26 @@
 {# One calibration editor field (ADR-0116 §7). Included with `f` bound to a
    field dict from `_calibration_field`: name, label, value, customised,
-   hint, error.
+   hint, error, placeholder, marker_off.
 
    The marker states **provenance**, not the value: the input always shows
    the effective figure, and "default" means only that no stored column
    overrides it. On a refused save the input reflects the attempted text
    while the marker keeps describing what is stored — which is nothing new,
-   because the save was refused. #}
+   because the save was refused.
+
+   An inheriting field (the family WARN group, ADR-0133 §3.4) is the one
+   exception: its input shows the stored value or a blank, `placeholder`
+   shows the inherited value, and `marker_off` reads "inherits" instead of
+   "default". `placeholder` is rendered only when set. #}
 <label class="pf-dc-calib__field">
     <span class="pf-dc-calib__label">
         {{ f.label }}
         <span class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if f.customised }}">
-            {{ 'customised' if f.customised else 'default' }}
+            {{ 'customised' if f.customised else f.marker_off }}
         </span>
     </span>
-    <input type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}">
+    <input type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}"
+           {%- if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
     {% if f.hint %}
         <span class="pf-dc-calib__hint">{{ f.hint }}</span>
     {% endif %}

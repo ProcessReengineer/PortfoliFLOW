@@ -5,8 +5,13 @@
 
 Lifted out of :mod:`web.routes.watch_desk` (D-WD-14, ADR-0133 §1.2) so the
 family status the Briefing renders is a service a second reader can share
-rather than a projection only the route can reach. The route is still the
-monitor's only caller, and nothing it renders changed with the move.
+rather than a projection only the route can reach.
+
+One observation step, two projections: :func:`build_monitor` (the route's
+template context) and :func:`read_family_status` (typed records for the
+briefing writer's Part 2, ADR-0133 §1.2). Both classify through the same
+helpers, so the briefing and the watch strip cannot state two statuses for
+one subject.
 
 A pure request-time projection: live coverage from the limits engine, joined
 to the acknowledged watch-state each subject carries, plus the four signal
@@ -37,7 +42,8 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -182,6 +188,156 @@ _ADDABLE_FROM_GROUP_HEADER: tuple[str, ...] = (FAMILY_PRICE, FAMILY_FX)
 _EXCEPTION_FIRST_FAMILIES: tuple[str, ...] = (FAMILY_FRESHNESS,)
 
 # ---------------------------------------------------------------------------
+# Typed family status (ADR-0133 §1.2)
+#
+# The records the briefing writer's Part 2 material is built from. They hold
+# native values — ``Decimal`` and ``date`` — and no display string other
+# than the status label the monitor prints; serialising them is the
+# assembler's concern, not this module's.
+# ---------------------------------------------------------------------------
+
+#: The unit a signal figure is stated in, per family.
+FIGURE_UNIT_PCT: str = "pct"  # price, fx: the magnitude and threshold, in percent
+FIGURE_UNIT_DAYS: str = "days"  # freshness: NAV age and maximum age, in whole days
+FIGURE_UNIT_RATIO: str = "ratio"  # liquidity: coverage ratio and its floor
+
+
+@dataclass(frozen=True)
+class LimitSubjectStatus:
+    """One constrained limit subject, classified at the Stichtag.
+
+    Attributes:
+        subject_key: ``{family}:{class_key}``.
+        family: ``'saa'`` or ``'anlv'``.
+        class_key: The asset-class key the subject is about.
+        status: ``OK`` / ``WARN`` / ``BREACH``, after the re-classification
+            against the subject's own WARN threshold.
+        coverage_pct: Live coverage in percentage points.
+        max_pct: The ceiling in percentage points, if any.
+        utilisation_pct: Coverage as a percentage of the ceiling, or
+            ``None`` without a ceiling.
+        warn_threshold_pct: The subject's effective WARN threshold, as a
+            percentage of the ceiling.
+        muted: Whether the subject's overlay mutes it.
+    """
+
+    subject_key: str
+    family: str
+    class_key: str
+    status: str
+    coverage_pct: Decimal
+    max_pct: Decimal | None
+    utilisation_pct: Decimal | None
+    warn_threshold_pct: Decimal
+    muted: bool
+
+
+@dataclass(frozen=True)
+class LimitFamilyStatus:
+    """One switched-on limit family and its constrained subjects.
+
+    Attributes:
+        family: ``'saa'`` or ``'anlv'``.
+        subjects: The family's subjects in the coverage frame's order;
+            empty when coverage is unavailable.
+    """
+
+    family: str
+    subjects: tuple[LimitSubjectStatus, ...]
+
+
+@dataclass(frozen=True)
+class SignalFigure:
+    """A signal subject's measured value against its threshold.
+
+    Attributes:
+        value: The measured figure in ``unit``; ``None`` only for
+            ``liquidity`` with no calls projected.
+        threshold: The trigger threshold in ``unit``; ``None`` only for
+            ``liquidity`` without a calibrated floor.
+        unit: One of :data:`FIGURE_UNIT_PCT`, :data:`FIGURE_UNIT_DAYS` or
+            :data:`FIGURE_UNIT_RATIO`.
+    """
+
+    value: Decimal | None
+    threshold: Decimal | None
+    unit: str
+
+
+@dataclass(frozen=True)
+class SignalSubjectStatus:
+    """One observed signal subject.
+
+    Attributes:
+        subject_key: The key the producer emits.
+        family: ``price`` / ``fx`` / ``freshness`` / ``liquidity``.
+        display_name: The watchpoint's operator-readable label.
+        status: The internal ``OK`` / ``WARN`` / ``BREACH``; ``None``
+            without an observation.
+        status_label: Exactly what the monitor row prints in its status
+            cell.
+        figure: The value against the threshold; ``None`` without an
+            observation.
+        window_days: The observation window in days; ``None`` without an
+            observation.
+        as_of: The date the observation's latest value was observed;
+            ``None`` without an observation.
+        no_data_reason: The producer's reason for refusing to observe,
+            else ``None``.
+        muted: Whether the watchpoint is muted.
+    """
+
+    subject_key: str
+    family: str
+    display_name: str
+    status: str | None
+    status_label: str
+    figure: SignalFigure | None
+    window_days: int | None
+    as_of: date | None
+    no_data_reason: str | None
+    muted: bool
+
+
+@dataclass(frozen=True)
+class PressTagStatus:
+    """One curated press tag and whether it is muted.
+
+    Attributes:
+        tag: The curated RSS tag.
+        subject_key: The tag's ``rss`` overlay subject key.
+        muted: Whether the tag's overlay mutes it.
+    """
+
+    tag: str
+    subject_key: str
+    muted: bool
+
+
+@dataclass(frozen=True)
+class FamilyStatus:
+    """The live status of every switched-on family, as typed records.
+
+    Attributes:
+        evaluated_at: The read's ``now``.
+        coverage_as_of: The Stichtag the limit subjects were sliced at;
+            ``None`` when coverage is unavailable.
+        limits: The switched-on limit families, in the order the beat
+            watches them.
+        signals: The observed signal subjects, in the order the observation
+            layer returned them.
+        press: The curated press tags; ``None`` while Press coverage
+            (``rss``) is off.
+    """
+
+    evaluated_at: datetime
+    coverage_as_of: date | None
+    limits: tuple[LimitFamilyStatus, ...]
+    signals: tuple[SignalSubjectStatus, ...]
+    press: tuple[PressTagStatus, ...] | None
+
+
+# ---------------------------------------------------------------------------
 # Monitor — "What Irene watches" (ADR-0089)
 #
 # A pure request-time projection: live coverage from the limits engine, joined
@@ -206,6 +362,84 @@ def _build_coverage_service(db_session: AsyncSession) -> LimitsCoverageService:
         asset_classes=AssetClassRepository(db_session),
         tenants=TenantRepository(db_session),
         fx_rates=FxRateRepository(db_session),
+    )
+
+
+@dataclass(frozen=True)
+class _Observed:
+    """What one observation step read: live coverage and the signal pairs.
+
+    Attributes:
+        bundle: The coverage bundle, or ``None`` when coverage is
+            unavailable.
+        latest_as_of_date: The bundle's Stichtag, or ``None``.
+        coverage_available: Whether there is a bundle with a Stichtag.
+        pairs: The ``(watchpoint, result)`` pairs in the order the
+            observation layer returned them.
+    """
+
+    bundle: LimitsCoverageBundle | None
+    latest_as_of_date: date | None
+    coverage_available: bool
+    pairs: tuple[tuple[SignalWatchpoint, SignalResult], ...]
+
+    def coverage_for(self, family: str) -> pd.DataFrame | None:
+        """Return one limit family's coverage frame, or ``None`` without coverage."""
+        return getattr(self.bundle, family).coverage if self.coverage_available else None
+
+
+async def _observe_book(
+    db_session: AsyncSession,
+    *,
+    resolution: WatchDeskResolution,
+    now: datetime,
+) -> _Observed:
+    """Read live coverage and observe the signal families, once per reader.
+
+    The one place this module computes coverage and observes the signal
+    families, so the monitor and the typed read classify the same
+    observation. Reads only: nothing here writes watch-state.
+
+    Coverage unavailability is never an error here: an empty universe, a
+    range without a month-end Stichtag, and an engine-level refusal all
+    degrade to no bundle, and the internal groups stay empty.
+
+    Args:
+        db_session: The tenant-scoped session opened by the caller.
+        resolution: The tenant's effective calibration and per-subject
+            overlays.
+        now: The read instant. Its date is the signal families' evaluation
+            date.
+
+    Returns:
+        The coverage bundle with its Stichtag, and the signal pairs.
+    """
+    service = _build_coverage_service(db_session)
+    bundle: LimitsCoverageBundle | None
+    try:
+        bundle = await service.get_coverage(warn_threshold_pct=resolution.warn_default_pct)
+    except (
+        LimitSetNotEffective,
+        CoverageInputMissing,
+        CoverageInputOutOfRange,
+        MissingFxRateError,
+    ) as exc:
+        logger.info(
+            "watch-desk family status: coverage unavailable (%s) — the internal groups are empty.",
+            exc,
+        )
+        bundle = None
+
+    pairs = tuple(
+        await observe_signal_families(db_session, as_of=now.date(), resolution=resolution)
+    )
+
+    latest_as_of_date = bundle.latest_as_of_date if bundle is not None else None
+    return _Observed(
+        bundle=bundle,
+        latest_as_of_date=latest_as_of_date,
+        coverage_available=bundle is not None and latest_as_of_date is not None,
+        pairs=pairs,
     )
 
 
@@ -322,6 +556,74 @@ def _irene_note(
     return f"{status} — not yet reviewed."
 
 
+def _limit_subjects(
+    *,
+    family: str,
+    coverage: pd.DataFrame | None,
+    latest_as_of_date: Any,
+    resolution: WatchDeskResolution,
+) -> tuple[LimitSubjectStatus, ...]:
+    """Classify one family's constrained coverage rows at the Stichtag.
+
+    Only constrained rows (``OK`` / ``WARN`` / ``BREACH``) are kept:
+    ``NO_LIMIT`` and ``UNALLOCATED`` carry no ceiling, so there is nothing
+    to gauge utilisation against.
+
+    The engine classified the frame against the tenant WARN default in one
+    pass; a subject carrying an overlay override is re-classified here with
+    ``classify_coverage_status`` — the same pure function, and the same
+    correction the beat applies, so monitor, typed read and beat agree on
+    the status by construction rather than by coincidence.
+
+    Args:
+        family: ``'saa'`` or ``'anlv'``.
+        coverage: The family's long-format coverage frame, or ``None``
+            when coverage is unavailable (empty universe / no Stichtag).
+        latest_as_of_date: The Stichtag (a ``date``) to slice, or ``None``.
+        resolution: The tenant's effective calibration and per-subject
+            overlays.
+
+    Returns:
+        The family's subjects in the frame's record order.
+    """
+    if coverage is None or latest_as_of_date is None:
+        return ()
+
+    # The engine stores as_of_date as datetime64, so the Stichtag must be
+    # compared as a Timestamp — a bare date silently matches nothing (same
+    # conversion as web/routes/limits.py and internal_delta.py).
+    slice_ = coverage.loc[coverage["as_of_date"] == pd.Timestamp(latest_as_of_date)]
+    subjects: list[LimitSubjectStatus] = []
+    for record in slice_.to_dict("records"):
+        status = str(record["status"])
+        if status not in _CONSTRAINED_STATUSES:
+            continue
+        coverage_pct = _as_decimal(record["coverage_pct"])
+        if coverage_pct is None:
+            continue
+        max_pct = _as_decimal(record["max_pct"])
+        subject_key = f"{family}:{record['class_key']}"
+
+        warn_threshold_pct = resolution.warn_threshold_for(subject_key)
+        if max_pct is not None:
+            status = classify_coverage_status(coverage_pct, max_pct, warn_threshold_pct)
+        overlay = resolution.overlay_for(subject_key)
+        subjects.append(
+            LimitSubjectStatus(
+                subject_key=subject_key,
+                family=family,
+                class_key=str(record["class_key"]),
+                status=status,
+                coverage_pct=coverage_pct,
+                max_pct=max_pct,
+                utilisation_pct=_utilisation_pct(coverage_pct, max_pct),
+                warn_threshold_pct=warn_threshold_pct,
+                muted=overlay is not None and overlay.muted,
+            )
+        )
+    return tuple(subjects)
+
+
 def _build_family_group(
     *,
     family: str,
@@ -334,15 +636,9 @@ def _build_family_group(
 ) -> dict[str, Any]:
     """Project one family's constrained coverage rows into a monitor group.
 
-    Only constrained rows (``OK`` / ``WARN`` / ``BREACH``) are shown:
-    ``NO_LIMIT`` and ``UNALLOCATED`` carry no ceiling, so there is nothing
-    to gauge utilisation against.
-
-    The engine classified the frame against the tenant WARN default in one
-    pass; a subject carrying an overlay override is re-classified here with
-    ``classify_coverage_status`` — the same pure function, and the same
-    correction the beat applies, so monitor and beat agree on the status by
-    construction rather than by coincidence.
+    The subjects and their statuses come from :func:`_limit_subjects` — the
+    classification the typed read shares; this function adds only what the
+    template needs on top of them.
 
     Args:
         family: ``'saa'`` or ``'anlv'``.
@@ -361,75 +657,55 @@ def _build_family_group(
     """
     rows: list[dict[str, Any]] = []
 
-    if coverage is not None and latest_as_of_date is not None:
-        # The engine stores as_of_date as datetime64, so the Stichtag must
-        # be compared as a Timestamp — a bare date silently matches nothing
-        # (same conversion as web/routes/limits.py and internal_delta.py).
-        slice_ = coverage[coverage["as_of_date"] == pd.Timestamp(latest_as_of_date)]
-        for record in slice_.to_dict("records"):
-            status = str(record["status"])
-            if status not in _CONSTRAINED_STATUSES:
-                continue
-            coverage_pct = _as_decimal(record["coverage_pct"])
-            if coverage_pct is None:
-                continue
-            max_pct = _as_decimal(record["max_pct"])
-            subject_key = f"{family}:{record['class_key']}"
-
-            warn_threshold_pct = resolution.warn_threshold_for(subject_key)
-            if max_pct is not None:
-                status = classify_coverage_status(coverage_pct, max_pct, warn_threshold_pct)
-            overlay = resolution.overlay_for(subject_key)
-            muted = overlay is not None and overlay.muted
-            finding_id = fired.get(subject_key)
-            utilisation = _utilisation_pct(coverage_pct, max_pct)
-            rows.append(
-                {
-                    "subject_key": subject_key,
-                    "family": family,
-                    "status": status,
-                    "modifier": _STATUS_MODIFIER[status],
-                    "coverage_pct": float(coverage_pct),
-                    "max_pct": float(max_pct) if max_pct is not None else None,
-                    "utilisation": (float(utilisation) if utilisation is not None else None),
-                    # Rendered width only — clamped so a breach cannot
-                    # overflow the bar. The figures above stay honest.
-                    "fill_pct": (
-                        min(float(utilisation), 100.0) if utilisation is not None else 0.0
-                    ),
-                    # The mark's position on the shared 0 → ceiling scale.
-                    # Per-subject *positioned* since ADR-0116 §6, never
-                    # per-subject rescaled: the axis is still the ceiling on
-                    # every row, and the mark still sits at the WARN fraction
-                    # of it — that fraction is now the subject's own.
-                    "warn_threshold_pct": float(warn_threshold_pct),
-                    "muted": muted,
-                    # A BREACH cannot be muted (ADR-0116 §3). Disabling the
-                    # toggle here is the *mirror* of the beat-side rule, for
-                    # legibility; the beat enforces it whatever this says.
-                    "mute_locked": status == "BREACH",
-                    "warn_customised": (
-                        overlay is not None and overlay.warn_threshold_pct is not None
-                    ),
-                    "delta_customised": (
-                        overlay is not None and overlay.re_trigger_delta is not None
-                    ),
-                    "editor_id": _dom_id("dc-overlay", subject_key),
-                    "fired_this_beat": finding_id is not None,
-                    "finding_anchor": (
-                        f"#dc-card-{finding_id}" if finding_id is not None else None
-                    ),
-                    "note": _irene_note(
-                        status=status,
-                        coverage_pct=coverage_pct,
-                        max_pct=max_pct,
-                        watch=watch_by_subject.get(subject_key),
-                        fired=finding_id is not None,
-                        re_trigger_delta=resolution.re_trigger_delta_for(subject_key),
-                        warn_threshold_pct=warn_threshold_pct,
-                    ),
-                }
-            )
+    for subject in _limit_subjects(
+        family=family,
+        coverage=coverage,
+        latest_as_of_date=latest_as_of_date,
+        resolution=resolution,
+    ):
+        subject_key = subject.subject_key
+        overlay = resolution.overlay_for(subject_key)
+        finding_id = fired.get(subject_key)
+        utilisation = subject.utilisation_pct
+        rows.append(
+            {
+                "subject_key": subject_key,
+                "family": family,
+                "status": subject.status,
+                "modifier": _STATUS_MODIFIER[subject.status],
+                "coverage_pct": float(subject.coverage_pct),
+                "max_pct": float(subject.max_pct) if subject.max_pct is not None else None,
+                "utilisation": (float(utilisation) if utilisation is not None else None),
+                # Rendered width only — clamped so a breach cannot
+                # overflow the bar. The figures above stay honest.
+                "fill_pct": (min(float(utilisation), 100.0) if utilisation is not None else 0.0),
+                # The mark's position on the shared 0 → ceiling scale.
+                # Per-subject *positioned* since ADR-0116 §6, never
+                # per-subject rescaled: the axis is still the ceiling on
+                # every row, and the mark still sits at the WARN fraction
+                # of it — that fraction is now the subject's own.
+                "warn_threshold_pct": float(subject.warn_threshold_pct),
+                "muted": subject.muted,
+                # A BREACH cannot be muted (ADR-0116 §3). Disabling the
+                # toggle here is the *mirror* of the beat-side rule, for
+                # legibility; the beat enforces it whatever this says.
+                "mute_locked": subject.status == "BREACH",
+                "warn_customised": (overlay is not None and overlay.warn_threshold_pct is not None),
+                "delta_customised": (overlay is not None and overlay.re_trigger_delta is not None),
+                "editor_id": _dom_id("dc-overlay", subject_key),
+                "fired_this_beat": finding_id is not None,
+                "finding_anchor": (f"#dc-card-{finding_id}" if finding_id is not None else None),
+                "note": _irene_note(
+                    status=subject.status,
+                    coverage_pct=subject.coverage_pct,
+                    max_pct=subject.max_pct,
+                    watch=watch_by_subject.get(subject_key),
+                    fired=finding_id is not None,
+                    re_trigger_delta=resolution.re_trigger_delta_for(subject_key),
+                    warn_threshold_pct=subject.warn_threshold_pct,
+                ),
+            }
+        )
 
     status_counts = Counter(row["status"] for row in rows)
     muted_count = sum(1 for row in rows if row["muted"])
@@ -451,6 +727,25 @@ def _build_family_group(
         "effective_label": effective_label,
         "rows": rows,
     }
+
+
+def _press_tags(resolution: WatchDeskResolution) -> tuple[PressTagStatus, ...]:
+    """Return every curated press tag with its overlay subject and mute.
+
+    Args:
+        resolution: The tenant's effective calibration, for the ``rss``
+            overlays.
+
+    Returns:
+        One record per curated tag, in sorted tag order.
+    """
+    press: list[PressTagStatus] = []
+    for tag in sorted(_KNOWN_TAGS):
+        subject_key = rss_overlay_subject_key(tag)
+        press.append(
+            PressTagStatus(tag=tag, subject_key=subject_key, muted=resolution.is_muted(subject_key))
+        )
+    return tuple(press)
 
 
 def _build_rss_group(
@@ -478,20 +773,19 @@ def _build_rss_group(
     """
     tag_map = resolution.config.tag_asset_class_map
     rows: list[dict[str, Any]] = []
-    for tag in sorted(_KNOWN_TAGS):
-        finding_id = fired_tags.get(tag)
-        subject_key = rss_overlay_subject_key(tag)
+    for press_tag in _press_tags(resolution):
+        finding_id = fired_tags.get(press_tag.tag)
         rows.append(
             {
-                "tag": tag,
-                "subject_key": subject_key,
+                "tag": press_tag.tag,
+                "subject_key": press_tag.subject_key,
                 "family": "rss",
-                "corroborates": list(tag_map.get(tag, ())),
-                "muted": resolution.is_muted(subject_key),
+                "corroborates": list(tag_map.get(press_tag.tag, ())),
+                "muted": press_tag.muted,
                 # No breach exception: a press cluster has no ceiling to
                 # violate, so a muted dimension is simply silent.
                 "mute_locked": False,
-                "editor_id": _dom_id("dc-overlay", subject_key),
+                "editor_id": _dom_id("dc-overlay", press_tag.subject_key),
                 "fired_this_beat": finding_id is not None,
                 "finding_anchor": (f"#dc-card-{finding_id}" if finding_id is not None else None),
                 "note": (
@@ -516,17 +810,49 @@ def _plural(count: int, unit: str) -> str:
     return f"{count} {unit}{'' if count == 1 else 's'}"
 
 
+def _signal_figure(watchpoint: SignalWatchpoint, result: SignalObservation) -> SignalFigure:
+    """Return one observation's value and threshold in the family's own unit.
+
+    Each family speaks the unit its operator calibrated (ADR-0116 §6):
+    percent for a move, whole days for an age, and **ratios** for coverage.
+    The 100-scale ``liquidity`` computes on is arithmetic, not communication
+    (see :mod:`services.analytics.cash_coverage_watch`), and never reaches a
+    figure — the ratio is recovered from the observation's own window pair
+    through the two functions the producer exports for it, so the figure on
+    the row, the figure in a finding's note and the figure in the typed read
+    come from one derivation.
+
+    Args:
+        watchpoint: The subject's effective watchpoint.
+        result: The observation to state.
+
+    Returns:
+        The figure, with its unit.
+    """
+    if watchpoint.family == FAMILY_FRESHNESS:
+        return SignalFigure(
+            value=result.magnitude, threshold=result.threshold_pct, unit=FIGURE_UNIT_DAYS
+        )
+
+    if watchpoint.family == FAMILY_LIQUIDITY:
+        return SignalFigure(
+            value=coverage_ratio(
+                liquid_balance=result.reference_value, calls=projected_calls_of(result)
+            ),
+            threshold=watchpoint.min_coverage_ratio,
+            unit=FIGURE_UNIT_RATIO,
+        )
+
+    return SignalFigure(
+        value=result.magnitude, threshold=result.threshold_pct, unit=FIGURE_UNIT_PCT
+    )
+
+
 def _signal_figures(watchpoint: SignalWatchpoint, result: SignalObservation) -> tuple[str, str]:
     """Return one row's ``(value, threshold)`` in the family's own language.
 
-    Each family speaks the unit its operator calibrated (ADR-0116 §6):
-    percentage points for a move, whole days for an age, and **ratios** for
-    coverage. The 100-scale ``liquidity`` computes on is arithmetic, not
-    communication (see :mod:`services.analytics.cash_coverage_watch`), and
-    never reaches a cell — the ratio is recovered from the observation's own
-    window pair through the two functions the producer exports for it, so
-    the figure on the row and the figure in a finding's note come from one
-    derivation.
+    Formats the figure :func:`_signal_figure` derives: percentage points for
+    a move, whole days for an age, and ratios for coverage.
 
     Args:
         watchpoint: The row's effective watchpoint.
@@ -535,23 +861,71 @@ def _signal_figures(watchpoint: SignalWatchpoint, result: SignalObservation) -> 
     Returns:
         The value cell and the threshold cell, as display strings.
     """
-    if watchpoint.family == FAMILY_FRESHNESS:
-        return _plural(int(result.magnitude), "day"), _plural(int(result.threshold_pct), "day")
+    figure = _signal_figure(watchpoint, result)
 
     if watchpoint.family == FAMILY_LIQUIDITY:
-        floor = watchpoint.min_coverage_ratio
-        ratio = coverage_ratio(
-            liquid_balance=result.reference_value, calls=projected_calls_of(result)
-        )
         # `None` means "nothing to cover", which is a sentence rather than a
         # number: printing 0.00× there would state a shortfall the book does
         # not have, and printing ∞ would state a cover it was never asked for.
         return (
-            "no calls projected" if ratio is None else f"{float(ratio):.2f}×",
-            "—" if floor is None else f"{float(floor):.2f}×",
+            "no calls projected" if figure.value is None else f"{float(figure.value):.2f}×",
+            "—" if figure.threshold is None else f"{float(figure.threshold):.2f}×",
         )
 
-    return f"{float(result.magnitude):.2f}%", f"{float(result.threshold_pct):.2f}%"
+    # Unreachable for the three other families, whose figures are always
+    # set; stated so the figure narrows without an assertion.
+    if figure.value is None or figure.threshold is None:
+        return "—", "—"
+
+    if watchpoint.family == FAMILY_FRESHNESS:
+        return _plural(int(figure.value), "day"), _plural(int(figure.threshold), "day")
+
+    return f"{float(figure.value):.2f}%", f"{float(figure.threshold):.2f}%"
+
+
+def _status_label(result: SignalResult) -> str:
+    """Return the status cell a signal row prints for ``result``."""
+    if isinstance(result, SignalObservation):
+        return signal_status_label(result.status)
+    return _NO_DATA_LABEL
+
+
+def _signal_status(watchpoint: SignalWatchpoint, result: SignalResult) -> SignalSubjectStatus:
+    """Project one observed signal subject into its typed record.
+
+    Args:
+        watchpoint: The subject's effective watchpoint.
+        result: The live observation, or the producer's refusal to make one.
+
+    Returns:
+        The subject's record; without an observation it carries the
+        producer's reason and no status, figure, window or date.
+    """
+    if isinstance(result, SignalObservation):
+        return SignalSubjectStatus(
+            subject_key=watchpoint.subject_key,
+            family=watchpoint.family,
+            display_name=watchpoint.display_name,
+            status=result.status,
+            status_label=_status_label(result),
+            figure=_signal_figure(watchpoint, result),
+            window_days=result.window_days,
+            as_of=result.latest_date,
+            no_data_reason=None,
+            muted=watchpoint.muted,
+        )
+    return SignalSubjectStatus(
+        subject_key=watchpoint.subject_key,
+        family=watchpoint.family,
+        display_name=watchpoint.display_name,
+        status=None,
+        status_label=_status_label(result),
+        figure=None,
+        window_days=None,
+        as_of=None,
+        no_data_reason=result.reason,
+        muted=watchpoint.muted,
+    )
 
 
 def _signal_note(
@@ -656,7 +1030,6 @@ def _signal_row(
 
     if isinstance(result, SignalObservation):
         value, threshold = _signal_figures(watchpoint, result)
-        status_label = signal_status_label(result.status)
         modifier = _SIGNAL_MODIFIER[result.status]
         calm = result.status == STATUS_OK
         # Percent of the way to the trigger threshold — the one quantity the
@@ -669,7 +1042,6 @@ def _signal_row(
         observed = True
     else:
         value = threshold = "—"
-        status_label = _NO_DATA_LABEL
         modifier = _NO_DATA_MODIFIER
         observed = False
 
@@ -678,7 +1050,7 @@ def _signal_row(
         "family": watchpoint.family,
         "watchpoint_id": str(watchpoint.watchpoint_id),
         "display_name": watchpoint.display_name,
-        "status": status_label,
+        "status": _status_label(result),
         "modifier": modifier,
         "has_data": observed,
         "calm": calm,
@@ -909,21 +1281,7 @@ async def build_monitor(
         The ``monitor`` template context. A switched-off family has no group;
         ``rss`` is ``None`` while Press coverage is off.
     """
-    service = _build_coverage_service(db_session)
-    bundle: LimitsCoverageBundle | None
-    try:
-        bundle = await service.get_coverage(warn_threshold_pct=resolution.warn_default_pct)
-    except (
-        LimitSetNotEffective,
-        CoverageInputMissing,
-        CoverageInputOutOfRange,
-        MissingFxRateError,
-    ) as exc:
-        logger.info(
-            "watch-desk monitor: coverage unavailable (%s) — rendering the empty internal groups.",
-            exc,
-        )
-        bundle = None
+    observed = await _observe_book(db_session, resolution=resolution, now=now)
 
     watch_by_subject = {
         row.subject_key: row for row in await IreneWatchStateRepository(db_session).list_all()
@@ -932,14 +1290,11 @@ async def build_monitor(
         findings, schedule.last_beat_at if schedule is not None else None
     )
 
-    latest_as_of_date = bundle.latest_as_of_date if bundle is not None else None
-    coverage_available = bundle is not None and latest_as_of_date is not None
-
     groups = [
         _build_family_group(
             family=family,
-            coverage=(getattr(bundle, family).coverage if coverage_available else None),
-            latest_as_of_date=latest_as_of_date,
+            coverage=observed.coverage_for(family),
+            latest_as_of_date=observed.latest_as_of_date,
             watch_by_subject=watch_by_subject,
             fired=fired_by_subject,
             effective_label=effective_labels.get(family),
@@ -954,9 +1309,7 @@ async def build_monitor(
     # the same subjects in two orders, and there is no second family list
     # here to drift from that one.
     observations: dict[str, list[tuple[SignalWatchpoint, SignalResult]]] = {}
-    for watchpoint, result in await observe_signal_families(
-        db_session, as_of=now.date(), resolution=resolution
-    ):
+    for watchpoint, result in observed.pairs:
         observations.setdefault(watchpoint.family, []).append((watchpoint, result))
 
     signal_groups = [
@@ -971,7 +1324,7 @@ async def build_monitor(
     ]
 
     return {
-        "coverage_available": coverage_available,
+        "coverage_available": observed.coverage_available,
         "groups": groups,
         "rss": (
             _build_rss_group(fired_by_tag, resolution=resolution)
@@ -983,4 +1336,72 @@ async def build_monitor(
     }
 
 
-__all__ = ["build_monitor"]
+async def read_family_status(
+    db_session: AsyncSession,
+    *,
+    resolution: WatchDeskResolution,
+    now: datetime,
+) -> FamilyStatus:
+    """Read the live status of every switched-on family as typed records.
+
+    The briefing writer's Part 2 material (ADR-0133 §1.2): the same
+    observation step and the same classifying helpers the monitor renders
+    from, so the briefing cannot state a status the watch strip does not
+    show. No production caller yet; the briefing-material assembler is the
+    first.
+
+    It takes no findings, schedule or labels and reads no watch-state: notes,
+    fired anchors, DOM ids, badges, fills and labels stay the monitor's
+    projection. A switched-off family is absent, exactly as on the monitor.
+
+    Args:
+        db_session: The tenant-scoped session opened by the caller.
+        resolution: The tenant's effective calibration and per-subject
+            overlays, resolved once by the caller through
+            :func:`services.watch_desk.overlay.resolve_watch_desk`.
+        now: The read instant. Its date is the signal families' evaluation
+            date.
+
+    Returns:
+        The family status. A switched-on limit family without coverage keeps
+        an empty ``subjects`` tuple; ``press`` is ``None`` while Press
+        coverage is off.
+    """
+    observed = await _observe_book(db_session, resolution=resolution, now=now)
+
+    limits = tuple(
+        LimitFamilyStatus(
+            family=family,
+            subjects=_limit_subjects(
+                family=family,
+                coverage=observed.coverage_for(family),
+                latest_as_of_date=observed.latest_as_of_date,
+                resolution=resolution,
+            ),
+        )
+        for family in _LIMIT_FAMILIES
+        if resolution.is_family_enabled(family)
+    )
+
+    return FamilyStatus(
+        evaluated_at=now,
+        coverage_as_of=observed.latest_as_of_date if observed.coverage_available else None,
+        limits=limits,
+        signals=tuple(_signal_status(watchpoint, result) for watchpoint, result in observed.pairs),
+        press=_press_tags(resolution) if resolution.is_family_enabled("rss") else None,
+    )
+
+
+__all__ = [
+    "FIGURE_UNIT_DAYS",
+    "FIGURE_UNIT_PCT",
+    "FIGURE_UNIT_RATIO",
+    "FamilyStatus",
+    "LimitFamilyStatus",
+    "LimitSubjectStatus",
+    "PressTagStatus",
+    "SignalFigure",
+    "SignalSubjectStatus",
+    "build_monitor",
+    "read_family_status",
+]

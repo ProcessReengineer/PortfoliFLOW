@@ -42,7 +42,12 @@ from services.analytics.signal_watch import (
     SignalResult,
 )
 from services.watch_desk.family_status import (
+    FIGURE_UNIT_DAYS,
+    FIGURE_UNIT_PCT,
+    FIGURE_UNIT_RATIO,
+    SignalFigure,
     _build_signal_group,
+    _signal_figure,
     _signal_figures,
     _signal_footer,
     _signal_note,
@@ -264,6 +269,79 @@ def test_liquidity_with_nothing_to_cover_states_a_sentence_not_a_number() -> Non
         latest_value="5000000",
     )
     assert _signal_figures(watchpoint, result)[0] == "no calls projected"
+
+
+# ---------------------------------------------------------------------------
+# The typed figure beneath the cells (ADR-0133 §1.2)
+# ---------------------------------------------------------------------------
+
+
+def test_a_price_figure_is_the_magnitude_against_the_threshold_in_pct() -> None:
+    watchpoint = _watchpoint(family="price", subject_key="price:x", threshold_pct="5.0")
+    result = _observation(
+        subject_key="price:x", magnitude="6.2", status="BREACH", threshold_pct="5.0"
+    )
+    assert _signal_figure(watchpoint, result) == SignalFigure(
+        Decimal("6.2"), Decimal("5.0"), FIGURE_UNIT_PCT
+    )
+
+
+def test_a_freshness_figure_is_whole_days_against_the_maximum_age() -> None:
+    watchpoint = _watchpoint(
+        family="freshness",
+        subject_key="freshness:*",
+        threshold_pct="120",
+        window_days=120,
+        max_age_days=120,
+    )
+    result = _observation(
+        subject_key="freshness:a",
+        magnitude="134",
+        status="BREACH",
+        threshold_pct="120",
+        window_days=120,
+    )
+    assert _signal_figure(watchpoint, result) == SignalFigure(
+        Decimal("134"), Decimal("120"), FIGURE_UNIT_DAYS
+    )
+
+
+def test_a_liquidity_figure_is_the_ratio_against_the_floor() -> None:
+    """The ratio the operator calibrated, never the internal 100-scale."""
+    watchpoint = _watchpoint(
+        family="liquidity",
+        subject_key="liquidity:cash_coverage",
+        threshold_pct=str(COVERAGE_THRESHOLD_PCT),
+        window_days=None,
+        horizon_months=12,
+        min_coverage_ratio="1.2",
+    )
+    # 12,000,000 available against 10,000,000 of projected calls → 1.2.
+    covered = _observation(
+        subject_key="liquidity:cash_coverage",
+        magnitude="100",
+        status="BREACH",
+        threshold_pct=str(COVERAGE_THRESHOLD_PCT),
+        reference_value="12000000",
+        latest_value="2000000",
+    )
+    figure = _signal_figure(watchpoint, covered)
+    assert figure.value == Decimal("1.2")
+    assert figure.threshold == Decimal("1.2")
+    assert figure.unit == FIGURE_UNIT_RATIO
+
+    # Nothing to cover: no ratio, and the floor is still stated.
+    nothing_to_cover = _observation(
+        subject_key="liquidity:cash_coverage",
+        magnitude="0",
+        status="OK",
+        threshold_pct=str(COVERAGE_THRESHOLD_PCT),
+        reference_value="5000000",
+        latest_value="5000000",
+    )
+    figure = _signal_figure(watchpoint, nothing_to_cover)
+    assert figure.value is None
+    assert figure.threshold == Decimal("1.2")
 
 
 # ---------------------------------------------------------------------------

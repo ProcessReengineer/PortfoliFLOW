@@ -12,6 +12,7 @@ functions take plain arguments and need no database.
 
 from __future__ import annotations
 
+import inspect
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from uuid import UUID, uuid4
 import pandas as pd
 import pytest
 
+from core.exceptions import LimitSetNotEffective
 from core.repositories.irene_finding_repository import IreneFindingDTO
 from core.repositories.irene_watch_state_repository import IreneWatchStateDTO
 from services.analytics.irene_floor import DEFAULT_FLOOR_CONFIG, DEFAULT_WARN_THRESHOLD_PCT
@@ -34,11 +36,16 @@ from services.watch_desk.overlay import (
 )
 import services.watch_desk.family_status as _monitor_home
 from services.watch_desk.family_status import (
+    FIGURE_UNIT_DAYS,
+    FIGURE_UNIT_PCT,
+    FamilyStatus,
+    SignalFigure,
     _build_family_group,
     _build_rss_group,
     _fired_this_beat,
     _irene_note,
     _utilisation_pct,
+    read_family_status,
 )
 from services.watch_desk.family_status import build_monitor as _build_monitor
 from services.web_research.allowlist import _KNOWN_TAGS
@@ -1358,4 +1365,152 @@ async def test_switched_off_families_leave_the_monitor(
         "fx",
         "freshness",
         "liquidity",
+    ]
+
+    # The typed read skips the same families through the same switch.
+    status = await read_family_status(session, resolution=resolution, now=_PIN_NOW)
+    assert [family_status.family for family_status in status.limits] == ["anlv"]
+    assert status.press is None
+    assert status.signals == ()
+
+
+# ---------------------------------------------------------------------------
+# Typed family status (ADR-0133 §1.2)
+#
+# The briefing writer's Part 2 reads the same observation and the same
+# classifying helpers the monitor renders from. Each assertion below derives
+# its expectation from the pinned monitor context wherever that context holds
+# the value, so a typed status that disagrees with the watch strip fails here.
+# ---------------------------------------------------------------------------
+
+
+async def test_the_typed_read_is_the_monitors_own_derivation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every status the typed read states is the one the monitor renders."""
+    kwargs = _pin_scenario(monkeypatch)
+    status = await read_family_status(
+        _PIN_SESSION, resolution=kwargs["resolution"], now=kwargs["now"]
+    )
+
+    assert isinstance(status, FamilyStatus)
+    assert status.evaluated_at == kwargs["now"]
+    assert status.coverage_as_of == date(2026, 6, 30)
+
+    # Limits: the same families, subjects, order and figures as the groups.
+    expected_groups = _PIN_EXPECTED["groups"]
+    assert [family_status.family for family_status in status.limits] == [
+        group["family"] for group in expected_groups
+    ]
+    for family_status, group in zip(status.limits, expected_groups, strict=True):
+        assert [subject.subject_key for subject in family_status.subjects] == [
+            row["subject_key"] for row in group["rows"]
+        ]
+        for subject, row in zip(family_status.subjects, group["rows"], strict=True):
+            assert subject.status == row["status"]
+            assert float(subject.coverage_pct) == row["coverage_pct"]
+            assert (float(subject.max_pct) if subject.max_pct is not None else None) == row[
+                "max_pct"
+            ]
+            assert (
+                float(subject.utilisation_pct) if subject.utilisation_pct is not None else None
+            ) == row["utilisation"]
+            assert float(subject.warn_threshold_pct) == row["warn_threshold_pct"]
+            assert subject.muted == row["muted"]
+
+    # Signals: the observation order, which the monitor regroups by family
+    # and splits exception-first — so the two orders differ on purpose.
+    assert [subject.subject_key for subject in status.signals] == [
+        "price:00000000",
+        "fx:USD/EUR",
+        "freshness:" + str(_pin_id(41)),
+        "freshness:" + str(_pin_id(42)),
+    ]
+    signal_rows = {
+        row["subject_key"]: row
+        for group in _PIN_EXPECTED["signal_groups"]
+        for row in (*group["rows"], *group["collapsed_rows"])
+    }
+    for subject in status.signals:
+        row = signal_rows[subject.subject_key]
+        assert subject.status_label == row["status"]
+        assert subject.display_name == row["display_name"]
+        assert subject.muted == row["muted"]
+
+    price, fx, fresh, approaching = status.signals
+    assert price.figure == SignalFigure(
+        value=Decimal("8.0"), threshold=Decimal("5.0"), unit=FIGURE_UNIT_PCT
+    )
+    assert approaching.figure == SignalFigure(
+        value=Decimal("40"), threshold=Decimal("45"), unit=FIGURE_UNIT_DAYS
+    )
+    assert fx.status is None
+    assert fx.figure is None
+    assert fx.status_label == "No data"
+    assert fx.no_data_reason == "no rate observations at all"
+    assert price.window_days == 5
+    assert fresh.window_days == 0
+    assert approaching.window_days == 0
+    for observed in (price, fresh, approaching):
+        assert observed.as_of == date(2026, 7, 14)
+    assert fx.window_days is None
+    assert fx.as_of is None
+
+    # Press: the same tags, in the same order, with the same mutes.
+    assert status.press is not None
+    assert [(press_tag.tag, press_tag.muted) for press_tag in status.press] == [
+        (row["tag"], row["muted"]) for row in _PIN_EXPECTED["rss"]["rows"]
+    ]
+
+
+async def test_the_typed_read_touches_no_watch_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live status needs no acknowledgement: watch-state is the monitor's alone."""
+    kwargs = _pin_scenario(monkeypatch)
+
+    class _NoWatchStates:
+        def __init__(self, _session: object) -> None:
+            raise AssertionError("the typed read opened the watch-state repository")
+
+    monkeypatch.setattr(_monitor_home, "IreneWatchStateRepository", _NoWatchStates)
+
+    status = await read_family_status(
+        _PIN_SESSION, resolution=kwargs["resolution"], now=kwargs["now"]
+    )
+
+    assert len(status.limits) == 2
+
+
+async def test_the_typed_read_keeps_switched_on_families_when_coverage_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailable coverage empties a family; it does not switch it off."""
+    kwargs = _pin_scenario(monkeypatch)
+
+    class _RefusingCoverageService:
+        async def get_coverage(self, *, warn_threshold_pct: Decimal) -> SimpleNamespace:
+            raise LimitSetNotEffective("no limit set is in force at the evaluation date")
+
+    monkeypatch.setattr(
+        _monitor_home, "_build_coverage_service", lambda _s: _RefusingCoverageService()
+    )
+
+    status = await read_family_status(
+        _PIN_SESSION, resolution=kwargs["resolution"], now=kwargs["now"]
+    )
+
+    assert [family_status.family for family_status in status.limits] == ["saa", "anlv"]
+    for family_status in status.limits:
+        assert family_status.subjects == ()
+    assert status.coverage_as_of is None
+    assert len(status.signals) == 4
+
+
+def test_the_typed_read_takes_only_a_session_a_resolution_and_a_clock() -> None:
+    """No findings, schedule or labels: those feed the monitor's projection only."""
+    assert list(inspect.signature(read_family_status).parameters) == [
+        "db_session",
+        "resolution",
+        "now",
     ]

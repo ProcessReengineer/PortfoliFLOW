@@ -253,6 +253,57 @@ def test_the_beat_and_the_monitor_share_one_observation_path() -> None:
             )
 
 
+def test_the_family_status_observes_once_for_both_of_its_readers() -> None:
+    """One observation step and one classification, two projections (ADR-0133 §1.2).
+
+    The defect this forbids is the briefing stating a status the watch strip
+    does not show, because a second reader classified for itself.
+    ``build_monitor`` renders the watch strip and ``read_family_status``
+    hands the briefing writer typed records; both must observe through
+    ``_observe_book`` and classify through the helpers beneath the monitor's
+    own projections, so the two cannot disagree about a subject.
+    """
+    module_source = inspect.getsource(family_status_module)
+    assert module_source.count("observe_signal_families(") == 1
+    assert module_source.count(".get_coverage(") == 1
+
+    observe_source = inspect.getsource(family_status_module._observe_book)
+    for call in ("observe_signal_families(", ".get_coverage(", "_build_coverage_service("):
+        assert call in observe_source, f"_observe_book does not perform {call!r}"
+
+    for reader in (family_status_module.build_monitor, family_status_module.read_family_status):
+        reader_source = inspect.getsource(reader)
+        assert "_observe_book(" in reader_source, (
+            f"{reader.__qualname__} does not observe through _observe_book."
+        )
+        for second_path in ("observe_signal_families(", ".get_coverage("):
+            assert second_path not in reader_source, (
+                f"{reader.__qualname__} performs {second_path!r} itself; it observes "
+                "through _observe_book alone."
+            )
+
+    assert "classify_coverage_status(" in inspect.getsource(family_status_module._limit_subjects)
+    assert "classify_coverage_status(" not in inspect.getsource(
+        family_status_module._build_family_group
+    )
+
+    # Each typed helper sits beneath one monitor projection and is called by
+    # the typed read too.
+    shared = (
+        ("_limit_subjects(", family_status_module._build_family_group),
+        ("_limit_subjects(", family_status_module.read_family_status),
+        ("_signal_figure(", family_status_module._signal_figures),
+        ("_signal_figure(", family_status_module._signal_status),
+        ("_press_tags(", family_status_module._build_rss_group),
+        ("_press_tags(", family_status_module.read_family_status),
+    )
+    for helper, entry in shared:
+        assert helper in inspect.getsource(entry), (
+            f"{entry.__qualname__} does not call {helper!r}; the monitor and the "
+            "typed read classify through the same helpers."
+        )
+
+
 def test_the_producers_are_called_from_the_observation_layer_alone() -> None:
     """The third layer: one call site per producer, shared by both surfaces."""
     for producer in _PRODUCERS:
@@ -408,6 +459,7 @@ def test_the_family_switch_is_read_off_the_resolution_on_both_sides() -> None:
         observation_module.observe_signal_family,
         beat_module.run_beat,
         family_status_module.build_monitor,
+        family_status_module.read_family_status,
         family_status_module._signal_footer,
         watch_desk_route._briefing_context,
     )

@@ -15,13 +15,22 @@ Coverage
   ``urgency``, ``band``, ``created_at``) is unchanged; only the
   resolution fields move, and the finding leaves the open feed.
 * IF-03: ``resolve`` with a value outside the vocabulary raises the
-  typed :class:`IreneResolutionInvalid`.
+  typed :class:`IreneResolutionInvalid`; IF-03b: ``opened_case`` is the
+  fifth valid resolution (ADR-0107 C4) and round-trips like the others.
 * IF-04: a finding written under tenant A is invisible from a session
   under tenant B (RLS smoke).
+* IF-05: ``count_since`` is inclusive of the boundary and counts resolved
+  findings too (the "surfaced N findings" tile).
+* IF-06: ``get`` returns the DTO for a present id, ``None`` for an unknown
+  one, and ``None`` across tenants (the case origin embed).
 * IF-07: ``count_open_by_family`` returns all seven watchpoint families,
   zeros included, counting open findings by the ``subject_key`` prefix
   before the first ``:``; resolved findings, out-of-vocabulary prefixes
   and other tenants' findings are not counted (ADR-0133 §2.5).
+* IF-08: ``list_resolved_before`` pages by the event instant
+  (``coalesce(resolved_at, created_at)``): newest first, open rows absent,
+  exclusive ``before``, inclusive ``start``, the cap, and the family
+  prefix filter (the Journal's finding source, ADR-0133 §5).
 """
 
 from __future__ import annotations

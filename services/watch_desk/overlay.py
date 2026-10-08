@@ -27,10 +27,14 @@ structural: **one** function resolves, per tenant and per instant,
    Irene watches, from ``watch_family_scope``. A family without a
    revision in force is on.
 
-Three call sites consume it — ``services.irene.internal_delta`` and
-``services.irene.signal_delta`` on the beat side, ``web.routes.watch_desk``
-on the monitor side — and none of them resolves anything of its own; no
-consumer reads the calibration, the registry or the scope table itself.
+The resolution is made in three places only — the beat
+(``services.irene.beat``), the Watch Desk route (``web.routes.watch_desk``)
+and the preset write path (``services.watch_desk.presets``) — and handed
+down as a plain argument to every consumer: ``services.irene.internal_delta``
+and ``services.irene.signal_delta`` on the beat side,
+``services.watch_desk.family_status`` and ``services.irene.briefing_material``
+for the monitor and the briefing. None of them resolves anything of its own;
+no consumer reads the calibration, the registry or the scope table itself.
 That is the point: a monitor row and the beat's edge classification for
 the same subject cannot disagree about the threshold they were measured
 against, or about whether its family is watched at all, because there is

@@ -20,7 +20,12 @@ The DTO exposes ``floor`` / ``cap`` / ``re_trigger_delta`` as **sparse
 maps** rather than one attribute per column: "key present" is exactly
 "field customised", and that is the shape
 :func:`services.analytics.floor_composition.compose_floor_config`
-composes with.
+composes with. ``warn_pct`` (ADR-0133 §3.1) is a fourth sparse map of the
+same kind, but it is **not** composed into the ``FloorConfig``: the
+per-family WARN step is resolved by
+:meth:`services.watch_desk.overlay.WatchDeskResolution.warn_threshold_for`
+(per-subject overlay → family column → ``warn_default_pct`` → code
+default), and an absent family inherits rather than reverts.
 
 Where the validation is, and why it is not here
 -----------------------------------------------

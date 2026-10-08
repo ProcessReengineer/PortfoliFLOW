@@ -23,6 +23,10 @@ Coverage
 * CR-07: list ordering + the "Mine" filter, recently-closed limit, and the
   archive search (title / closing-note only, escaped, whitespace → empty).
 * CR-08: cross-tenant invisibility (RLS smoke).
+* CR-09: ``list_closed_before`` pages closed cases by ``closed_at`` —
+  newest first, open cases absent, exclusive ``before``, inclusive
+  ``start``, the cap — and filters by the originating finding's family
+  through the ``finding_id`` join (the Journal's case source, ADR-0133 §5).
 """
 
 from __future__ import annotations

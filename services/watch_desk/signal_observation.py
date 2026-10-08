@@ -15,8 +15,12 @@ of :mod:`services.irene.signal_delta` and imported by both consumers:
 * the **beat** (:func:`services.irene.signal_delta.evaluate_signal_deltas`)
   runs the results through the watch-state / delta pipeline and may raise
   findings from them;
-* the **monitor** (:mod:`web.routes.watch_desk`) renders the same results
-  as rows, writing nothing at all.
+* the **monitor** (:func:`services.watch_desk.family_status.build_monitor`,
+  lifted out of the route by D-WD-14; the Watch Desk route hands in its
+  resolution and renders the result) projects the same results as rows,
+  writing nothing at all — and the briefing material
+  (:mod:`services.irene.briefing_material`) reads the same family status
+  for Irene's Part 2.
 
 Neither computes an observation of its own. A monitor row is therefore not
 a second opinion about a subject — it is literally the number the next beat

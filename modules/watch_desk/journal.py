@@ -4,9 +4,18 @@
 """Watch Desk — Journal module.
 
 Purpose:
-    The read-only history of resolved findings (ADR-0089), read via
-    ``IreneFindingRepository.list_journal()``. Findings are append-only
-    (ADR-0085); the Journal never mutates them.
+    The read-only check log (ADR-0089; ADR-0133 §5): resolved findings,
+    closed cases and every check as a briefing row — the silent ones
+    included — read through three paged repository reads
+    (``IreneFindingRepository.list_resolved_before``,
+    ``CaseRepository.list_closed_before``,
+    ``IreneBriefingRepository.list_before``) and projected by day, with
+    server-side kind / period / watch-point filters. Findings are
+    append-only (ADR-0085), closed cases immutable (ADR-0107 §4),
+    briefing rows never edited (ADR-0133 §1.5); the Journal mutates
+    nothing. A written check row carries the "Discuss briefing with
+    Shirley" hand-off (ADR-0133 §6), which sets a session context and
+    writes nothing here.
 
 The web surface lives at ``/watch-desk#journal`` and is implemented
 in ``web/routes/watch_desk.py`` plus its templates. This module
@@ -23,7 +32,7 @@ from modules.module_registry import registry
 
 @registry.register
 class Journal(BaseModule):
-    """The Watch Desk Journal (resolved-finding history).
+    """The Watch Desk Journal (the check log: findings, cases, checks).
 
     Attributes:
         module_name: ``"journal"``

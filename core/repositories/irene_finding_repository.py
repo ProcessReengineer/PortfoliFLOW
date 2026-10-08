@@ -221,6 +221,10 @@ class IreneFindingRepository(BaseRepository):
     async def list_journal(self, limit: int = 100) -> list[IreneFindingDTO]:
         """Return the full finding history, newest first.
 
+        No production caller since ADR-0133 §5: the Journal pages its
+        findings through :meth:`list_resolved_before`. Kept as the
+        repository's plain full-history read (IF-01 exercises it).
+
         Args:
             limit: Maximum number of rows to return (most recent).
 

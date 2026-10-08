@@ -1,0 +1,72 @@
+{# The latest briefing, the D-WD-17 standing notes and the watch strip
+   (ADR-0133 §1.4–1.5, §2.5).
+
+   UI-023 (tests/web/test_watch_desk.py): the agent persona is never named
+   in rendered copy, so nothing here says the writer's name — the row is
+   "the briefing", written "at each check".
+
+   D-WD-25 STOP-GAP for UX strand A-6. Built from the existing pf-dc- and
+   tag classes only — enough for the operator's browser walk and for the
+   ASGI tests to hit it. A-6 restyles it on M-WD-1 (pf-prose, pf-sources,
+   pf-fresh, pf-strip / pf-chip) and replaces this partial; nothing is
+   designed here.
+
+   Three blocks, in the mockup's order:
+     1. The latest briefing — the newest row by beat_at. A written row shows
+        Part 1 under "Markets and press" and Part 2 under "Under
+        observation" (hidden when text_watch is empty), plus the R12
+        sources line read from the row's persisted inputs. A skipped newest
+        row and no row at all both read "Briefing pending" — one line,
+        never an error panel (ADR-0133 §1.4).
+     2. The standing note per switched-off quota family (D-WD-17), built
+        from the scope revision, never from the briefing text.
+     3. The watch strip — one chip per family the monitor renders, stated
+        off the monitor context with the render stamp; no second
+        observation.
+
+   Context (see _briefing_context): briefing, family_notes, watch_strip. #}
+<section id="dc-briefing-latest" class="pf-dc-tile" aria-label="Latest briefing">
+    <span class="pf-dc-tile__label">Latest briefing</span>
+    {% if briefing.state == 'written' %}
+        <span class="pf-dc-tile__sub">Check of {{ briefing.stamp }} · {{ briefing.raised }}</span>
+        <p id="dc-briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
+        {% if briefing.text_watch %}
+            <p id="dc-briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
+        {% endif %}
+        {% if briefing.sources %}
+            {# R12 provenance line, minimal: what the writer was handed, from
+               the persisted inputs — never re-read live. #}
+            <details id="dc-briefing-sources" class="pf-dc-collapse">
+                <summary>Sources · {{ briefing.sources.figures }} · {{ briefing.sources.clusters }}{% if briefing.sources.window %} · {{ briefing.sources.window }}{% endif %}</summary>
+                <p class="pf-dc-tile__sub">From: {{ briefing.sources.tokens|join(', ') }}</p>
+                {% if briefing.sources.press_items %}
+                    <ul>
+                        {% for item in briefing.sources.press_items %}
+                            <li>{% if item.url %}<a href="{{ item.url }}" rel="noopener noreferrer" target="_blank">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                <p class="pf-dc-tile__sub">Written at each check; the figures come from the check, never from the text.</p>
+            </details>
+        {% endif %}
+    {% else %}
+        <p id="dc-briefing-pending" class="pf-dc-tile__sub">Briefing pending</p>
+    {% endif %}
+</section>
+
+{% if family_notes %}
+    {# D-WD-17: a quota family off is said on the page while Part 2 stays
+       silent about it. #}
+    <div id="dc-family-notes" role="note">
+        {% for note in family_notes %}
+            <p class="pf-dc-calibration__note" data-family="{{ note.family }}">{{ note.text }}</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<div id="dc-watch-strip" aria-label="On watch now">
+    <span class="pf-dc-tile__label">On watch now · live {{ watch_strip.stamp }}</span>
+    {% for chip in watch_strip.chips %}
+        <span class="tag tag--{{ chip.modifier }}" data-family="{{ chip.family }}">{{ chip.name }} · {{ chip.text }}</span>
+    {% endfor %}
+</div>

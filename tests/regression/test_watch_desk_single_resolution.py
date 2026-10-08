@@ -560,3 +560,47 @@ def test_the_family_switch_is_read_off_the_resolution_on_both_sides() -> None:
             f"{entry.__qualname__} does not read the family switch off the "
             "resolution (ADR-0133 §2.4)."
         )
+
+
+def test_the_watch_strip_states_the_monitors_own_groups() -> None:
+    """The watch strip is the monitor's figures stated once more (ADR-0133 §1.2).
+
+    The strip sits above the feed and names each family's state; the
+    monitor beneath names the same state per subject. Both come from one
+    ``build_monitor`` context: the strip takes that context and the
+    findings the feed loaded — no resolution, no session — and derives
+    nothing, so a chip and the group it restates cannot disagree and no
+    second observation runs for the render. The briefing shown beside it
+    is a persisted row (ADR-0133 §1.5): the route holds no synthesis seam
+    and never writes one at render time.
+    """
+    strip_parameters = inspect.signature(watch_desk_route._watch_strip).parameters
+    assert "monitor" in strip_parameters
+    for derived_with in ("resolution", "db_session", "session"):
+        assert derived_with not in strip_parameters, (
+            f"_watch_strip takes {derived_with!r}; the strip restates the monitor "
+            "context and derives nothing of its own (ADR-0133 §1.2)."
+        )
+
+    strip_source = inspect.getsource(watch_desk_route._watch_strip) + inspect.getsource(
+        watch_desk_route._strip_chip
+    )
+    for second_path in (
+        "observe_signal_families(",
+        "read_family_status(",
+        "build_monitor(",
+        "resolve_watch_desk(",
+        ".get_coverage(",
+        "classify_coverage_status(",
+    ):
+        assert second_path not in strip_source, (
+            f"the watch strip reaches for {second_path!r}; it restates the monitor "
+            "context the render already holds (ADR-0133 §1.2)."
+        )
+
+    route_source = inspect.getsource(watch_desk_route)
+    for synthesis_seam in ("run_synthesis", "run_briefing_step(", "gather_briefing_material("):
+        assert synthesis_seam not in route_source, (
+            f"the Watch Desk route holds {synthesis_seam!r}; the briefing is written "
+            "by the check and read as a row, never generated on page load (ADR-0133 §1.5)."
+        )

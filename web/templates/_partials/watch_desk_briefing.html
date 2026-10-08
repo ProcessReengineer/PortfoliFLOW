@@ -10,8 +10,16 @@
      cards            — list of projected card dicts (may be empty → calm).
      schedule_exists  — whether the "Request analysis" button renders.
      monitor          — the live "What Irene watches" projection (DC2).
-     csrf_token       — session CSRF token for the action forms. #}
+     csrf_token       — session CSRF token for the action forms.
+     briefing         — the newest briefing row, or the pending state (ADR-0133).
+     family_notes     — the D-WD-17 standing notes (switched-off quota families).
+     watch_strip      — one chip per monitored family, with the render stamp. #}
 <div id="dc-briefing" class="pf-dc-briefing">
+    {# The latest briefing, the standing notes and the watch strip sit at
+       the top of the body (ADR-0133 §1.5). D-WD-25 stop-gap partial; A-6
+       restyles it on M-WD-1. #}
+    {% include "_partials/watch_desk_briefing_latest.html" %}
+
     {# Status tiles. Every figure is derived at request time from existing
        tables — no summary row is persisted. #}
     <div class="pf-dc-tiles">

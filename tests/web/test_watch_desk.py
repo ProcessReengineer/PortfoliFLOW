@@ -26,7 +26,7 @@ import html
 import json
 import os
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -49,6 +49,7 @@ from core.repositories.investment_identifier_repository import (
 )
 from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentRepository
+from core.repositories.irene_briefing_repository import IreneBriefingRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.repositories.limits_repository import LimitsRepository
 from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
@@ -3987,3 +3988,377 @@ async def test_an_open_finding_of_a_switched_off_family_stays_resolvable(
     assert journal.status_code == 200
     assert "saa:switched_off" in journal.text
     assert "Acted" in journal.text
+
+
+# ---------------------------------------------------------------------------
+# The latest briefing on the Briefing view — newest row, sources line, D-WD-17
+# standing notes, watch strip (ADR-0133 §1.4–1.5, §2.5; P-WD-B12)
+# ---------------------------------------------------------------------------
+
+#: A version-1 ``inputs`` document in the shape the briefing material
+#: composes (``services.irene.briefing_material``): three figures (one
+#: instrument, one currency, one limit subject), one macro cluster with one
+#: item. The R12 sources line reads exactly this.
+_MATERIAL_FIXTURE: dict = {
+    "version": 1,
+    "check_at": "2026-10-07T06:02:00+00:00",
+    "markets": {
+        "as_of": "2026-10-07",
+        "window_start": "2026-10-02",
+        "window_days": 5,
+        "instruments": [
+            {
+                "id": "price:msci-world",
+                "label": "MSCI World ETF",
+                "value": "-1.8",
+                "unit": "pct",
+                "as_of": "2026-10-07",
+                "window_start": "2026-10-02",
+                "window_days": 5,
+                "source": "instrument_prices",
+            }
+        ],
+        "asset_classes": [],
+        "currencies": [
+            {
+                "id": "fx:USD/EUR",
+                "label": "USD/EUR",
+                "value": "0.4",
+                "unit": "pct",
+                "as_of": "2026-10-07",
+                "window_start": "2026-10-02",
+                "window_days": 5,
+                "source": "fx_rates",
+            }
+        ],
+        "press_clusters": [
+            {
+                "id": "rss:cluster:macro:2026-10-07",
+                "tag": "macro",
+                "day": "2026-10-07",
+                "source": "rss",
+                "items": [
+                    {
+                        "title": "Spreads widen in high yield",
+                        "source": "FT",
+                        "url": "https://example.com/spreads",
+                        "published_at": "2026-10-07T05:00:00+00:00",
+                    }
+                ],
+            }
+        ],
+    },
+    "watch": {
+        "families_on": ["saa", "anlv", "rss", "price", "fx", "freshness", "liquidity"],
+        "evaluated_at": "2026-10-07T06:02:00+00:00",
+        "limits": [
+            {
+                "family": "anlv",
+                "as_of": "2026-09-30",
+                "subjects": [
+                    {
+                        "id": "anlv:real_estate",
+                        "label": "real_estate",
+                        "family": "anlv",
+                        "value": "18.9",
+                        "unit": "pct",
+                        "max_pct": "25",
+                        "utilisation_pct": "75.6",
+                        "warn_threshold_pct": "90",
+                        "status": "OK",
+                        "muted": False,
+                        "as_of": "2026-09-30",
+                        "source": "limit_coverage",
+                    }
+                ],
+            }
+        ],
+        "signals": [],
+        "findings_this_check": [],
+        "open_findings": {
+            "saa": 0,
+            "anlv": 0,
+            "rss": 0,
+            "price": 0,
+            "fx": 0,
+            "freshness": 0,
+            "liquidity": 0,
+        },
+        "press_tags": [{"tag": "macro", "muted": False}],
+    },
+}
+
+_OLDER_MARKETS = "Older: listed equities were flat on the week."
+_NEWER_MARKETS = "Newer: listed equities are down 1.8 % over five days."
+_NEWER_WATCH = "Newer: all nine AnlV quotas are calm."
+
+
+async def _seed_briefing(
+    engine: AsyncEngine,
+    user_id: UUID,
+    *,
+    beat_at: datetime,
+    status: str = "written",
+    text_markets: str = _NEWER_MARKETS,
+    text_watch: str = _NEWER_WATCH,
+    inputs: dict | None = None,
+    finding_ids: Sequence[UUID] = (),
+    skip_reason: str | None = None,
+) -> UUID:
+    """Append one briefing row for the primary tenant through the repository."""
+    written = status == "written"
+    async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        row = await IreneBriefingRepository(session).append(
+            beat_at=beat_at,
+            written_at=beat_at + timedelta(seconds=30),
+            status=status,
+            skip_reason=skip_reason,
+            text_markets=text_markets if written else None,
+            text_watch=text_watch if written else None,
+            inputs=inputs if inputs is not None else _MATERIAL_FIXTURE,
+            finding_ids=list(finding_ids),
+            model_id="test-writer" if written else None,
+        )
+        return row.id
+
+
+def _flat(body: str) -> str:
+    """Unescape the HTML and collapse whitespace, for copy assertions."""
+    return re.sub(r"\s+", " ", html.unescape(body))
+
+
+async def test_briefing_without_a_row_reads_pending_and_still_renders_the_strip(
+    web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """No briefing row: one "Briefing pending" line, the strip with its stamp."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = _flat(response.text)
+
+    assert 'id="dc-briefing-latest"' in body
+    assert 'id="dc-briefing-pending"' in body
+    assert "Briefing pending" in body
+    # UI-023: the persona is never named in rendered copy — on this block too.
+    assert "Irene" not in body
+    assert 'id="dc-briefing-markets"' not in body
+    assert 'id="dc-briefing-sources"' not in body
+    # The strip renders regardless, stamped with the render instant; no
+    # valued positions, so both limit chips say so rather than "calm".
+    assert re.search(r"On watch now · live \d\d:\d\d", body) is not None
+    assert "Allocation limits (SAA) · no coverage" in body
+    assert "Regulatory quotas (AnlV) · no coverage" in body
+    assert "Press coverage · calm" in body
+    # No note while both quota families are on.
+    assert 'id="dc-family-notes"' not in body
+
+
+async def test_briefing_shows_the_newest_written_row_with_its_check_stamp(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The newest row by beat_at, stamped in the schedule's timezone."""
+    user_id, email, password = seeded_user
+    await _seed_schedule(
+        fresh_superuser_engine,
+        next_due_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        timezone_name="Europe/Berlin",
+    )
+    fid = await _seed_finding(
+        fresh_superuser_engine,
+        subject_key="anlv:real_estate",
+        payload=_card_payload(trigger="Approaching", finding="Near the quota.", basis="92%."),
+        urgency=5,
+        band="noteworthy",
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 6, 6, 2, tzinfo=timezone.utc),
+        text_markets=_OLDER_MARKETS,
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+        finding_ids=[fid],
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = _flat(response.text)
+
+    assert "Check of Wed 07 Oct 2026 08:02 · 1 finding raised" in body
+    assert 'id="dc-briefing-markets"' in body and "Markets and press." in body
+    assert 'id="dc-briefing-watch"' in body and "Under observation." in body
+    assert _NEWER_MARKETS in body
+    assert _NEWER_WATCH in body
+    assert _OLDER_MARKETS not in body
+    assert "Briefing pending" not in body
+    # UI-023 holds for the written state: label, stamp and sources name no persona.
+    assert "Irene" not in body
+
+
+async def test_briefing_hides_part_two_when_text_watch_is_empty(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Every family off leaves Part 2 empty; the heading is not rendered."""
+    user_id, email, password = seeded_user
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+        text_watch="",
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    body = _flat(response.text)
+
+    assert 'id="dc-briefing-markets"' in body
+    assert 'id="dc-briefing-watch"' not in body
+    assert "Under observation." not in body
+
+
+async def test_a_skipped_newest_row_reads_pending_not_an_older_text(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """ADR-0133 §1.4: the newest row skipped ⇒ "Briefing pending", no error panel."""
+    user_id, email, password = seeded_user
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 6, 6, 2, tzinfo=timezone.utc),
+        text_markets=_OLDER_MARKETS,
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+        status="skipped",
+        skip_reason="llm_error",
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = _flat(response.text)
+
+    assert "Briefing pending" in body
+    assert _OLDER_MARKETS not in body
+    section = body.split('id="dc-briefing-latest"')[1].split("</section>")[0]
+    assert "llm_error" not in section
+    assert "error" not in section.lower()
+
+
+async def test_the_sources_line_states_tokens_items_and_window(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """R12: distinct source tokens, press items as links, the market window."""
+    user_id, email, password = seeded_user
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    body = _flat(response.text)
+
+    assert 'id="dc-briefing-sources"' in body
+    assert "Sources · 3 figures · 1 press cluster · window 2026-10-02 to 2026-10-07" in body
+    # Figures first, in the material's order, then the clusters; no repeats.
+    assert "From: instrument_prices, fx_rates, limit_coverage, rss" in body
+    assert 'href="https://example.com/spreads"' in body
+    assert "Spreads widen in high yield" in body
+
+
+async def test_an_unknown_material_version_omits_the_sources_line(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Forward safety: a version this projection does not know is not guessed at."""
+    user_id, email, password = seeded_user
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+        inputs={"version": 2, "markets": {"instruments": [{"source": "future"}]}},
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    body = _flat(response.text)
+
+    assert 'id="dc-briefing-markets"' in body
+    assert 'id="dc-briefing-sources"' not in body
+    assert "future" not in body
+
+
+async def test_a_switched_off_quota_family_leaves_a_standing_note(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """D-WD-17: the note names the family, the date and the actor; quota families only."""
+    user_id, email, password = seeded_user
+    await _seed_schedule(
+        fresh_superuser_engine,
+        next_due_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        timezone_name="Europe/Berlin",
+    )
+    async with tenant_context(
+        fresh_superuser_engine, SENTINEL_TENANT_ID, user_id=user_id
+    ) as session:
+        scope = WatchFamilyScopeRepository(session)
+        for family in ("anlv", "fx"):
+            await scope.insert_revision(
+                family=family,
+                effective_from=datetime(2026, 9, 30, 10, 0, tzinfo=timezone.utc),
+                enabled=False,
+                changed_by=user_id,
+            )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = _flat(response.text)
+
+    assert 'id="dc-family-notes"' in body
+    # The seeded owner carries no display name, so the Journal idiom falls
+    # back to the email.
+    assert "Regulatory quotas (AnlV) off since 30 Sep 2026 · dc-owner@example.com" in body
+    assert 'data-family="saa"' not in body.split('id="dc-family-notes"')[1].split("</div>")[0]
+    assert "Currency moves off since" not in body
+    # The switched-off families leave the strip with the monitor.
+    strip = body.split('id="dc-watch-strip"')[1].split("</div>")[0]
+    assert 'data-family="anlv"' not in strip
+    assert 'data-family="fx"' not in strip
+    assert 'data-family="saa"' in strip
+
+
+async def test_the_watch_strip_states_the_monitors_own_badges(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The strip is the monitor's badges once more: WARN on SAA, calm on AnlV, no press."""
+    user_id, email, password = seeded_user
+    await _seed_valued_universe(user_id)
+    await _switch_off(fresh_superuser_engine, user_id, "rss")
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/briefing")
+    assert response.status_code == 200
+    body = _flat(response.text)
+    strip = body.split('id="dc-watch-strip"')[1].split("</div>")[0]
+
+    assert "Allocation limits (SAA) · 1 WARN" in strip
+    assert "Regulatory quotas (AnlV) · calm" in strip
+    assert 'data-family="rss"' not in strip
+    # The chip restates the monitor's badge, which is still rendered below.
+    assert body.count("1 WARN") >= 2

@@ -16,7 +16,10 @@ Endpoints
 * ``GET  /api/watch-desk/briefing`` — the calm-by-default card feed of
   open findings, in ``IreneFindingRepository.list_open()`` order (final
   urgency desc, then recency). An empty feed renders the affirmative calm
-  state (a green status line), never an empty/error state.
+  state (a green status line), never an empty/error state. Above it,
+  since ADR-0133: Irene's newest briefing row (``IreneBriefingRepository
+  .newest()``, read, never written here), the D-WD-17 standing note per
+  switched-off quota family, and the watch strip restating the monitor.
 * ``POST /api/watch-desk/request-analysis`` — enqueue an
   out-of-cadence beat by bringing the tenant schedule due now
   (``enqueue_due_now``). It does **not** run synthesis inline (ADR-0086):
@@ -98,6 +101,10 @@ from core.repositories.investment_identifier_repository import (
     InvestmentIdentifierRepository,
 )
 from core.repositories.investment_repository import InvestmentRepository
+from core.repositories.irene_briefing_repository import (
+    IreneBriefingDTO,
+    IreneBriefingRepository,
+)
 from core.repositories.irene_finding_repository import (
     IreneFindingDTO,
     IreneFindingRepository,
@@ -133,6 +140,7 @@ from services.analytics.signal_watch import (
     LIQUIDITY_SUBJECT_KEY,
 )
 from services.auth.session import SessionDTO
+from services.irene.briefing_material import MATERIAL_VERSION
 from services.irene.scheduling import compute_next_due_at
 from services.watch_desk.calibration import save_calibration_revision
 from services.watch_desk.family_status import (
@@ -281,6 +289,25 @@ _FAMILY_LABELS: dict[str, str] = {
     "saa": "SAA",
     "anlv": "AnlV",
 }
+
+# The seven families' display names, as ADR-0133 §2.2 fixes them (the M-WD-1
+# vocabulary). The watch strip, the D-WD-17 note, the Watch points rows and
+# the Journal filter all read this one map; nothing else names a family to
+# the operator, and no subject key reaches visible copy through it.
+_FAMILY_DISPLAY_NAMES: dict[str, str] = {
+    "saa": "Allocation limits (SAA)",
+    "anlv": "Regulatory quotas (AnlV)",
+    "rss": "Press coverage",
+    "price": "Price moves in held instruments",
+    "fx": "Currency moves",
+    "liquidity": "Cash coverage of calls",
+    "freshness": "Stale valuations (NAV freshness)",
+}
+
+# The monitor's badge modifiers that read as calm on the watch strip: the
+# limit groups' ``ok`` and the signal groups' ``calm``. Every other modifier
+# — warn, breach, approaching, triggered, nodata — is stated on the chip.
+_CALM_MODIFIERS: frozenset[str] = frozenset({"ok", "calm"})
 
 # ---------------------------------------------------------------------------
 # Calibration editor vocabulary (ADR-0116 §7)
@@ -956,6 +983,231 @@ def _project_journal_case(case: CaseDTO, actor_names: dict[UUID, str]) -> dict[s
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Irene's briefing — the newest row, its sources line, the D-WD-17 standing
+# notes and the watch strip (ADR-0133 §1.4–1.5, §2.5). Route data for the
+# D-WD-25 stop-gap partial; A-6 restyles, nothing here is designed.
+# ---------------------------------------------------------------------------
+
+
+def _briefing_sources(inputs: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Project the R12 sources line from a written briefing's ``inputs``.
+
+    Reads the persisted material (``irene_briefing.inputs``) and nothing
+    live, so the line states what Irene was handed and cannot drift from
+    the text above it: the distinct ``source`` tokens of every figure and
+    cluster, the press items with their links, and the market window.
+    The items travel as ``press_items``: ``items`` would shadow ``dict.items``
+    in the template.
+
+    Args:
+        inputs: The row's ``inputs`` as the briefing material composed them.
+
+    Returns:
+        The ``briefing.sources`` template context, or ``None`` for a
+        material version this projection does not know — the line is then
+        omitted rather than guessed.
+    """
+    if inputs.get("version") != MATERIAL_VERSION:
+        return None
+    markets = inputs.get("markets") or {}
+    watch = inputs.get("watch") or {}
+    figures: list[Mapping[str, Any]] = [
+        *markets.get("instruments", ()),
+        *markets.get("asset_classes", ()),
+        *markets.get("currencies", ()),
+        *(subject for group in watch.get("limits", ()) for subject in group.get("subjects", ())),
+        *watch.get("signals", ()),
+    ]
+    clusters: list[Mapping[str, Any]] = list(markets.get("press_clusters", ()))
+
+    tokens: list[str] = []
+    for record in (*figures, *clusters):
+        source = record.get("source")
+        if isinstance(source, str) and source not in tokens:
+            tokens.append(source)
+
+    window_start = markets.get("window_start")
+    window_end = markets.get("as_of")
+    return {
+        "figures": _plural(len(figures), "figure"),
+        "clusters": _plural(len(clusters), "press cluster"),
+        "tokens": tokens,
+        "press_items": [
+            {
+                "title": item.get("title") or item.get("url") or "untitled",
+                "url": item.get("url"),
+            }
+            for cluster in clusters
+            for item in cluster.get("items", ())
+        ],
+        "window": (
+            f"window {window_start} to {window_end}" if window_start and window_end else None
+        ),
+    }
+
+
+def _project_briefing(
+    row: IreneBriefingDTO | None,
+    *,
+    zone: ZoneInfo,
+    utc_fallback: bool,
+) -> dict[str, Any]:
+    """Project the newest briefing row into the Briefing view's context.
+
+    A ``written`` row carries both parts, its check stamp (``beat_at``,
+    ADR-0133 §1.5) and its sources line; the template hides Part 2 when
+    ``text_watch`` is empty, which is the every-family-off case. A
+    ``skipped`` newest row and no row at all both read "Briefing pending":
+    one line, never an error panel, and never an older row's text in its
+    place (ADR-0133 §1.4) — earlier rows are the Journal's.
+
+    Args:
+        row: The newest row by ``beat_at``, or ``None``.
+        zone: The resolved display timezone (see :func:`_resolve_zone`).
+        utc_fallback: True when ``zone`` is the UTC substitute.
+
+    Returns:
+        The ``briefing`` template context.
+    """
+    if row is None or row.status != "written":
+        return {"state": "pending"}
+    raised = len(row.finding_ids)
+    return {
+        "state": "written",
+        "id": str(row.id),
+        "stamp": _stamp(row.beat_at, "%a %d %b %Y %H:%M", zone=zone, utc_fallback=utc_fallback),
+        "raised": f"{raised} finding raised" if raised == 1 else f"{raised} findings raised",
+        "text_markets": row.text_markets or "",
+        "text_watch": row.text_watch or "",
+        "sources": _briefing_sources(row.inputs),
+    }
+
+
+async def _family_notes(
+    db_session: AsyncSession,
+    *,
+    resolution: WatchDeskResolution,
+    zone: ZoneInfo,
+    utc_fallback: bool,
+) -> list[dict[str, str]]:
+    """Build the standing note per switched-off quota family (D-WD-17).
+
+    Built from the scope revision the resolution carries — never from
+    Irene's text — and naming the actor through the user repository, the
+    Journal's actor-name idiom. Only the two quota families leave a note:
+    "nobody may switch off a warning and later claim the program did not
+    see it" is their rule (ADR-0133 §2.5); a signal or press family off is
+    simply absent from the monitor and the strip.
+
+    Args:
+        db_session: The tenant-scoped session opened by the caller.
+        resolution: The resolution the render already holds.
+        zone: The resolved display timezone (see :func:`_resolve_zone`).
+        utc_fallback: True when ``zone`` is the UTC substitute.
+
+    Returns:
+        One note per switched-off quota family, in ``_LIMIT_FAMILIES``
+        order; empty while both are on.
+    """
+    user_repo = UserRepository(db_session)
+    notes: list[dict[str, str]] = []
+    for family in _LIMIT_FAMILIES:
+        disabled = resolution.disabled_families.get(family)
+        if disabled is None:
+            continue
+        user = await user_repo.get_by_id(disabled.changed_by)
+        actor = (user.display_name or user.email) if user is not None else str(disabled.changed_by)
+        since = _stamp(disabled.effective_from, "%d %b %Y", zone=zone, utc_fallback=utc_fallback)
+        notes.append(
+            {
+                "family": family,
+                "text": f"{_FAMILY_DISPLAY_NAMES[family]} off since {since} · {actor}",
+            }
+        )
+    return notes
+
+
+def _strip_chip(family: str, badges: list[dict[str, str]]) -> dict[str, str]:
+    """State one monitor group as a watch-strip chip.
+
+    The chip reads the group's non-calm badges, most severe first as the
+    group orders them, or "calm" when there is none; its modifier is the
+    loudest badge's. A group's badges are already the monitor's own counts,
+    so the strip adds no classification.
+    """
+    loud = [badge for badge in badges if badge["modifier"] not in _CALM_MODIFIERS]
+    return {
+        "family": family,
+        "name": _FAMILY_DISPLAY_NAMES[family],
+        "text": " · ".join(badge["text"] for badge in loud) if loud else "calm",
+        "modifier": loud[0]["modifier"] if loud else "ok",
+    }
+
+
+def _watch_strip(
+    monitor: Mapping[str, Any],
+    *,
+    findings: list[IreneFindingDTO],
+    now: datetime,
+    zone: ZoneInfo,
+    utc_fallback: bool,
+) -> dict[str, Any]:
+    """Project the watch strip off the monitor context already rendered.
+
+    One chip per family the monitor renders, in the monitor's own order —
+    the limit groups, the press group, then the signal groups — each
+    stated from that group's badges (:func:`_strip_chip`), and the render
+    stamp. No second observation: the strip is the monitor's figures stated
+    once more, so a family the monitor omits (switched off, or on without
+    a registered subject, which the monitor footer names) has no chip.
+
+    Two groups carry no badge: a limit group while coverage is unavailable
+    reads "no coverage" rather than "calm", because an empty group is not a
+    calm one; the press group has no live status at all, so its chip counts
+    the open press findings the feed already loaded.
+
+    Args:
+        monitor: The ``monitor`` context from :func:`build_monitor`.
+        findings: The open findings already loaded for the feed.
+        now: The render instant.
+        zone: The resolved display timezone (see :func:`_resolve_zone`).
+        utc_fallback: True when ``zone`` is the UTC substitute.
+
+    Returns:
+        The ``watch_strip`` template context: ``stamp`` and ``chips``.
+    """
+    chips: list[dict[str, str]] = []
+    for group in monitor["groups"]:
+        if not monitor["coverage_available"]:
+            chips.append(
+                {
+                    "family": group["family"],
+                    "name": _FAMILY_DISPLAY_NAMES[group["family"]],
+                    "text": "no coverage",
+                    "modifier": "nodata",
+                }
+            )
+            continue
+        chips.append(_strip_chip(group["family"], group["badges"]))
+    if monitor["rss"] is not None:
+        open_press = sum(1 for finding in findings if finding.subject_key.startswith("rss:"))
+        chips.append(
+            {
+                "family": "rss",
+                "name": _FAMILY_DISPLAY_NAMES["rss"],
+                "text": _plural(open_press, "open finding") if open_press else "calm",
+                "modifier": "warn" if open_press else "ok",
+            }
+        )
+    for group in monitor["signal_groups"]:
+        chips.append(_strip_chip(group["family"], group["badges"]))
+    return {
+        "stamp": _stamp(now, "%H:%M", zone=zone, utc_fallback=utc_fallback),
+        "chips": chips,
+    }
+
+
 async def _briefing_context(
     db_session: AsyncSession,
     *,
@@ -985,7 +1237,9 @@ async def _briefing_context(
         now: The current instant (timezone-aware UTC).
 
     Returns:
-        The template context for ``_partials/watch_desk_briefing.html``.
+        The template context for ``_partials/watch_desk_briefing.html``,
+        since ADR-0133 with ``briefing`` (the newest row or the pending
+        state), ``family_notes`` (D-WD-17) and ``watch_strip``.
     """
     finding_repo = IreneFindingRepository(db_session)
     findings = await finding_repo.list_open()
@@ -1027,8 +1281,24 @@ async def _briefing_context(
         now=now,
     )
 
+    # Irene's briefing, the D-WD-17 notes and the watch strip (ADR-0133
+    # §1.4–1.5, §2.5). The newest row is one indexed read; the notes read
+    # the switched-off quota families off the resolution this render
+    # already holds; the strip is the monitor context stated once more.
+    # The zone is resolved here as ``_build_tiles`` resolves it for the
+    # tiles — pure, and cheaper than threading it through that signature.
+    zone, utc_fallback = _resolve_zone(schedule.timezone if schedule is not None else None)
+    newest = await IreneBriefingRepository(db_session).newest()
+
     return {
         "csrf_token": csrf_token,
+        "briefing": _project_briefing(newest, zone=zone, utc_fallback=utc_fallback),
+        "family_notes": await _family_notes(
+            db_session, resolution=resolution, zone=zone, utc_fallback=utc_fallback
+        ),
+        "watch_strip": _watch_strip(
+            monitor, findings=findings, now=now, zone=zone, utc_fallback=utc_fallback
+        ),
         "cards": [_project_card(finding) for finding in findings],
         "schedule_exists": schedule is not None,
         "tiles": _build_tiles(

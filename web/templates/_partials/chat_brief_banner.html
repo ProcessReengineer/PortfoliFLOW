@@ -1,0 +1,34 @@
+{# The consultation banner (ADR-0107 C6, Step 1; ADR-0133 §6) — the inner
+   content of ``#chat-brief-banner`` in shirley_dock.html, rendered there
+   with the dock and alone by ``GET /chat/brief/banner`` when the stash
+   changes behind an open dock. Two kinds, one container: a case reads
+   "Consulting for CASE-NNNN · title"; a written Watch Desk briefing reads
+   "Discussing the briefing of <check stamp>" and links to the Journal —
+   persona-free (UI-023). The dismiss action is the same for both: it
+   clears the stash and empties the container.
+
+   Context: brief_banner ({kind, …} or None), csrf_token. #}
+{% if brief_banner %}
+    <div class="chat-brief" role="status" data-brief-kind="{{ brief_banner.kind }}">
+        {% if brief_banner.kind == 'watch_briefing' %}
+            <span class="chat-brief__label">Discussing</span>
+            <a class="chat-brief__case" href="{{ brief_banner.href }}">the briefing of {{ brief_banner.stamp }}</a>
+            <button type="button" class="chat-brief__dismiss"
+                    aria-label="Stop discussing this briefing"
+                    hx-post="/chat/brief/dismiss"
+                    hx-target="#chat-brief-banner"
+                    hx-swap="innerHTML"
+                    hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Dismiss</button>
+        {% else %}
+            <span class="chat-brief__label">Consulting for</span>
+            <a class="chat-brief__case" href="{{ brief_banner.href }}">{{ brief_banner.badge }}</a>
+            <span class="chat-brief__title">{{ brief_banner.title }}</span>
+            <button type="button" class="chat-brief__dismiss"
+                    aria-label="Stop consulting for this case"
+                    hx-post="/chat/brief/dismiss"
+                    hx-target="#chat-brief-banner"
+                    hx-swap="innerHTML"
+                    hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Dismiss</button>
+        {% endif %}
+    </div>
+{% endif %}

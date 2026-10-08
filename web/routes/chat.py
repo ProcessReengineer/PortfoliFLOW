@@ -16,13 +16,17 @@ shell consumes:
   ``StreamEvent`` into a wire-shape SSE event.
 * ``POST /chat/new``             — drop the session's history.
 * ``GET /chat/history``          — rehydrate the session's history.
+* ``POST /chat/brief/watch-briefing/<id>`` — hand a written Watch Desk
+  briefing to Shirley in place (ADR-0133 §6); ``GET /chat/brief/banner``
+  re-renders the dock's consultation banner from the stash.
 
 Two further per-session in-memory stores ride alongside the history
-(``app.state.chat_histories``, ADR-0050): the case-brief stash
-(``app.state.case_briefs``, ADR-0107 C6) and the chart-artefact sidecar
-(``app.state.chat_chart_artifacts``, ADR-0114) that lets a chart survive a
-tab reload and be pinned to a case. Both share the history's lifecycle
-exactly — see their sections below.
+(``app.state.chat_histories``, ADR-0050): the consultation-brief stash
+(``app.state.brief_stash``, ADR-0107 C6 — since ADR-0133 §6 of kind
+``case`` or ``watch_briefing``, one active, each replacing the other) and
+the chart-artefact sidecar (``app.state.chat_chart_artifacts``, ADR-0114)
+that lets a chart survive a tab reload and be pinned to a case. Both share
+the history's lifecycle exactly — see their sections below.
 
 A short-lived in-memory store (``app.state.pending_turns``) stashes the
 user message and the turn metadata between the POST and the SSE GET.
@@ -57,6 +61,8 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import UUID
@@ -66,9 +72,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from fastapi.templating import Jinja2Templates
 
 from core.exceptions import CaseClosedError, CaseStateInvalid
+from core.models.watchpoint import WATCHPOINT_FAMILIES
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
-from core.repositories.irene_finding_repository import IreneFindingRepository
+from core.repositories.irene_briefing_repository import (
+    IreneBriefingDTO,
+    IreneBriefingRepository,
+)
+from core.repositories.irene_finding_repository import (
+    IreneFindingDTO,
+    IreneFindingRepository,
+)
+from core.repositories.irene_schedule_repository import IreneScheduleRepository
 from core.repositories.user_repository import UserRepository
 from services.ai_models import (
     Attachment,
@@ -89,6 +104,7 @@ from services.investments.credential_resolver import (
     CredentialUnavailableError,
     ProviderCredential,
 )
+from services.irene.briefing_material import MATERIAL_VERSION
 from services.tools._tool_context import ToolExecutionContext
 from services.vision_capabilities import (
     ALLOWED_IMAGE_MIME_TYPES,
@@ -124,6 +140,19 @@ from web.routes.cases import (
     _project_entry,
     _project_origin,
     _resolve_owner_names,
+)
+
+# The watch-briefing banner and brief block state a check in the words the
+# Watch Desk uses (ADR-0133 §6): the family display names, the schedule-zone
+# stamp and the Journal deep link are read from the Watch Desk route module.
+# One-directional like the import above — ``watch_desk.py`` imports nothing
+# from ``web.routes`` — which is why its partials write the hand-off URL
+# literally, as they write ``/resolve``.
+from web.routes.watch_desk import (
+    JOURNAL_DEEP_LINK,
+    _FAMILY_DISPLAY_NAMES,
+    _resolve_zone,
+    _stamp,
 )
 
 logger = logging.getLogger(__name__)
@@ -576,22 +605,46 @@ def _history_items(
 
 
 # ---------------------------------------------------------------------------
-# Per-session case brief (ADR-0107 C6) — the consultation loop's first half
+# Per-session consultation brief (ADR-0107 C6; ADR-0133 §6) — the loop's
+# first half
 # ---------------------------------------------------------------------------
 #
-# A case can send the PM to Shirley "consulting for" it. The brief is a
+# A case can send the PM to Shirley "consulting for" it, and a written Watch
+# Desk briefing can be handed to her in place for discussion. Either is a
 # per-session stash — the same ``app.state`` idiom as the chat-history store,
 # and, like it, ephemeral (ADR-0050): no persistence, no ``ai_service_core``
-# change. The stash stores the *case id*, not a rendered brief, so every turn
-# briefs from live case state; a case that closed or vanished since clears the
-# stash silently and the turn runs unbriefed. Web chat only — the Telegram
-# surface is untouched (it has neither the banner nor the pin loop a brief
-# presumes), so its prompt assembly never sees this.
+# change. The stash stores the *kind and row id*, not a rendered brief, so
+# every turn briefs from the live row: a case that closed or vanished since,
+# or a briefing that vanished, clears the stash silently and the turn runs
+# unbriefed. One context is active at a time — a briefing replaces a case and
+# a case replaces a briefing; dismiss clears either. Web chat only — the
+# Telegram surface is untouched (it has neither the banner nor the pin loop a
+# brief presumes), so its prompt assembly never sees this.
 #
-# The brief block format (below) is the one place it is defined; the strand's
-# closure note references it.
+# The two brief block formats (below) are the one place each is defined; the
+# strands' closure notes reference them.
 
-_CASE_BRIEFS_LIMIT = 100
+_BRIEF_STASH_LIMIT = 100
+
+#: The two consultation-context kinds the stash can hold (ADR-0133 §6).
+BRIEF_KIND_CASE: str = "case"
+BRIEF_KIND_WATCH_BRIEFING: str = "watch_briefing"
+
+#: The in-place hand-off endpoint (ADR-0133 §6, D-WD-23): the Watch Desk's
+#: "Discuss briefing with Shirley" action POSTs here with the briefing id in
+#: the path. Its partials write the URL literally — ``watch_desk.py`` cannot
+#: import this module (see the import note above).
+DISCUSS_BRIEFING_URL: str = "/chat/brief/watch-briefing/{briefing_id}"
+
+#: The banner re-render endpoint: the dock's banner container fetches it on
+#: ``pf:brief-changed`` so an in-place hand-off updates a dock that is
+#: already open.
+BRIEF_BANNER_URL: str = "/chat/brief/banner"
+
+#: The ``HX-Trigger`` value a successful hand-off carries: ``shirley.js``
+#: opens the dock on ``pf:shirley-dock``; ``shirley_dock.html`` re-renders
+#: the banner on ``pf:brief-changed``. Neither fires on a dropped id.
+_DISCUSS_TRIGGER: str = "pf:brief-changed, pf:shirley-dock"
 
 #: The consultation-pin endpoint (ADR-0107 C6). One URL, two verbs — the C5
 #: ``PIN_SCENARIO_URL`` idiom: ``GET`` renders the dialog, ``POST`` writes the
@@ -620,11 +673,25 @@ _CONSULTATION_ARTIFACT: str = "consultation"
 #: cases module docstring; the timeline reads exactly this.
 _CHART_SNAPSHOT_ARTIFACT: str = "chart_snapshot"
 
-#: Brief block delimiters. The brief is appended to Shirley's system prompt as
-#: this clearly-fenced block so the model tells its standing instructions from
-#: the per-turn case context (binding decisions 1/4).
 _BRIEF_OPEN: str = "<<<PORTFOLIFLOW CASE BRIEF>>>"
 _BRIEF_CLOSE: str = "<<<END PORTFOLIFLOW CASE BRIEF>>>"
+
+#: Watch-briefing block delimiters (ADR-0133 §6) — the second fenced block
+#: the chat call site can append; the same posture as the case brief.
+_WATCH_BRIEF_OPEN: str = "<<<PORTFOLIFLOW WATCH DESK BRIEFING>>>"
+_WATCH_BRIEF_CLOSE: str = "<<<END PORTFOLIFLOW WATCH DESK BRIEFING>>>"
+
+#: The lead of the watch-briefing block: who wrote it, when its figures were
+#: taken, and the two-clock rule (ADR-0133 §6). Prompt text Shirley reads,
+#: never rendered copy — so the author is named here, while UI-023 keeps the
+#: pages persona-free. ``{check}`` is the check's instant, ISO.
+_WATCH_BRIEF_LEAD: str = (
+    "The PM wants to discuss the Watch Desk briefing below. It was written by "
+    "Irene, the Watch Desk's background analyst, at the check of {check}; its "
+    "figures were taken at that check. Where your tools show different current "
+    "figures, say which is the check's figure and which is today's. The "
+    "briefing is immutable; nothing you say is written back to it."
+)
 
 #: The timeline digest is capped so a long-lived case never balloons the prompt:
 #: the most recent entries, each summarised to its first line.
@@ -653,41 +720,57 @@ _CHART_OVERSIZED_MESSAGE: str = (
 )
 
 
-def _case_briefs(request: Request) -> OrderedDict[str, UUID]:
-    """Return (and lazily initialise) the per-app case-brief stash store.
+@dataclass(frozen=True)
+class ActiveBrief:
+    """The session's active consultation context: its kind and the row id.
 
-    Keyed by the authenticated session UUID (string), value the active case id.
-    Bounded LRU at the session level, mirroring :func:`_chat_histories`.
-    Single-worker only; a multi-worker deployment needs Redis or equivalent.
+    ``kind`` is :data:`BRIEF_KIND_CASE` (``id`` a case) or
+    :data:`BRIEF_KIND_WATCH_BRIEFING` (``id`` an ``irene_briefing`` row).
     """
-    store = getattr(request.app.state, "case_briefs", None)
+
+    kind: str
+    id: UUID
+
+
+def _brief_stash(request: Request) -> OrderedDict[str, ActiveBrief]:
+    """Return (and lazily initialise) the per-app consultation-brief stash.
+
+    Keyed by the authenticated session UUID (string), value the active
+    :class:`ActiveBrief` — a case or a written briefing, never both
+    (ADR-0133 §6). Bounded LRU at the session level, mirroring
+    :func:`_chat_histories`. Single-worker only; a multi-worker deployment
+    needs Redis or equivalent.
+    """
+    store = getattr(request.app.state, "brief_stash", None)
     if store is None:
         store = OrderedDict()
-        request.app.state.case_briefs = store
-    return cast("OrderedDict[str, UUID]", store)
+        request.app.state.brief_stash = store
+    return cast("OrderedDict[str, ActiveBrief]", store)
 
 
-def _set_active_brief(request: Request, session_id: str, case_id: UUID) -> None:
-    """Set the session's active brief to ``case_id``, replacing any previous.
+def _set_active_brief(request: Request, session_id: str, brief: ActiveBrief) -> None:
+    """Set the session's active brief to ``brief``, replacing any previous.
 
-    Evicts the oldest entry when the per-app cap is reached (the history-store
-    idiom). Re-inserting moves the entry to the most-recently-used end.
+    One context per session, whatever its kind: a briefing replaces a case
+    and a case replaces a briefing. Evicts the oldest entry when the per-app
+    cap is reached (the history-store idiom). Re-inserting moves the entry
+    to the most-recently-used end.
     """
-    store = _case_briefs(request)
+    store = _brief_stash(request)
     store.pop(session_id, None)
-    while len(store) >= _CASE_BRIEFS_LIMIT:
+    while len(store) >= _BRIEF_STASH_LIMIT:
         evicted_key, _ = store.popitem(last=False)
         logger.warning(
-            "chat: evicting case brief for session %s (LRU cap %d)",
+            "chat: evicting consultation brief for session %s (LRU cap %d)",
             evicted_key,
-            _CASE_BRIEFS_LIMIT,
+            _BRIEF_STASH_LIMIT,
         )
-    store[session_id] = case_id
+    store[session_id] = brief
 
 
-def _get_active_brief(request: Request, session_id: str) -> UUID | None:
-    """Return the session's active brief case id, or ``None`` if unset."""
-    store = _case_briefs(request)
+def _get_active_brief(request: Request, session_id: str) -> ActiveBrief | None:
+    """Return the session's active brief, or ``None`` if unset."""
+    store = _brief_stash(request)
     if session_id in store:
         store.move_to_end(session_id)
         return store[session_id]
@@ -695,8 +778,21 @@ def _get_active_brief(request: Request, session_id: str) -> UUID | None:
 
 
 def _clear_active_brief(request: Request, session_id: str) -> None:
-    """Drop the session's active brief. Safe on absent keys."""
-    _case_briefs(request).pop(session_id, None)
+    """Drop the session's active brief, of either kind. Safe on absent keys."""
+    _brief_stash(request).pop(session_id, None)
+
+
+def _active_case_id(request: Request, session_id: str) -> UUID | None:
+    """Return the stashed case id, or ``None`` when no *case* brief is active.
+
+    The pin dialogs preselect the case under consultation; a briefing stash
+    preselects nothing — a briefing is not a case, and there is no pin kind
+    for one (ADR-0133 §6).
+    """
+    brief = _get_active_brief(request, session_id)
+    if brief is None or brief.kind != BRIEF_KIND_CASE:
+        return None
+    return brief.id
 
 
 def _parse_case_marker(raw: str | None) -> UUID | None:
@@ -714,18 +810,46 @@ def _parse_case_marker(raw: str | None) -> UUID | None:
         return None
 
 
+async def _watch_briefing_banner(
+    request: Request, db: Any, session_id: str, briefing_id: UUID
+) -> dict[str, str] | None:
+    """Return the banner context for a stashed briefing, validated fresh.
+
+    The row is read in the caller's tenant context; one that vanished, or is
+    not ``written``, clears the stash silently and yields no banner — the
+    closed-case posture. The stamp is the check's ``beat_at`` in the
+    schedule's zone, the Briefing view's own idiom, and the link is the
+    Journal, where every check lives. Persona-free (UI-023): the banner
+    names the check, not its writer.
+    """
+    row = await IreneBriefingRepository(db).get(briefing_id)
+    if row is None or row.status != "written":
+        _clear_active_brief(request, session_id)
+        return None
+    schedule = await IreneScheduleRepository(db).get_for_tenant()
+    zone, utc_fallback = _resolve_zone(schedule.timezone if schedule is not None else None)
+    return {
+        "kind": BRIEF_KIND_WATCH_BRIEFING,
+        "stamp": _stamp(row.beat_at, "%a %d %b %Y %H:%M", zone=zone, utc_fallback=utc_fallback),
+        "href": JOURNAL_DEEP_LINK,
+    }
+
+
 async def resolve_active_brief_banner(
     request: Request, session: SessionDTO, case_marker: str | None
 ) -> dict[str, str] | None:
     """Adopt a fresh ``?case=`` marker and return the banner context, or ``None``.
 
     Marker hygiene (binding decision 5): a valid **open** case replaces any
-    previous stash; a malformed, unknown, foreign-tenant (RLS → ``None``) or
-    **closed** marker is dropped silently — no banner, no stash change, no error
-    (consulting *about* a closed case is legitimate reading, but the guided
-    context is open-cases-only). The banner is then rendered from the current
-    stash, **validated fresh**: a stale (closed-since / vanished) stash clears
-    silently and yields no banner. Called by the assistants area page render.
+    previous stash — a stashed briefing included; a malformed, unknown,
+    foreign-tenant (RLS → ``None``) or **closed** marker is dropped silently
+    — no banner, no stash change, no error (consulting *about* a closed case
+    is legitimate reading, but the guided context is open-cases-only). The
+    banner is then rendered from the current stash, **validated fresh**: a
+    stale (closed-since / vanished) stash clears silently and yields no
+    banner. A stashed briefing (ADR-0133 §6) renders through
+    :func:`_watch_briefing_banner`. Called by the assistants area page
+    render, the dock and the banner endpoint.
     """
     engine = getattr(request.app.state, "engine", None)
     if engine is None:
@@ -738,12 +862,14 @@ async def resolve_active_brief_banner(
         if marker_id is not None:
             candidate = await repo.get(marker_id)
             if candidate is not None and candidate.state == "open":
-                _set_active_brief(request, session_id, candidate.id)
+                _set_active_brief(request, session_id, ActiveBrief(BRIEF_KIND_CASE, candidate.id))
                 case = candidate
         if case is None:
             stashed = _get_active_brief(request, session_id)
+            if stashed is not None and stashed.kind == BRIEF_KIND_WATCH_BRIEFING:
+                return await _watch_briefing_banner(request, db, session_id, stashed.id)
             if stashed is not None:
-                candidate = await repo.get(stashed)
+                candidate = await repo.get(stashed.id)
                 if candidate is not None and candidate.state == "open":
                     case = candidate
                 else:  # stale stash — the case closed or vanished since.
@@ -751,6 +877,7 @@ async def resolve_active_brief_banner(
     if case is None:
         return None
     return {
+        "kind": BRIEF_KIND_CASE,
         "badge": f"CASE-{case.case_number:04d}",
         "title": case.title,
         "href": f"/cases/{case.id}",
@@ -857,13 +984,201 @@ async def _compose_case_brief(db: Any, case: CaseDTO) -> str:
     return _format_brief(case, origin, materiality, digest)
 
 
+def _stated(value: object) -> str:
+    """State a persisted scalar of the material, or a dash for an absent one."""
+    return str(value) if value not in (None, "") else "—"
+
+
+def _figure_line(figure: Mapping[str, Any]) -> str:
+    """State one figure of the check on one line (ADR-0133 §6).
+
+    Label, value and unit first, then whatever the record carries — a
+    ceiling and utilisation for a limit subject, a threshold for a signal,
+    the window for a market move — the as-of date, and the source token.
+    Nothing is computed; the persisted strings are repeated as written.
+    """
+    label = figure.get("label") or figure.get("id") or "figure"
+    family = figure.get("family")
+    head = f"{label} ({family})" if family else str(label)
+    unit = str(figure.get("unit") or "")
+    value = figure.get("value")
+    stated = f"{value} {unit}".strip() if value is not None else "no figure"
+    parts = [f"{head}: {stated}"]
+    if figure.get("max_pct") is not None:
+        parts.append(
+            f"ceiling {figure['max_pct']} pct, utilisation {_stated(figure.get('utilisation_pct'))} pct"
+        )
+    if figure.get("threshold") is not None:
+        parts.append(f"threshold {figure['threshold']} {unit}".rstrip())
+    if figure.get("status"):
+        parts.append(f"status {figure['status']}")
+    if figure.get("window_days"):
+        window = f"{figure['window_days']}-day window"
+        if figure.get("window_start"):
+            window += f" from {figure['window_start']}"
+        parts.append(window)
+    parts.append(f"as of {_stated(figure.get('as_of'))}")
+    if figure.get("muted"):
+        parts.append("muted")
+    if figure.get("no_data_reason"):
+        parts.append(f"no data: {figure['no_data_reason']}")
+    if figure.get("source"):
+        parts.append(f"source {figure['source']}")
+    return "  - " + ", ".join(parts)
+
+
+def _cluster_line(cluster: Mapping[str, Any]) -> str:
+    """State one press cluster of the check on one line: tag, day, titles, sources."""
+    items = [item for item in cluster.get("items") or () if isinstance(item, Mapping)]
+    titles = "; ".join(
+        f'"{item.get("title") or item.get("url") or "untitled"}" '
+        f"({item.get('source') or 'unknown source'}"
+        + (f", {item['url']}" if item.get("url") else "")
+        + ")"
+        for item in items
+    )
+    tag = cluster.get("tag") or "untagged"
+    return f"  - {tag} cluster of {_stated(cluster.get('day'))}: {titles or 'no items'}"
+
+
+def _material_lines(inputs: Mapping[str, Any]) -> list[str]:
+    """State the figures and clusters of version-1 material, one line each."""
+    markets = inputs.get("markets") or {}
+    watch = inputs.get("watch") or {}
+    figures = [
+        figure
+        for figure in (
+            *markets.get("instruments", ()),
+            *markets.get("asset_classes", ()),
+            *markets.get("currencies", ()),
+            *(
+                subject
+                for group in watch.get("limits", ())
+                for subject in group.get("subjects", ())
+            ),
+            *watch.get("signals", ()),
+        )
+        if isinstance(figure, Mapping)
+    ]
+    clusters = [
+        cluster for cluster in markets.get("press_clusters", ()) if isinstance(cluster, Mapping)
+    ]
+    lines = ["Figures of that check:" if figures else "Figures of that check: none"]
+    lines.extend(_figure_line(figure) for figure in figures)
+    lines.append(
+        "Press clusters of that check:" if clusters else "Press clusters of that check: none"
+    )
+    lines.extend(_cluster_line(cluster) for cluster in clusters)
+    return lines
+
+
+def _families_off_line(inputs: Mapping[str, Any]) -> str:
+    """Name the watch points switched off at the check — what the writer saw.
+
+    ``WATCHPOINT_FAMILIES`` minus the material's ``families_on``: no second
+    resolution, so the line states the check's own scope even after the
+    switches changed (the D-WD-17 principle carried into the conversation).
+    """
+    watch = inputs.get("watch") or {}
+    families_on = watch.get("families_on")
+    if not isinstance(families_on, list):
+        return "Watch points switched off at that check: not stated in this material."
+    off = [
+        f"{_FAMILY_DISPLAY_NAMES.get(family, family)} ({family})"
+        for family in WATCHPOINT_FAMILIES
+        if family not in families_on
+    ]
+    if not off:
+        return "Watch points switched off at that check: none."
+    return (
+        "Watch points switched off at that check: "
+        + ", ".join(off)
+        + " — the check did not evaluate them; never claim it watched them."
+    )
+
+
+def _finding_line(finding: IreneFindingDTO) -> str:
+    """State one finding of the check: band, subject, trigger, finding, resolution now."""
+    payload = finding.payload or {}
+    trigger = payload.get("trigger")
+    text = payload.get("finding")
+    parts = [f"{finding.band} · {finding.subject_key}"]
+    if isinstance(trigger, str) and trigger:
+        parts.append(trigger)
+    if isinstance(text, str) and text:
+        parts.append(text)
+    parts.append(f"resolution now: {finding.resolution}")
+    return "  - " + " — ".join(parts)
+
+
+def _format_watch_briefing_brief(row: IreneBriefingDTO, findings: Sequence[IreneFindingDTO]) -> str:
+    """Render the fenced watch-briefing block (ADR-0133 §6) from the immutable row.
+
+    The lead names the writer and the check and states the two-clock rule;
+    then the check's instant, both texts, the figures and clusters of the
+    persisted ``inputs`` one line each, the watch points off at that check,
+    and the findings the check raised. The material is read by its
+    ``version``: a shape this build does not know is handed over as its
+    persisted JSON rather than guessed at. The exact format lives here, in
+    one place; the strand's closure note references it.
+    """
+    check = row.beat_at.isoformat()
+    inputs = row.inputs if isinstance(row.inputs, Mapping) else {}
+    written = row.written_at.isoformat()
+    model = f", model {row.model_id}" if row.model_id else ""
+    lines = [
+        _WATCH_BRIEF_OPEN,
+        _WATCH_BRIEF_LEAD.format(check=check),
+        f"Check: {check} (briefing written {written}{model})",
+        f"Markets and press: {row.text_markets or ''}",
+        "Under observation: "
+        + (row.text_watch or "(empty — no watch point was switched on at that check)"),
+    ]
+    if inputs.get("version") == MATERIAL_VERSION:
+        lines.extend(_material_lines(inputs))
+        lines.append(_families_off_line(inputs))
+    else:
+        lines.append(
+            f"Material of that check (version {inputs.get('version')!r}, a shape this build "
+            "does not know), as persisted:"
+        )
+        lines.append("  " + json.dumps(inputs, sort_keys=True, default=str))
+        lines.append(
+            "Watch points switched off at that check: not stated in this material version."
+        )
+    lines.append("Findings of that check:" if findings else "Findings of that check: none")
+    lines.extend(_finding_line(finding) for finding in findings)
+    lines.append(_WATCH_BRIEF_CLOSE)
+    return "\n".join(lines)
+
+
+async def _compose_watch_briefing_brief(db: Any, row: IreneBriefingDTO) -> str:
+    """Compose the watch-briefing block from the row and its findings.
+
+    The findings are the row's own ``finding_ids``, read fresh in the
+    caller's tenant context so each line can state its resolution as it
+    stands now; an id that no longer resolves is skipped. The texts and the
+    material are the row's — immutable, never re-read live.
+    """
+    repo = IreneFindingRepository(db)
+    findings: list[IreneFindingDTO] = []
+    for finding_id in row.finding_ids:
+        finding = await repo.get(finding_id)
+        if finding is not None:
+            findings.append(finding)
+    return _format_watch_briefing_brief(row, findings)
+
+
 async def _briefed_system_prompt(request: Request, session: SessionDTO, base_prompt: str) -> str:
     """Return the system prompt, brief-appended when a stash is active.
 
-    Loads the stashed case fresh: a case that vanished or closed since (stale
-    stash) clears the stash silently and the turn runs unbriefed. Otherwise the
-    composed brief is appended as its fenced block at this call site — no
-    ``ai_service_core`` change (binding decision 1).
+    Loads the stashed row fresh: a case that vanished or closed since, or a
+    briefing that vanished (stale stash), clears the stash silently and the
+    turn runs unbriefed. Otherwise the composed brief — the case brief or
+    the watch-briefing block, by the stash's kind — is appended as its
+    fenced block at this call site — no ``ai_service_core`` change (binding
+    decision 1; ADR-0133 §6), so Shirley's own prompt stays byte-identical
+    beneath it.
     """
     session_id = str(session.id)
     stashed = _get_active_brief(request, session_id)
@@ -873,11 +1188,18 @@ async def _briefed_system_prompt(request: Request, session: SessionDTO, base_pro
     if engine is None:
         return base_prompt
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        case = await CaseRepository(db).get(stashed)
-        if case is None or case.state != "open":
-            _clear_active_brief(request, session_id)
-            return base_prompt
-        brief = await _compose_case_brief(db, case)
+        if stashed.kind == BRIEF_KIND_WATCH_BRIEFING:
+            row = await IreneBriefingRepository(db).get(stashed.id)
+            if row is None or row.status != "written":
+                _clear_active_brief(request, session_id)
+                return base_prompt
+            brief = await _compose_watch_briefing_brief(db, row)
+        else:
+            case = await CaseRepository(db).get(stashed.id)
+            if case is None or case.state != "open":
+                _clear_active_brief(request, session_id)
+                return base_prompt
+            brief = await _compose_case_brief(db, case)
     return f"{base_prompt}\n\n{brief}" if base_prompt else brief
 
 
@@ -2155,7 +2477,7 @@ async def get_chat_dock(
 
 
 # ---------------------------------------------------------------------------
-# POST /chat/brief/dismiss — clear the active case brief
+# POST /chat/brief/dismiss — clear the active consultation brief
 # ---------------------------------------------------------------------------
 
 
@@ -2169,14 +2491,95 @@ async def dismiss_brief(
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Clear the session's active case brief and remove the banner (Step 1).
+    """Clear the session's active brief — case or briefing — and remove the banner.
 
     The banner's dismiss posts here; the empty body swaps the banner out of the
-    DOM. Subsequent turns run unbriefed until a new ``?case=`` marker sets the
-    stash again. Safe to call with no active stash.
+    DOM. Subsequent turns run unbriefed until a new ``?case=`` marker or a
+    Watch Desk hand-off sets the stash again. Safe to call with no active
+    stash.
     """
     _clear_active_brief(request, str(session.id))
     return HTMLResponse("")
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/brief/watch-briefing/{id} — hand a written briefing to Shirley
+# in place (ADR-0133 §6, D-WD-23); GET /chat/brief/banner — the banner alone
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    DISCUSS_BRIEFING_URL,
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def discuss_watch_briefing(
+    request: Request,
+    briefing_id: str,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Set the session's consultation context to a written briefing (ADR-0133 §6).
+
+    The id is resolved inside the reader's tenant context. A ``written`` row
+    sets the ``watch_briefing`` stash — replacing a case stash — and the
+    response carries ``HX-Trigger`` so the shell opens the dock
+    (``pf:shirley-dock``) and a dock that is already open re-renders its
+    banner (``pf:brief-changed``); the reader stays on the Watch Desk. A
+    malformed, unknown, foreign-tenant (RLS → ``None``) or skipped id is
+    dropped silently (obligation 17): no stash change, no trigger, no error
+    — the action simply re-renders. The body is the action itself, which
+    the form swaps in place; nothing is written anywhere.
+    """
+    session_id = str(session.id)
+    row: IreneBriefingDTO | None = None
+    try:
+        parsed: UUID | None = UUID(briefing_id)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            row = await IreneBriefingRepository(db).get(parsed)
+    headers: dict[str, str] = {}
+    if row is not None and row.status == "written":
+        _set_active_brief(request, session_id, ActiveBrief(BRIEF_KIND_WATCH_BRIEFING, row.id))
+        headers["HX-Trigger"] = _DISCUSS_TRIGGER
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/watch_desk_discuss_action.html",
+            {"csrf_token": session.csrf_token, "briefing_id": briefing_id},
+            headers=headers,
+        ),
+    )
+
+
+@router.get(BRIEF_BANNER_URL, response_class=HTMLResponse)
+async def get_brief_banner(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Re-render the dock's consultation banner from the current stash.
+
+    Fetched by ``#chat-brief-banner`` on ``pf:brief-changed`` — the trigger a
+    hand-off response carries — so a dock that is already open shows the new
+    context; a dock opened later renders the banner with its fragment. No
+    marker of its own, like ``GET /chat/dock``: the stash is validated fresh
+    and a stale one yields the empty banner.
+    """
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/chat_brief_banner.html",
+            {
+                "csrf_token": session.csrf_token,
+                "brief_banner": await resolve_active_brief_banner(request, session, None),
+            },
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2239,7 +2642,7 @@ async def get_pin_consultation_dialog(
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         open_cases = await CaseRepository(db).list_open()
 
-    preselect = _get_active_brief(request, session_id)
+    preselect = _active_case_id(request, session_id)
     preselect_str = str(preselect) if preselect is not None else None
     context = _pin_dialog_context(
         session,
@@ -2454,7 +2857,7 @@ async def get_pin_chart_dialog(
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         open_cases = await CaseRepository(db).list_open()
 
-    preselect = _get_active_brief(request, session_id)
+    preselect = _active_case_id(request, session_id)
     context = _chart_pin_dialog_context(
         session,
         cases=open_cases,

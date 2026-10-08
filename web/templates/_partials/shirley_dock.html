@@ -26,9 +26,12 @@
                      (ADR-0076; ADR-0118 §5 made it a per-tenant answer).
                      Gates the voice toggle and the record/stop/cancel
                      panel; chat.js drives them via fetch to /chat/voice.
-     brief_banner  — {badge, title, href} when a case brief is active
-                     (ADR-0107 C6), else ``None``. Renders the
-                     "Consulting for CASE-NNNN" banner.
+     brief_banner  — the active consultation context (ADR-0107 C6;
+                     ADR-0133 §6), else ``None``: {kind: "case", badge,
+                     title, href} renders "Consulting for CASE-NNNN",
+                     {kind: "watch_briefing", stamp, href} renders
+                     "Discussing the briefing of <check stamp>". The
+                     banner itself is _partials/chat_brief_banner.html.
 
    The "Model: …" status line is gone (record §2.10.3): the model a
    tenant runs is configuration, and its home is Providers &
@@ -59,25 +62,19 @@
                 title="Close  Ctrl J">{{ pf_icon("close") }}</button>
     </header>
 
-    {# "Consulting for CASE-NNNN" banner (ADR-0107 C6, Step 1) — chat furniture,
-       not a message bubble. Present whenever the session's case-brief stash is
-       active; every turn briefs Shirley from that case's live state. Dismiss
-       POSTs to clear the stash and empties this container (next turn unbriefed).
+    {# Consultation banner (ADR-0107 C6, Step 1; ADR-0133 §6) — chat furniture,
+       not a message bubble. Present whenever the session's brief stash is
+       active — a case or a written Watch Desk briefing; every turn briefs
+       Shirley from that row's live state. The container re-fetches its banner
+       on ``pf:brief-changed``, which a Watch Desk hand-off response triggers,
+       so a dock that is already open shows the new context. Dismiss POSTs to
+       clear the stash and empties this container (next turn unbriefed).
        Mirrors the C5 capture chip's tone. #}
-    <div id="chat-brief-banner">
-        {% if brief_banner %}
-            <div class="chat-brief" role="status">
-                <span class="chat-brief__label">Consulting for</span>
-                <a class="chat-brief__case" href="{{ brief_banner.href }}">{{ brief_banner.badge }}</a>
-                <span class="chat-brief__title">{{ brief_banner.title }}</span>
-                <button type="button" class="chat-brief__dismiss"
-                        aria-label="Stop consulting for this case"
-                        hx-post="/chat/brief/dismiss"
-                        hx-target="#chat-brief-banner"
-                        hx-swap="innerHTML"
-                        hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Dismiss</button>
-            </div>
-        {% endif %}
+    <div id="chat-brief-banner"
+         hx-get="/chat/brief/banner"
+         hx-trigger="pf:brief-changed from:body"
+         hx-swap="innerHTML">
+        {% include "_partials/chat_brief_banner.html" %}
     </div>
 
     {# The empty-state partial renders synchronously on first paint so

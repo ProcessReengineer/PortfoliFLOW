@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Shirley case brief and the consultation pin (ADR-0107 C6).
+"""Tests for the Shirley case brief and the consultation pin (ADR-0107 C6),
+and for the Watch Desk briefing hand-off (ADR-0133 §6).
 
-ASGI-level tests over a live Postgres. Two surfaces are exercised:
+ASGI-level tests over a live Postgres. Three surfaces are exercised:
 
 * the **case brief** — a per-session stash the assistants surface sets from a
   ``?case=<id>`` marker, appended to Shirley's system prompt at the SSE call
@@ -11,7 +12,10 @@ ASGI-level tests over a live Postgres. Two surfaces are exercised:
   the system prompt it was handed, so the brief is observable without a live
   model;
 * the **consultation pin** — a completed assistant answer, curated and pinned to
-  a case as the third pin artifact class (``consultation``).
+  a case as the third pin artifact class (``consultation``);
+* the **briefing hand-off** — the same stash, generalised to a second kind: a
+  written Watch Desk briefing set by a CSRF-protected POST, bannered in the
+  dock, and appended to the prompt as its own fenced block (obligation 17).
 
 The Telegram surface is untouched: the brief and pin presume the web UI's banner
 and pin loop, so the boundary test asserts the briefless path still yields the
@@ -25,25 +29,37 @@ import re
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AsyncExitStack
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
+from core.repositories.irene_briefing_repository import IreneBriefingRepository
+from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.ai_models import ConnectionStatus, Message, MessageRole
 from services.ai_service_core import StreamEvent
+from services.irene.briefing_material import MATERIAL_VERSION
 from services.password_hashing import hash_password
 from web.main import create_app
+from web.routes.chat import (
+    BRIEF_KIND_CASE,
+    BRIEF_KIND_WATCH_BRIEFING,
+    ActiveBrief,
+    _active_case_id,
+    _set_active_brief,
+)
 from web.settings import WebSettings
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -955,3 +971,399 @@ async def test_a_successful_chart_pin_freezes_the_spec_and_renders_it(
     )
     assert "Chart pinned to" in again.text
     assert len(await _chart_pins(app_engine, actor_id, case_id)) == 2
+
+
+# ---------------------------------------------------------------------------
+# Watch Desk briefing hand-off (ADR-0133 §6, obligation 17)
+# ---------------------------------------------------------------------------
+
+_WATCH_OPEN = "<<<PORTFOLIFLOW WATCH DESK BRIEFING>>>"
+_WATCH_CLOSE = "<<<END PORTFOLIFLOW WATCH DESK BRIEFING>>>"
+_CASE_OPEN = "<<<PORTFOLIFLOW CASE BRIEF>>>"
+_BEAT_AT = datetime(2026, 10, 7, 6, 2, tzinfo=UTC)
+_TEXT_MARKETS = "Listed equities are down 1.8 % over five days; USD/EUR is flat on the week."
+_TEXT_WATCH = "All nine AnlV quotas are calm; SAA real estate is approaching its ceiling."
+
+#: Version-1 material in the shape ``services.irene.briefing_material``
+#: composes: one instrument figure, one limit subject, one macro cluster, and
+#: Currency moves switched off at the check (``families_on`` without ``fx``).
+_MATERIAL: dict[str, Any] = {
+    "version": MATERIAL_VERSION,
+    "check_at": "2026-10-07T06:02:00+00:00",
+    "markets": {
+        "as_of": "2026-10-07",
+        "window_start": "2026-10-02",
+        "window_days": 5,
+        "instruments": [
+            {
+                "id": "price:msci-world",
+                "label": "MSCI World ETF",
+                "value": "-1.8",
+                "unit": "pct",
+                "as_of": "2026-10-07",
+                "window_start": "2026-10-02",
+                "window_days": 5,
+                "source": "instrument_prices",
+            }
+        ],
+        "asset_classes": [],
+        "currencies": [],
+        "press_clusters": [
+            {
+                "id": "rss:macro:2026-10-07",
+                "tag": "macro",
+                "day": "2026-10-07",
+                "source": "rss",
+                "items": [
+                    {
+                        "title": "Spreads widen in high yield",
+                        "source": "FT",
+                        "url": "https://example.com/spreads",
+                        "published_at": "2026-10-07T05:00:00+00:00",
+                    }
+                ],
+            }
+        ],
+    },
+    "watch": {
+        "families_on": ["saa", "anlv", "rss", "price", "freshness", "liquidity"],
+        "evaluated_at": "2026-10-07T06:02:00+00:00",
+        "limits": [
+            {
+                "family": "anlv",
+                "as_of": "2026-09-30",
+                "subjects": [
+                    {
+                        "id": "anlv:real_estate",
+                        "label": "real_estate",
+                        "family": "anlv",
+                        "value": "18.9",
+                        "unit": "pct",
+                        "max_pct": "25",
+                        "utilisation_pct": "75.6",
+                        "warn_threshold_pct": "90",
+                        "status": "OK",
+                        "muted": False,
+                        "as_of": "2026-09-30",
+                        "source": "limit_coverage",
+                    }
+                ],
+            }
+        ],
+        "signals": [],
+        "findings_this_check": [],
+        "open_findings": {
+            "saa": 0,
+            "anlv": 0,
+            "rss": 0,
+            "price": 0,
+            "freshness": 0,
+            "liquidity": 0,
+        },
+        "press_tags": [{"tag": "macro", "muted": False}],
+    },
+}
+
+
+async def _seed_briefing(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    *,
+    status: str = "written",
+    beat_at: datetime = _BEAT_AT,
+    inputs: dict[str, Any] | None = None,
+    finding_ids: list[UUID] | None = None,
+    text_watch: str = _TEXT_WATCH,
+) -> UUID:
+    """Append one briefing row for the primary tenant through the repository."""
+    written = status == "written"
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        row = await IreneBriefingRepository(session).append(
+            beat_at=beat_at,
+            written_at=beat_at + timedelta(seconds=30),
+            status=status,
+            skip_reason=None if written else "nothing_to_write",
+            text_markets=_TEXT_MARKETS if written else None,
+            text_watch=text_watch if written else None,
+            inputs=inputs if inputs is not None else _MATERIAL,
+            finding_ids=finding_ids or [],
+            model_id="test-writer" if written else None,
+        )
+        return row.id
+
+
+async def _seed_finding(app_engine: AsyncEngine, user_id: UUID) -> UUID:
+    """Append one open noteworthy finding through the repository under RLS."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        finding = await IreneFindingRepository(session).append(
+            subject_key="anlv:real_estate",
+            payload={"trigger": "Approaching", "finding": "Near the quota.", "basis": "92%."},
+            urgency=5,
+            band="noteworthy",
+        )
+        return finding.id
+
+
+async def _seed_foreign_briefing(fresh_superuser_engine: AsyncEngine) -> UUID:
+    """A second tenant with one written briefing of its own, by SQL.
+
+    Seeded as superuser: under RLS the primary tenant has no view of it, so
+    its id must read as unknown to the hand-off.
+    """
+    other_tenant = uuid4()
+    briefing_id = uuid4()
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO tenants (id, name, subdomain) VALUES (:id, 'Other', 'other-tenant')"),
+            {"id": str(other_tenant)},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO irene_briefing
+                    (id, tenant_id, beat_at, written_at, status, text_markets,
+                     text_watch, inputs, finding_ids, model_id)
+                VALUES
+                    (:id, :tid, :beat_at, :written_at, 'written', 'theirs',
+                     'theirs', '{}'::jsonb, '{}'::uuid[], 'test-writer')
+                """
+            ),
+            {
+                "id": str(briefing_id),
+                "tid": str(other_tenant),
+                "beat_at": _BEAT_AT,
+                "written_at": _BEAT_AT + timedelta(seconds=30),
+            },
+        )
+    return briefing_id
+
+
+async def _hand_off(client: AsyncClient, csrf: str, marker: str) -> Any:
+    """POST the Discuss action for ``marker`` and return the response."""
+    return await client.post(
+        f"/chat/brief/watch-briefing/{marker}",
+        data={"csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+
+async def test_a_written_briefing_sets_the_stash_opens_the_dock_and_briefs_the_turn(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """Obligation 17: stash + banner + trigger, and the block beneath the base prompt."""
+    actor_id, email, password = seeded_user
+    finding_id = await _seed_finding(app_engine, actor_id)
+    briefing_id = await _seed_briefing(app_engine, actor_id, finding_ids=[finding_id])
+
+    msg = Message(role=MessageRole.ASSISTANT, content="Understood.")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+
+    handed = await _hand_off(client, csrf, str(briefing_id))
+    assert handed.status_code == 200, handed.text
+    assert handed.headers["HX-Trigger"] == "pf:brief-changed, pf:shirley-dock"
+    # The action answers with itself — a quiet swap in place.
+    assert f'data-pf-discuss-briefing="{briefing_id}"' in handed.text
+    assert f'hx-post="/chat/brief/watch-briefing/{briefing_id}"' in handed.text
+    assert "Discuss briefing with Shirley" in handed.text
+
+    # The banner names the check — persona-free — and links to the Journal.
+    # No schedule row here, so the stamp is the UTC fallback with its suffix.
+    dock = await client.get("/chat/dock")
+    assert 'data-brief-kind="watch_briefing"' in dock.text
+    assert "Discussing" in dock.text
+    assert "the briefing of Wed 07 Oct 2026 06:02 UTC" in dock.text
+    assert 'href="/watch-desk#journal"' in dock.text
+    assert "Consulting for" not in dock.text
+    assert "Irene" not in dock.text
+    banner = await client.get("/chat/brief/banner")
+    assert banner.status_code == 200
+    assert "the briefing of Wed 07 Oct 2026 06:02 UTC" in banner.text
+    assert "Dismiss" in banner.text
+
+    # The turn: the base prompt byte-identical, the block beneath it.
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert briefed.startswith(f"BASE\n\n{_WATCH_OPEN}\n")
+    assert briefed.endswith(_WATCH_CLOSE)
+    assert _CASE_OPEN not in briefed
+    lines = briefed.removeprefix("BASE\n\n").splitlines()
+    lead = lines[1]
+    assert "written by Irene, the Watch Desk's background analyst" in lead
+    assert "at the check of 2026-10-07T06:02:00+00:00" in lead
+    assert "which is the check's figure and which is today's" in lead
+    assert (
+        "Check: 2026-10-07T06:02:00+00:00 (briefing written 2026-10-07T06:02:30+00:00, "
+        "model test-writer)"
+    ) in lines
+    assert f"Markets and press: {_TEXT_MARKETS}" in lines
+    assert f"Under observation: {_TEXT_WATCH}" in lines
+    assert (
+        "  - MSCI World ETF: -1.8 pct, 5-day window from 2026-10-02, as of 2026-10-07, "
+        "source instrument_prices"
+    ) in lines
+    assert (
+        "  - real_estate (anlv): 18.9 pct, ceiling 25 pct, utilisation 75.6 pct, status OK, "
+        "as of 2026-09-30, source limit_coverage"
+    ) in lines
+    assert (
+        '  - macro cluster of 2026-10-07: "Spreads widen in high yield" '
+        "(FT, https://example.com/spreads)"
+    ) in lines
+    assert (
+        "Watch points switched off at that check: Currency moves (fx) — the check did not "
+        "evaluate them; never claim it watched them."
+    ) in lines
+    assert "Findings of that check:" in lines
+    assert (
+        "  - noteworthy · anlv:real_estate — Approaching — Near the quota. — resolution now: open"
+    ) in lines
+
+
+async def test_a_skipped_unknown_foreign_or_malformed_id_sets_nothing(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Dropped silently: 200, no trigger, no banner, the turn runs on the base prompt."""
+    actor_id, email, password = seeded_user
+    skipped_id = await _seed_briefing(app_engine, actor_id, status="skipped")
+    foreign_id = await _seed_foreign_briefing(fresh_superuser_engine)
+
+    msg = Message(role=MessageRole.ASSISTANT, content="ok")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+
+    for marker in (str(skipped_id), str(uuid4()), str(foreign_id), "not-a-uuid"):
+        handed = await _hand_off(client, csrf, marker)
+        assert handed.status_code == 200, marker
+        assert "HX-Trigger" not in handed.headers, marker
+        assert f'data-pf-discuss-briefing="{marker}"' in handed.text, marker
+        dock = await client.get("/chat/dock")
+        assert "Discussing" not in dock.text, marker
+        await _drive_turn(client, csrf)
+        assert core.last_system_prompt == "BASE", marker
+
+    # CSRF is enforced: without the token nothing is set.
+    written_id = await _seed_briefing(app_engine, actor_id, beat_at=_BEAT_AT + timedelta(hours=6))
+    refused = await client.post(
+        f"/chat/brief/watch-briefing/{written_id}", data={"comment": "no token"}
+    )
+    assert refused.status_code == 403
+    dock = await client.get("/chat/dock")
+    assert "Discussing" not in dock.text
+
+
+async def test_a_briefing_replaces_a_case_and_a_case_replaces_a_briefing_and_dismiss_clears(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """One active context per session, whichever kind came last; dismiss clears either."""
+    actor_id, email, password = seeded_user
+    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="Alpha")
+    briefing_id = await _seed_briefing(app_engine, actor_id)
+
+    msg = Message(role=MessageRole.ASSISTANT, content="ok")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+
+    await client.get(f"/assistants?case={case_id}")
+    dock = await client.get("/chat/dock")
+    assert "Consulting for" in dock.text and f"CASE-{case_number:04d}" in dock.text
+
+    # The briefing replaces the case.
+    handed = await _hand_off(client, csrf, str(briefing_id))
+    assert handed.headers["HX-Trigger"] == "pf:brief-changed, pf:shirley-dock"
+    dock = await client.get("/chat/dock")
+    assert "Discussing" in dock.text
+    assert "Consulting for" not in dock.text
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert _WATCH_OPEN in briefed and _CASE_OPEN not in briefed
+
+    # The case replaces the briefing.
+    await client.get(f"/assistants?case={case_id}")
+    dock = await client.get("/chat/dock")
+    assert "Consulting for" in dock.text
+    assert "Discussing" not in dock.text
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert _CASE_OPEN in briefed and _WATCH_OPEN not in briefed
+
+    # Dismiss clears whichever is active.
+    await _hand_off(client, csrf, str(briefing_id))
+    dismissed = await client.post("/chat/brief/dismiss", data={"csrf_token": csrf})
+    assert dismissed.status_code == 200 and dismissed.text.strip() == ""
+    dock = await client.get("/chat/dock")
+    assert "Discussing" not in dock.text and "Consulting for" not in dock.text
+    await _drive_turn(client, csrf)
+    assert core.last_system_prompt == "BASE"
+
+
+async def test_a_vanished_briefing_stash_clears_and_runs_unbriefed(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """A row that vanished behind the stash's back clears it; the turn is plain."""
+    actor_id, email, password = seeded_user
+    briefing_id = await _seed_briefing(app_engine, actor_id)
+
+    msg = Message(role=MessageRole.ASSISTANT, content="ok")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+    await _hand_off(client, csrf, str(briefing_id))
+
+    async with fresh_superuser_engine.begin() as conn:  # vanished behind its back
+        await conn.execute(
+            text("DELETE FROM irene_briefing WHERE id = :id"), {"id": str(briefing_id)}
+        )
+    await _drive_turn(client, csrf)
+    assert core.last_system_prompt == "BASE"
+    dock = await client.get("/chat/dock")
+    assert "Discussing" not in dock.text
+
+
+async def test_an_unknown_material_version_is_handed_over_as_persisted_json(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """Forward safety: a material shape this build does not know is quoted, not guessed."""
+    actor_id, email, password = seeded_user
+    future = MATERIAL_VERSION + 1
+    briefing_id = await _seed_briefing(
+        app_engine, actor_id, inputs={"version": future, "shape": "future"}, text_watch=""
+    )
+
+    msg = Message(role=MessageRole.ASSISTANT, content="ok")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+    await _hand_off(client, csrf, str(briefing_id))
+    await _drive_turn(client, csrf)
+    lines = (core.last_system_prompt or "").splitlines()
+
+    assert "Under observation: (empty — no watch point was switched on at that check)" in lines
+    assert (
+        f"Material of that check (version {future}, a shape this build does not know), "
+        "as persisted:"
+    ) in lines
+    assert f'  {{"shape": "future", "version": {future}}}' in lines
+    assert "Watch points switched off at that check: not stated in this material version." in lines
+    assert "Findings of that check: none" in lines
+
+
+def test_a_briefing_stash_preselects_no_case_in_the_pin_dialogs() -> None:
+    """``_active_case_id`` answers the pin dialogs: a case id, or nothing for a briefing."""
+    request = cast(Request, SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())))
+    case_id = uuid4()
+    _set_active_brief(request, "session-a", ActiveBrief(BRIEF_KIND_CASE, case_id))
+    assert _active_case_id(request, "session-a") == case_id
+    _set_active_brief(request, "session-a", ActiveBrief(BRIEF_KIND_WATCH_BRIEFING, uuid4()))
+    assert _active_case_id(request, "session-a") is None
+    assert _active_case_id(request, "session-b") is None

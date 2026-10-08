@@ -1,0 +1,25 @@
+{# "Discuss briefing with Shirley" (ADR-0133 §6, D-WD-23) — the in-place
+   hand-off of one written briefing. Included beneath the latest written
+   briefing (watch_desk_briefing_latest.html) and on every written check
+   row of the Journal (watch_desk_journal_days.html); a pending or skipped
+   check offers nothing — there is nothing to discuss.
+
+   The form posts to the chat surface, which sets the session's consultation
+   stash and answers with this same form (a quiet swap in place) plus, when
+   the id resolved to a written row, an HX-Trigger that opens Shirley's dock
+   and refreshes its banner; a dropped id re-renders without either. Nothing
+   is written anywhere. Members and owners alike.
+
+   D-WD-25 STOP-GAP for UX strand A-6: the button is the component
+   vocabulary's pf-btn (AGENTS.md, UI rules), not a new class; A-6 places it
+   on M-WD-1. UI-023: the copy names Shirley, the user-facing assistant,
+   never the Watch Desk's writer.
+
+   Context: briefing_id, csrf_token. #}
+<form data-pf-discuss-briefing="{{ briefing_id }}"
+      hx-post="/chat/brief/watch-briefing/{{ briefing_id }}"
+      hx-target="this"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="pf-btn pf-btn--sm">Discuss briefing with Shirley</button>
+</form>

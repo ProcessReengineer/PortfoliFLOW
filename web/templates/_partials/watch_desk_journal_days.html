@@ -5,14 +5,17 @@
    finding and case rows keep their existing anatomy; the briefing row is
    the third kind in the same table: "Check at HH:MM · n findings raised"
    or "· nothing material", the bands of the findings it raised, and the
-   written briefing behind a disclosure. UI-023: no persona is named.
+   written briefing behind a disclosure, with the "Discuss briefing with
+   Shirley" action beneath it (ADR-0133 §6, watch_desk_discuss_action.html;
+   written rows only — a skipped check offers nothing). UI-023: no persona
+   is named.
 
    Returned standalone for a page with ``before``: the "older entries" link
    swaps itself (outerHTML) with the next fragment, so older days append
    beneath the ones already shown. Only the first page opens its first day.
 
    Context: days (date, label, count_label, rows), first_page, empty_text,
-   older_url. #}
+   older_url, csrf_token. #}
 {% for day in days %}
     <details class="pf-dc-collapse pf-dc-journal__day" data-day="{{ day.date.isoformat() }}"{% if first_page and loop.first %} open{% endif %}>
         <summary>{{ day.label }} · {{ day.count_label }}</summary>
@@ -77,6 +80,10 @@
                                             <p><strong>Under observation.</strong> {{ entry.text_watch }}</p>
                                         {% endif %}
                                     </details>
+                                    {# The in-place hand-off (ADR-0133 §6). #}
+                                    {% with briefing_id = entry.id %}
+                                        {% include "_partials/watch_desk_discuss_action.html" %}
+                                    {% endwith %}
                                 {% endif %}
                             </td>
                             <td>

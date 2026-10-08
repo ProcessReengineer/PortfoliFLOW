@@ -23,8 +23,12 @@
      3. The watch strip — one chip per family the monitor renders, stated
         off the monitor context with the render stamp; no second
         observation.
+   Beneath a written briefing sits the "Discuss briefing with Shirley"
+   action (ADR-0133 §6, watch_desk_discuss_action.html); the pending
+   state offers none.
 
-   Context (see _briefing_context): briefing, family_notes, watch_strip. #}
+   Context (see _briefing_context): briefing, family_notes, watch_strip,
+   csrf_token. #}
 <section id="dc-briefing-latest" class="pf-dc-tile" aria-label="Latest briefing">
     <span class="pf-dc-tile__label">Latest briefing</span>
     {% if briefing.state == 'written' %}
@@ -49,6 +53,10 @@
                 <p class="pf-dc-tile__sub">Written at each check; the figures come from the check, never from the text.</p>
             </details>
         {% endif %}
+        {# The in-place hand-off (ADR-0133 §6) — written briefings only. #}
+        {% with briefing_id = briefing.id %}
+            {% include "_partials/watch_desk_discuss_action.html" %}
+        {% endwith %}
     {% else %}
         <p id="dc-briefing-pending" class="pf-dc-tile__sub">Briefing pending</p>
     {% endif %}

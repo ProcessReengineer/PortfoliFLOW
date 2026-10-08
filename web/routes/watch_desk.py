@@ -35,7 +35,9 @@ Endpoints
 * ``GET  /api/watch-desk/journal`` — read-only history in three kinds by
   day (ADR-0133 §5): resolved findings, closed cases and every check as
   a briefing row; server-side filters ``kind`` / ``period`` / ``family``;
-  pages by instant through ``before``, older days on demand.
+  pages by instant through ``before``, older days on demand. A written
+  check row carries the "Discuss briefing with Shirley" action (ADR-0133
+  §6), which posts to ``web/routes/chat.py`` and writes nothing here.
 * ``GET  /api/watch-desk/calibration`` — the tuning surface: the tenant
   calibration editor (ADR-0116 §7), the watchpoint list, and the cadence
   settings panel.
@@ -2147,7 +2149,10 @@ async def get_journal(
     next, older page alone as the fragment the "older entries" link swaps
     itself with. The fixed ``limit=100`` per source is gone.
 
-    Read-only by contract (ADR-0089): no action buttons.
+    Read-only on its entries (ADR-0089): no resolve or case action. The one
+    action on the page is the in-place hand-off of a written check to
+    Shirley (ADR-0133 §6), rendered beneath the briefing row; it posts to
+    the chat surface and writes nothing.
     """
     if kind not in {key for key, _ in _JOURNAL_KINDS}:
         kind = "all"
@@ -2174,15 +2179,20 @@ async def get_journal(
             first_page=first_page,
         )
 
+    # The Discuss action on a written check row posts with the session's CSRF
+    # token (ADR-0133 §6); every page of the fragment carries it.
     if not first_page:
         return cast(
             HTMLResponse,
             _templates(request).TemplateResponse(
-                request, "_partials/watch_desk_journal_days.html", page
+                request,
+                "_partials/watch_desk_journal_days.html",
+                {**page, "csrf_token": session.csrf_token},
             ),
         )
     context: dict[str, Any] = {
         **page,
+        "csrf_token": session.csrf_token,
         "journal_kind": kind,
         "journal_period": period,
         "journal_family": selected_family or "",

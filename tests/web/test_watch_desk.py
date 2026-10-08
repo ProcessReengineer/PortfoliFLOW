@@ -5009,3 +5009,108 @@ async def test_journal_ignores_unusable_filters(
     assert '<option value="30d" selected>Last 30 days</option>' in body
     assert '<option value="" selected>Any</option>' in body
     assert 'data-row-type="briefing"' in body
+
+
+# ---------------------------------------------------------------------------
+# Discuss briefing with Shirley (ADR-0133 §6) — the two render sites
+# ---------------------------------------------------------------------------
+
+
+def _discuss_forms(body: str) -> list[str]:
+    """Return the briefing ids the page's Discuss actions carry, in render order."""
+    return re.findall(r'data-pf-discuss-briefing="([^"]+)"', body)
+
+
+async def test_the_briefing_view_offers_discuss_beneath_a_written_briefing_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """The action sits beneath the newest written briefing; pending offers none."""
+    user_id, email, password = seeded_user
+    await _login(web_client, email, password)
+
+    # No row: pending, no action.
+    body = _flat((await web_client.get("/api/watch-desk/briefing")).text)
+    assert 'id="dc-briefing-pending"' in body
+    assert _discuss_forms(body) == []
+    assert "Discuss briefing with Shirley" not in body
+
+    written_id = await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 6, 2, tzinfo=timezone.utc),
+    )
+    body = _flat((await web_client.get("/api/watch-desk/briefing")).text)
+    assert _discuss_forms(body) == [str(written_id)]
+    assert f'hx-post="/chat/brief/watch-briefing/{written_id}"' in body
+    assert "Discuss briefing with Shirley" in body
+    # The component vocabulary's button (AGENTS.md UI rules), not a new class.
+    assert 'class="pf-btn pf-btn--sm"' in body
+    # UI-023 holds on the action too: it names Shirley, never the writer.
+    assert "Irene" not in body
+    # The action travels inside the latest-briefing block, above the strip.
+    assert body.index("data-pf-discuss-briefing") < body.index('id="dc-watch-strip"')
+    assert body.index('id="dc-briefing-latest"') < body.index("data-pf-discuss-briefing")
+
+    # A skipped newest row reads pending and offers nothing — the older
+    # written row is not offered in its place either (ADR-0133 §1.4).
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=datetime(2026, 10, 7, 12, 2, tzinfo=timezone.utc),
+        status="skipped",
+        skip_reason="llm_error",
+    )
+    body = _flat((await web_client.get("/api/watch-desk/briefing")).text)
+    assert 'id="dc-briefing-pending"' in body
+    assert _discuss_forms(body) == []
+
+
+async def test_journal_offers_discuss_on_written_check_rows_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Written check rows carry the action, skipped ones do not — on every page."""
+    user_id, email, password = seeded_user
+    now = datetime.now(timezone.utc)
+    written_id = await _seed_briefing(
+        fresh_superuser_engine, user_id, beat_at=now - timedelta(hours=2)
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=now - timedelta(hours=5),
+        status="skipped",
+        skip_reason="nothing_to_write",
+    )
+    older_id = await _seed_briefing(
+        fresh_superuser_engine, user_id, beat_at=now - timedelta(days=3, hours=2)
+    )
+    await _login(web_client, email, password)
+
+    body = _flat((await web_client.get("/api/watch-desk/journal")).text)
+    assert body.count('data-row-type="briefing"') == 3
+    assert _discuss_forms(body) == [str(written_id), str(older_id)]
+    assert f'hx-post="/chat/brief/watch-briefing/{written_id}"' in body
+    assert "Discuss briefing with Shirley" in body
+    # The form carries the session's token; the action posts to the chat
+    # surface and writes nothing here.
+    assert re.search(r'name="csrf_token" value="[^"]+"', body) is not None
+    # The Journal's read-only pins hold: no Watch Desk action button, no
+    # resolve form, no persona.
+    assert "pf-dc-btn" not in body
+    assert "/resolve" not in body
+    assert "Irene" not in body
+
+    # An older page fetched alone carries the action and the token too.
+    cut = quote((now - timedelta(days=1)).isoformat())
+    older = await web_client.get(
+        f"/api/watch-desk/journal?kind=all&period=30d&family=&before={cut}"
+    )
+    assert older.status_code == 200
+    fragment = _flat(older.text)
+    assert 'id="dc-journal-filters"' not in fragment
+    assert _discuss_forms(fragment) == [str(older_id)]
+    assert re.search(r'name="csrf_token" value="[^"]+"', fragment) is not None

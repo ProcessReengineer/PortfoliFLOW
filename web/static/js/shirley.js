@@ -166,8 +166,6 @@
         }
     });
 
-    // The chat always lands in the dock host (that is where the fetch
-    // is); if the reader went straight to the stage, move it on arrival.
     document.body.addEventListener("htmx:afterSwap", function (event) {
         if (event.target && event.target.id === "dock-chat-host") {
             relocate(state());
@@ -177,6 +175,15 @@
                 input.focus();
             }
         }
+    });
+
+    // A surface can ask for the dock in place: a response carrying
+    // ``HX-Trigger: pf:shirley-dock`` (the Watch Desk's "Discuss briefing
+    // with Shirley" hand-off, ADR-0133 §6) fires the event on the
+    // requesting element; it bubbles here and opens the dock — the first
+    // open fetches the conversation, a later one just shows it.
+    document.body.addEventListener("pf:shirley-dock", function () {
+        setState("docked");
     });
 
     document.addEventListener("DOMContentLoaded", function () {

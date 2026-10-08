@@ -4362,3 +4362,386 @@ async def test_the_watch_strip_states_the_monitors_own_badges(
     assert 'data-family="rss"' not in strip
     # The chip restates the monitor's badge, which is still rendered below.
     assert body.count("1 WARN") >= 2
+
+
+# ---------------------------------------------------------------------------
+# Watch points — family rows, switch with the R7 confirmation, presets, owner
+# gates, the Sensitivity column (ADR-0133 §2.2–2.5, §3.3; P-WD-B13)
+# ---------------------------------------------------------------------------
+
+
+def _family_rows_section(body: str) -> str:
+    """Return the flattened Watch points section of a Calibration body."""
+    assert 'id="dc-family-rows"' in body, "the Watch points rows did not render"
+    return body.split('id="dc-family-rows"')[1].split("</section>")[0]
+
+
+def _family_row(section: str, family: str) -> str:
+    """Return one family's row (its cells, up to the row's end)."""
+    marker = f'data-family="{family}"'
+    assert marker in section, f"no row for {family}"
+    return section.split(marker)[1].split("</tr>")[0]
+
+
+async def _scope_rows(engine: AsyncEngine, family: str) -> list:
+    async with engine.connect() as conn:
+        return list(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT enabled, preset, changed_by FROM watch_family_scope "
+                        "WHERE family = :family ORDER BY effective_from"
+                    ),
+                    {"family": family},
+                )
+            ).all()
+        )
+
+
+async def _table_count(engine: AsyncEngine, table: str) -> int:
+    async with engine.connect() as conn:
+        return int((await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one())
+
+
+async def test_watch_points_rows_render_every_family_and_the_pacing_placeholder(
+    web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """Seven rows, all on, Standard shown; Press has no preset; pacing is a placeholder."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/calibration")
+    assert response.status_code == 200
+    section = _family_rows_section(_flat(response.text))
+
+    for family in ("saa", "anlv", "rss", "price", "fx", "freshness", "liquidity"):
+        assert f'data-family="{family}" data-enabled="on"' in section
+    assert "Allocation limits (SAA)" in section
+    assert "Stale valuations (NAV freshness)" in section
+    saa = _family_row(section, "saa")
+    assert "/api/watch-desk/families/saa/switch" in saa
+    assert (
+        'value="standard" class="pf-dc-sensitivity__open" aria-pressed="true">Standard</button>'
+        in saa
+    )
+    assert 'value="nervous" class="pf-dc-sensitivity__open" aria-pressed="false">Nervous' in saa
+    rss = _family_row(section, "rss")
+    assert "switch only" in rss
+    assert "/preset" not in rss
+    pacing = _family_row(section, "pacing")
+    assert "Plan pacing" in pacing
+    assert "not yet available" in pacing
+    assert "/switch" not in pacing
+    # UI-023 on the new rows, and no confirmation without a switch-off.
+    assert "Irene" not in section
+    assert 'id="dc-family-confirm"' not in section
+    assert "Watch points are managed by the tenant owner." not in section
+
+
+async def test_switching_off_asks_first_and_writes_nothing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """R7: the first post renders the confirmation with the open count; no row is written."""
+    _user_id, email, password = seeded_user
+    await _seed_finding(
+        fresh_superuser_engine,
+        subject_key="saa:equities",
+        payload=_card_payload(trigger="Breach", finding="Over the ceiling.", basis="104%."),
+        urgency=8,
+        band="critical",
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/families/saa/switch",
+        data={"enabled": "off"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    section = _family_rows_section(_flat(response.text))
+
+    assert 'id="dc-family-confirm"' in section
+    assert "Switch off Allocation limits (SAA)?" in section
+    assert "From the next check, Allocation limits (SAA) is no longer evaluated" in section
+    assert "1 open finding of this watch point stays open until you resolve it." in section
+    assert "The change is recorded with your name." in section
+    # No valued positions: the breach read says so rather than claiming calm.
+    assert "Current breaches could not be read" in section
+    assert "Back Office › Limits continues to show them." in section
+    # The switch is still on, and nothing was written.
+    assert 'data-family="saa" data-enabled="on"' in section
+    assert await _scope_rows(fresh_superuser_engine, "saa") == []
+    assert "Irene" not in section
+
+
+async def test_switching_off_names_the_current_breaches(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Equities at 24% of a 20% ceiling is a BREACH the confirmation names by class."""
+    user_id, email, password = seeded_user
+    await _seed_valued_universe(user_id, equities_max_pct=Decimal("20.0"))
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/families/saa/switch",
+        data={"enabled": "off"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    section = _family_rows_section(_flat(response.text))
+
+    assert "No finding of this watch point is open." in section
+    assert "1 current breach — equities — will no longer be raised here" in section
+    assert await _scope_rows(fresh_superuser_engine, "saa") == []
+
+    # The AnlV quota sits at 0%, so its confirmation names no breach.
+    anlv = await web_client.post(
+        "/api/watch-desk/families/anlv/switch",
+        data={"enabled": "off"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert anlv.status_code == 200
+    assert "No current breach." in _family_rows_section(_flat(anlv.text))
+
+
+async def test_a_confirmed_switch_off_writes_the_revision_and_the_standing_note(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Confirming writes one revision with the actor; the Briefing carries the note."""
+    user_id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/families/saa/switch",
+        data={"enabled": "off", "confirm": "yes"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    section = _family_rows_section(_flat(response.text))
+    assert 'data-family="saa" data-enabled="off"' in section
+    assert 'id="dc-family-confirm"' not in section
+
+    rows = await _scope_rows(fresh_superuser_engine, "saa")
+    assert len(rows) == 1
+    assert rows[0].enabled is False
+    assert rows[0].preset is None
+    assert rows[0].changed_by == user_id
+
+    briefing = await web_client.get("/api/watch-desk/briefing")
+    body = _flat(briefing.text)
+    assert "Allocation limits (SAA) off since" in body
+    assert "dc-owner@example.com" in body.split('id="dc-family-notes"')[1].split("</div>")[0]
+
+
+async def test_switching_on_needs_no_confirmation_and_keep_writes_nothing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """On writes at once (ADR-0133 §2.5); posting the state in force is a no-op."""
+    user_id, email, password = seeded_user
+    await _switch_off(fresh_superuser_engine, user_id, "anlv")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    page = await web_client.get("/api/watch-desk/calibration")
+    assert 'data-family="anlv" data-enabled="off"' in _family_rows_section(_flat(page.text))
+
+    on = await web_client.post(
+        "/api/watch-desk/families/anlv/switch",
+        data={"enabled": "on"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert on.status_code == 200
+    section = _family_rows_section(_flat(on.text))
+    assert 'data-family="anlv" data-enabled="on"' in section
+    assert 'id="dc-family-confirm"' not in section
+    rows = await _scope_rows(fresh_superuser_engine, "anlv")
+    assert [row.enabled for row in rows] == [False, True]
+
+    # "Keep" posts enabled=on while the family is on: re-render, no revision.
+    keep = await web_client.post(
+        "/api/watch-desk/families/anlv/switch",
+        data={"enabled": "on"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert keep.status_code == 200
+    assert len(await _scope_rows(fresh_superuser_engine, "anlv")) == 2
+
+
+async def test_a_preset_round_trips_through_calibration_and_scope(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Nervous writes WARN 80 / delta 3 and a scope row; the row reads it back."""
+    user_id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        "/api/watch-desk/families/saa/preset",
+        data={"preset": "nervous"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    saa = _family_row(_family_rows_section(_flat(response.text)), "saa")
+    assert 'value="nervous" class="pf-dc-sensitivity__open" aria-pressed="true">Nervous' in saa
+    assert 'value="standard" class="pf-dc-sensitivity__open" aria-pressed="false">Standard' in saa
+    assert 'data-family="saa" data-enabled="on"' in _family_rows_section(_flat(response.text))
+
+    async with fresh_superuser_engine.connect() as conn:
+        calibration = (
+            await conn.execute(
+                text(
+                    "SELECT warn_pct_saa, re_trigger_delta_saa FROM floor_calibration "
+                    "ORDER BY effective_from DESC LIMIT 1"
+                )
+            )
+        ).first()
+    assert calibration is not None
+    assert Decimal(calibration.warn_pct_saa) == Decimal("80")
+    assert Decimal(calibration.re_trigger_delta_saa) == Decimal("3")
+    rows = await _scope_rows(fresh_superuser_engine, "saa")
+    assert len(rows) == 1
+    assert rows[0].enabled is True
+    assert rows[0].preset == "nervous"
+    assert rows[0].changed_by == user_id
+
+    # Back to Standard: the displayed preset follows the effective values.
+    back = await web_client.post(
+        "/api/watch-desk/families/saa/preset",
+        data={"preset": "standard"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert back.status_code == 200
+    saa = _family_row(_family_rows_section(_flat(back.text)), "saa")
+    assert 'value="standard" class="pf-dc-sensitivity__open" aria-pressed="true">Standard' in saa
+    assert await _table_count(fresh_superuser_engine, "floor_calibration") == 2
+
+
+async def test_preset_refusals_return_422_and_save_nothing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """``custom`` and a preset on Press coverage are refused inline; an unknown family is 404."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    custom = await web_client.post(
+        "/api/watch-desk/families/saa/preset",
+        data={"preset": "custom"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert custom.status_code == 422
+    section = _family_rows_section(_flat(custom.text))
+    assert "Nothing was saved." in section
+    assert 'data-family="saa" data-enabled="on"' in section
+
+    press = await web_client.post(
+        "/api/watch-desk/families/rss/preset",
+        data={"preset": "quiet"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert press.status_code == 422
+
+    unknown = await web_client.post(
+        "/api/watch-desk/families/pacing/switch",
+        data={"enabled": "off"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert unknown.status_code == 404
+
+    assert await _table_count(fresh_superuser_engine, "floor_calibration") == 0
+    assert await _table_count(fresh_superuser_engine, "watch_family_scope") == 0
+
+
+async def test_members_read_the_rows_but_cannot_switch_or_preset_while_mute_stays_open(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """D-WD-18, route half (obligation 12): refusal on switch and preset; mute open."""
+    email, password = await _seed_member(fresh_superuser_engine)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    page = await web_client.get("/api/watch-desk/calibration")
+    assert page.status_code == 200
+    section = _family_rows_section(_flat(page.text))
+    assert "Watch points are managed by the tenant owner." in section
+    assert "/api/watch-desk/families/" not in section
+    assert 'data-family="saa" data-enabled="on"' in section
+    assert "Standard" in _family_row(section, "saa")
+
+    switched = await web_client.post(
+        "/api/watch-desk/families/saa/switch",
+        data={"enabled": "off", "confirm": "yes"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert switched.status_code == 403
+    preset = await web_client.post(
+        "/api/watch-desk/families/saa/preset",
+        data={"preset": "quiet"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert preset.status_code == 403
+    assert await _table_count(fresh_superuser_engine, "watch_family_scope") == 0
+    assert await _table_count(fresh_superuser_engine, "floor_calibration") == 0
+
+    muted = await web_client.post(
+        "/api/watch-desk/watchpoints/overlay",
+        data={"subject_key": "rss:equities", "muted": "on"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert muted.status_code == 200
+
+
+async def test_the_sensitivity_column_shows_the_family_preset_or_custom(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """ADR-0133 §3.3: the family's preset without an override, Custom with one, — for Press."""
+    _id, email, password = seeded_user
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    await web_client.post(
+        "/api/watch-desk/watchpoints",
+        data={"family": "liquidity", "horizon_months": "12", "min_coverage_ratio": "1.2"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    await web_client.post(
+        "/api/watch-desk/watchpoints/overlay",
+        data={"subject_key": "saa:equities", "warn_threshold_pct": "75"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    await web_client.post(
+        "/api/watch-desk/watchpoints/overlay",
+        data={"subject_key": "rss:equities", "muted": "on"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    page = await web_client.get("/api/watch-desk/calibration")
+    assert page.status_code == 200
+    body = _flat(page.text)
+    watch_list = body.split('id="dc-watchpoint-list"')[1].split("</table>")[0]
+    assert '<th scope="col">Sensitivity</th>' in watch_list
+
+    liquidity = watch_list.split("liquidity:cash_coverage")[1].split("</tr>")[0]
+    assert "<td>Standard</td>" in liquidity
+    saa = watch_list.split("saa:equities")[1].split("</tr>")[0]
+    assert "<td>Custom</td>" in saa
+    rss = watch_list.split("rss:equities")[1].split("</tr>")[0]
+    assert "<td>—</td>" in rss

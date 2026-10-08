@@ -554,6 +554,7 @@ def test_the_family_switch_is_read_off_the_resolution_on_both_sides() -> None:
         family_status_module.read_family_status,
         family_status_module._signal_footer,
         watch_desk_route._briefing_context,
+        watch_desk_route._family_rows,
     )
     for entry in entries:
         assert "is_family_enabled(" in inspect.getsource(entry), (
@@ -604,3 +605,32 @@ def test_the_watch_strip_states_the_monitors_own_groups() -> None:
             f"the Watch Desk route holds {synthesis_seam!r}; the briefing is written "
             "by the check and read as a row, never generated on page load (ADR-0133 §1.5)."
         )
+
+
+def test_the_switch_off_confirmation_states_the_status_the_monitor_shows() -> None:
+    """The R7 confirmation's breaches come through the typed status (ADR-0133 §2.5).
+
+    The defect this forbids is a confirmation naming a breach the monitor
+    does not show — or missing one it does — because the route classified
+    coverage for itself. The confirmation reads ``read_family_status`` on
+    the resolution the request holds, counts open findings through the
+    one repository read, and holds no coverage or classification seam.
+    """
+    source = inspect.getsource(watch_desk_route._switch_off_confirmation)
+    assert "read_family_status(" in source
+    assert "count_open_by_family(" in source
+    for second_path in (
+        ".get_coverage(",
+        "classify_coverage_status(",
+        "observe_signal_families(",
+        "build_monitor(",
+        "resolve_watch_desk(",
+        "effective_revisions(",
+    ):
+        assert second_path not in source, (
+            f"the switch-off confirmation reaches for {second_path!r}; breaches arrive "
+            "through read_family_status on the request's resolution (ADR-0133 §2.5)."
+        )
+    assert vars(watch_desk_route).get("read_family_status") is (
+        family_status_module.read_family_status
+    )

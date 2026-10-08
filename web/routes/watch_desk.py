@@ -38,6 +38,12 @@ Endpoints
   calibration editor (ADR-0116 §7), the watchpoint list, and the cadence
   settings panel.
 * ``POST /api/watch-desk/calibration`` — save a calibration revision.
+* ``POST /api/watch-desk/families/{family}/switch`` — switch one watchpoint
+  family on or off (ADR-0133 §2.5; owner-only). Switching off is answered
+  with the R7 inline confirmation first and written on ``confirm``.
+* ``POST /api/watch-desk/families/{family}/preset`` — apply a sensitivity
+  preset to one family (ADR-0133 §3.3; owner-only): one calibration revision
+  and one scope revision through ``services.watch_desk.presets``.
 * ``GET/POST /api/watch-desk/watchpoints/overlay`` — the per-subject
   sensitivity drawer for the derived families (ADR-0116 §3).
 * ``GET  /api/watch-desk/watchpoints/new`` — the add form for one defined
@@ -91,10 +97,16 @@ from core.exceptions import (
     IreneResolutionInvalid,
     LimitSetNotEffective,
     MissingFxRateError,
+    WatchFamilyScopeInvalid,
     WatchpointInvalid,
     WatchpointNotFound,
 )
-from core.models.watchpoint import OVERLAY_FAMILIES, SINGLETON_FAMILIES
+from core.models.watch_family_scope import SCOPE_PRESETS
+from core.models.watchpoint import (
+    OVERLAY_FAMILIES,
+    SINGLETON_FAMILIES,
+    WATCHPOINT_FAMILIES,
+)
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.investment_identifier_repository import (
@@ -123,6 +135,7 @@ from core.repositories.floor_calibration_repository import (
 )
 from core.repositories.limits_repository import LimitsRepository
 from core.repositories.user_repository import UserDTO, UserRepository
+from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepository
 from core.repositories.watchpoint_repository import WatchpointDTO, WatchpointRepository
 from services.analytics.irene_floor import (
     BAND_CRITICAL,
@@ -150,11 +163,20 @@ from services.watch_desk.family_status import (
     _dom_id,
     _plural,
     build_monitor,
+    read_family_status,
 )
 from services.watch_desk.overlay import (
     SubjectOverlay,
     WatchDeskResolution,
     resolve_watch_desk,
+)
+from services.watch_desk.presets import (
+    CUSTOM,
+    PRESET_NERVOUS,
+    PRESET_QUIET,
+    PRESET_STANDARD,
+    apply_presets,
+    displayed_preset,
 )
 from services.watch_desk.seeding import (
     default_display_name,
@@ -308,6 +330,23 @@ _FAMILY_DISPLAY_NAMES: dict[str, str] = {
 # limit groups' ``ok`` and the signal groups' ``calm``. Every other modifier
 # — warn, breach, approaching, triggered, nodata — is stated on the chip.
 _CALM_MODIFIERS: frozenset[str] = frozenset({"ok", "calm"})
+
+# The preset vocabulary as the Watch points rows print it (ADR-0133 §3.2),
+# plus the never-stored fourth state the displayed preset falls back to.
+_PRESET_LABELS: dict[str, str] = {
+    PRESET_QUIET: "Quiet",
+    PRESET_STANDARD: "Standard",
+    PRESET_NERVOUS: "Nervous",
+    CUSTOM: "Custom",
+}
+
+# The display placeholder for the family that has no storable key yet
+# (ADR-0133 §2.2): shown, never switchable, never evaluated.
+_PACING_NAME: str = "Plan pacing"
+_PACING_NOTE: str = (
+    "Deviation from the commitment plan. Not available yet — follows the "
+    "Planning Desk's pacing engine."
+)
 
 # ---------------------------------------------------------------------------
 # Calibration editor vocabulary (ADR-0116 §7)
@@ -2120,6 +2159,312 @@ def _calibration_context(
     }
 
 
+# ---------------------------------------------------------------------------
+# Watch points — the seven family rows: switch, preset and the R7 switch-off
+# confirmation (ADR-0133 §2.2–2.5, §3.3; D-WD-17, D-WD-18). Route data for
+# the D-WD-25 stop-gap partial; A-6 restyles, nothing here is designed.
+# UI-023 holds: no persona is named in the rendered copy.
+# ---------------------------------------------------------------------------
+
+
+def _family_rows(
+    resolution: WatchDeskResolution,
+    *,
+    csrf_token: str,
+    owner: bool,
+    confirm: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Build the Watch points rows context — one row per family.
+
+    The switch state and the displayed preset are read off the resolution
+    the render already holds, the same object the beat resolves through, so
+    a row and the next check cannot disagree about what is on and how
+    nervously (ADR-0133 §2.3, §3.3). Press coverage carries a switch only;
+    Plan pacing is a display placeholder with no storable key (§2.2).
+
+    Args:
+        resolution: The tenant's resolution.
+        csrf_token: The session token the row forms post with.
+        owner: Whether the viewer may change the rows; a member reads them.
+        confirm: The R7 confirmation for one family, or ``None``.
+        error: A refusal to render above the rows, or ``None``.
+
+    Returns:
+        The ``_partials/watch_desk_family_rows.html`` context.
+    """
+    rows: list[dict[str, Any]] = []
+    for family in WATCHPOINT_FAMILIES:
+        preset = displayed_preset(resolution, family)
+        rows.append(
+            {
+                "family": family,
+                "name": _FAMILY_DISPLAY_NAMES[family],
+                "enabled": resolution.is_family_enabled(family),
+                "preset": preset,
+                "preset_label": _PRESET_LABELS[preset] if preset is not None else None,
+                "confirm": confirm if confirm is not None and confirm["family"] == family else None,
+            }
+        )
+    return {
+        "csrf_token": csrf_token,
+        "family_rows": rows,
+        "family_rows_owner": owner,
+        "family_rows_error": error,
+        "family_presets": [(key, _PRESET_LABELS[key]) for key in SCOPE_PRESETS],
+        "pacing_name": _PACING_NAME,
+        "pacing_note": _PACING_NOTE,
+    }
+
+
+async def _switch_off_confirmation(
+    db_session: AsyncSession,
+    *,
+    family: str,
+    resolution: WatchDeskResolution,
+    now: datetime,
+) -> dict[str, Any]:
+    """Assemble the R7 switch-off confirmation for one family (ADR-0133 §2.5).
+
+    Names what stops from the next check; the family's open findings (one
+    repository read, the family taken from the subject-key prefix), which
+    stay open until resolved; that the change is recorded with the actor's
+    name; and, for the two quota families, the current breaches — read
+    through the typed family status, so the confirmation states the status
+    the monitor shows and classifies nothing itself. Nothing is written.
+
+    Args:
+        db_session: The tenant-scoped session opened by the caller.
+        family: The family about to be switched off.
+        resolution: The resolution the request already holds.
+        now: The request instant; the status read's evaluation date.
+
+    Returns:
+        The ``confirm`` entry of one row: ``family``, ``lead``, ``lines``,
+        ``open_count`` and ``breaches`` (class keys; empty off the quota
+        families).
+    """
+    name = _FAMILY_DISPLAY_NAMES[family]
+    open_count = (await IreneFindingRepository(db_session).count_open_by_family())[family]
+    lines = [
+        f"From the next check, {name} is no longer evaluated, leaves the Briefing and the "
+        "briefing text, and raises no finding.",
+    ]
+    if open_count == 0:
+        lines.append("No finding of this watch point is open.")
+    elif open_count == 1:
+        lines.append("1 open finding of this watch point stays open until you resolve it.")
+    else:
+        lines.append(
+            f"{open_count} open findings of this watch point stay open until you resolve them."
+        )
+    lines.append("The change is recorded with your name.")
+
+    breaches: list[str] = []
+    if family in _LIMIT_FAMILIES:
+        family_status = await read_family_status(db_session, resolution=resolution, now=now)
+        subjects = next(
+            (group.subjects for group in family_status.limits if group.family == family), ()
+        )
+        breaches = [subject.class_key for subject in subjects if subject.status == "BREACH"]
+        if family_status.coverage_as_of is None:
+            lines.append(
+                "Current breaches could not be read — no valued positions. While the watch "
+                "point is off, breaches are no longer raised here; Back Office › Limits "
+                "continues to show them."
+            )
+        elif breaches:
+            lines.append(
+                f"{_plural(len(breaches), 'current breach')} — {', '.join(breaches)} — will no "
+                "longer be raised here; Back Office › Limits continues to show them."
+            )
+        else:
+            lines.append(
+                "No current breach. While the watch point is off, breaches are no longer "
+                "raised here; Back Office › Limits continues to show them."
+            )
+    return {
+        "family": family,
+        "lead": f"Switch off {name}?",
+        "lines": lines,
+        "open_count": open_count,
+        "breaches": breaches,
+    }
+
+
+def _family_rows_response(
+    request: Request,
+    context: dict[str, Any],
+    *,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    """Render the Watch points rows partial — the one swap target of its forms."""
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/watch_desk_family_rows.html",
+            context,
+            status_code=status_code,
+        ),
+    )
+
+
+@router.post(
+    "/api/watch-desk/families/{family}/switch",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def switch_family(
+    request: Request,
+    family: str,
+    enabled: str = Form(...),
+    confirm: str | None = Form(None),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Switch one family on or off; switching off asks first (ADR-0133 §2.5).
+
+    Owner-only (D-WD-18). ``enabled=on`` writes a revision at once;
+    ``enabled=off`` without ``confirm`` writes nothing and re-renders the
+    rows with the R7 confirmation for that family — the open-findings
+    count, the quota families' current breaches, and that the change is
+    recorded with the actor's name — and ``enabled=off`` with ``confirm``
+    writes the revision. Posting the state already in force writes nothing
+    and re-renders (that is what "Keep" posts). A refused revision renders
+    the rows with the reason and 422; nothing was saved.
+
+    The revision takes effect at the request instant and the rows are
+    re-rendered from a fresh resolution at that same instant, so the row
+    shows the switch the next check will read.
+    """
+    if family not in WATCHPOINT_FAMILIES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown watch point.")
+    if enabled not in ("on", "off"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="enabled must be 'on' or 'off'.",
+        )
+    wanted = enabled == "on"
+    engine = _engine(request)
+    now = _now()
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        resolution = await resolve_watch_desk(db_session, as_of=now)
+        if resolution.is_family_enabled(family) == wanted:
+            return _family_rows_response(
+                request, _family_rows(resolution, csrf_token=session.csrf_token, owner=True)
+            )
+        if not wanted and confirm is None:
+            confirmation = await _switch_off_confirmation(
+                db_session, family=family, resolution=resolution, now=now
+            )
+            return _family_rows_response(
+                request,
+                _family_rows(
+                    resolution, csrf_token=session.csrf_token, owner=True, confirm=confirmation
+                ),
+            )
+        try:
+            await WatchFamilyScopeRepository(db_session).insert_revision(
+                family=family,
+                effective_from=now,
+                enabled=wanted,
+                changed_by=session.user_id,
+            )
+        except WatchFamilyScopeInvalid as exc:
+            logger.info(
+                "watch-desk family switch: rejected (family=%s enabled=%s): %s",
+                family,
+                wanted,
+                exc.message,
+            )
+            return _family_rows_response(
+                request,
+                _family_rows(
+                    resolution, csrf_token=session.csrf_token, owner=True, error=exc.message
+                ),
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        resolution = await resolve_watch_desk(db_session, as_of=now)
+
+    logger.info(
+        "watch-desk family switch: tenant=%s user=%s family=%s enabled=%s effective_from=%s",
+        session.tenant_id,
+        session.user_id,
+        family,
+        wanted,
+        now.isoformat(),
+    )
+    return _family_rows_response(
+        request, _family_rows(resolution, csrf_token=session.csrf_token, owner=True)
+    )
+
+
+@router.post(
+    "/api/watch-desk/families/{family}/preset",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def apply_family_preset(
+    request: Request,
+    family: str,
+    preset: str = Form(...),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Apply a sensitivity preset to one family (ADR-0133 §3.3).
+
+    Owner-only (D-WD-18). One call to
+    :func:`services.watch_desk.presets.apply_presets` writes the calibration
+    revision and the scope revision together, at the request instant; the
+    rows are then re-rendered from a fresh resolution, so the pressed preset
+    is the one read back from the effective values, never the one posted.
+    A refusal — an unknown preset, ``custom``, a preset-less family, a
+    revision that does not advance — renders the rows with the reason and
+    422; ``apply_presets`` runs in its own savepoint, so nothing was saved.
+    """
+    if family not in WATCHPOINT_FAMILIES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown watch point.")
+    engine = _engine(request)
+    now = _now()
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        try:
+            await apply_presets(
+                db_session,
+                presets={family: preset},
+                actor=session.user_id,
+                effective_from=now,
+            )
+        except (WatchFamilyScopeInvalid, FloorCalibrationInvalid) as exc:
+            logger.info(
+                "watch-desk family preset: rejected (family=%s preset=%r): %s",
+                family,
+                preset,
+                exc.message,
+            )
+            resolution = await resolve_watch_desk(db_session, as_of=now)
+            return _family_rows_response(
+                request,
+                _family_rows(
+                    resolution, csrf_token=session.csrf_token, owner=True, error=exc.message
+                ),
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        resolution = await resolve_watch_desk(db_session, as_of=now)
+
+    logger.info(
+        "watch-desk family preset: tenant=%s user=%s family=%s preset=%s effective_from=%s",
+        session.tenant_id,
+        session.user_id,
+        family,
+        preset,
+        now.isoformat(),
+    )
+    return _family_rows_response(
+        request, _family_rows(resolution, csrf_token=session.csrf_token, owner=True)
+    )
+
+
 @router.get("/api/watch-desk/calibration", response_class=HTMLResponse)
 async def get_calibration(
     request: Request,
@@ -2160,7 +2505,7 @@ async def get_calibration(
         resolution = await resolve_watch_desk(db_session, as_of=now)
         calibration = await FloorCalibrationRepository(db_session).effective_calibration(now)
         watchpoint_list = await _watchpoint_list_context(
-            db_session, now=now, csrf_token=session.csrf_token
+            db_session, now=now, csrf_token=session.csrf_token, resolution=resolution
         )
 
     owner = user.has_role("owner")
@@ -2171,6 +2516,10 @@ async def get_calibration(
     )
     context["calibration_owner_only"] = not owner
     context.update(watchpoint_list)
+    # The Watch points rows (ADR-0133 §2.2–2.5): read by every role, changed
+    # by the owner alone (D-WD-18) — the partial renders forms only for the
+    # owner, and the two routes refuse everyone else.
+    context.update(_family_rows(resolution, csrf_token=session.csrf_token, owner=owner))
     context.update(_cadence_context(schedule, session.csrf_token))
     return cast(
         HTMLResponse,
@@ -2861,7 +3210,12 @@ async def _render_return(
             _templates(request).TemplateResponse(
                 request,
                 "_partials/watch_desk_watchpoint_list.html",
-                await _watchpoint_list_context(db_session, now=now, csrf_token=csrf_token),
+                await _watchpoint_list_context(
+                    db_session,
+                    now=now,
+                    csrf_token=csrf_token,
+                    resolution=await resolve_watch_desk(db_session, as_of=now),
+                ),
             ),
         )
     return cast(
@@ -2952,8 +3306,31 @@ def _parameter_summary(row: WatchpointDTO) -> str:
     return " · ".join(parts) if parts else "sensitivity only — follows the tenant defaults"
 
 
-def _watchpoint_row(row: WatchpointDTO, *, retired: bool) -> dict[str, Any]:
-    """Project one watchpoint identity into a Calibration list row."""
+def _subject_sensitivity(row: WatchpointDTO, resolution: WatchDeskResolution) -> str:
+    """State the Sensitivity cell of one watch-list row (ADR-0133 §3.3).
+
+    The family's displayed preset for a subject without an override, and
+    "Custom" for a subject that carries a WARN or re-trigger override of
+    its own — read off the row, which is the override (the list shows
+    registered identities, each the row its override lives on). A
+    preset-less family (``rss``) has no sensitivity to state.
+    """
+    preset = displayed_preset(resolution, row.family)
+    if preset is None:
+        return "—"
+    if row.warn_threshold_pct is not None or row.re_trigger_delta is not None:
+        return _PRESET_LABELS[CUSTOM]
+    return _PRESET_LABELS[preset]
+
+
+def _watchpoint_row(
+    row: WatchpointDTO, *, retired: bool, resolution: WatchDeskResolution
+) -> dict[str, Any]:
+    """Project one watchpoint identity into a Calibration list row.
+
+    ``resolution`` feeds the Sensitivity cell alone (ADR-0133 §3.3): the
+    family's displayed preset, or Custom for a row carrying an override.
+    """
     family_label = _DELTA_FAMILY_LABELS.get(row.family, row.family)
     return {
         "watchpoint_id": str(row.watchpoint_id),
@@ -2962,6 +3339,7 @@ def _watchpoint_row(row: WatchpointDTO, *, retired: bool) -> dict[str, Any]:
         "display_name": row.display_name,
         "subject_key": row.subject_key,
         "parameters": _parameter_summary(row),
+        "sensitivity": _subject_sensitivity(row, resolution),
         "muted": row.muted,
         "notes": row.notes or "",
         "effective_from": row.effective_from,
@@ -2985,6 +3363,7 @@ async def _watchpoint_list_context(
     *,
     now: datetime,
     csrf_token: str,
+    resolution: WatchDeskResolution,
     show_retired: bool = False,
 ) -> dict[str, Any]:
     """Build the Calibration section's watchpoint list (ADR-0116 §7).
@@ -3000,6 +3379,9 @@ async def _watchpoint_list_context(
         db_session: The tenant-scoped session opened by the caller.
         now: The instant the retired half is resolved at.
         csrf_token: The session token the row actions post with.
+        resolution: The tenant's resolution, for each row's Sensitivity
+            cell (ADR-0133 §3.3); the caller's own, or a fresh one after
+            a write.
         show_retired: Whether the retired list is expanded on render.
 
     Returns:
@@ -3023,8 +3405,10 @@ async def _watchpoint_list_context(
 
     return {
         "csrf_token": csrf_token,
-        "watchpoints": [_watchpoint_row(row, retired=False) for row in live],
-        "retired_watchpoints": [_watchpoint_row(row, retired=True) for row in retired_rows],
+        "watchpoints": [_watchpoint_row(row, retired=False, resolution=resolution) for row in live],
+        "retired_watchpoints": [
+            _watchpoint_row(row, retired=True, resolution=resolution) for row in retired_rows
+        ],
         "show_retired": show_retired,
     }
 
@@ -3472,7 +3856,11 @@ async def retire_watchpoint(
             return _watchpoint_error(request, exc.message)
 
         context = await _watchpoint_list_context(
-            db_session, now=now, csrf_token=session.csrf_token, show_retired=True
+            db_session,
+            now=now,
+            csrf_token=session.csrf_token,
+            resolution=await resolve_watch_desk(db_session, as_of=now),
+            show_retired=True,
         )
 
     logger.info(

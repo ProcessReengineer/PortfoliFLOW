@@ -17,6 +17,10 @@
    question "should I watch this" is answered by looking at what is already
    being watched — not by looking at a settings table.
 
+   The Sensitivity column (ADR-0133 §3.3) states the family's preset for a
+   row without an override and Custom for a row with one; Press rows have
+   none. D-WD-25: a minimal column, restyled by A-6.
+
    Context (via _watchpoint_list_context): csrf_token, watchpoints,
    retired_watchpoints, show_retired. #}
 <div id="dc-watchpoint-list" class="pf-dc-wplist">
@@ -35,6 +39,7 @@
                     <th scope="col">Family</th>
                     <th scope="col">Subject</th>
                     <th scope="col">Parameters</th>
+                    <th scope="col">Sensitivity</th>
                     <th scope="col">Muted</th>
                     <th scope="col">Actions</th>
                 </tr>
@@ -48,6 +53,7 @@
                             <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
                         </td>
                         <td>{{ row.parameters }}</td>
+                        <td>{{ row.sensitivity }}</td>
                         <td>
                             {% if row.muted %}
                                 <span class="tag tag--muted">muted</span>
@@ -87,7 +93,7 @@
                         </td>
                     </tr>
                     <tr class="pf-dc-sensitivity__slot">
-                        <td colspan="5" id="{{ row.slot_id }}"></td>
+                        <td colspan="6" id="{{ row.slot_id }}"></td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -111,6 +117,7 @@
                                 <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
                             </td>
                             <td>{{ row.parameters }}</td>
+                            <td>{{ row.sensitivity }}</td>
                             <td>
                                 <span class="tag tag--nodata">retired</span>
                             </td>
@@ -125,7 +132,7 @@
                             </td>
                         </tr>
                         <tr class="pf-dc-sensitivity__slot">
-                            <td colspan="5" id="{{ row.slot_id }}"></td>
+                            <td colspan="6" id="{{ row.slot_id }}"></td>
                         </tr>
                     {% endfor %}
                 </tbody>

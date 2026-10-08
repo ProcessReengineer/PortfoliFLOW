@@ -24,10 +24,16 @@
    rendered for every role — members may read this page and mute.
 
    Context: calibration_owner_only, the editor context (see
-   _calibration_context; owner only), the watchpoint list context (see
-   _watchpoint_list_context) and the cadence-panel context (see
+   _calibration_context; owner only), the Watch points rows context (see
+   _family_rows; ADR-0133, D-WD-25 stop-gap), the watchpoint list context
+   (see _watchpoint_list_context) and the cadence-panel context (see
    _cadence_context). #}
 <div class="pf-dc-calibration">
+    {# The Watch points rows sit first (ADR-0133 §2.2–2.5): what is watched
+       and how nervously, before the tuning beneath. D-WD-25 stop-gap
+       partial; A-6 restyles it on M-WD-1. #}
+    {% include "_partials/watch_desk_family_rows.html" %}
+
     <p class="pf-dc-calibration__note">
         What the beat considers material, for this tenant. Fields show the
         value in force; “default” means no override is stored, so a later

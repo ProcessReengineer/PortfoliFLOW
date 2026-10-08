@@ -12,6 +12,14 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 - `AGENTS.md`, the rules file for coding agents, and `docs/glossary.md`, the
   canonical glossary of project terms.
 - This changelog.
+- The Watch Desk writes a briefing at every check — markets and press against
+  the whole book, then what is under observation — kept with the check that
+  wrote it and shown on the Briefing with its sources. Watch points can be
+  switched on and off per family and set to a sensitivity preset (Quiet,
+  Standard, Nervous); switching a quota family off asks first and leaves a
+  standing note. The Journal lists every check, silent ones included, by day
+  with filters. "Discuss briefing with Shirley" hands a briefing to Shirley in
+  place.
 
 ### Changed
 

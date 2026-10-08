@@ -54,6 +54,7 @@ import re
 import services.analytics.irene_floor as irene_floor_module
 import services.analytics.signal_watch as signal_watch_module
 import services.irene.briefing_material as briefing_material_module
+import services.irene.briefing_step as briefing_step_module
 import services.irene.beat as beat_module
 import services.irene.internal_delta as internal_delta_module
 import services.irene.signal_delta as signal_delta_module
@@ -357,6 +358,42 @@ def test_the_briefing_material_reads_status_and_market_through_their_services() 
         "resolution"
     ]
     assert resolution.default is inspect.Parameter.empty
+
+
+def test_the_briefing_step_takes_the_beats_one_resolution() -> None:
+    """The briefing is written on the resolution the beat ran on (ADR-0133 §1.3).
+
+    The defect this forbids is a briefing written on a second resolution,
+    which could state a family the beat skipped: the step would read the
+    scope or the calibration afresh and brief a family the check never
+    evaluated. The step reaches the material through
+    ``gather_briefing_material`` alone, is handed the resolution with no
+    default to fall back on, performs none of the resolution, status,
+    market or observation reads itself, and is called from ``run_beat``.
+    """
+    source = inspect.getsource(briefing_step_module)
+    assert "gather_briefing_material(" in source, (
+        "the briefing step does not assemble its material through gather_briefing_material"
+    )
+    second_paths = (
+        "resolve_watch_desk(",
+        "effective_revisions(",
+        "read_family_status(",
+        "read_market(",
+        "observe_signal_families(",
+        "build_monitor(",
+    )
+    for second_path in second_paths:
+        assert second_path not in source, (
+            f"the briefing step performs {second_path!r}; it is handed the beat's "
+            "resolution and reads through the briefing material alone."
+        )
+
+    resolution = inspect.signature(briefing_step_module.run_briefing_step).parameters["resolution"]
+    assert resolution.default is inspect.Parameter.empty
+    assert "run_briefing_step(" in inspect.getsource(beat_module.run_beat), (
+        "run_beat no longer calls the briefing step on its one resolution"
+    )
 
 
 def test_the_producers_are_called_from_the_observation_layer_alone() -> None:

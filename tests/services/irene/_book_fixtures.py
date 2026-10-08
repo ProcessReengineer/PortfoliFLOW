@@ -84,6 +84,10 @@ class SurfacingCore:
         """Return a stand-in system prompt."""
         return "You are Irene."
 
+    def get_briefing_prompt(self) -> str:
+        """Return a stand-in briefing prompt."""
+        return "You are Irene, writing the briefing."
+
     async def run_synthesis(self, **kwargs: Any) -> SynthesisResult:
         """Surface one finding per configured subject key."""
         self.calls.append(kwargs)

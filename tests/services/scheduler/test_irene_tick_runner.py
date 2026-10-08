@@ -384,6 +384,33 @@ async def test_beat_error_does_not_advance_schedule(monkeypatch: Any) -> None:
     assert (summary.beaten, summary.errors) == (0, 1)
 
 
+async def test_a_skipped_briefing_still_advances_the_schedule_and_is_logged(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    """A skipped briefing is no beat error (ADR-0133 §1.4): the schedule advances."""
+    due = _due(1)
+    results = {
+        due[0].tenant_id: BeatResult(
+            tenant_id=due[0].tenant_id,
+            findings_written=0,
+            silence=True,
+            error=None,
+            briefing_status="skipped",
+        )
+    }
+    rec = _install(monkeypatch, due=due, beat_results=results)
+    with caplog.at_level(logging.INFO, logger="portfoliflow.scheduler"):
+        summary = await _tick(rec)
+
+    assert rec.marks == [due[0].schedule_id]
+    assert (summary.beaten, summary.errors) == (1, 0)
+    assert any(
+        r.levelno == logging.INFO and "briefing=skipped" in r.getMessage()
+        for r in caplog.records
+        if r.name == "portfoliflow.scheduler"
+    )
+
+
 async def test_tenant_failure_is_isolated_and_does_not_fail_the_tick(
     monkeypatch: Any,
 ) -> None:

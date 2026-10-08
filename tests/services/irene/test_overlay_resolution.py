@@ -95,6 +95,9 @@ class _SilentCore:
     def get_system_prompt(self, prompt_name: str = "irene") -> str:
         return "You are Irene."
 
+    def get_briefing_prompt(self) -> str:
+        return "You are Irene, writing the briefing."
+
     async def run_synthesis(self, **_kwargs: Any) -> SynthesisResult:
         return SynthesisResult(tool_calls=[], raw_text="")
 

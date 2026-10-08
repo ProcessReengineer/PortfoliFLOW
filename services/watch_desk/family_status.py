@@ -1347,8 +1347,8 @@ async def read_family_status(
     The briefing writer's Part 2 material (ADR-0133 §1.2): the same
     observation step and the same classifying helpers the monitor renders
     from, so the briefing cannot state a status the watch strip does not
-    show. No production caller yet; the briefing-material assembler is the
-    first.
+    show. Its production caller is the briefing material
+    (:mod:`services.irene.briefing_material`).
 
     It takes no findings, schedule or labels and reads no watch-state: notes,
     fired anchors, DOM ids, badges, fills and labels stay the monitor's

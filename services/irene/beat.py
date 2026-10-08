@@ -58,7 +58,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import FloorCalibrationInvalid
-from core.repositories.irene_finding_repository import IreneFindingRepository
+from core.repositories.irene_finding_repository import IreneFindingDTO, IreneFindingRepository
 from services.analytics.irene_floor import (
     DEFAULT_FLOOR_CONFIG,
     SOURCE_INTERNAL,
@@ -71,6 +71,7 @@ from services.analytics.irene_floor import (
     options_allowed,
 )
 from services.analytics.rss_bucketing import item_identity
+from services.irene.briefing_step import run_briefing_step
 from services.irene.correlation import (
     CorrelationResult,
     MergedInternalFinding,
@@ -117,12 +118,17 @@ class BeatResult:
             raised, or a finding could not be persisted), else ``None``.
             A non-``None`` error means the tick should not advance this
             tenant's schedule and should retry on the next tick.
+        briefing_status: ``"written"`` or ``"skipped"`` — the status of the
+            ``irene_briefing`` row this beat appended — or ``None`` when no
+            row was written (the beat failed, or the briefing step's own
+            savepoint rolled back). Read by the tick's log line.
     """
 
     tenant_id: UUID
     findings_written: int
     silence: bool
     error: str | None = None
+    briefing_status: str | None = None
 
 
 def _render_eligible_finding(finding: EligibleFinding) -> str:
@@ -389,8 +395,9 @@ async def run_beat(
        A calm book with no watchpoint moves and no RSS clusters yields the
        "nothing material" context.
     4. Call :meth:`AIServiceCore.run_synthesis` with the
-       ``surface_finding`` tool and ``tool_choice="auto"`` — Irene's
-       decision of *how to phrase and whether to surface*.
+       ``surface_finding`` tool, leaving ``tool_choice`` at its default
+       (``"auto"``) — Irene's decision of *how to phrase and whether to
+       surface*. Only the briefing call (step 6) forces its tool.
     5. Zero ``surface_finding`` calls ⇒ silence; the silence path does not
        return early (ADR-0133 §1.3). Both outcomes reach the single success
        exit at the end of the ``try`` body, which is where a step that must
@@ -408,6 +415,14 @@ async def run_beat(
        is a grounding violation (Irene may only surface what the delta layer
        made eligible): it is dropped with a logged warning, never persisted
        at a fabricated urgency.
+    6. Write the briefing (ADR-0133 §1.3–§1.4): on every completed check,
+       the surfaced path and the silence path alike,
+       :func:`services.irene.briefing_step.run_briefing_step` assembles the
+       material, calls ``run_synthesis`` a second time with the forced
+       ``write_briefing`` tool, and appends one ``irene_briefing`` row
+       inside a savepoint. It never raises and never touches
+       :attr:`BeatResult.error`; its outcome is
+       :attr:`BeatResult.briefing_status`.
 
     All three deltas write ``irene_watch_state`` (upserts +
     acknowledgements) **before** synthesis runs, so those writes commit even
@@ -422,11 +437,12 @@ async def run_beat(
     Args:
         session: A tenant-scoped :class:`AsyncSession`.
         ai_core: The AI service core (duck-typed: needs
-            ``get_system_prompt`` and an async ``run_synthesis``). The
-            shared :func:`services.ai_service_core.get_ai_service_core`
-            singleton in production; a stub in tests. Since ADR-0112 §4b
-            it supplies the system prompt and the synthesis entry point
-            only — never the credential or the model.
+            ``get_system_prompt``, ``get_briefing_prompt`` and an async
+            ``run_synthesis`` that accepts ``tool_choice``). The shared
+            :func:`services.ai_service_core.get_ai_service_core` singleton
+            in production; a stub in tests. Since ADR-0112 §4b it supplies
+            the system prompt and the synthesis entry point only — never
+            the credential or the model.
         llm: This tenant's resolved endpoint, credential and model
             (ADR-0112 §4b), resolved by the tick inside the tenant's own
             context and threaded straight into ``run_synthesis``. The one
@@ -488,6 +504,7 @@ async def run_beat(
 
         surfacing = [tc for tc in result.tool_calls if tc.get("name") == SURFACE_FINDING_TOOL_NAME]
         written = 0
+        appended: list[IreneFindingDTO] = []
         if not surfacing:
             logger.info("irene-beat: tenant %s — silence.", tenant_id)
         else:
@@ -561,21 +578,34 @@ async def run_beat(
                 if not options_allowed(band, thresholds):
                     payload.pop("options", None)
 
-                await findings.append(
-                    subject_key=subject_key,
-                    payload=payload,
-                    urgency=urgency,
-                    band=band,
+                appended.append(
+                    await findings.append(
+                        subject_key=subject_key,
+                        payload=payload,
+                        urgency=urgency,
+                        band=band,
+                    )
                 )
                 written += 1
 
             logger.info("irene-beat: tenant %s — wrote %d finding(s).", tenant_id, written)
 
+        briefing_status = await run_briefing_step(
+            session,
+            ai_core,
+            tenant_id=tenant_id,
+            llm=llm,
+            resolution=resolution,
+            now=now,
+            rss_buckets=rss_buckets,
+            findings=appended,
+        )
         return BeatResult(
             tenant_id=tenant_id,
             findings_written=written,
             silence=not surfacing,
             error=None,
+            briefing_status=briefing_status,
         )
     except FloorCalibrationInvalid as exc:
         # ADR-0116 §5: a stored revision that a later change to a code

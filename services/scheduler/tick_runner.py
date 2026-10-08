@@ -449,9 +449,10 @@ async def run_irene_tick(
                 beaten += 1
                 findings_total += result.findings_written
                 _LOG.info(
-                    "irene-tick: tenant %s beaten (findings=%d, next_due=%s).",
+                    "irene-tick: tenant %s beaten (findings=%d, briefing=%s, next_due=%s).",
                     due.tenant_id,
                     result.findings_written,
+                    result.briefing_status or "none",
                     next_due.isoformat(),
                 )
         except Exception as exc:  # noqa: BLE001 — isolate one tenant's failure

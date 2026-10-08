@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from core.repositories import tenant_context
+from core.repositories.irene_briefing_repository import IreneBriefingRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from services.ai_service_core import ResolvedLLM, SynthesisResult
 from services.irene.beat import run_beat
@@ -57,6 +58,9 @@ class _StubCore:
     def get_system_prompt(self, prompt_name: str = "irene") -> str:
         return "You are Irene."
 
+    def get_briefing_prompt(self) -> str:
+        return "You are Irene, writing the briefing."
+
     async def run_synthesis(
         self,
         *,
@@ -67,6 +71,7 @@ class _StubCore:
         temperature: float = 0.0,
         timeout: float = 120.0,
         llm: Any = None,
+        tool_choice: Any = None,
     ) -> SynthesisResult:
         self.calls.append({"tool": tool, "llm": llm, "context": context_messages})
         return SynthesisResult(tool_calls=self._tool_calls, raw_text="")
@@ -131,6 +136,15 @@ async def test_seeded_breach_floors_suggestion_and_preserves_discrepancy(
         assert finding.payload["urgency_suggestion"] == 5
         # Critical is at/above the options gate — advice is kept.
         assert finding.payload["options"] == ["Trim equities", "Raise the ceiling"]
+
+        # The briefing material carries the finding's final band and
+        # urgency, never the model's suggestion. Its status is whatever the
+        # stub's canned calls produce, so it is not asserted here.
+        row = await IreneBriefingRepository(session).newest()
+        assert row is not None
+        assert row.finding_ids == (finding.id,)
+        briefed = row.inputs["watch"]["findings_this_check"][0]
+        assert (briefed["band"], briefed["urgency"]) == (finding.band, finding.urgency)
 
 
 # ---------------------------------------------------------------------------

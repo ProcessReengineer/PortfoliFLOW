@@ -14,7 +14,9 @@ since ADR-0094 it is the whole AI service. Its consumers are the web
 chat route (:mod:`web.routes.chat`, via :func:`get_ai_service_core`),
 the Telegram bot (its own instance, see :mod:`bot.telegram_bot`),
 Irene's beat (:meth:`AIServiceCore.run_synthesis` with
-``get_system_prompt("irene")``, driven by the scheduler tick runner),
+``get_system_prompt("irene")`` for its findings and
+:meth:`AIServiceCore.get_briefing_prompt` for its briefing, driven by the
+scheduler tick runner),
 and the Report Scraper and web research services
 (:meth:`AIServiceCore.send_one_shot_extraction`).
 

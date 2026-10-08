@@ -655,3 +655,57 @@ async def test_cr08_cross_tenant_invisibility(app_engine: AsyncEngine, seed_tena
         for table in ("cases", "case_entries"):
             count = await session.execute(text(f"SELECT count(*) FROM {table}"))
             assert count.scalar_one() == 0
+
+
+# ---------------------------------------------------------------------------
+# CR-09: list_closed_before — the Journal's case source, paged by closed_at
+# (ADR-0133 §5; P-WD-B14)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr09_list_closed_before_pages_and_filters_by_origin_family(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("CR-09")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr09.example")
+    day = timedelta(days=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        finding = await IreneFindingRepository(session).append(
+            subject_key="anlv:16", payload={"trigger": "x"}, urgency=4, band="critical"
+        )
+        repo = CaseRepository(session)
+        manual = await repo.create(title="Manual", opened_by=user_id, opened_actor="pm", now=_T0)
+        from_finding = await repo.create(
+            title="From finding",
+            opened_by=user_id,
+            finding_id=finding.id,
+            opened_actor="system",
+            now=_T0,
+        )
+        still_open = await repo.create(
+            title="Still open", opened_by=user_id, opened_actor="pm", now=_T0
+        )
+        await repo.close(manual.id, closed_by=user_id, closing_note="done", now=_T0 + day)
+        await repo.close(from_finding.id, closed_by=user_id, closing_note="done", now=_T0 + 2 * day)
+
+    far = _T0 + 10 * day
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        page = await repo.list_closed_before(before=far, limit=10)
+        assert [case.title for case in page] == ["From finding", "Manual"]
+        assert still_open.id not in {case.id for case in page}
+        # Exclusive before, inclusive start, the cap.
+        assert [
+            case.title
+            for case in await repo.list_closed_before(
+                before=_T0 + 2 * day, limit=10, start=_T0 + day
+            )
+        ] == ["Manual"]
+        assert len(await repo.list_closed_before(before=far, limit=1)) == 1
+        # The family is the origin finding's; a manual case has none.
+        assert [
+            case.title
+            for case in await repo.list_closed_before(before=far, limit=10, family="anlv")
+        ] == ["From finding"]
+        assert await repo.list_closed_before(before=far, limit=10, family="saa") == []

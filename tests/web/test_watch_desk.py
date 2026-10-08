@@ -22,6 +22,7 @@ Prompt 1; these tests never touch the delta/floor/synthesis layers.
 
 from __future__ import annotations
 
+import copy
 import html
 import json
 import os
@@ -3205,9 +3206,11 @@ async def test_journal_merges_findings_and_closed_cases_newest_first(
         app_engine,
         opened_by=user_id,
         title="Board preparation — Q3 review",
-        opened_at=datetime(2026, 7, 10, 9, 0, tzinfo=timezone.utc),
+        # Dated relative to now: the Journal's default period is the last
+        # 30 days (ADR-0133 §5), so a fixed July date would fall outside it.
+        opened_at=datetime.now(timezone.utc) - timedelta(days=2),
         close_note="Prepared and circulated; nothing outstanding.",
-        closed_at=datetime(2026, 7, 12, 16, 0, tzinfo=timezone.utc),
+        closed_at=datetime.now(timezone.utc) - timedelta(days=1),
     )
 
     # A finding handed over to a case via the real endpoint (newest event).
@@ -3255,7 +3258,7 @@ async def test_journal_merges_findings_and_closed_cases_newest_first(
     assert "Prepared and circulated" in body
     assert "pf-dc-journal__row--case" in body
 
-    # Newest first: the hand-over (now) precedes the closed case (12 Jul).
+    # Newest first: the hand-over (now) precedes the closed case (yesterday).
     assert body.index("saa:journal_handover") < body.index("Board preparation — Q3 review")
 
 
@@ -4745,3 +4748,264 @@ async def test_the_sensitivity_column_shows_the_family_preset_or_custom(
     assert "<td>Custom</td>" in saa
     rss = watch_list.split("rss:equities")[1].split("</tr>")[0]
     assert "<td>—</td>" in rss
+
+
+# ---------------------------------------------------------------------------
+# Journal — three kinds by day, every check a row, server-side filters,
+# older pages on demand (ADR-0133 §5; D-WD-9, D-WD-10; P-WD-B14)
+# ---------------------------------------------------------------------------
+
+
+def _material_with_finding(band: str) -> dict:
+    """The version-1 material with one finding of ``band`` raised by the check."""
+    material = copy.deepcopy(_MATERIAL_FIXTURE)
+    material["watch"]["findings_this_check"] = [
+        {
+            "id": str(uuid4()),
+            "subject_key": "anlv:real_estate",
+            "band": band,
+            "urgency": 5,
+            "trigger": "Approaching",
+            "finding": "Near the quota.",
+        }
+    ]
+    return material
+
+
+def _journal_days_of(body: str) -> list[str]:
+    """Return the day labels in render order."""
+    return re.findall(r'data-day="[^"]+"[^>]*> <summary>([^<·]+?) ·', body)
+
+
+async def test_journal_lists_every_check_by_day(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """D-WD-9: a written and a silent check are rows, grouped by local day."""
+    user_id, email, password = seeded_user
+    await _seed_schedule(
+        fresh_superuser_engine,
+        next_due_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        timezone_name="Europe/Berlin",
+    )
+    now = datetime.now(timezone.utc)
+    written_at = now - timedelta(hours=2)
+    silent_at = now - timedelta(days=1, hours=2)
+    fid = await _seed_finding(
+        fresh_superuser_engine,
+        subject_key="anlv:real_estate",
+        payload=_card_payload(trigger="Approaching", finding="Near the quota.", basis="92%."),
+        urgency=5,
+        band="noteworthy",
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=written_at,
+        finding_ids=[fid],
+        inputs=_material_with_finding("noteworthy"),
+    )
+    await _seed_briefing(
+        fresh_superuser_engine,
+        user_id,
+        beat_at=silent_at,
+        status="skipped",
+        skip_reason="nothing_to_write",
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/watch-desk/journal")
+    assert response.status_code == 200
+    body = _flat(response.text)
+
+    assert 'id="dc-journal-filters"' in body
+    assert body.count('data-row-type="briefing"') == 2
+    zone = ZoneInfo("Europe/Berlin")
+    assert f"Check at {written_at.astimezone(zone):%H:%M} · 1 finding raised" in body
+    assert f"Check at {silent_at.astimezone(zone):%H:%M} · nothing material" in body
+    assert "1 noteworthy" in body
+    assert "briefing written" in body
+    assert "nothing to report" in body
+    assert "nothing_to_write" not in body
+    assert _NEWER_MARKETS in body and "Show briefing" in body
+    # Day labels relative to the render day, in the schedule's zone — derived
+    # here by the same rule, so the test holds across a midnight.
+    today = now.astimezone(zone).date()
+
+    def expected_label(instant: datetime) -> str:
+        day = instant.astimezone(zone).date()
+        if day == today:
+            return "Today"
+        if day == today - timedelta(days=1):
+            return "Yesterday"
+        return day.strftime("%a %d %b %Y")
+
+    labels = _journal_days_of(body)
+    assert labels[:2] == [expected_label(written_at), expected_label(silent_at)]
+    assert "Irene" not in body
+    # Read-only, as before.
+    assert "pf-dc-btn" not in body
+    assert "/resolve" not in body
+
+
+async def test_journal_kind_and_watch_point_filters_hide_but_delete_nothing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """D-WD-10: the family filter hides the check rows and filters findings by family."""
+    user_id, email, password = seeded_user
+    now = datetime.now(timezone.utc)
+    await _seed_briefing(fresh_superuser_engine, user_id, beat_at=now - timedelta(hours=1))
+    for subject in ("saa:equities", "anlv:real_estate"):
+        await _seed_finding(
+            fresh_superuser_engine,
+            subject_key=subject,
+            payload=_card_payload(trigger=subject, finding="f", basis="b"),
+            urgency=5,
+            band="noteworthy",
+            resolution="acknowledged",
+        )
+    await _login(web_client, email, password)
+
+    everything = _flat((await web_client.get("/api/watch-desk/journal")).text)
+    assert 'data-row-type="briefing"' in everything
+    assert "saa:equities" in everything and "anlv:real_estate" in everything
+
+    briefings = _flat((await web_client.get("/api/watch-desk/journal?kind=briefings")).text)
+    assert 'data-row-type="briefing"' in briefings
+    assert 'data-row-type="finding"' not in briefings
+
+    findings = _flat((await web_client.get("/api/watch-desk/journal?kind=findings")).text)
+    assert 'data-row-type="finding"' in findings
+    assert 'data-row-type="briefing"' not in findings
+
+    saa = _flat((await web_client.get("/api/watch-desk/journal?family=saa")).text)
+    assert "saa:equities" in saa
+    assert "anlv:real_estate" not in saa
+    assert 'data-row-type="briefing"' not in saa
+    assert '<option value="saa" selected>' in saa
+
+    # Nothing was deleted: the unfiltered view still has every row.
+    again = _flat((await web_client.get("/api/watch-desk/journal?family=")).text)
+    assert 'data-row-type="briefing"' in again
+    assert "anlv:real_estate" in again
+    assert await _table_count(fresh_superuser_engine, "irene_briefing") == 1
+
+
+async def test_journal_period_filter_and_older_pages(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Pages cut at whole days; the older link walks every row exactly once."""
+    user_id, email, password = seeded_user
+    await _seed_schedule(
+        fresh_superuser_engine,
+        next_due_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        timezone_name="Europe/Berlin",
+    )
+    now = datetime.now(timezone.utc)
+    # 72 silent checks, one an hour over the last three days.
+    beats = [now - timedelta(hours=n + 1) for n in range(72)]
+    async with tenant_context(
+        fresh_superuser_engine, SENTINEL_TENANT_ID, user_id=user_id
+    ) as session:
+        repo = IreneBriefingRepository(session)
+        for beat in beats:
+            await repo.append(
+                beat_at=beat,
+                written_at=beat + timedelta(seconds=5),
+                status="skipped",
+                skip_reason="nothing_to_write",
+                inputs={"version": 1},
+                finding_ids=[],
+            )
+    await _login(web_client, email, password)
+
+    seen: list[str] = []
+    page = await web_client.get("/api/watch-desk/journal?period=all")
+    assert page.status_code == 200
+    body = _flat(page.text)
+    assert 'id="dc-journal-filters"' in body
+    hops = 0
+    while True:
+        seen.extend(re.findall(r'data-row-type="briefing" data-state="skipped"', body))
+        match = re.search(r'id="dc-journal-older"[^>]*hx-get="([^"]+)"', body)
+        if match is None:
+            break
+        hops += 1
+        assert hops < 10, "the older link never ends"
+        older = await web_client.get(html.unescape(match.group(1)))
+        assert older.status_code == 200
+        body = _flat(older.text)
+        # A fragment: no filter bar, no open day.
+        assert 'id="dc-journal-filters"' not in body
+        assert "<details class=" in body and " open>" not in body
+    assert hops >= 1
+    assert len(seen) == 72
+
+    # The period filter bounds the reads server-side.
+    week = _flat((await web_client.get("/api/watch-desk/journal?period=7d")).text)
+    assert week.count('data-row-type="briefing"') > 0
+    day_old = _flat((await web_client.get("/api/watch-desk/journal?period=7d&kind=cases")).text)
+    assert "No entries in this period." in day_old
+
+
+async def test_journal_stamps_follow_the_schedule_zone(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Surfaced / Resolved cells and the day label are in the schedule's zone."""
+    _id, email, password = seeded_user
+    await _seed_schedule(
+        fresh_superuser_engine,
+        next_due_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        timezone_name="Europe/Berlin",
+    )
+    fid = await _seed_finding(
+        fresh_superuser_engine,
+        subject_key="fx:USD/EUR",
+        payload=_card_payload(trigger="Move", finding="f", basis="b"),
+        urgency=3,
+        band="informational",
+        resolution="dismissed",
+        created_at=datetime(2026, 9, 30, 20, 30, tzinfo=timezone.utc),
+    )
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE irene_finding SET resolved_at = :at WHERE id = :id"),
+            {"at": datetime(2026, 9, 30, 22, 45, tzinfo=timezone.utc), "id": str(fid)},
+        )
+    await _login(web_client, email, password)
+    body = _flat((await web_client.get("/api/watch-desk/journal?period=all")).text)
+
+    row = body.split("fx:USD/EUR")[1].split("</tr>")[0]
+    assert "<td>2026-09-30 22:30</td>" in row
+    # 22:45 UTC is 00:45 the next day in Berlin: the row sits under 1 Oct.
+    assert "<td>2026-10-01 00:45</td>" in row
+    assert "Thu 01 Oct 2026 · 1 entry" in body
+
+
+async def test_journal_ignores_unusable_filters(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """Unknown values fall back to the defaults; the Journal never refuses a read."""
+    user_id, email, password = seeded_user
+    await _seed_briefing(
+        fresh_superuser_engine, user_id, beat_at=datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+    await _login(web_client, email, password)
+    response = await web_client.get(
+        "/api/watch-desk/journal?kind=bogus&period=century&family=pacing&before=garbage"
+    )
+    assert response.status_code == 200
+    body = _flat(response.text)
+    assert 'id="dc-journal-filters"' in body
+    assert '<option value="all" selected>All</option>' in body
+    assert '<option value="30d" selected>Last 30 days</option>' in body
+    assert '<option value="" selected>Any</option>' in body
+    assert 'data-row-type="briefing"' in body

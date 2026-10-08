@@ -32,8 +32,10 @@ Endpoints
 * ``POST /api/watch-desk/findings/{finding_id}/resolve`` — record a
   resolution (``acted`` / ``dismissed`` / ``acknowledged``); the card
   leaves the Briefing feed and appears in the Journal.
-* ``GET  /api/watch-desk/journal`` — read-only history of resolved
-  findings via ``list_journal()``.
+* ``GET  /api/watch-desk/journal`` — read-only history in three kinds by
+  day (ADR-0133 §5): resolved findings, closed cases and every check as
+  a briefing row; server-side filters ``kind`` / ``period`` / ``family``;
+  pages by instant through ``before``, older days on demand.
 * ``GET  /api/watch-desk/calibration`` — the tuning surface: the tenant
   calibration editor (ADR-0116 §7), the watchpoint list, and the cadence
   settings panel.
@@ -76,7 +78,7 @@ import logging
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 from urllib.parse import quote
@@ -1811,86 +1813,386 @@ async def open_case(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/watch-desk/journal", response_class=HTMLResponse)
-async def get_journal(
-    request: Request,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Return the Journal section body — the merged resolution history.
+# ---------------------------------------------------------------------------
+# Journal — three kinds by day, paged by instant (ADR-0133 §5; D-WD-9,
+# D-WD-10). Route data for the D-WD-25 stop-gap partials; A-6 restyles,
+# nothing here is designed. UI-023 holds: no persona in the rendered copy.
+# ---------------------------------------------------------------------------
 
-    Two render-time sources, merged newest-first (ADR-0107, C4 · Gate-C0
-    decision B): the **resolved findings** (as before — subject, trigger,
-    band, resolution, actor, timestamps — now including ``opened_case``
-    hand-overs), and the **closed cases** (badge, title, closer, dates,
-    closing-note excerpt). It remains a *projection* — no journal table, no
-    entry numbers; a closed case that was opened manually (no finding) appears
-    here too, the Gate-C0 gap this design closes.
+#: The Journal's kind filter, in the order the control lists it.
+_JOURNAL_KINDS: tuple[tuple[str, str], ...] = (
+    ("all", "All"),
+    ("findings", "Findings"),
+    ("cases", "Cases"),
+    ("briefings", "Briefings"),
+)
 
-    Read-only by contract (ADR-0089): no action buttons. Actor ids (finding
-    ``resolved_by`` and case ``closed_by``) are resolved to display names in
-    one batch, and the ``opened_case`` findings' cases are looked up once for
-    the page (never per row), so every row is legible without a per-row DB
-    hit.
+#: The Journal's period filter, in the order the control lists it; the
+#: first entry is the default.
+_JOURNAL_PERIODS: tuple[tuple[str, str], ...] = (
+    ("30d", "Last 30 days"),
+    ("7d", "Last 7 days"),
+    ("quarter", "This quarter"),
+    ("all", "All"),
+)
+
+#: Rows per Journal page before the cut to whole days. Hourly checks make
+#: 24 briefing rows a day, so a page holds about two such days.
+_JOURNAL_PAGE_ROWS: int = 50
+
+#: What a skipped check's row says in its Resolution cell, by skip reason —
+#: the internal token never reaches the copy.
+_BRIEFING_SKIP_LABELS: dict[str, str] = {
+    "nothing_to_write": "nothing to report",
+    "llm_error": "briefing not written",
+    "invalid_output": "briefing not written",
+}
+
+#: Merge rank on an exact event-instant tie: findings, then cases, then
+#: briefings. The whole key sorts descending, so the higher rank lands first.
+_JOURNAL_RANK: dict[str, int] = {"finding": 2, "case": 1, "briefing": 0}
+
+
+def _journal_period_start(period: str, *, now: datetime, zone: ZoneInfo) -> datetime | None:
+    """Return the period filter's inclusive lower bound, or ``None`` for all."""
+    if period == "7d":
+        return now - timedelta(days=7)
+    if period == "30d":
+        return now - timedelta(days=30)
+    if period == "quarter":
+        local = now.astimezone(zone)
+        month = 3 * ((local.month - 1) // 3) + 1
+        return datetime(local.year, month, 1, tzinfo=zone).astimezone(timezone.utc)
+    return None
+
+
+def _briefing_bands(row: IreneBriefingDTO) -> list[dict[str, str]]:
+    """Count the bands of the findings one check raised, from its material.
+
+    Read from the persisted ``inputs`` (``findings_this_check``, D-B-107)
+    rather than from the findings table: it is what the check saw, and it
+    costs no read per row. A material version this projection does not
+    know yields no bands.
     """
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        finding_repo = IreneFindingRepository(db_session)
-        case_repo = CaseRepository(db_session)
+    inputs = row.inputs if isinstance(row.inputs, dict) else {}
+    if inputs.get("version") != MATERIAL_VERSION:
+        return []
+    watch = inputs.get("watch") or {}
+    counts = Counter(
+        finding.get("band")
+        for finding in watch.get("findings_this_check", ())
+        if isinstance(finding, dict)
+    )
+    return [
+        {"text": f"{counts[band]} {band}", "css": css}
+        for band, css in _BAND_SEVERITY
+        if counts.get(band)
+    ]
 
-        history = await finding_repo.list_journal(limit=100)
-        # The Journal is the history of *resolved* findings (ADR-0089); the
-        # still-open ones live in the Briefing feed, not here.
-        findings = [f for f in history if f.resolution != "open"]
-        closed_cases = await case_repo.list_closed(limit=100)
 
-        # The cases the opened_case findings were handed to, resolved once for
-        # the page (binding decision 1's hand-over link). A case may still be
-        # open, so this is a finding→case lookup, not a slice of closed_cases.
-        case_by_finding: dict[UUID, CaseDTO] = {}
-        for finding in findings:
-            if finding.resolution != "opened_case":
-                continue
-            case = await case_repo.get_by_finding(finding.id)
-            if case is not None:
-                case_by_finding[finding.id] = case
+def _project_journal_briefing(
+    row: IreneBriefingDTO, *, zone: ZoneInfo, utc_fallback: bool
+) -> dict[str, Any]:
+    """Project one check into a Journal row (ADR-0133 §5, D-WD-9).
 
-        # Actor names — finding resolvers and case closers — one batch.
-        actor_ids: set[UUID] = {
-            finding.resolved_by for finding in findings if finding.resolved_by is not None
-        }
-        actor_ids.update(
-            case.closed_by if case.closed_by is not None else case.opened_by
-            for case in closed_cases
+    Every check is a row, the silent ones included: a skipped row is the
+    silent check's trace. The title counts the findings the check raised
+    (``finding_ids``); the Resolution cell states whether a briefing was
+    written, and if not, why, in plain words.
+    """
+    raised = len(row.finding_ids)
+    time_text = _stamp(row.beat_at, "%H:%M", zone=zone, utc_fallback=utc_fallback)
+    raised_text = f"{_plural(raised, 'finding')} raised" if raised else "nothing material"
+    if row.status == "written":
+        state, state_label = "written", "briefing written"
+    else:
+        state = "skipped"
+        state_label = _BRIEFING_SKIP_LABELS.get(row.skip_reason or "", "briefing not written")
+    return {
+        "row_type": "briefing",
+        "id": str(row.id),
+        "title": f"Check at {time_text} · {raised_text}",
+        "state": state,
+        "state_label": state_label,
+        "bands": _briefing_bands(row),
+        "text_markets": row.text_markets or "",
+        "text_watch": row.text_watch or "",
+        "event_at": row.beat_at,
+        "created_at": row.beat_at,
+        "resolved_at": None,
+    }
+
+
+def _journal_day_label(day: date, *, today: date, utc_fallback: bool) -> str:
+    """Label one Journal day: "Today · Thu 08 Oct 2026", "Yesterday · …", or the date."""
+    text_value = day.strftime("%a %d %b %Y")
+    if day == today:
+        text_value = f"Today · {text_value}"
+    elif day == today - timedelta(days=1):
+        text_value = f"Yesterday · {text_value}"
+    return f"{text_value} UTC" if utc_fallback else text_value
+
+
+def _journal_days(
+    rows: list[dict[str, Any]], *, now: datetime, zone: ZoneInfo, utc_fallback: bool
+) -> list[dict[str, Any]]:
+    """Group projected rows (newest first) by their local day."""
+    today = now.astimezone(zone).date()
+    days: list[dict[str, Any]] = []
+    for row in rows:
+        day = row["event_at"].astimezone(zone).date()
+        if not days or days[-1]["date"] != day:
+            days.append(
+                {
+                    "date": day,
+                    "label": _journal_day_label(day, today=today, utc_fallback=utc_fallback),
+                    "rows": [],
+                }
+            )
+        days[-1]["rows"].append(row)
+    for day_group in days:
+        count = len(day_group["rows"])
+        day_group["count_label"] = f"{count} {'entry' if count == 1 else 'entries'}"
+    return days
+
+
+def _journal_older_url(*, kind: str, period: str, family: str | None, before: datetime) -> str:
+    """Build the on-demand link for the next, older page."""
+    return (
+        f"/api/watch-desk/journal?kind={kind}&period={period}"
+        f"&family={family or ''}&before={quote(before.isoformat())}"
+    )
+
+
+async def _journal_page(
+    db_session: AsyncSession,
+    *,
+    kind: str,
+    period: str,
+    family: str | None,
+    before: datetime,
+    now: datetime,
+    zone: ZoneInfo,
+    utc_fallback: bool,
+    first_page: bool,
+) -> dict[str, Any]:
+    """Read and project one Journal page: the rows before ``before``, by day.
+
+    Three render-time sources, each paged by its event instant and capped
+    at :data:`_JOURNAL_PAGE_ROWS`, merged newest first and cut to whole
+    local days — the oldest, possibly incomplete day of a full page is
+    left to the next page, whose ``before`` is that day's local midnight,
+    so a day never renders split across two pages unless it alone
+    overflows a page. The kind filter skips a source; the watch-point
+    filter hides the briefing rows (D-WD-10) and filters findings and cases
+    by their family, in the repositories. Nothing is deleted by a filter.
+
+    Runs inside the caller's ``tenant_context``; every read is RLS-policed
+    and none writes.
+
+    Returns:
+        The ``_partials/watch_desk_journal_days.html`` context.
+    """
+    start = _journal_period_start(period, now=now, zone=zone)
+    limit = _JOURNAL_PAGE_ROWS
+    finding_repo = IreneFindingRepository(db_session)
+    case_repo = CaseRepository(db_session)
+
+    findings = (
+        await finding_repo.list_resolved_before(
+            before=before, limit=limit, start=start, family=family
         )
-        user_repo = UserRepository(db_session)
-        actor_names: dict[UUID, str] = {}
-        for actor_id in actor_ids:
-            user = await user_repo.get_by_id(actor_id)
-            if user is not None:
-                actor_names[actor_id] = user.display_name or user.email
+        if kind in ("all", "findings")
+        else []
+    )
+    closed_cases = (
+        await case_repo.list_closed_before(before=before, limit=limit, start=start, family=family)
+        if kind in ("all", "cases")
+        else []
+    )
+    briefings = (
+        await IreneBriefingRepository(db_session).list_before(
+            before=before, limit=limit, start=start
+        )
+        if kind in ("all", "briefings") and family is None
+        else []
+    )
+
+    # The cases the opened_case findings were handed to, resolved once for
+    # the page (ADR-0107 binding decision 1). A case may still be open, so
+    # this is a finding→case lookup, not a slice of closed_cases.
+    case_by_finding: dict[UUID, CaseDTO] = {}
+    for finding in findings:
+        if finding.resolution != "opened_case":
+            continue
+        case = await case_repo.get_by_finding(finding.id)
+        if case is not None:
+            case_by_finding[finding.id] = case
+
+    # Actor names — finding resolvers and case closers — one batch.
+    actor_ids: set[UUID] = {
+        finding.resolved_by for finding in findings if finding.resolved_by is not None
+    }
+    actor_ids.update(
+        case.closed_by if case.closed_by is not None else case.opened_by for case in closed_cases
+    )
+    user_repo = UserRepository(db_session)
+    actor_names: dict[UUID, str] = {}
+    for actor_id in actor_ids:
+        user = await user_repo.get_by_id(actor_id)
+        if user is not None:
+            actor_names[actor_id] = user.display_name or user.email
 
     rows = [_project_journal_entry(finding, actor_names, case_by_finding) for finding in findings]
     rows.extend(_project_journal_case(case, actor_names) for case in closed_cases)
-    # Newest event first (finding resolved_at vs case closed_at). Stable
-    # tie-break: on an exact timestamp tie, findings precede cases, then id —
-    # a deterministic order, documented so it never silently reshuffles. The
-    # whole key sorts with reverse=True, so the finding rank is the higher (1)
-    # to land it first on a tie.
+    rows.extend(
+        _project_journal_briefing(row, zone=zone, utc_fallback=utc_fallback) for row in briefings
+    )
     rows.sort(
         key=lambda row: (
             row["event_at"],
-            1 if row["row_type"] == "finding" else 0,
+            _JOURNAL_RANK[row["row_type"]],
             row.get("id") or row.get("case_href") or "",
         ),
         reverse=True,
     )
+
+    # More may exist when any source filled its cap or the merge overflowed.
+    more = len(rows) > limit or any(
+        len(source) == limit for source in (findings, closed_cases, briefings)
+    )
+    rows = rows[:limit]
+    next_before: datetime | None = None
+    if more and rows:
+        oldest_day = rows[-1]["event_at"].astimezone(zone).date()
+        newest_day = rows[0]["event_at"].astimezone(zone).date()
+        if oldest_day != newest_day:
+            # Cut at the whole day: the next page starts at this day's
+            # local midnight and renders it entire.
+            rows = [row for row in rows if row["event_at"].astimezone(zone).date() != oldest_day]
+            next_before = datetime.combine(
+                oldest_day + timedelta(days=1), datetime.min.time(), tzinfo=zone
+            ).astimezone(timezone.utc)
+        else:
+            # One day overflows a page: continue inside it. A tie on the
+            # exact instant across sources would be skipped — accepted, the
+            # instants are microsecond stamps from three different writes.
+            next_before = rows[-1]["event_at"]
+
+    # Stamps in the schedule's zone, the Briefing's idiom; the two
+    # projections stay untouched and the cells read these.
+    for row in rows:
+        row["surfaced"] = (
+            _stamp(row["created_at"], "%Y-%m-%d %H:%M", zone=zone, utc_fallback=utc_fallback)
+            if row.get("created_at")
+            else "—"
+        )
+        row["resolved"] = (
+            _stamp(row["resolved_at"], "%Y-%m-%d %H:%M", zone=zone, utc_fallback=utc_fallback)
+            if row.get("resolved_at")
+            else "—"
+        )
+
+    empty_text = ""
+    if not rows and not first_page:
+        empty_text = "No older entries."
+    elif not rows and period != "all":
+        empty_text = "No entries in this period."
+    elif not rows:
+        empty_text = (
+            "No resolved findings, closed cases or checks yet — they will appear here as "
+            "the checks run and you work the briefing."
+        )
+    return {
+        "days": _journal_days(rows, now=now, zone=zone, utc_fallback=utc_fallback),
+        "first_page": first_page,
+        "empty_text": empty_text,
+        "older_url": (
+            _journal_older_url(kind=kind, period=period, family=family, before=next_before)
+            if next_before is not None
+            else None
+        ),
+    }
+
+
+@router.get("/api/watch-desk/journal", response_class=HTMLResponse)
+async def get_journal(
+    request: Request,
+    kind: str = "all",
+    period: str = "30d",
+    family: str = "",
+    before: str | None = None,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """Return the Journal section body — three kinds by day (ADR-0133 §5).
+
+    Three render-time sources interleaved newest first and grouped by local
+    day, collapsible per day: the **resolved findings** (subject, trigger,
+    band, resolution, actor, stamps; ``opened_case`` hand-overs link their
+    case), the **closed cases** (badge, title, closer, dates, closing-note
+    excerpt) and, since ADR-0133, **every check** as a briefing row — the
+    silent ones included (D-WD-9) — carrying the count and bands of the
+    findings it raised and, when written, the two parts of its briefing.
+    It stays a projection: no journal table, no entry numbers.
+
+    Filters are server-side query parameters: ``kind`` (all · findings ·
+    cases · briefings), ``period`` (30d · 7d · quarter · all) and
+    ``family`` (a watchpoint family, or empty for any). A selected family
+    hides the briefing rows and filters findings and cases by their family;
+    nothing is deleted by a filter (D-WD-10). An unknown value falls back
+    to its default rather than refusing a read.
+
+    Pages load by day: the first request renders the filters and the newest
+    page; ``before`` (an ISO instant, the previous page's cut) renders the
+    next, older page alone as the fragment the "older entries" link swaps
+    itself with. The fixed ``limit=100`` per source is gone.
+
+    Read-only by contract (ADR-0089): no action buttons.
+    """
+    if kind not in {key for key, _ in _JOURNAL_KINDS}:
+        kind = "all"
+    if period not in {key for key, _ in _JOURNAL_PERIODS}:
+        period = _JOURNAL_PERIODS[0][0]
+    selected_family = family if family in WATCHPOINT_FAMILIES else None
+    cut = parse_poll_since(before) if before else None
+    first_page = cut is None
+
+    engine = _engine(request)
+    now = _now()
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        schedule = await IreneScheduleRepository(db_session).get_for_tenant()
+        zone, utc_fallback = _resolve_zone(schedule.timezone if schedule is not None else None)
+        page = await _journal_page(
+            db_session,
+            kind=kind,
+            period=period,
+            family=selected_family,
+            before=cut if cut is not None else now,
+            now=now,
+            zone=zone,
+            utc_fallback=utc_fallback,
+            first_page=first_page,
+        )
+
+    if not first_page:
+        return cast(
+            HTMLResponse,
+            _templates(request).TemplateResponse(
+                request, "_partials/watch_desk_journal_days.html", page
+            ),
+        )
+    context: dict[str, Any] = {
+        **page,
+        "journal_kind": kind,
+        "journal_period": period,
+        "journal_family": selected_family or "",
+        "journal_kinds": _JOURNAL_KINDS,
+        "journal_periods": _JOURNAL_PERIODS,
+        "journal_families": [(key, _FAMILY_DISPLAY_NAMES[key]) for key in WATCHPOINT_FAMILIES],
+    }
     return cast(
         HTMLResponse,
-        _templates(request).TemplateResponse(
-            request,
-            "_partials/watch_desk_journal.html",
-            {"entries": rows},
-        ),
+        _templates(request).TemplateResponse(request, "_partials/watch_desk_journal.html", context),
     )
 
 

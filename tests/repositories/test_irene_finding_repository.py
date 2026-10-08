@@ -391,3 +391,60 @@ async def test_if07_count_open_by_family(app_engine: AsyncEngine, seed_tenant) -
         "freshness": 2,
         "liquidity": 1,
     }
+
+
+# ---------------------------------------------------------------------------
+# IF-08: list_resolved_before — the Journal's finding source, paged by the
+# event instant (ADR-0133 §5; P-WD-B14)
+# ---------------------------------------------------------------------------
+
+
+async def test_if08_list_resolved_before_pages_by_event_instant(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """Newest event first, open rows absent, exclusive ``before``, inclusive ``start``,
+    the cap, the family prefix, and ``created_at`` as the fallback instant."""
+    tenant_id = await seed_tenant("IF-08")
+    base = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
+    day = timedelta(days=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = IreneFindingRepository(session)
+        created = {
+            subject: await repo.append(
+                subject_key=subject, payload={"trigger": subject}, urgency=3, band="noteworthy"
+            )
+            for subject in ("saa:a", "anlv:b", "saa:open", "fx:d")
+        }
+        for subject, offset in (("saa:a", 0), ("anlv:b", 1), ("fx:d", 2)):
+            await repo.resolve(
+                finding_id=created[subject].id,
+                resolution="acted",
+                resolved_by=None,
+                resolved_at=base + offset * day,
+            )
+
+    far = base + 10 * day
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = IreneFindingRepository(session)
+        page = await repo.list_resolved_before(before=far, limit=10)
+        assert [row.subject_key for row in page] == ["fx:d", "anlv:b", "saa:a"]
+        # Exclusive upper bound, inclusive lower bound.
+        window = await repo.list_resolved_before(before=base + 2 * day, limit=10, start=base + day)
+        assert [row.subject_key for row in window] == ["anlv:b"]
+        # The cap keeps the newest.
+        capped = await repo.list_resolved_before(before=far, limit=2)
+        assert [row.subject_key for row in capped] == ["fx:d", "anlv:b"]
+        # The family is the subject-key prefix.
+        saa = await repo.list_resolved_before(before=far, limit=10, family="saa")
+        assert [row.subject_key for row in saa] == ["saa:a"]
+
+    # A row resolved without a stamp sorts on created_at (the Journal's
+    # own fallback), which is later than every stamped instant here.
+    async with tenant_context(app_engine, tenant_id) as session:
+        await session.execute(
+            text("UPDATE irene_finding SET resolved_at = NULL WHERE subject_key = 'saa:a'")
+        )
+    async with tenant_context(app_engine, tenant_id) as session:
+        page = await IreneFindingRepository(session).list_resolved_before(before=far, limit=10)
+        assert [row.subject_key for row in page] == ["saa:a", "fx:d", "anlv:b"]

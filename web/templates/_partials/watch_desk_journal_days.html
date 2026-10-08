@@ -1,0 +1,142 @@
+{# Journal days fragment (ADR-0133 §5) — one collapsible group per local
+   day, newest first, then the on-demand link to the older page.
+
+   D-WD-25 STOP-GAP for UX strand A-6 (see watch_desk_journal.html). The
+   finding and case rows keep their existing anatomy; the briefing row is
+   the third kind in the same table: "Check at HH:MM · n findings raised"
+   or "· nothing material", the bands of the findings it raised, and the
+   written briefing behind a disclosure. UI-023: no persona is named.
+
+   Returned standalone for a page with ``before``: the "older entries" link
+   swaps itself (outerHTML) with the next fragment, so older days append
+   beneath the ones already shown. Only the first page opens its first day.
+
+   Context: days (date, label, count_label, rows), first_page, empty_text,
+   older_url. #}
+{% for day in days %}
+    <details class="pf-dc-collapse pf-dc-journal__day" data-day="{{ day.date.isoformat() }}"{% if first_page and loop.first %} open{% endif %}>
+        <summary>{{ day.label }} · {{ day.count_label }}</summary>
+        <table class="pf-dc-journal__table">
+            <thead>
+                <tr>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Trigger</th>
+                    <th scope="col">Band</th>
+                    <th scope="col">Resolution</th>
+                    <th scope="col">Actor</th>
+                    <th scope="col">Surfaced</th>
+                    <th scope="col">Resolved</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in day.rows %}
+                    {% if entry.row_type == 'case' %}
+                        {# Closed-case row — a sibling of the finding rows: the
+                           badge links to the case, the title carries a
+                           closing-note excerpt, Surfaced/Resolved map to
+                           opened/closed. #}
+                        <tr class="pf-dc-journal__row pf-dc-journal__row--case"
+                            data-row-type="case">
+                            <td class="pf-dc-journal__subject">
+                                <a class="pf-dc-journal__caselink" href="{{ entry.case_href }}">
+                                    {{ entry.badge }}
+                                </a>
+                            </td>
+                            <td>
+                                {{ entry.title }}
+                                {% if entry.closing_note %}
+                                    <span class="pf-dc-journal__excerpt">
+                                        &ldquo;{{ entry.closing_note | truncate(90, True, '…') }}&rdquo;
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td><span class="pf-dc-journal__casemark">Case</span></td>
+                            <td>
+                                <a class="pf-dc-res-tag pf-dc-res-tag--closed"
+                                   href="{{ entry.case_href }}">Closed</a>
+                            </td>
+                            <td class="pf-dc-journal__actor">{{ entry.actor or '—' }}</td>
+                            <td>{{ entry.surfaced }}</td>
+                            <td>{{ entry.resolved }}</td>
+                        </tr>
+                    {% elif entry.row_type == 'briefing' %}
+                        {# Check row (ADR-0133 §5, D-WD-9): every check, silent
+                           ones included. The written briefing sits behind a
+                           disclosure; a skipped check says so in plain words. #}
+                        <tr class="pf-dc-journal__row pf-dc-journal__row--briefing"
+                            data-row-type="briefing"
+                            data-state="{{ entry.state }}">
+                            <td class="pf-dc-journal__subject">Check</td>
+                            <td>
+                                {{ entry.title }}
+                                {% if entry.state == 'written' %}
+                                    <details class="pf-dc-collapse">
+                                        <summary>Show briefing</summary>
+                                        <p><strong>Markets and press.</strong> {{ entry.text_markets }}</p>
+                                        {% if entry.text_watch %}
+                                            <p><strong>Under observation.</strong> {{ entry.text_watch }}</p>
+                                        {% endif %}
+                                    </details>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if entry.bands %}
+                                    {%- for band in entry.bands -%}
+                                        {% if not loop.first %} · {% endif %}
+                                        <span class="{{ band.css }}">{{ band.text }}</span>
+                                    {%- endfor -%}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>{{ entry.state_label }}</td>
+                            <td class="pf-dc-journal__actor">—</td>
+                            <td>{{ entry.surfaced }}</td>
+                            <td>—</td>
+                        </tr>
+                    {% else %}
+                        {# Finding row (existing anatomy). An opened_case row
+                           shows the hand-over: the "Opened case" label links to
+                           its case. #}
+                        <tr class="pf-dc-journal__row"
+                            data-row-type="finding"
+                            data-band="{{ entry.band }}"
+                            data-resolution="{{ entry.resolution }}">
+                            <td class="pf-dc-journal__subject">{{ entry.subject_key }}</td>
+                            <td>{{ entry.trigger }}</td>
+                            <td>
+                                <span class="pf-dc-band-tag pf-dc-band-tag--{{ entry.band }}">
+                                    {{ entry.band|capitalize }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if entry.case_href %}
+                                    <a class="pf-dc-res-tag pf-dc-res-tag--{{ entry.resolution }}"
+                                       href="{{ entry.case_href }}">{{ entry.resolution_label }}</a>
+                                {% else %}
+                                    <span class="pf-dc-res-tag pf-dc-res-tag--{{ entry.resolution }}">
+                                        {{ entry.resolution_label }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="pf-dc-journal__actor">{{ entry.actor or '—' }}</td>
+                            <td>{{ entry.surfaced }}</td>
+                            <td>{{ entry.resolved }}</td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </details>
+{% endfor %}
+{% if empty_text %}
+    <p class="pf-dc-journal__empty">{{ empty_text }}</p>
+{% endif %}
+{% if older_url %}
+    <a id="dc-journal-older"
+       class="pf-dc-calib__note"
+       href="{{ older_url }}"
+       hx-get="{{ older_url }}"
+       hx-target="this"
+       hx-swap="outerHTML">Older entries — show</a>
+{% endif %}

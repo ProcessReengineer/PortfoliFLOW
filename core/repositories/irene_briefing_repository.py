@@ -246,3 +246,43 @@ class IreneBriefingRepository(BaseRepository):
             .execution_options(populate_existing=True)
         )
         return [_to_dto(model) for model in result.scalars().all()]
+
+    async def list_before(
+        self,
+        *,
+        before: datetime,
+        limit: int,
+        start: datetime | None = None,
+    ) -> list[IreneBriefingDTO]:
+        """Return the briefings with ``beat_at < before``, newest first, capped.
+
+        The Journal's briefing source paged by instant (ADR-0133 §5): every
+        check is a row, silent ones included, so the Journal reads day by
+        day rather than through a fixed cap. A read, as the other three.
+
+        Args:
+            before: Exclusive upper bound on ``beat_at`` (timezone-aware).
+            limit: Maximum number of rows (the Journal's page size).
+            start: Inclusive lower bound on ``beat_at`` (timezone-aware) —
+                the period filter — or ``None`` for no bound.
+
+        Returns:
+            The matching briefings in the active tenant context, ordered by
+            ``beat_at`` descending.
+
+        Raises:
+            IreneBriefingInvalid: If a bound is naive.
+        """
+        _require_aware(before, field="before")
+        query = (
+            select(IreneBriefing)
+            .where(IreneBriefing.beat_at < before)
+            .order_by(IreneBriefing.beat_at.desc())
+            .limit(limit)
+            .execution_options(populate_existing=True)
+        )
+        if start is not None:
+            _require_aware(start, field="start")
+            query = query.where(IreneBriefing.beat_at >= start)
+        result = await self._session.execute(query)
+        return [_to_dto(model) for model in result.scalars().all()]

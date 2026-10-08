@@ -46,6 +46,7 @@ from core.exceptions import (
     CaseStateInvalid,
 )
 from core.models.case import Case, CaseEntry
+from core.models.irene_finding import IreneFinding
 from core.repositories.base import BaseRepository
 
 # Canonical lowercase vocabularies (ADR-0107 §2). The columns are plain
@@ -387,6 +388,49 @@ class CaseRepository(BaseRepository):
             .order_by(Case.closed_at.desc(), Case.case_number.desc())
             .limit(limit)
         )
+        return [_case_to_dto(model) for model in result.scalars().all()]
+
+    async def list_closed_before(
+        self,
+        *,
+        before: datetime,
+        limit: int,
+        start: datetime | None = None,
+        family: str | None = None,
+    ) -> list[CaseDTO]:
+        """Return closed cases closed before ``before``, newest first.
+
+        The Journal's case source paged by instant (ADR-0133 §5), the
+        sibling of :meth:`list_closed` that the day-by-day Journal reads
+        instead of a fixed cap. ``family`` keeps the cases opened from a
+        finding of that watchpoint family (the ``subject_key`` prefix of
+        the origin finding); a case opened by hand carries no family and is
+        absent from a family-filtered page.
+
+        Args:
+            before: Exclusive upper bound on ``closed_at``.
+            limit: Maximum number of rows (the Journal's page size).
+            start: Inclusive lower bound on ``closed_at`` — the period
+                filter — or ``None`` for no bound.
+            family: A watchpoint family, or ``None`` for every case.
+
+        Returns:
+            Closed cases in the active tenant context, newest ``closed_at``
+            first, ``case_number`` descending as the stable tie-break.
+        """
+        query = (
+            select(Case)
+            .where(Case.state == "closed", Case.closed_at < before)
+            .order_by(Case.closed_at.desc(), Case.case_number.desc())
+            .limit(limit)
+        )
+        if start is not None:
+            query = query.where(Case.closed_at >= start)
+        if family is not None:
+            query = query.join(IreneFinding, IreneFinding.id == Case.finding_id).where(
+                func.split_part(IreneFinding.subject_key, ":", 1) == family
+            )
+        result = await self._session.execute(query)
         return [_case_to_dto(model) for model in result.scalars().all()]
 
     async def search_archive(self, query: str) -> list[CaseDTO]:

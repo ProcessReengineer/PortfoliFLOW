@@ -23,7 +23,9 @@ Coverage
 * IB-07: ``get`` of an unknown id is ``None``; a tenant-A row is
   invisible to tenant B through ``newest``, ``get`` and ``list_between``.
 * IB-08: obligation 5 — the public methods are exactly append and the
-  three reads; there is no update and no delete.
+  four reads; there is no update and no delete.
+* IB-09: ``list_before`` is exclusive on ``before``, capped, bounded by
+  ``start``, and refuses a naive bound (the Journal's paged source).
 """
 
 from __future__ import annotations
@@ -269,7 +271,54 @@ def test_ib08_public_surface_is_append_and_reads_only() -> None:
         for name, member in inspect.getmembers(IreneBriefingRepository, inspect.isfunction)
         if not name.startswith("_") and name in vars(IreneBriefingRepository)
     }
-    assert public == {"append", "newest", "get", "list_between"}, (
+    assert public == {"append", "newest", "get", "list_between", "list_before"}, (
         "irene_briefing is append-only and immutable (ADR-0133 obligation 5): the "
         f"repository offers append and reads only. Found {sorted(public)}."
     )
+
+
+# ---------------------------------------------------------------------------
+# IB-09: list_before — the Journal's briefing source, paged by beat_at
+# (ADR-0133 §5; P-WD-B14). Written with explicit keywords rather than
+# ``**_written(...)``: that helper is typed ``dict[str, object]`` and every
+# unpacking of it costs nine pyright errors (a pre-existing debt of this
+# module, see the P-WD-B14 report).
+# ---------------------------------------------------------------------------
+
+
+async def test_ib09_list_before_is_exclusive_capped_and_bounded(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("IB-09")
+    beats = [_BEAT + n * _DAY for n in range(4)]
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = IreneBriefingRepository(session)
+        created = [
+            await repo.append(
+                beat_at=beat,
+                written_at=beat + timedelta(minutes=2),
+                status="written",
+                inputs={"families": ["saa"]},
+                finding_ids=[],
+                text_markets="Markets were calm.",
+                text_watch="Nothing on the watch.",
+                model_id="irene-model",
+            )
+            for beat in beats
+        ]
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = IreneBriefingRepository(session)
+        # Exclusive upper bound, newest first.
+        page = await repo.list_before(before=beats[3], limit=10)
+        assert [row.id for row in page] == [created[2].id, created[1].id, created[0].id]
+        # The cap keeps the newest; the inclusive start bounds the period.
+        assert [row.id for row in await repo.list_before(before=beats[3], limit=2)] == [
+            created[2].id,
+            created[1].id,
+        ]
+        bounded = await repo.list_before(before=beats[3], limit=10, start=beats[1])
+        assert [row.id for row in bounded] == [created[2].id, created[1].id]
+        with pytest.raises(IreneBriefingInvalid):
+            await repo.list_before(before=beats[3].replace(tzinfo=None), limit=10)

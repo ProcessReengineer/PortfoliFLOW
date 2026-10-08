@@ -236,6 +236,49 @@ class IreneFindingRepository(BaseRepository):
         )
         return [_to_dto(model) for model in result.scalars().all()]
 
+    async def list_resolved_before(
+        self,
+        *,
+        before: datetime,
+        limit: int,
+        start: datetime | None = None,
+        family: str | None = None,
+    ) -> list[IreneFindingDTO]:
+        """Return resolved findings with an event instant before ``before``.
+
+        The Journal's finding source (ADR-0133 §5), paged by instant rather
+        than capped: the event instant is ``resolved_at``, falling back to
+        ``created_at`` for a row resolved without a stamp — the instant the
+        Journal sorts and groups on — and the page is cut by it, newest
+        first, so no row is unreachable behind a fixed cap.
+
+        Args:
+            before: Exclusive upper bound on the event instant.
+            limit: Maximum number of rows (the Journal's page size).
+            start: Inclusive lower bound on the event instant — the period
+                filter — or ``None`` for no bound.
+            family: Keep only the findings whose ``subject_key`` prefix is
+                this watchpoint family, or ``None`` for every family.
+
+        Returns:
+            Resolved findings in the active tenant context, newest event
+            first, ``id`` descending as the stable tie-break.
+        """
+        event = func.coalesce(IreneFinding.resolved_at, IreneFinding.created_at)
+        query = (
+            select(IreneFinding)
+            .where(IreneFinding.resolution != "open", event < before)
+            .order_by(event.desc(), IreneFinding.id.desc())
+            .limit(limit)
+            .execution_options(populate_existing=True)
+        )
+        if start is not None:
+            query = query.where(event >= start)
+        if family is not None:
+            query = query.where(func.split_part(IreneFinding.subject_key, ":", 1) == family)
+        result = await self._session.execute(query)
+        return [_to_dto(model) for model in result.scalars().all()]
+
     async def resolve(
         self,
         *,

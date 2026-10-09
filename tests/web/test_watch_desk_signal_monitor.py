@@ -53,7 +53,8 @@ from services.watch_desk.family_status import (
     _signal_note,
 )
 from services.watch_desk.overlay import SignalWatchpoint, WatchDeskResolution
-from tests.web.conftest import wd, wd_attr, wd_block, wd_blocks, wd_count
+from tests.web.conftest import wd, wd_attr, wd_block, wd_blocks, wd_count, wd_text
+from web.icons import pf_icon
 
 _TENANT: UUID = uuid4()
 _AS_OF = date(2026, 8, 11)
@@ -65,10 +66,18 @@ _AS_OF = date(2026, 8, 11)
 
 
 def _templates() -> Environment:
-    return Environment(
+    """The fragment's environment, with the one global the app registers it uses.
+
+    The row and group menus draw their trigger with ``pf_icon`` (P-UX-A6-a2),
+    which ``web/main.py`` registers as a Jinja global; the render context
+    stays exactly the route's.
+    """
+    env = Environment(
         loader=FileSystemLoader("web/templates"),
         autoescape=select_autoescape(["html"]),
     )
+    env.globals["pf_icon"] = pf_icon
+    return env
 
 
 def _visible_text(html: str) -> str:
@@ -761,10 +770,12 @@ def test_a_signal_group_renders_closed_with_its_rows_still_in_the_document() -> 
     )
     html = _render([group])
 
-    groups = wd_blocks(html, "watch-group", data_pf_wd_kind="signal")
-    assert groups
-    assert all(wd_attr(group, "open") is None for group in groups)
-    assert "MSCI World ETF" in html
+    assert wd_blocks(html, "watch-group", data_pf_wd_kind="signal")
+    # Closed is the slot row's `hidden`; its rows are rendered all the same.
+    bodies = wd_blocks(html, "group-body")
+    assert bodies
+    assert all(wd_attr(body, "hidden") == "" for body in bodies)
+    assert "MSCI World ETF" in wd_text(wd_block(html, "group-body", data_family="price"))
 
 
 def test_a_no_data_row_renders_its_reason_and_no_gauge() -> None:
@@ -790,7 +801,8 @@ def test_a_no_data_row_renders_its_reason_and_no_gauge() -> None:
     )
     html = _render([group])
 
-    assert wd_attr(wd_block(html, "state-tag"), "data-pf-wd-state") == "nodata"
+    row = wd_block(html, "watch-row", data_pf_wd_subject="liquidity:cash_coverage")
+    assert wd_attr(wd_block(row, "state-tag"), "data-pf-wd-state") == "nodata"
     assert "No data" in html
     assert "no materialised cash plan path" in html
     assert wd("meter-fill") not in html and wd("no-meter") in html
@@ -804,7 +816,7 @@ def test_an_empty_family_gets_a_footer_line_with_its_add_affordance() -> None:
     assert "FX moves" in html
     assert "+ Add watchpoint" in html
     assert "/api/watch-desk/watchpoints/new?family=price" in html
-    assert 'id="dc-watchpoint-new"' in html
+    assert wd_count(html, "footer-line") == 2
 
 
 def test_a_watched_but_empty_singleton_offers_no_add_button() -> None:

@@ -8,17 +8,24 @@
    computed diff would add a second, derived account of the same change and
    would have to be trusted; the rows themselves need not be.
 
+   A `pf-panel` holding a `pf-table` since P-UX-A6-a2; it opens in the
+   row's editor slot on the monitor and on the Watch points list alike.
+
    Context: display_name, versions (newest first). #}
-<div data-pf-wd="history" class="pf-dc-wphistory">
-    <p data-pf-wd="history-head" class="pf-dc-wphistory__head">Versions of “{{ display_name }}”</p>
-    <table data-pf-wd="history-table" class="pf-dc-wplist__table">
+<div class="pf-panel" data-pf-wd="history">
+    <div class="pf-panel__head">
+        <div class="pf-panel__titles">
+            <h3 class="pf-panel__title" data-pf-wd="history-head">Versions of “{{ display_name }}”</h3>
+        </div>
+    </div>
+    <table class="pf-table" data-pf-wd="history-table">
         <thead>
             <tr>
                 <th scope="col">Effective from</th>
                 <th scope="col">Name</th>
                 <th scope="col">Parameters</th>
-                <th scope="col">Approaching mark</th>
-                <th scope="col">Re-trigger &Delta;</th>
+                <th scope="col" class="pf-num">Approaching mark</th>
+                <th scope="col" class="pf-num">Re-trigger &Delta;</th>
                 <th scope="col">Muted</th>
                 <th scope="col">Note</th>
             </tr>
@@ -26,18 +33,18 @@
         <tbody>
             {% for version in versions %}
                 <tr data-pf-wd="version"{% if version.retired %} data-pf-wd-state="retired"{% endif %}>
-                    <td class="mono">
+                    <td>
                         {{ version.effective_from.strftime('%d %b %Y %H:%M') }}
                         {% if version.retired %}
-                            <span data-pf-wd="retired" class="tag tag--nodata">retired</span>
+                            <span class="pf-state pf-state--resolved" data-pf-wd="retired">retired</span>
                         {% endif %}
                     </td>
                     <td>{{ version.display_name }}</td>
                     <td>{{ version.parameters }}</td>
-                    <td>{{ version.warn_threshold_pct }}</td>
-                    <td>{{ version.re_trigger_delta }}</td>
+                    <td class="pf-num">{{ version.warn_threshold_pct }}</td>
+                    <td class="pf-num">{{ version.re_trigger_delta }}</td>
                     <td>{{ 'yes' if version.muted else 'no' }}</td>
-                    <td class="irene-note">{{ version.notes }}</td>
+                    <td>{{ version.notes }}</td>
                 </tr>
             {% endfor %}
         </tbody>

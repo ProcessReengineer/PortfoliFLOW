@@ -576,12 +576,16 @@ async def test_monitor_renders_beneath_the_feed(
     body = response.text
 
     assert wd("monitor") in body
-    assert "On watch" in body
+    assert "Watch list" in body
     # Beneath the cards, per the mock.
     assert body.index('id="dc-briefing-feed"') < body.index(wd("monitor"))
-    groups = wd_blocks(body, "watch-group")
-    assert groups
-    assert all(wd_attr(group, "open") is None for group in groups)
+    assert wd_blocks(body, "watch-group")
+    # Closed on first load: every group's slot row is rendered and `hidden`.
+    bodies = wd_blocks(body, "group-body")
+    assert bodies
+    assert all(wd_attr(group_body, "hidden") == "" for group_body in bodies)
+    # The one target every "+ Add watchpoint" lands in, after the table.
+    assert 'id="dc-watchpoint-new"' in wd_block(body, "monitor")
 
 
 async def test_monitor_empty_universe_degrades_without_error(
@@ -633,7 +637,7 @@ async def test_monitor_never_ran_state_claims_no_beat(
     response = await web_client.get("/api/watch-desk/briefing")
     body = response.text
 
-    assert "On watch" in body
+    assert "Watch list" in body
     assert "Irene has not completed a beat yet" not in body
     assert "last saw these subjects at" not in body
 
@@ -725,7 +729,9 @@ async def test_monitor_renders_live_coverage_rows_with_gauges(
     assert response.status_code == 200
     body = response.text
 
-    assert "saa:equities" in body
+    # The key lives in the group's "Subject keys" disclosure (R12).
+    saa_body = wd_block(body, "group-body", data_family="saa")
+    assert "saa:equities" in wd_text(saa_body, "group-keys")
     assert "SAA monitor test" in body
     row = wd_block(body, "watch-row", data_pf_wd_subject="saa:equities")
     assert wd_attr(wd_block(row, "meter"), "data-pf-wd-state") == "warn"
@@ -768,7 +774,8 @@ async def test_monitor_moves_the_mark_and_tags_a_muted_subject(
     # …the row is tagged and counted, and stays visible with a live status…
     assert wd_text(wd_block(row, "muted")) == "muted"
     assert "1 muted" in body
-    assert "saa:equities" in body
+    saa_body = wd_block(body, "group-body", data_family="saa")
+    assert "saa:equities" in wd_text(saa_body, "group-keys")
     assert wd_attr(wd_block(row, "meter"), "data-pf-wd-state") == "warn"
     # …and the fill is unchanged: mute and the mark move nothing about the
     # utilisation the gauge encodes.
@@ -2625,7 +2632,7 @@ async def test_never_ran_states_cohere_in_one_briefing(
     assert "All monitored limits are calm" in body
     assert wd("finding") not in body
     # Monitor: renders, and claims no observation time (UI-024).
-    assert "On watch" in body
+    assert "Watch list" in body
     assert "Irene has not completed a beat yet" not in body
     assert "last saw these subjects at" not in body
 
@@ -3747,7 +3754,7 @@ async def test_a_muted_and_a_no_data_subject_are_both_counted(
     # row — and a muted one on top of that. Both states, still watched.
     assert "No data" in body
     assert "1 muted" in body
-    assert "1 subject ·" in body
+    assert "1 instrument ·" in body
 
     # The monitor's group headers sum the press dimensions and the one
     # signal subject.

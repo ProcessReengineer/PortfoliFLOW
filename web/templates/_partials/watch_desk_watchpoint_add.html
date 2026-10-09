@@ -1,4 +1,4 @@
-{# The "+ Add watchpoint" affordance on a signal group header (ADR-0116 §6).
+{# The "+ Add watchpoint" affordance on a signal group row (ADR-0116 §6).
 
    Its own fragment because the asymmetry it embodies is worth a place to
    write down: **the saa / anlv / rss groups get nothing like this, ever.**
@@ -13,16 +13,18 @@
 
    The two singleton families are absent for a different reason: their group
    only renders when a live singleton already exists, and a second one is
-   refused by the repository. Adding one happens from the section footer's
-   empty-state line, which is the only state in which it is possible.
+   refused by the repository. Adding one happens from the family's footer
+   row, which is the only state in which it is possible.
+
+   Since P-UX-A6-a2 it is the first item of the signal group row's
+   `pf-menu` (the mockup's "···"), and it closes that menu as it opens the
+   form in `#dc-watchpoint-new`.
 
    Context: group (see _build_signal_group). #}
 {% if group.can_add %}
-    · <button data-pf-wd="add-watchpoint" type="button"
-              class="pf-dc-group__add"
-              hx-get="/api/watch-desk/watchpoints/new?family={{ group.family }}"
-              hx-target="#dc-watchpoint-new"
-              hx-swap="innerHTML">
-        + Add watchpoint
-    </button>
+    <button class="pf-menu__item" type="button" data-pf-wd="add-watchpoint"
+            hx-get="/api/watch-desk/watchpoints/new?family={{ group.family }}"
+            hx-target="#dc-watchpoint-new"
+            hx-swap="innerHTML"
+            hx-on:click="this.closest('details').removeAttribute('open')">+ Add watchpoint</button>
 {% endif %}

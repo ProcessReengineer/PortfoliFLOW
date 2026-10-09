@@ -8,9 +8,10 @@
  * avoid cascade collisions with the other section components.
  *
  * Rule groups below read in render order: area shell, toolbar, actions,
- * journal, calibration, monitor. Keep new rules inside their group. The
+ * journal, calibration. Keep new rules inside their group. The
  * Briefing's tiles, calm state, cards, Possible moves and derivation groups
- * left with A6-a1: those surfaces are drawn from pf_components.css now. */
+ * left with A6-a1, and the monitor, its drawers and the watchpoint form and
+ * history with A6-a2: those surfaces are drawn from pf_components.css now. */
 
 /* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
  * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
@@ -42,6 +43,23 @@
 .pf-watch-desk #dc-briefing-toolbar:empty { display: none; }
 .pf-watch-desk #dc-briefing-feed { display: flex; flex-direction: column; gap: var(--ui-space-3); }
 .pf-watch-desk .pf-finding__acts > form { display: flex; gap: var(--ui-space-2); margin: 0; }
+
+/* --- A-6 scoped residue: the Watch list (P-UX-A6-a2) -----------------------
+ * Record question Q-UX-S-A6-10: pf-table has no server-rendered, client-
+ * toggled slot. The Watch list renders every family's slot with the page and
+ * closes it with `hidden` (D-A6-41); the shared :has() writer reads a filled
+ * slot as open, so a closed group keeps the closed look (hover kept) and an
+ * unrotated chevron here. */
+.pf-watch-desk .pf-table__row:not(:hover):has(+ .pf-table__slot[hidden]) td { background: transparent; border-bottom-color: var(--ui-border-soft); }
+.pf-watch-desk .pf-table__row:has(+ .pf-table__slot[hidden]) .pf-table__chev { transform: none; }
+.pf-watch-desk .pf-table__slot[hidden] { display: none; }
+/* Record question Q-UX-S-A6-14: pf-meter's modifiers spell the quota
+ * vocabulary, and the signal fragment may not carry "breach" in its markup
+ * (ADR-0116 §4, D-A6-49). A triggered signal meter is toned off its hook. */
+.pf-watch-desk .pf-meter[data-pf-wd-state="triggered"] .pf-meter__fill { background: var(--ui-semantic-negative); }
+/* Record question Q-UX-S-A6-15: a group's sub-rows are a pf-table nested in
+ * the slot cell, which the family pads to nothing; this gives it room. */
+.pf-watch-desk .pf-table .pf-table { margin: var(--ui-space-2) 0; }
 
 .pf-dc-briefing,
 .pf-dc-journal,
@@ -353,222 +371,11 @@ a.pf-dc-res-tag:hover {
     margin: 0 0 8px;
 }
 
-/* --- Monitor — "What Irene watches" (DC2) -------------------------- */
+/* --- The sensitivity affordance on the watchpoint list (ADR-0116 §6) --- */
 
-/* Two departures from the mock stylesheet are deliberate (DC5 audited
- * both and kept them):
- *   - the mock's bare `table` / `th` / `td` / `.tag` / `.gauge` selectors
- *     are scoped under `.pf-dc-monitor` here, so they cannot collide with
- *     the other section components' tables;
- *   - the mock's hard-coded `#E6E6E6` text is replaced by
- *     `--ui-text-secondary`, matching the tile treatment above
- *     (`--ui-text-primary` is the crimson accent in this theme). */
-
-.pf-dc-monitor {
-    margin-top: 22px;
-}
-
-.pf-dc-monitor__head {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-
-.pf-dc-monitor__title {
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-monitor__empty {
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-group {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-}
-
-.pf-dc-group + .pf-dc-group {
-    margin-top: 8px;
-}
-
-.pf-dc-group > summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 14px;
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-}
-
-.pf-dc-group > summary::-webkit-details-marker {
-    display: none;
-}
-
-.pf-dc-group__chevron {
-    transition: transform 0.15s;
-    color: var(--ui-text-disabled);
-    font-size: 0.75rem;
-}
-
-.pf-dc-group[open] .pf-dc-group__chevron {
-    transform: rotate(90deg);
-}
-
-.pf-dc-group__name {
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-    font-size: 0.88rem;
-}
-
-.pf-dc-group__badges {
-    display: flex;
-    gap: 6px;
-    margin-left: 8px;
-}
-
-.pf-dc-group__meta {
-    margin-left: auto;
-    font-size: 0.76rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-group__body {
-    padding: 0 14px 12px;
-    overflow-x: auto;
-}
-
-.pf-dc-monitor table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.84rem;
-}
-
-.pf-dc-monitor th {
-    text-align: left;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-disabled);
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-}
-
-.pf-dc-monitor td {
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-    vertical-align: middle;
-}
-
-.pf-dc-monitor tr:last-child td {
-    border-bottom: none;
-}
-
-.pf-dc-monitor .mono {
-    font-family: var(--ui-font-family-mono);
-}
-
-.pf-dc-monitor .tag {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: 999px;
-    font-size: 0.68rem;
-    border: 1px solid var(--ui-border-default);
-    white-space: nowrap;
-}
-
-.pf-dc-monitor .tag--ok {
-    color: var(--ui-semantic-success);
-    border-color: var(--ui-semantic-success);
-}
-
-.pf-dc-monitor .tag--warn {
-    color: var(--ui-semantic-warning);
-    border-color: var(--ui-semantic-warning);
-}
-
-.pf-dc-monitor .tag--breach {
-    color: var(--ui-accent-primary);
-    border-color: var(--ui-accent-primary);
-}
-
-/* Shared-scale gauge: 0 → ceiling on every row. The *scale* is identical
- * everywhere — that is the whole point, and it is the utilisation analogue
- * of the identical-axis rule for scenario comparisons. Never rescale per
- * row. The fill width is rendered-clamped to 100% in the template so a
- * breach cannot overflow the bar, while the printed coverage / ceiling
- * figures stay honest.
- *
- * The WARN mark sits at the row's WARN fraction of that ceiling. Since
- * ADR-0116 §3 the fraction is per subject, so the template writes an
- * inline `left` from the subject's effective threshold and the 90% below
- * is the fallback for a row rendered without one. Per-subject
- * *positioned*, never per-subject rescaled, and never moved away from the
- * threshold the row was actually classified against. */
-
-.pf-dc-monitor .gauge {
-    position: relative;
-    width: 130px;
-    height: 9px;
-    border-radius: 5px;
-    background: var(--ui-background-primary);
-}
-
-.pf-dc-monitor .gauge__fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 5px;
-    background: var(--ui-text-disabled);
-}
-
-.pf-dc-monitor .gauge--ok .gauge__fill {
-    background: var(--ui-semantic-success);
-}
-
-.pf-dc-monitor .gauge--warn .gauge__fill {
-    background: var(--ui-semantic-warning);
-}
-
-.pf-dc-monitor .gauge--breach .gauge__fill {
-    background: var(--ui-accent-primary);
-}
-
-.pf-dc-monitor .gauge__warnmark {
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    left: 90%;
-    width: 1px;
-    background: var(--ui-text-disabled);
-}
-
-.pf-dc-monitor .irene-note {
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-    max-width: 320px;
-}
-
-.pf-dc-monitor .irene-note--fired {
-    color: var(--ui-text-secondary);
-}
-
-/* --- Muted subjects and the sensitivity affordance (ADR-0116 §3/§6) --- */
-
-/* A muted row stays fully visible and fully legible: the tag is the only
- * thing that changes, and it is deliberately *neutral* rather than dimmed
- * or struck through. Mute suppresses finding creation, not truth, so the
- * figures beside it must not read as switched off. */
-
-.pf-dc-monitor .tag--muted {
-    color: var(--ui-text-disabled);
-    border-color: var(--ui-text-disabled);
-}
+/* The monitor's muted tag, flag, drawer slot and drawer left with A6-a2
+ * (pf-state, pf-hint, pf-table__slot, pf-panel); the button below is still
+ * drawn by the Watch points list and the family rows until A6-b. */
 
 .pf-dc-sensitivity__open {
     background: none;
@@ -583,89 +390,6 @@ a.pf-dc-res-tag:hover {
 
 .pf-dc-sensitivity__open:hover {
     border-color: var(--ui-accent-primary);
-}
-
-.pf-dc-sensitivity__flag {
-    margin-left: 6px;
-    font-size: 0.7rem;
-    color: var(--ui-text-disabled);
-}
-
-/* The drawer's own row carries no border of its own — it reads as part of
- * the row above it, not as a subject in its own right. */
-.pf-dc-monitor .pf-dc-sensitivity__slot > td {
-    padding: 0;
-    border-bottom: none;
-}
-
-.pf-dc-sensitivity {
-    padding: 12px 10px 14px;
-    background: var(--ui-background-primary);
-    border-bottom: 1px solid var(--ui-border-default);
-}
-
-.pf-dc-sensitivity__fields {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 18px;
-    align-items: flex-start;
-    margin-bottom: 10px;
-}
-
-.pf-dc-sensitivity__field {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    max-width: 260px;
-}
-
-.pf-dc-sensitivity__field--check {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: 2px 6px;
-}
-
-.pf-dc-sensitivity__field--check .pf-dc-sensitivity__hint {
-    grid-column: 2;
-}
-
-.pf-dc-sensitivity__field--notes {
-    max-width: 420px;
-    flex: 1;
-}
-
-.pf-dc-sensitivity__label {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-}
-
-.pf-dc-sensitivity__hint {
-    font-size: 0.72rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-sensitivity__field input[type="text"] {
-    padding: 5px 7px;
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-}
-
-.pf-dc-sensitivity__footer {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.pf-dc-sensitivity__note {
-    font-size: 0.74rem;
-    color: var(--ui-text-disabled);
 }
 
 /* --- Calibration editor (ADR-0116 §7) ------------------------------- */
@@ -819,54 +543,19 @@ a.pf-dc-res-tag:hover {
    §8). Their successors live in components/planning_desk.css, where
    Feature #034 re-anchors. */
 
-/* --- Signal families on the monitor (ADR-0116 §4, §6) ---------------- */
+/* --- Watchpoint list leftovers of the signal monitor (ADR-0116 §4, §6) -- */
 
-/* The signal status vocabulary gets its own modifiers rather than reusing
- * the quota `--ok/--warn/--breach` set. Not cosmetics: "breach" is
- * regulatory language reserved for saa/anlv, and a class name is rendered
- * markup — the string assertion over the signal fragment reads it. The
- * colours are deliberately the same three, because the *severity* really
- * is the same; only the word differs. */
-
-.pf-dc-monitor .tag--calm {
-    color: var(--ui-semantic-success);
-    border-color: var(--ui-semantic-success);
-}
-
-.pf-dc-monitor .gauge--calm .gauge__fill {
-    background: var(--ui-semantic-success);
-}
-
-.pf-dc-monitor .tag--approaching {
-    color: var(--ui-semantic-warning);
-    border-color: var(--ui-semantic-warning);
-}
-
-.pf-dc-monitor .gauge--approaching .gauge__fill {
-    background: var(--ui-semantic-warning);
-}
-
-.pf-dc-monitor .tag--triggered {
-    color: var(--ui-accent-primary);
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-dc-monitor .gauge--triggered .gauge__fill {
-    background: var(--ui-accent-primary);
-}
+/* The monitor's signal tags, gauges, group header, footer and add button
+ * left with A6-a2. Three rules stay, because the Watch points list and the
+ * Journal still draw them until A6-b/j. */
 
 /* A no-data row is *visually distinct from calm*, which is the whole
  * point of having it: absence of data must never read as reassurance
- * (ADR-0116 §4). Dashed, neutral, and — see the row template — carrying no
- * gauge at all, because a bar would be a claim. */
+ * (ADR-0116 §4). Dashed and neutral; the list's retired tag wears it. */
 .tag--nodata {
     color: var(--ui-text-disabled);
     border-style: dashed;
     border-color: var(--ui-text-disabled);
-}
-
-.pf-dc-monitor__nogauge {
-    color: var(--ui-text-disabled);
 }
 
 /* The subject key beside the operator's own label: present for the audit
@@ -877,21 +566,8 @@ a.pf-dc-res-tag:hover {
     color: var(--ui-text-disabled);
 }
 
-.pf-dc-group__add {
-    background: none;
-    border: none;
-    padding: 0;
-    font: inherit;
-    color: var(--ui-accent-primary);
-    cursor: pointer;
-}
-
-.pf-dc-group__add:hover {
-    text-decoration: underline;
-}
-
-/* The collapsed calm remainder of an exception-first group. Collapsed,
- * never hidden — the summary states the count and expands on demand. */
+/* A collapsed remainder. Collapsed, never hidden — the summary states the
+ * count and expands on demand. */
 .pf-dc-collapse > summary {
     cursor: pointer;
     font-size: 0.78rem;
@@ -899,27 +575,9 @@ a.pf-dc-res-tag:hover {
     padding: 4px 0;
 }
 
-.pf-dc-monitor .pf-dc-group__collapsed > td {
-    padding: 0 10px;
-    border-bottom: none;
-}
+/* --- Watchpoint list (ADR-0116 §7) ----------------------------------- */
 
-.pf-dc-monitor__footer {
-    padding: 4px 14px 10px;
-}
-
-.pf-dc-monitor__footer-line {
-    padding: 4px 0;
-    font-size: 0.8rem;
-}
-
-.pf-dc-monitor__footer-name {
-    font-style: normal;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-}
-
-/* --- Watchpoint list and history (ADR-0116 §7) ----------------------- */
+/* The history panel and the watchpoint form left with A6-a2 (pf-panel). */
 
 .pf-dc-calibration__watchpoints {
     margin-bottom: 22px;
@@ -960,46 +618,4 @@ a.pf-dc-res-tag:hover {
 
 .pf-dc-wplist__retired {
     margin-top: 12px;
-}
-
-.pf-dc-wphistory {
-    padding: 10px;
-    background: var(--ui-background-primary);
-    border-bottom: 1px solid var(--ui-border-default);
-}
-
-.pf-dc-wphistory__head {
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-    margin: 0 0 6px;
-}
-
-.pf-dc-watchpoint-form__head {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-    margin: 0 0 8px;
-}
-
-.pf-dc-watchpoint-form__scope {
-    display: block;
-    font-weight: 400;
-    font-size: 0.74rem;
-    color: var(--ui-text-disabled);
-    max-width: 60ch;
-}
-
-.pf-dc-watchpoint-form__fixed {
-    font-size: 0.84rem;
-    color: var(--ui-text-primary);
-    padding: 5px 0;
-}
-
-.pf-dc-watchpoint-form input[type="number"],
-.pf-dc-watchpoint-form select {
-    padding: 5px 7px;
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
 }

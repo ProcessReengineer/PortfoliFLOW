@@ -17,16 +17,25 @@
    states the **complete** calibration — an immutable version row is meant
    to be readable on its own, without replaying its predecessors.
 
-   Bounds are not enforced here. The `min`/`step` attributes are a
-   convenience for the operator's keyboard, never the rule: positivity, the
-   WARN band and the pair format are the repository's contract (ADR-0116
-   §3) and a refusal renders inline through the section's one error idiom.
+   Bounds are not enforced here, and since P-UX-A6-a2 the generated
+   parameter fields are text inputs, not native number fields (R10): the
+   route parses what was typed, and positivity, the WARN band and the pair
+   format are the repository's contract (ADR-0116 §3). A refusal renders
+   inline through the section's one error idiom, without an echo of the
+   value as read (Q-UX-S-A6-13).
+
+   The frame is the drawer's (watch_desk_sensitivity_editor.html): a
+   `pf-panel` with its head, the fields as `pf-field--half` in a `pf-grid`,
+   and Save and Keep in `pf-panel__foot`. Keep empties the form's own
+   parent — the editor slot cell on the monitor and the list, or
+   `#dc-watchpoint-new` for a new watchpoint (D-A6-50).
 
    Context (via _watchpoint_form_context): csrf_token, mode, family,
    family_label, singleton, fields, instruments, currency_pair,
    display_name, muted, warn_threshold_pct, re_trigger_delta, notes,
    warn_inherited_pct, delta_default, return_to, target, action, slot_id. #}
-<form data-pf-wd="watchpoint-form" class="pf-dc-sensitivity pf-dc-watchpoint-form"
+{% set fid = slot_id ~ '-' ~ return_to %}
+<form class="pf-panel" data-pf-wd="watchpoint-form"
       hx-post="{{ action }}"
       hx-target="{{ target }}"
       hx-swap="outerHTML">
@@ -34,46 +43,49 @@
     <input type="hidden" name="family" value="{{ family }}">
     <input type="hidden" name="return_to" value="{{ return_to }}">
 
-    <p data-pf-wd="watchpoint-form-head" class="pf-dc-watchpoint-form__head">
-        {% if mode == 'create' %}New {{ family_label }} watchpoint{% else %}Edit {{ family_label }} watchpoint{% endif %}
-        {% if singleton %}
-            <span data-pf-wd="watchpoint-form-scope" class="pf-dc-watchpoint-form__scope">
-                One rule for the whole book — this family carries a single
-                watchpoint per tenant, and every subject it enumerates reads
-                its settings from this row.
-            </span>
-        {% endif %}
-    </p>
+    <div class="pf-panel__head">
+        <div class="pf-panel__titles">
+            <p class="pf-panel__title" data-pf-wd="watchpoint-form-head">{% if mode == 'create' %}New {{ family_label }} watchpoint{% else %}Edit {{ family_label }} watchpoint{% endif %}</p>
+            {% if singleton %}
+                <p class="pf-panel__sub" data-pf-wd="watchpoint-form-scope">
+                    One rule for the whole book — this family carries a single
+                    watchpoint per tenant, and every subject it enumerates reads
+                    its settings from this row.
+                </p>
+            {% endif %}
+        </div>
+    </div>
 
-    <div class="pf-dc-sensitivity__fields">
+    <div class="pf-grid">
         {% if family == 'price' %}
             {% if mode == 'create' %}
-                <label data-pf-wd="field" data-pf-wd-name="instrument_id" class="pf-dc-sensitivity__field">
-                    <span class="pf-dc-sensitivity__label">Instrument</span>
+                <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="instrument_id">
                     {% if instruments %}
-                        <select name="instrument_id">
+                        <label class="pf-label" for="{{ fid }}-instrument">Instrument</label>
+                        <select class="pf-select" id="{{ fid }}-instrument" name="instrument_id">
                             {% for instrument in instruments %}
                                 <option value="{{ instrument.id }}">{{ instrument.name }}</option>
                             {% endfor %}
                         </select>
-                        <span class="pf-dc-sensitivity__hint">
+                        <span class="pf-hint">
                             Active investments carrying a market identifier —
                             the ones the platform can price. Instruments
                             already watched are not listed.
                         </span>
                     {% else %}
-                        <span class="pf-empty-state">
+                        <span class="pf-label">Instrument</span>
+                        <p class="pf-hint">
                             No active investment carries a market identifier
                             that is not already watched. Add an identifier
                             under the investment first.
-                        </span>
+                        </p>
                     {% endif %}
-                </label>
+                </div>
             {% else %}
-                <div data-pf-wd="field" data-pf-wd-name="instrument_id" class="pf-dc-sensitivity__field">
-                    <span class="pf-dc-sensitivity__label">Instrument</span>
-                    <span data-pf-wd="fixed" class="pf-dc-watchpoint-form__fixed">{{ display_name }}</span>
-                    <span class="pf-dc-sensitivity__hint">
+                <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="instrument_id">
+                    <span class="pf-label">Instrument</span>
+                    <p data-pf-wd="fixed">{{ display_name }}</p>
+                    <span class="pf-hint">
                         Fixed for the life of the watchpoint — watching a
                         different instrument is a different watchpoint.
                     </span>
@@ -81,20 +93,21 @@
             {% endif %}
         {% elif family == 'fx' %}
             {% if mode == 'create' %}
-                <label data-pf-wd="field" data-pf-wd-name="currency_pair" class="pf-dc-sensitivity__field">
-                    <span class="pf-dc-sensitivity__label">Currency pair</span>
-                    <input type="text" name="currency_pair" value=""
+                <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="currency_pair">
+                    <label class="pf-label" for="{{ fid }}-pair">Currency pair</label>
+                    <input class="pf-input" id="{{ fid }}-pair" type="text"
+                           name="currency_pair" value=""
                            placeholder="USD/EUR" maxlength="7">
-                    <span class="pf-dc-sensitivity__hint">
+                    <span class="pf-hint">
                         BASE/QUOTE, two three-letter codes — the move is read
                         in that orientation.
                     </span>
-                </label>
+                </div>
             {% else %}
-                <div data-pf-wd="field" data-pf-wd-name="currency_pair" class="pf-dc-sensitivity__field">
-                    <span class="pf-dc-sensitivity__label">Currency pair</span>
-                    <span data-pf-wd="fixed" class="pf-dc-watchpoint-form__fixed mono">{{ currency_pair }}</span>
-                    <span class="pf-dc-sensitivity__hint">
+                <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="currency_pair">
+                    <span class="pf-label">Currency pair</span>
+                    <p data-pf-wd="fixed">{{ currency_pair }}</p>
+                    <span class="pf-hint">
                         Fixed for the life of the watchpoint.
                     </span>
                 </div>
@@ -102,80 +115,80 @@
         {% endif %}
 
         {% for field in fields %}
-            <label data-pf-wd="field" data-pf-wd-name="{{ field.name }}" class="pf-dc-sensitivity__field">
-                <span class="pf-dc-sensitivity__label">{{ field.label }}</span>
-                <input type="number" step="{{ field.step }}" min="0"
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="{{ field.name }}">
+                <label class="pf-label" for="{{ fid }}-{{ field.name }}">{{ field.label }}</label>
+                <input class="pf-input pf-input--num" id="{{ fid }}-{{ field.name }}"
+                       type="text" inputmode="decimal"
                        name="{{ field.name }}" value="{{ field.value }}">
-                <span class="pf-dc-sensitivity__hint">
+                <span class="pf-hint">
                     In {{ field.unit }}. {{ field.hint }}
                 </span>
-            </label>
+            </div>
         {% endfor %}
 
-        <label data-pf-wd="field" data-pf-wd-name="warn_threshold_pct" class="pf-dc-sensitivity__field">
-            <span class="pf-dc-sensitivity__label">Approaching mark</span>
-            <input type="text" inputmode="decimal" name="warn_threshold_pct"
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="warn_threshold_pct">
+            <label class="pf-label" for="{{ fid }}-warn">Approaching mark</label>
+            <input class="pf-input pf-input--num" id="{{ fid }}-warn"
+                   type="text" inputmode="decimal" name="warn_threshold_pct"
                    value="{{ warn_threshold_pct }}"
                    placeholder="{{ '%.0f'|format(warn_inherited_pct) }}">
-            <span class="pf-dc-sensitivity__hint">
+            <span class="pf-hint">
                 % of the trigger threshold, strictly between 50 and 100.
                 Empty follows the family default
                 ({{ '%.0f'|format(warn_inherited_pct) }}%).
             </span>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="re_trigger_delta" class="pf-dc-sensitivity__field">
-            <span class="pf-dc-sensitivity__label">Re-trigger &Delta;</span>
-            <input type="text" inputmode="decimal" name="re_trigger_delta"
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="re_trigger_delta">
+            <label class="pf-label" for="{{ fid }}-delta">Re-trigger &Delta;</label>
+            <input class="pf-input pf-input--num" id="{{ fid }}-delta"
+                   type="text" inputmode="decimal" name="re_trigger_delta"
                    value="{{ re_trigger_delta }}"
                    placeholder="{{ '%.1f'|format(delta_default) }}">
-            <span class="pf-dc-sensitivity__hint">
+            <span class="pf-hint">
                 How far the figure must move, within an unchanged status,
                 before it is worth raising again. Empty follows the family
                 default ({{ '%.1f'|format(delta_default) }}).
             </span>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="muted" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--check">
-            <input type="checkbox" name="muted" {% if muted %}checked{% endif %}>
-            <span class="pf-dc-sensitivity__label">Mute</span>
-            <span class="pf-dc-sensitivity__hint">
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="muted">
+            <label class="pf-check">
+                <input type="checkbox" name="muted" {% if muted %}checked{% endif %}>
+                Mute
+            </label>
+            <span class="pf-hint">
                 Suppresses finding creation only. The row stays visible and
                 its status stays live.
                 {% if singleton %}
                     Muting this row silences the whole family.
                 {% endif %}
             </span>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="display_name" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
-            <span class="pf-dc-sensitivity__label">Name</span>
-            <input type="text" name="display_name" value="{{ display_name }}"
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="display_name">
+            <label class="pf-label" for="{{ fid }}-name">Name</label>
+            <input class="pf-input" id="{{ fid }}-name" type="text"
+                   name="display_name" value="{{ display_name }}"
                    maxlength="200"
                    placeholder="Leave empty for the default name">
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="notes" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
-            <span class="pf-dc-sensitivity__label">Note</span>
-            <input type="text" name="notes" value="{{ notes }}" maxlength="500"
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="notes">
+            <label class="pf-label" for="{{ fid }}-notes">Note</label>
+            <input class="pf-input" id="{{ fid }}-notes" type="text"
+                   name="notes" value="{{ notes }}" maxlength="500"
                    placeholder="Why this subject is watched (optional)">
-        </label>
+        </div>
     </div>
 
-    <div class="pf-dc-sensitivity__footer">
-        <button data-pf-wd="watchpoint-save" type="submit" class="pf-dc-btn pf-dc-btn--primary">
-            {% if mode == 'create' %}Add watchpoint{% else %}Save watchpoint{% endif %}
-        </button>
-        {# Closes the drawer by emptying its slot. Nothing is persisted and
-           nothing is fetched, so this stays client-side rather than paying
-           a round trip to render emptiness. #}
-        <button data-pf-wd="watchpoint-cancel" type="button" class="pf-dc-btn"
-                onclick="document.getElementById('{{ slot_id }}').innerHTML = '';">
-            Cancel
-        </button>
-        <span data-pf-wd="watchpoint-note" class="pf-dc-sensitivity__note">
-            Visible in the monitor immediately; effective in the beat from its
-            next run.
-        </span>
+    <div class="pf-panel__foot">
+        <button class="pf-btn" type="submit" data-pf-wd="watchpoint-save">{% if mode == 'create' %}Add watchpoint{% else %}Save watchpoint{% endif %}</button>
+        {# Keep destroys nothing and asks the server nothing: it empties the
+           container this form was swapped into — a slot cell or
+           `#dc-watchpoint-new` — so one expression serves every host. #}
+        <button class="pf-btn pf-btn--quiet" type="button" data-pf-wd="watchpoint-cancel"
+                hx-on:click="this.closest('form').parentElement.innerHTML = ''">Keep</button>
+        <span class="pf-hint" data-pf-wd="watchpoint-note">Visible in the monitor immediately; effective from the next check.</span>
     </div>
 </form>

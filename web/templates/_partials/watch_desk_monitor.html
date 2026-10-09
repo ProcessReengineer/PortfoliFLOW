@@ -1,9 +1,10 @@
-{# "On watch" — the live monitor beneath the Briefing cards
-   (ADR-0089, DC2; edit affordances per ADR-0116 §6).
+{# "Watch list" — the live monitor beneath the Briefing findings
+   (ADR-0089, DC2; edit affordances per ADR-0116 §6; anatomy per
+   M-WD-1 v2 and P-UX-A6-a2).
 
    Two honesty rules are load-bearing here and must not be "tidied" away:
 
-     * Every gauge runs 0 → ceiling with the WARN tick at that subject's
+     * Every meter runs 0 → ceiling with the WARN mark at that subject's
        WARN fraction of the ceiling. The *scale* is identical on every row —
        the scenario-comparison axis rule applied to utilisation — and the
        mark is never moved to flatter a row. Since ADR-0116 §3 the WARN
@@ -22,206 +23,187 @@
        reads no bogus "last seen" stamp.
 
    A third rule joins them with the mute affordance: a muted row stays
-   **visible**, tagged, and counted in its group header, and its status
+   **visible**, tagged, and counted in its group row, and its status
    keeps rendering live. Mute suppresses finding creation, never truth —
    so this template must never hide a row, grey out a figure, or drop a
    muted subject from a count.
 
-   A group renders **closed** on first load. Its summary line is the
-   decision surface — name, badges, muted count, subject count and the
+   A group renders **closed** on first load. Its group row is the
+   decision surface — name, state, muted count, subject count and the
    effective set — so it already carries what decides whether opening the
-   body is worth it, and the calm-by-default posture the Watch Desk keeps
+   slot is worth it, and the calm-by-default posture the Watch Desk keeps
    toward the book applies to its own first screen too. Closed is not
-   hidden: every row stays in the document, the header counts stay live,
+   hidden: every row stays in the document, the group counts stay live,
    and a muted row is still visible, tagged and counted one click away.
    The honesty rules above are unaffected — this changes disclosure, not
    content.
 
-   Class names are the mock's verbatim (decision-console-mockup-B-final-v3)
-   so DC5 can lift the mock CSS cleanly.
+   And from the signal fragment, for the families that can fail to
+   observe: a **no-data** row draws no meter at all; signal families say
+   Calm / Approaching / Triggered and never "breach"; liquidity shows
+   ratios, never its internal 100-scale; the freshness calm remainder is
+   collapsed, never omitted, and counted.
 
-   Context: monitor — coverage_available, groups, rss (None while Press coverage is off). #}
-<div data-pf-wd="monitor" id="dc-monitor" class="pf-dc-monitor">
-    <div class="pf-dc-monitor__head">
-        <span data-pf-wd="monitor-title" class="pf-dc-monitor__title">On watch</span>
-    </div>
+   Anatomy (D-UX-A6-3): one `pf-table`. Every family is a group row and,
+   beneath it, a slot row holding the family's sub-rows in a nested
+   `pf-table`. The slot is server-rendered with the page and closed by
+   `hidden` (D-A6-41, Q-UX-S-A6-10): there is no per-family fragment route,
+   and every row must stay in the document. The chevron toggles it in
+   place. Subject keys leave the visible cells and live in each group's
+   "Subject keys" disclosure (ADR-0133 §4, R12).
 
-    {% for group in monitor.groups %}
-        <details data-pf-wd="watch-group" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="quota" data-family="{{ group.family }}" class="pf-dc-group">
-            <summary>
-                <span class="pf-dc-group__chevron">▶</span>
-                <span data-pf-wd="group-name" class="pf-dc-group__name">{{ group.name }}</span>
-                <span data-pf-wd="group-badges" class="pf-dc-group__badges">
-                    {%- for badge in group.badges -%}
-                        <span data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}" class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
-                    {%- endfor -%}
-                    {%- if group.muted_count -%}
-                        <span data-pf-wd="muted-count" class="tag tag--muted">{{ group.muted_count }} muted</span>
-                    {%- endif -%}
-                </span>
-                <span data-pf-wd="group-meta" class="pf-dc-group__meta">
-                    {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
-                    {% if group.effective_label %}
-                        effective set “{{ group.effective_label }}”
-                    {% else %}
-                        no effective set
-                    {% endif %}
-                    {# No "+ Add watchpoint" here, and there never is one:
-                       for a quota family the watchpoint is a sensitivity
-                       overlay only — the subject and its ceiling belong to
-                       the limit set alone (ADR-0116 §3), which is what this
-                       link goes to. See watch_desk_watchpoint_add.html. #}
-                    · <a href="/back-office#limits">manage in Limits</a>
-                </span>
-            </summary>
-            <div data-pf-wd="group-body" class="pf-dc-group__body">
-                {% if group.rows %}
-                    <table>
-                        <thead>
-                            <tr>
-                                <th scope="col">Subject</th>
-                                <th scope="col">Status</th>
-                                <th scope="col">Coverage</th>
-                                <th scope="col">Ceiling</th>
-                                <th scope="col">Utilisation</th>
-                                <th scope="col">Note</th>
-                                <th scope="col">Sensitivity</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in group.rows %}
-                                <tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
-                                    <td data-pf-wd="subject" class="mono">
-                                        {{ row.subject_key }}
-                                        {% if row.muted %}
-                                            <span data-pf-wd="muted" class="tag tag--muted">muted</span>
-                                        {% endif %}
-                                    </td>
-                                    <td data-pf-wd="state" data-pf-wd-state="{{ row.modifier }}"><span data-pf-wd="state-tag" data-pf-wd-state="{{ row.modifier }}" class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
-                                    <td data-pf-wd="coverage">{{ '%.2f'|format(row.coverage_pct) }}%</td>
-                                    <td data-pf-wd="ceiling">{% if row.max_pct is not none %}{{ '%.2f'|format(row.max_pct) }}%{% else %}—{% endif %}</td>
-                                    <td data-pf-wd="utilisation">
-                                        {# Per-subject mark position, clamped fill — see the
-                                           header comment. The inline `left` is the whole
-                                           per-subject affordance; the stylesheet's 90% is
-                                           the fallback for a row without one. #}
-                                        <div data-pf-wd="meter" data-pf-wd-state="{{ row.modifier }}" class="gauge gauge--{{ row.modifier }}"
-                                             {% if row.utilisation is not none %}title="{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%"{% endif %}>
-                                            <span data-pf-wd="meter-mark" class="gauge__warnmark"
-                                                  style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span>
-                                            <span data-pf-wd="meter-fill" class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
-                                        </div>
-                                    </td>
-                                    <td data-pf-wd="note" class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
-                                        {{ row.note }}
-                                        {% if row.finding_anchor %}
-                                            <a data-pf-wd="finding-link" href="{{ row.finding_anchor }}">▲ open finding</a>
-                                        {% endif %}
-                                    </td>
-                                    <td data-pf-wd="sensitivity">
-                                        <button data-pf-wd="adjust" type="button"
-                                                class="pf-dc-sensitivity__open"
-                                                hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
-                                                hx-target="#{{ row.editor_id }}"
-                                                hx-swap="innerHTML">
-                                            Adjust sensitivity
-                                        </button>
-                                        {% if row.warn_customised or row.delta_customised %}
-                                            <span data-pf-wd="customised" class="pf-dc-sensitivity__flag">customised</span>
-                                        {% endif %}
-                                    </td>
+   Context: monitor — coverage_available, groups, rss (None while Press
+   coverage is off), signal_groups, signal_footer; csrf_token. #}
+<section aria-label="Watch list" data-pf-wd="monitor" id="dc-monitor">
+    <h2 class="pf-block__title" data-pf-wd="monitor-title">Watch list <span>what each watch point sees right now</span></h2>
+
+    <table class="pf-table">
+        <tbody>
+            {% for group in monitor.groups %}
+                {% set state = group.badges[0].modifier if group.badges else 'calm' %}
+                {% set word = group.badges[0].text if group.badges else 'calm' %}
+                <tr class="pf-table__row" id="wl-{{ group.family }}" data-pf-wd="watch-group" data-pf-wd-state="{{ state }}" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="quota" data-family="{{ group.family }}">
+                    <td><button type="button" class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon" aria-expanded="false" aria-controls="wl-{{ group.family }}-slot" aria-label="Show {{ group.name }}" hx-on:click="const s=this.closest('tr').nextElementSibling; s.hidden=!s.hidden; this.setAttribute('aria-expanded', String(!s.hidden)); this.closest('tr').classList.toggle('is-open', !s.hidden)"><span class="pf-table__chev" aria-hidden="true">&rsaquo;</span></button></td>
+                    <td data-pf-wd="group-name">{{ group.name }}</td>
+                    <td data-pf-wd="group-badges">
+                        <span class="pf-state pf-state--{{ state }}" data-pf-wd="state-tag" data-pf-wd-state="{{ state }}">{{ word }}</span>
+                        {%- for badge in group.badges[1:] %} <span class="pf-state pf-state--{{ badge.modifier }}" data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}">{{ badge.text }}</span>{% endfor -%}
+                        {%- if group.muted_count %} <span class="pf-state pf-state--muted" data-pf-wd="muted-count">{{ group.muted_count }} muted</span>{% endif %}
+                    </td>
+                    {# No "+ Add watchpoint" here, and there never is one: for a
+                       quota family the watchpoint is a sensitivity overlay
+                       only — the subject and its ceiling belong to the limit
+                       set alone (ADR-0116 §3), which is what the menu's
+                       "Manage in Limits" goes to. See
+                       watch_desk_watchpoint_add.html. #}
+                    <td data-pf-wd="group-meta">{{ group.subject_count }} {{ 'class' if group.family == 'saa' else 'quota' }}{{ ('es' if group.family == 'saa' else 's') if group.subject_count != 1 else '' }} · {% if group.effective_label %}effective set “{{ group.effective_label }}”{% else %}no effective set{% endif %}</td>
+                    <td>
+                        <div class="pf-table__actions">
+                            <details class="pf-menu">
+                                <summary class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon">{{ pf_icon("more", "Actions for " ~ group.name) }}</summary>
+                                <div class="pf-menu__list">
+                                    <a class="pf-menu__item" href="#calibration">Watch points</a>
+                                    <a class="pf-menu__item" href="/back-office#limits">Manage in Limits</a>
+                                </div>
+                            </details>
+                        </div>
+                    </td>
+                </tr>
+                <tr class="pf-table__slot" id="wl-{{ group.family }}-slot" hidden data-pf-wd="group-body" data-family="{{ group.family }}">
+                    <td colspan="5">
+                        {% if group.rows %}
+                            <table class="pf-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{{ 'Class' if group.family == 'saa' else 'Quota' }}</th>
+                                        <th scope="col">State</th>
+                                        <th scope="col" class="pf-num">Coverage</th>
+                                        <th scope="col" class="pf-num">Ceiling</th>
+                                        <th scope="col">Utilisation</th>
+                                        <th scope="col">Note</th>
+                                        <th scope="col">Sensitivity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in group.rows %}
+                                        {% with kind = 'quota' %}{% include "_partials/watch_desk_watch_row.html" %}{% endwith %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            <details class="pf-more" data-pf-wd="group-keys">
+                                <summary>Subject keys</summary>
+                                <ul>
+                                    {%- for row in group.rows %}
+                                        <li><span>{{ row.subject_key.split(':', 1)[1]|replace('_', ' ')|capitalize }}</span> <code data-pf-wd="subject-key">{{ row.subject_key }}</code></li>
+                                    {%- endfor %}
+                                </ul>
+                            </details>
+                        {% elif not monitor.coverage_available %}
+                            <div class="pf-empty" data-pf-wd="monitor-empty">
+                                <p class="pf-empty__lead">No valued positions yet — nothing to monitor.</p>
+                            </div>
+                        {% else %}
+                            <div class="pf-empty" data-pf-wd="monitor-empty">
+                                <p class="pf-empty__lead">No constrained classes — nothing carries a ceiling to watch in this family.</p>
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+
+            {# The press group is DB-free, so it renders whatever coverage
+               does. Three data columns only: the mock's "Clusters today"
+               column is deferred (D8) and must not be restored — a per-tag
+               cluster count is not recoverable from persisted data, and a
+               silent-cluster note would be an invention. A tag with no
+               corroborating finding carries no note. The fourth column is
+               the mute affordance, which an rss overlay carries alone: a
+               cluster subject is non-scalar, so there is no threshold to
+               move and the schema refuses one. #}
+            {% if monitor.rss %}
+                <tr class="pf-table__row" id="wl-rss" data-pf-wd="watch-group" data-pf-wd-state="calm" data-pf-wd-count="{{ monitor.rss.rows|length }}" data-pf-wd-kind="press" data-family="rss">
+                    <td><button type="button" class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon" aria-expanded="false" aria-controls="wl-rss-slot" aria-label="Show {{ monitor.rss.name }}" hx-on:click="const s=this.closest('tr').nextElementSibling; s.hidden=!s.hidden; this.setAttribute('aria-expanded', String(!s.hidden)); this.closest('tr').classList.toggle('is-open', !s.hidden)"><span class="pf-table__chev" aria-hidden="true">&rsaquo;</span></button></td>
+                    <td data-pf-wd="group-name">{{ monitor.rss.name }}</td>
+                    <td data-pf-wd="group-badges">
+                        <span class="pf-state pf-state--calm" data-pf-wd="state-tag" data-pf-wd-state="calm">{{ monitor.rss.rows|length }} tags</span>
+                        {%- if monitor.rss.muted_count %} <span class="pf-state pf-state--muted" data-pf-wd="muted-count">{{ monitor.rss.muted_count }} muted</span>{% endif %}
+                    </td>
+                    <td data-pf-wd="group-meta">{{ monitor.rss.meta }}</td>
+                    <td>
+                        <div class="pf-table__actions">
+                            <details class="pf-menu">
+                                <summary class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon">{{ pf_icon("more", "Actions for " ~ monitor.rss.name) }}</summary>
+                                <div class="pf-menu__list">
+                                    <a class="pf-menu__item" href="#calibration">Watch points</a>
+                                </div>
+                            </details>
+                        </div>
+                    </td>
+                </tr>
+                <tr class="pf-table__slot" id="wl-rss-slot" hidden data-pf-wd="group-body" data-family="rss">
+                    <td colspan="5">
+                        <table class="pf-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Tag</th>
+                                    <th scope="col">Corroborates</th>
+                                    <th scope="col">Note</th>
+                                    <th scope="col">Sensitivity</th>
                                 </tr>
-                                <tr data-pf-wd="editor-slot" class="pf-dc-sensitivity__slot">
-                                    <td colspan="7" id="{{ row.editor_id }}"></td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                {% elif not monitor.coverage_available %}
-                    <p data-pf-wd="monitor-empty" class="pf-dc-monitor__empty">
-                        No valued positions yet — nothing to monitor.
-                    </p>
-                {% else %}
-                    <p data-pf-wd="monitor-empty" class="pf-dc-monitor__empty">
-                        No constrained classes — nothing carries a ceiling to
-                        watch in this family.
-                    </p>
-                {% endif %}
-            </div>
-        </details>
-    {% endfor %}
+                            </thead>
+                            <tbody>
+                                {% for row in monitor.rss.rows %}
+                                    {% with kind = 'press' %}{% include "_partials/watch_desk_watch_row.html" %}{% endwith %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <details class="pf-more" data-pf-wd="group-keys">
+                            <summary>Subject keys</summary>
+                            <ul>
+                                {%- for row in monitor.rss.rows %}
+                                    <li><span>{{ row.tag }}</span> <code data-pf-wd="subject-key">{{ row.subject_key }}</code></li>
+                                {%- endfor %}
+                            </ul>
+                        </details>
+                    </td>
+                </tr>
+            {% endif %}
 
-    {# The press group is DB-free, so it renders whatever coverage does.
-       Three data columns only: the mock's "Clusters today" column is
-       deferred (D8) and must not be restored — a per-tag cluster count is
-       not recoverable from persisted data, and a silent-cluster note would
-       be an invention. A tag with no corroborating finding carries no note.
-       The fourth column is the mute affordance, which an rss overlay
-       carries alone: a cluster subject is non-scalar, so there is no
-       threshold to move and the schema refuses one. #}
-    {% if monitor.rss %}
-        <details data-pf-wd="watch-group" data-pf-wd-count="{{ monitor.rss.rows|length }}" data-pf-wd-kind="press" data-family="rss" class="pf-dc-group">
-            <summary>
-                <span class="pf-dc-group__chevron">▶</span>
-                <span data-pf-wd="group-name" class="pf-dc-group__name">{{ monitor.rss.name }}</span>
-                <span data-pf-wd="group-badges" class="pf-dc-group__badges">
-                    {%- if monitor.rss.muted_count -%}
-                        <span data-pf-wd="muted-count" class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
-                    {%- endif -%}
-                </span>
-                <span data-pf-wd="group-meta" class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
-            </summary>
-            <div data-pf-wd="group-body" class="pf-dc-group__body">
-                <table>
-                    <thead>
-                        <tr>
-                            <th scope="col">Tag</th>
-                            <th scope="col">Corroborates</th>
-                            <th scope="col">Note</th>
-                            <th scope="col">Sensitivity</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in monitor.rss.rows %}
-                            <tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
-                                <td data-pf-wd="subject" class="mono">
-                                    {{ row.tag }}
-                                    {% if row.muted %}
-                                        <span data-pf-wd="muted" class="tag tag--muted">muted</span>
-                                    {% endif %}
-                                </td>
-                                <td data-pf-wd="corroborates">{{ row.corroborates|join(', ') or '—' }}</td>
-                                <td data-pf-wd="note" class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
-                                    {{ row.note }}
-                                    {% if row.finding_anchor %}
-                                        <a data-pf-wd="finding-link" href="{{ row.finding_anchor }}">▲ open finding</a>
-                                    {% endif %}
-                                </td>
-                                <td data-pf-wd="sensitivity">
-                                    <button data-pf-wd="adjust" type="button"
-                                            class="pf-dc-sensitivity__open"
-                                            hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
-                                            hx-target="#{{ row.editor_id }}"
-                                            hx-swap="innerHTML">
-                                        Adjust sensitivity
-                                    </button>
-                                </td>
-                            </tr>
-                            <tr data-pf-wd="editor-slot" class="pf-dc-sensitivity__slot">
-                                <td colspan="4" id="{{ row.editor_id }}"></td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </details>
-    {% endif %}
+            {# The four defined signal families (ADR-0116 §4). Their own
+               fragment, because its vocabulary is asserted separately: a
+               signal group renders Calm / Approaching / Triggered and never
+               "breach", and the liquidity family renders ratios and never
+               its internal 100-scale. Derived live at request time from the
+               same resolution, the same fetch and the same pure producers
+               the beat runs on — never read from irene_watch_state. The
+               fragment renders rows only, so it sits inside this table's
+               body. #}
+            {% include "_partials/watch_desk_monitor_signals.html" %}
+        </tbody>
+    </table>
 
-    {# The four defined signal families (ADR-0116 §4). Their own fragment,
-       because its vocabulary is asserted separately: a signal group renders
-       Calm / Approaching / Triggered and never "breach", and the liquidity
-       family renders ratios and never its internal 100-scale. Derived live
-       at request time from the same resolution, the same fetch and the same
-       pure producers the beat runs on — never read from irene_watch_state. #}
-    {% include "_partials/watch_desk_monitor_signals.html" %}
-</div>
+    {# The one slot every "+ Add watchpoint" affordance targets — group menus
+       and footer rows alike. Always present, so a group menu can reach it
+       whether or not any footer row rendered. #}
+    <div id="dc-watchpoint-new" data-pf-wd="watchpoint-new"></div>
+</section>

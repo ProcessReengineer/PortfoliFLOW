@@ -21,10 +21,19 @@
    second editor, which is how two surfaces start disagreeing about what a
    subject is set to.
 
+   Since P-UX-A6-a2 the drawer is the slot-panel idiom of
+   transactions/_cancel_panel.html: `pf-panel` with its head, the fields as
+   `pf-field--half` in a `pf-grid`, and Save and Keep in `pf-panel__foot`.
+   Save is a default button — the view's one primary is "Check now" (R1).
+   Keep empties the form's own parent, which is the slot cell on the monitor
+   and on the Watch points list alike (D-A6-48, D-A6-50). The subject key
+   may be printed here: the drawer is the subject's own disclosure.
+
    Context: csrf_token, subject_key, family, scalar, editor_id, muted,
    mute_locked, warn_threshold_pct, re_trigger_delta, notes,
    warn_inherited_pct, delta_default, return_to, target. #}
-<form data-pf-wd="overlay-form" class="pf-dc-sensitivity"
+{% set fid = editor_id ~ '-' ~ return_to %}
+<form class="pf-panel" data-pf-wd="overlay-form"
       hx-post="/api/watch-desk/watchpoints/overlay"
       hx-target="{{ target }}"
       hx-swap="outerHTML">
@@ -32,29 +41,38 @@
     <input type="hidden" name="subject_key" value="{{ subject_key }}">
     <input type="hidden" name="return_to" value="{{ return_to }}">
 
-    <div class="pf-dc-sensitivity__fields">
+    <div class="pf-panel__head">
+        <div class="pf-panel__titles">
+            <p class="pf-panel__title">Adjust sensitivity</p>
+            <p class="pf-panel__sub">{{ subject_key.split(':', 1)[1]|replace('_', ' ')|capitalize }} · <code>{{ subject_key }}</code></p>
+        </div>
+    </div>
+
+    <div class="pf-grid">
         {% if scalar %}
-            <label data-pf-wd="field" data-pf-wd-name="warn_threshold_pct" class="pf-dc-sensitivity__field">
-                <span class="pf-dc-sensitivity__label">WARN threshold</span>
-                <input type="text" inputmode="decimal" name="warn_threshold_pct"
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="warn_threshold_pct">
+                <label class="pf-label" for="{{ fid }}-warn">WARN threshold</label>
+                <input class="pf-input pf-input--num" id="{{ fid }}-warn"
+                       type="text" inputmode="decimal" name="warn_threshold_pct"
                        value="{{ warn_threshold_pct }}"
                        placeholder="{{ '%.0f'|format(warn_inherited_pct) }}">
-                <span class="pf-dc-sensitivity__hint">
+                <span class="pf-hint">
                     % of ceiling, strictly between 50 and 100. Empty follows
                     the family default ({{ '%.0f'|format(warn_inherited_pct) }}%).
                 </span>
-            </label>
+            </div>
 
-            <label data-pf-wd="field" data-pf-wd-name="re_trigger_delta" class="pf-dc-sensitivity__field">
-                <span class="pf-dc-sensitivity__label">Re-trigger &Delta;</span>
-                <input type="text" inputmode="decimal" name="re_trigger_delta"
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="re_trigger_delta">
+                <label class="pf-label" for="{{ fid }}-delta">Re-trigger &Delta;</label>
+                <input class="pf-input pf-input--num" id="{{ fid }}-delta"
+                       type="text" inputmode="decimal" name="re_trigger_delta"
                        value="{{ re_trigger_delta }}"
                        placeholder="{{ '%.1f'|format(delta_default) }}">
-                <span class="pf-dc-sensitivity__hint">
+                <span class="pf-hint">
                     pp of movement within an unchanged band. Empty follows the
                     family default ({{ '%.1f'|format(delta_default) }} pp).
                 </span>
-            </label>
+            </div>
         {% endif %}
 
         {% if mute_locked and muted %}
@@ -64,13 +82,15 @@
                "locked" has to mean: unchangeable here, not quietly reset. #}
             <input type="hidden" name="muted" value="on">
         {% endif %}
-        <label data-pf-wd="field" data-pf-wd-name="muted" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--check">
-            <input type="checkbox" name="muted"
-                   {% if muted %}checked{% endif %}
-                   {% if mute_locked %}disabled
-                       title="A breach cannot be muted — the beat raises it regardless."{% endif %}>
-            <span class="pf-dc-sensitivity__label">Mute</span>
-            <span class="pf-dc-sensitivity__hint">
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="muted">
+            <label class="pf-check">
+                <input type="checkbox" name="muted"
+                       {% if muted %}checked{% endif %}
+                       {% if mute_locked %}disabled
+                           title="A breach cannot be muted — the beat raises it regardless."{% endif %}>
+                Mute
+            </label>
+            <span class="pf-hint">
                 {% if mute_locked %}
                     This subject is in BREACH. A breach cannot be muted — the
                     beat raises it whatever this says.
@@ -79,27 +99,23 @@
                     its status stays live, and a breach still raises.
                 {% endif %}
             </span>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="notes" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
-            <span class="pf-dc-sensitivity__label">Note</span>
-            <input type="text" name="notes" value="{{ notes }}" maxlength="500"
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="notes">
+            <label class="pf-label" for="{{ fid }}-notes">Note</label>
+            <input class="pf-input" id="{{ fid }}-notes"
+                   type="text" name="notes" value="{{ notes }}" maxlength="500"
                    placeholder="Why this subject is watched differently (optional)">
-        </label>
+        </div>
     </div>
 
-    <div class="pf-dc-sensitivity__footer">
-        <button data-pf-wd="overlay-save" type="submit" class="pf-dc-btn pf-dc-btn--primary">Save sensitivity</button>
-        {# Closes the drawer by emptying its slot. Nothing is persisted and
-           nothing is fetched, so this stays client-side rather than paying
-           a round trip to render emptiness. #}
-        <button data-pf-wd="overlay-cancel" type="button" class="pf-dc-btn"
-                onclick="document.getElementById('{{ editor_id }}').innerHTML = '';">
-            Cancel
-        </button>
-        <span data-pf-wd="overlay-note" class="pf-dc-sensitivity__note">
-            Visible in the monitor immediately; effective in the beat from its
-            next run.
-        </span>
+    <div class="pf-panel__foot">
+        <button class="pf-btn" type="submit" data-pf-wd="overlay-save">Save sensitivity</button>
+        {# Keep destroys nothing and asks the server nothing: it empties the
+           container this form was swapped into, and the slot collapses on
+           `:empty`. One expression for every host the drawer lands in. #}
+        <button class="pf-btn pf-btn--quiet" type="button" data-pf-wd="overlay-cancel"
+                hx-on:click="this.closest('form').parentElement.innerHTML = ''">Keep</button>
+        <span class="pf-hint" data-pf-wd="overlay-note">Visible in the monitor immediately; effective from the next check.</span>
     </div>
 </form>

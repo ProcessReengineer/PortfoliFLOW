@@ -7,9 +7,11 @@
    liquidity family renders **ratios**, never the internal 100-scale its
    magnitude is computed on. Both rules are asserted against this fragment's
    own rendered output, which is only a clean assertion because the quota
-   groups are not in it. That is also why the status pill and gauge carry
-   `--calm/--approaching/--triggered` modifiers rather than the quota
-   `--ok/--warn/--breach` set: the class names are rendered markup too.
+   groups are not in it. That is also why the state and the meter carry
+   `calm/approaching/triggered` modifiers rather than the quota
+   `--ok/--warn/--breach` set: the class names are rendered markup too. A
+   triggered meter is toned through its `data-pf-wd-state` in the scoped
+   sheet, never through the shared quota modifier class (D-A6-49).
 
    The honesty rules of watch_desk_monitor.html carry over unchanged and
    must not be "tidied" away here either:
@@ -47,34 +49,48 @@
    counted once the group is opened. The honesty rules above are
    unaffected — this changes disclosure, not content.
 
+   Rows only, no `<table>` of its own (P-UX-A6-a2 §4.1): the fragment sits
+   inside the Watch list's table body in watch_desk_monitor.html, and the
+   signal test renders it standalone. Every family is a group row and a
+   slot row closed by `hidden`; a family this tenant watches nothing of is
+   a group row without a slot (D-A6-46). The `#dc-watchpoint-new` target
+   moved to watch_desk_monitor.html, after the table.
+
    Context: monitor.signal_groups, monitor.signal_footer, csrf_token. #}
+{% set units = {'price': 'instrument', 'fx': 'pair', 'freshness': 'investment', 'liquidity': 'rule'} %}
 {% for group in monitor.signal_groups %}
-    <details data-pf-wd="watch-group" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="signal" data-family="{{ group.family }}" class="pf-dc-group pf-dc-group--signal">
-        <summary>
-            <span class="pf-dc-group__chevron">▶</span>
-            <span data-pf-wd="group-name" class="pf-dc-group__name">{{ group.name }}</span>
-            <span data-pf-wd="group-badges" class="pf-dc-group__badges">
-                {%- for badge in group.badges -%}
-                    <span data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}" class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
-                {%- endfor -%}
-                {%- if group.muted_count -%}
-                    <span data-pf-wd="muted-count" class="tag tag--muted">{{ group.muted_count }} muted</span>
-                {%- endif -%}
-            </span>
-            <span data-pf-wd="group-meta" class="pf-dc-group__meta">
-                {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
-                {{ group.measure }}
-                {% include "_partials/watch_desk_watchpoint_add.html" %}
-            </span>
-        </summary>
-        <div data-pf-wd="group-body" class="pf-dc-group__body">
-            <table>
+    {% set state = group.badges[0].modifier if group.badges else 'calm' %}
+    {% set word = group.badges[0].text if group.badges else 'calm' %}
+    <tr class="pf-table__row" id="wl-{{ group.family }}" data-pf-wd="watch-group" data-pf-wd-state="{{ state }}" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="signal" data-family="{{ group.family }}">
+        <td><button type="button" class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon" aria-expanded="false" aria-controls="wl-{{ group.family }}-slot" aria-label="Show {{ group.name }}" hx-on:click="const s=this.closest('tr').nextElementSibling; s.hidden=!s.hidden; this.setAttribute('aria-expanded', String(!s.hidden)); this.closest('tr').classList.toggle('is-open', !s.hidden)"><span class="pf-table__chev" aria-hidden="true">&rsaquo;</span></button></td>
+        <td data-pf-wd="group-name">{{ group.name }}</td>
+        <td data-pf-wd="group-badges">
+            <span class="pf-state pf-state--{{ state }}" data-pf-wd="state-tag" data-pf-wd-state="{{ state }}">{{ word }}</span>
+            {%- for badge in group.badges[1:] %} <span class="pf-state pf-state--{{ badge.modifier }}" data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}">{{ badge.text }}</span>{% endfor -%}
+            {%- if group.muted_count %} <span class="pf-state pf-state--muted" data-pf-wd="muted-count">{{ group.muted_count }} muted</span>{% endif %}
+        </td>
+        <td data-pf-wd="group-meta">{{ group.subject_count }} {{ units[group.family] }}{{ '' if group.subject_count == 1 else 's' }} · {{ group.measure }}</td>
+        <td>
+            <div class="pf-table__actions">
+                <details class="pf-menu">
+                    <summary class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon">{{ pf_icon("more", "Actions for " ~ group.name) }}</summary>
+                    <div class="pf-menu__list">
+                        {% include "_partials/watch_desk_watchpoint_add.html" %}
+                        <a class="pf-menu__item" href="#calibration">Watch points</a>
+                    </div>
+                </details>
+            </div>
+        </td>
+    </tr>
+    <tr class="pf-table__slot" id="wl-{{ group.family }}-slot" hidden data-pf-wd="group-body" data-family="{{ group.family }}">
+        <td colspan="5">
+            <table class="pf-table">
                 <thead>
                     <tr>
                         <th scope="col">Subject</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Value</th>
-                        <th scope="col">Threshold</th>
+                        <th scope="col">State</th>
+                        <th scope="col" class="pf-num">Value</th>
+                        <th scope="col" class="pf-num">Threshold</th>
                         <th scope="col">Proximity</th>
                         <th scope="col">Note</th>
                         <th scope="col">Sensitivity</th>
@@ -87,12 +103,12 @@
 
                     {% if group.collapsed_rows %}
                         {# Collapsed, never hidden: the calm remainder is one
-                           click away and is counted in the header above. #}
-                        <tr data-pf-wd="collapsed" class="pf-dc-group__collapsed">
+                           click away and is counted in the group row above. #}
+                        <tr data-pf-wd="collapsed">
                             <td colspan="7">
-                                <details data-pf-wd="collapsed-disclosure" class="pf-dc-collapse">
+                                <details class="pf-more" data-pf-wd="collapsed-disclosure">
                                     <summary>{{ group.collapsed_summary }}</summary>
-                                    <table data-pf-wd="collapsed-rows">
+                                    <table class="pf-table" data-pf-wd="collapsed-rows">
                                         <tbody>
                                             {% for row in group.collapsed_rows %}
                                                 {% include "_partials/watch_desk_monitor_signal_row.html" %}
@@ -105,39 +121,37 @@
                     {% endif %}
                 </tbody>
             </table>
-        </div>
-    </details>
+            <details class="pf-more" data-pf-wd="group-keys">
+                <summary>Subject keys</summary>
+                <ul>
+                    {%- for row in group.rows + group.collapsed_rows %}
+                        <li><span>{{ row.display_name }}</span> <code data-pf-wd="subject-key">{{ row.subject_key }}</code></li>
+                    {%- endfor %}
+                </ul>
+            </details>
+        </td>
+    </tr>
 {% endfor %}
 
-{% if monitor.signal_footer %}
-    {# The section footer: one compact line per family this tenant watches
-       nothing of. An empty group would be noise, but a silently missing
-       one would hide the capability — so the families are named here with
-       their add affordance beside them, in the house empty-state idiom. #}
-    <div data-pf-wd="monitor-footer" class="pf-dc-monitor__footer">
-        {% for entry in monitor.signal_footer %}
-            <p data-pf-wd="footer-line" data-family="{{ entry.family }}" class="pf-empty-state pf-dc-monitor__footer-line">
-                <span data-pf-wd="footer-name" class="pf-dc-monitor__footer-name">{{ entry.name }}</span>
-                {% if entry.watched %}
-                    — watched, but nothing to show yet: {{ entry.measure }}.
-                {% else %}
-                    — not watched: {{ entry.measure }}.
-                {% endif %}
+{# The families this tenant watches nothing of: one group row each, without
+   a chevron and without a slot (D-A6-46). An empty group would be noise,
+   but a silently missing one would hide the capability — so the families
+   are named here with their add affordance beside them. #}
+{% for entry in monitor.signal_footer %}
+    <tr class="pf-table__row" data-pf-wd="footer-line" data-family="{{ entry.family }}">
+        <td></td>
+        <td data-pf-wd="footer-name">{{ entry.name }}</td>
+        <td><span class="pf-state">{{ 'watched' if entry.watched else 'not watched' }}</span></td>
+        <td>{% if entry.watched %}— watched, but nothing to show yet: {{ entry.measure }}.{% else %}— not watched: {{ entry.measure }}.{% endif %}</td>
+        <td>
+            <div class="pf-table__actions">
                 {% if entry.can_add %}
-                    <button data-pf-wd="add-watchpoint" type="button"
-                            class="pf-dc-sensitivity__open"
+                    <button class="pf-btn pf-btn--quiet pf-btn--sm" type="button" data-pf-wd="add-watchpoint"
                             hx-get="/api/watch-desk/watchpoints/new?family={{ entry.family }}"
                             hx-target="#dc-watchpoint-new"
-                            hx-swap="innerHTML">
-                        + Add watchpoint
-                    </button>
+                            hx-swap="innerHTML">+ Add watchpoint</button>
                 {% endif %}
-            </p>
-        {% endfor %}
-    </div>
-{% endif %}
-
-{# The one slot every "+ Add watchpoint" affordance targets — group headers
-   and footer lines alike. Always present, so a header button can reach it
-   whether or not any footer line rendered. #}
-<div id="dc-watchpoint-new"></div>
+            </div>
+        </td>
+    </tr>
+{% endfor %}

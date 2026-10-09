@@ -1,0 +1,94 @@
+{# One quota or press sub-row of the Watch list, plus its editor slot
+   (ADR-0089, ADR-0116 §3/§6; anatomy per P-UX-A6-a2 §4.3).
+
+   One partial, two kinds, picked by `kind` (`quota` for saa/anlv, `press`
+   for rss) rather than two templates: the two share the subject, note and
+   sensitivity cells, and only the figures between them differ. The signal
+   families keep their own row partial (watch_desk_monitor_signal_row.html),
+   because that fragment's vocabulary is asserted separately.
+
+   The honesty rules of the Watch list, carried over verbatim from
+   watch_desk_monitor.html and watch_desk_monitor_signals.html:
+
+     * The meter runs 0 → ceiling (quota) / 0 → trigger threshold (signal)
+       and is **never rescaled**; the mark sits at the subject's WARN
+       fraction in force, positioned per subject by the inline `left`,
+       **never moved to flatter a row**; a crossing clamps the rendered
+       fill while the printed figures stay honest.
+     * **A no-data row draws no meter.**
+     * The note is the route's assembled string and the template composes
+       no claim; the head makes no observation-time claim.
+     * **A muted row stays visible, tagged and counted.**
+     * Groups render **closed on first load**; closed is not hidden —
+       every row stays in the document.
+     * Signal families say Calm / Approaching / Triggered and never
+       "breach"; liquidity shows ratios, never the 100-scale; the
+       freshness calm remainder is collapsed, never omitted, and counted.
+
+   The subject cell carries the label, never the key: the internal key
+   lives in the group's "Subject keys" disclosure (ADR-0133 §4, R12). A
+   quota row carries no display name, so its label is derived from the key
+   (D-A6-43, Q-UX-S-A6-11).
+
+   The sensitivity cell shows "customised" or nothing: the monitor row does
+   not know the preset, and claiming "Standard" would be an invention
+   (D-A6-44, Q-UX-S-A6-12). Mute has no menu item of its own — the drawer
+   Adjust opens is the one place it is written, and it carries the
+   breach-locked rule (D-A6-45).
+
+   Context: row (see _build_family_group / _build_rss_group), kind,
+   csrf_token. #}
+{% set label = row.tag if kind == 'press' else row.subject_key.split(':', 1)[1]|replace('_', ' ')|capitalize %}
+<tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
+    <td data-pf-wd="subject">
+        {{ label }}
+        {% if row.muted %}
+            <span class="pf-state pf-state--muted" data-pf-wd="muted">muted</span>
+        {% endif %}
+    </td>
+    {% if kind == 'press' %}
+        <td data-pf-wd="corroborates">{{ row.corroborates|join(', ') or '—' }}</td>
+    {% else %}
+        <td data-pf-wd="state" data-pf-wd-state="{{ row.modifier }}"><span class="pf-state pf-state--{{ row.modifier }}" data-pf-wd="state-tag" data-pf-wd-state="{{ row.modifier }}">{{ row.status }}</span></td>
+        <td class="pf-num" data-pf-wd="coverage">{{ '%.2f'|format(row.coverage_pct) }}%</td>
+        <td class="pf-num" data-pf-wd="ceiling">{% if row.max_pct is not none %}{{ '%.2f'|format(row.max_pct) }}%{% else %}—{% endif %}</td>
+        <td data-pf-wd="utilisation">
+            {% if row.utilisation is not none %}
+                {# Per-subject mark position, clamped fill — see the header
+                   comment. The inline `left` is the whole per-subject
+                   affordance. #}
+                <span class="pf-meter{% if row.modifier == 'warn' %} pf-meter--approaching{% elif row.modifier == 'breach' %} pf-meter--breach{% endif %}" data-pf-wd="meter" data-pf-wd-state="{{ row.modifier }}" title="{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%"><span class="pf-meter__fill" data-pf-wd="meter-fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span><span class="pf-meter__mark" data-pf-wd="meter-mark" style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span></span>
+            {% else %}
+                {# No ceiling, no meter: a bar would claim a utilisation
+                   there is nothing to measure against. #}
+                <span data-pf-wd="no-meter">—</span>
+            {% endif %}
+        </td>
+    {% endif %}
+    <td data-pf-wd="note">
+        {{ row.note }}
+        {% if row.finding_anchor %}
+            <a href="{{ row.finding_anchor }}" data-pf-wd="finding-link">open finding</a>
+        {% endif %}
+    </td>
+    <td data-pf-wd="sensitivity">
+        <div class="pf-table__actions">
+            {% if row.warn_customised or row.delta_customised %}
+                <span class="pf-hint" data-pf-wd="customised">customised</span>
+            {% endif %}
+            <details class="pf-menu">
+                <summary class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon">{{ pf_icon("more", "Actions for " ~ label) }}</summary>
+                <div class="pf-menu__list">
+                    <button class="pf-menu__item" type="button" data-pf-wd="adjust"
+                            hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
+                            hx-target="#{{ row.editor_id }}"
+                            hx-swap="innerHTML"
+                            hx-on:click="this.closest('details').removeAttribute('open')">Adjust sensitivity</button>
+                </div>
+            </details>
+        </div>
+    </td>
+</tr>
+{# The drawer lands in this cell; it must stay literally empty, because the
+   `:has()` writer in pf_components.css reads the open look off exactly that. #}
+<tr class="pf-table__slot" data-pf-wd="editor-slot"><td colspan="{{ 4 if kind == 'press' else 7 }}" id="{{ row.editor_id }}"></td></tr>

@@ -4663,6 +4663,7 @@ async def test_the_sensitivity_column_shows_the_family_preset_or_custom(
 # ---------------------------------------------------------------------------
 # Journal — three kinds by day, every check a row, server-side filters,
 # older pages on demand (ADR-0133 §5; D-WD-9, D-WD-10; P-WD-B14)
+# Rows on pf-table, the briefing slot hidden on load (P-UX-A6-j)
 # ---------------------------------------------------------------------------
 
 
@@ -4740,6 +4741,9 @@ async def test_journal_lists_every_check_by_day(
     assert "nothing to report" in body
     assert "nothing_to_write" not in body
     assert _NEWER_MARKETS in body and "Show briefing" in body
+    assert wd("briefing-toggle") in body
+    assert wd_attr(wd_block(body, "briefing-disclosure"), "hidden") == ""
+    assert wd_text(wd_block(body, "journal-row", data_state="skipped"), "kind") == "Briefing"
     # Day labels relative to the render day, in the schedule's zone — derived
     # here by the same rule, so the test holds across a midnight.
     today = now.astimezone(zone).date()
@@ -4797,6 +4801,7 @@ async def test_journal_kind_and_watch_point_filters_hide_but_delete_nothing(
     assert "anlv:real_estate" not in saa
     assert 'data-row-type="briefing"' not in saa
     assert '<option value="saa" selected>' in saa
+    assert 'data-pf-wd="journal-filter" data-pf-wd-state="saa" data-pf-wd-name="family"' in saa
 
     # Nothing was deleted: the unfiltered view still has every row.
     again = _flat((await web_client.get("/api/watch-desk/journal?family=")).text)
@@ -4920,9 +4925,15 @@ async def test_journal_ignores_unusable_filters(
     assert response.status_code == 200
     body = _flat(response.text)
     assert wd("journal-filters") in body
-    assert '<option value="all" selected>All</option>' in body
+    assert 'data-pf-wd="journal-filter" data-pf-wd-state="all" data-pf-wd-name="kind"' in body
+    assert (
+        '<input data-pf-wd="kind-option" type="radio" id="dc-journal-kind-all" name="kind" '
+        'value="all" checked>'
+    ) in body
     assert '<option value="30d" selected>Last 30 days</option>' in body
     assert '<option value="" selected>Any</option>' in body
+    assert 'data-pf-wd="journal-filter" data-pf-wd-state="30d" data-pf-wd-name="period"' in body
+    assert 'data-pf-wd="journal-filter" data-pf-wd-state="" data-pf-wd-name="family"' in body
     assert 'data-row-type="briefing"' in body
 
 

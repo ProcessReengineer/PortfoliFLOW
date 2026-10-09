@@ -7,12 +7,14 @@
  * accent crimson, used sparingly. All classes are prefixed `.pf-dc-` to
  * avoid cascade collisions with the other section components.
  *
- * Rule groups below read in render order: area shell, toolbar, actions,
- * journal. Keep new rules inside their group. The Briefing's tiles, calm
+ * Rule groups below read in render order. The Briefing's tiles, calm
  * state, cards, Possible moves and derivation groups left with A6-a1, the
- * monitor, its drawers and the watchpoint form and history with A6-a2, and
- * the Calibration section — rows, editor, cadence panel and watchpoint
- * list — with A6-b: those surfaces are drawn from pf_components.css now. */
+ * monitor, its drawers and the watchpoint form and history with A6-a2, the
+ * Calibration section — rows, editor, cadence panel and watchpoint list —
+ * with A6-b, and the Journal — filters, day groups, rows and the briefing
+ * disclosure — with A6-j: those surfaces are drawn from pf_components.css
+ * now. What remains is the A-6 scoped residue and Cases' tag group, which
+ * A-3 owns. */
 
 /* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
  * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
@@ -89,86 +91,26 @@
  * An empty drawer slot over a hidden retire row keeps the closed look. */
 .pf-watch-desk .pf-table__row:not(:hover):has(+ .pf-table__slot > td:empty):has(+ .pf-table__slot + .pf-table__slot[hidden]) td { background: transparent; border-bottom-color: var(--ui-border-soft); }
 
-.pf-dc-briefing,
-.pf-dc-journal {
-    max-width: 1100px;
-}
+/* --- A-6 scoped residue: the Journal view (P-UX-A6-j) ----------------------
+ * Record question Q-UX-S-A6-26: prose and an action in a pf-table slot — the
+ * family pads the slot to nothing and the record names only drawers and
+ * nested tables for it. The written briefing's slot gets the room the
+ * mockup gives it, indented past the chevron; the Discuss form sits off
+ * the archive line. */
+.pf-watch-desk .pf-table__slot[data-pf-wd="briefing-disclosure"] > td { padding: var(--ui-space-3) var(--ui-space-3) var(--ui-space-4) var(--ui-space-7); }
+.pf-watch-desk .pf-table__slot[data-pf-wd="briefing-disclosure"] > td > form { margin-top: var(--ui-space-3); }
+/* Record question Q-UX-S-A6-27: pf-filters has no trailing-note slot and sizes
+ * selects and inputs but not a pf-seg. The immutability note sits right, on
+ * the controls' centre line; the Kind seg takes the selects' height. */
+.pf-watch-desk .pf-filters [data-pf-wd="journal-note"] { margin-left: auto; align-self: center; max-width: 60ch; }
+.pf-watch-desk .pf-filters .pf-seg { height: calc(var(--ui-control-input-height) - 4px); }
 
-/* --- Briefing toolbar + request analysis --------------------------- */
-
-.pf-dc-briefing__toolbar {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    min-height: 40px;
-    margin-bottom: 12px;
-}
-
-/* The toolbar now holds only the "Request analysis" confirmation, so it
- * collapses until one arrives rather than leaving a gap under the tiles.
- * DC5 kept the container: `#dc-briefing-toolbar` is the HTMX swap target
- * the result partial lands in, so it must exist before the first request. */
-.pf-dc-briefing__toolbar:empty {
-    min-height: 0;
-    margin-bottom: 0;
-}
-
-.pf-dc-request-result {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--ui-semantic-success);
-}
-
-.pf-dc-request-result--warn {
-    color: var(--ui-semantic-warning);
-}
-
-/* --- Action buttons ------------------------------------------------ */
-
-.pf-dc-card__actions {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-}
-
-/* --- Journal ------------------------------------------------------- */
-
-/* The former `.pf-dc-watchlist__*` halves of these shared selectors retired
- * with the Calibration restructure (DC4/D5) — the two per-subject tables
- * they styled are gone, superseded by the Briefing monitor. */
-
-.pf-dc-journal__table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-}
-
-.pf-dc-journal__table th,
-.pf-dc-journal__table td {
-    text-align: left;
-    padding: 7px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-    color: var(--ui-text-primary);
-}
-
-.pf-dc-journal__table th {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-journal__subject {
-    font-family: var(--ui-font-family);
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-journal__empty {
-    color: var(--ui-text-secondary);
-    font-size: 0.88rem;
-}
-
-/* Restrained band / resolution tags. */
+/* --- Cases' tags (A-3) ----------------------------------------------------
+ * Restrained band / resolution tags. The Journal left them with A6-j (its
+ * rows draw pf-state now); cases_detail.html and cases_detail_origin.html
+ * still draw the two classes, so the group stays until A-3 restyles Cases.
+ * `a.pf-dc-res-tag` has no linking user left, but it is a state of a class
+ * that has one and stays with its group. */
 .pf-dc-band-tag,
 .pf-dc-res-tag {
     display: inline-block;
@@ -192,8 +134,8 @@
 /* The fifth resolution (ADR-0107, C4 rider 2) and the closed-case marker:
  * toned as quiet siblings of the neutral res-tag, keyed to "informational"
  * blue rather than an alarm colour — a hand-over and a documented close are
- * calm outcomes, not warnings. Used on both the Journal rows and the Cases
- * origin embed, so the two surfaces read identically. */
+ * calm outcomes, not warnings. Used on the case detail and its origin
+ * embed. */
 .pf-dc-res-tag--opened_case,
 .pf-dc-res-tag--closed {
     border-color: var(--ui-semantic-info);
@@ -208,61 +150,4 @@ a.pf-dc-res-tag {
 
 a.pf-dc-res-tag:hover {
     background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
-}
-
-/* Closed-case Journal rows — a sibling of the finding rows, not a new
- * species: the badge links to the case, a muted "Case" mark stands in for the
- * band column, and the closing-note excerpt sits under the title. */
-.pf-dc-journal__caselink {
-    font-family: var(--ui-font-family-mono);
-    color: var(--ui-text-secondary);
-    text-decoration: none;
-}
-
-.pf-dc-journal__caselink:hover {
-    color: var(--ui-accent-primary);
-}
-
-.pf-dc-journal__casemark {
-    display: inline-block;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-journal__excerpt {
-    display: block;
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-}
-
-/* --- Journal leftovers of the Calibration vocabulary -------------------- */
-
-/* The Calibration section left this vocabulary with A6-b; the Journal's
- * filters and note still draw this one rule until A6-j. */
-
-.pf-dc-calib__note {
-    font-size: 0.8rem;
-    color: var(--ui-text-disabled);
-    margin: 0 0 10px;
-    max-width: 60ch;
-}
-
-/* The Scenarios placeholder rules retired with the stub itself (ADR-0104
-   §8). Their successors live in components/planning_desk.css, where
-   Feature #034 re-anchors. */
-
-/* --- Collapsed remainder ------------------------------------------------ */
-
-/* The list's retired tag and subject key left with A6-b; the Journal's day
- * and briefing disclosures still draw this rule until A6-j. */
-
-/* A collapsed remainder. Collapsed, never hidden — the summary states the
- * count and expands on demand. */
-.pf-dc-collapse > summary {
-    cursor: pointer;
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-    padding: 4px 0;
 }

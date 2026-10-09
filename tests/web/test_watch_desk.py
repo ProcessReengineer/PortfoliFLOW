@@ -57,6 +57,7 @@ from core.repositories.watch_family_scope_repository import WatchFamilyScopeRepo
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.password_hashing import hash_password
 from services.web_research.allowlist import _KNOWN_TAGS
+from tests.web.conftest import wd, wd_attr, wd_block, wd_blocks, wd_count, wd_text
 from web.main import create_app
 from web.settings import WebSettings
 
@@ -405,12 +406,12 @@ async def test_briefing_calm_state_is_affirmative(
     assert response.status_code == 200
     body = response.text
     # Affirmative calm markup — the product thesis made visible.
-    assert "pf-dc-calm__status" in body
+    assert wd("calm-status") in body
     assert "All monitored limits are calm" in body
     # The collapsed lower-priority strip is present.
-    assert "pf-dc-lowpri" in body
+    assert wd("lowpri") in body
     # It is NOT an empty-list / card render.
-    assert "pf-dc-card" not in body
+    assert wd("finding") not in body
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +433,7 @@ async def test_tiles_never_ran_state_has_no_dot_and_no_count(
     assert "No analysis beat has completed for this tenant yet." in body
     # A beat that never ran surfaced nothing — no count, and no green dot.
     assert "surfaced" not in body
-    assert 'class="dot"' not in body
+    assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "never"
     # No schedule at all ⇒ the next-beat tile says so and the button is gone.
     assert "no cadence set" in body
 
@@ -490,12 +491,13 @@ async def test_tiles_last_beat_counts_all_findings_since_beat(
     # Surfaced-since-beat = the open one + the resolved one. An open-only
     # count would say 1 and understate what the beat put in front of the PM.
     assert "surfaced 2 findings" in body
-    assert 'class="dot"' in body  # a beat ran ⇒ the green dot renders
+    # a beat ran ⇒ the green dot renders
+    assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "ran"
 
     # The open-findings tile counts a *different* set of two: the pre-beat
     # noteworthy (still open) and the post-beat critical. The resolved one
     # is absent. The two tiles measure different things by design.
-    assert '<span class="pf-dc-tile__value">2</span>' in body
+    assert wd_text(body, "open-findings") == "2"
     assert "1 critical" in body
     assert "1 noteworthy" in body
 
@@ -543,7 +545,7 @@ async def test_tiles_render_with_no_limit_sets(
 
     rss = len(_KNOWN_TAGS)
     assert f"0 + {rss}" in body
-    assert "pf-dc-tiles" in body
+    assert wd("tiles") in body
 
 
 async def test_tiles_next_beat_reflects_schedule(
@@ -623,11 +625,13 @@ async def test_monitor_renders_beneath_the_feed(
     assert response.status_code == 200
     body = response.text
 
-    assert "pf-dc-monitor" in body
+    assert wd("monitor") in body
     assert "On watch" in body
     # Beneath the cards, per the mock.
-    assert body.index("dc-briefing-feed") < body.index("pf-dc-monitor")
-    assert '<details class="pf-dc-group" open>' not in body
+    assert body.index('id="dc-briefing-feed"') < body.index(wd("monitor"))
+    groups = wd_blocks(body, "watch-group")
+    assert groups
+    assert all(wd_attr(group, "open") is None for group in groups)
 
 
 async def test_monitor_empty_universe_degrades_without_error(
@@ -773,17 +777,14 @@ async def test_monitor_renders_live_coverage_rows_with_gauges(
 
     assert "saa:equities" in body
     assert "SAA monitor test" in body
-    assert "gauge gauge--warn" in body
-    assert 'style="width:96.0%"' in body
+    row = wd_block(body, "watch-row", data_pf_wd_subject="saa:equities")
+    assert wd_attr(wd_block(row, "meter"), "data-pf-wd-state") == "warn"
+    assert wd_attr(wd_block(row, "meter-fill"), "style") == "width:96.0%"
     assert "WARN — not yet reviewed." in body
     # The WARN tick sits at this subject's effective threshold — the tenant
     # default here, since nothing overrides it. Positioned per subject since
     # ADR-0116 §6, never rescaled: the gauge still runs 0 → ceiling.
-    assert (
-        'class="gauge__warnmark"\n                                                  style="left:90.0%"'
-        in (body)
-        or 'style="left:90.0%"' in body
-    )
+    assert wd_attr(wd_block(row, "meter-mark"), "style") == "left:90.0%"
     # Cash carries no ceiling, so it is not a gauged row.
     assert "saa:cash" not in body
 
@@ -811,16 +812,17 @@ async def test_monitor_moves_the_mark_and_tags_a_muted_subject(
     assert saved.status_code == 200
     body = saved.text
 
+    row = wd_block(body, "watch-row", data_pf_wd_subject="saa:equities")
     # The mark moved to this subject's own WARN fraction…
-    assert 'style="left:70.0%"' in body
+    assert wd_attr(wd_block(row, "meter-mark"), "style") == "left:70.0%"
     # …the row is tagged and counted, and stays visible with a live status…
-    assert 'class="tag tag--muted">muted<' in body
+    assert wd_text(wd_block(row, "muted")) == "muted"
     assert "1 muted" in body
     assert "saa:equities" in body
-    assert "gauge gauge--warn" in body
+    assert wd_attr(wd_block(row, "meter"), "data-pf-wd-state") == "warn"
     # …and the fill is unchanged: mute and the mark move nothing about the
     # utilisation the gauge encodes.
-    assert 'style="width:96.0%"' in body
+    assert wd_attr(wd_block(row, "meter-fill"), "style") == "width:96.0%"
 
 
 async def test_monitor_disables_the_mute_toggle_at_breach(
@@ -984,13 +986,12 @@ async def test_briefing_feed_order_and_no_raw_badge(
     assert pos_new < pos_old < pos_info
 
     # Band drives the CSS class.
-    assert "pf-dc-card--critical" in body
-    assert "pf-dc-card--informational" in body
+    assert wd_count(body, "finding", data_band="critical") == 2
+    assert wd_count(body, "finding", data_band="informational") == 1
     assert 'data-band="critical"' in body
 
     # No raw 1–10 urgency badge anywhere.
     assert "data-urgency" not in body
-    assert "pf-dc-card__urgency" not in body
 
     # UI-023: the agent persona is never named in rendered copy. The name
     # survives in code (``IreneFindingRepository``, the ``.irene-note``
@@ -1046,7 +1047,6 @@ async def test_possible_moves_is_prose_and_absent_on_informational_card(
     body = response.text
 
     # The list markup is gone; the prose block replaced it.
-    assert "pf-dc-card__options" not in body
     assert "Possible moves" in body
 
     # Both option strings joined into a single paragraph, in order.
@@ -1056,15 +1056,15 @@ async def test_possible_moves_is_prose_and_absent_on_informational_card(
     ) in body
 
     # Exactly one moves block — the informational card carries none.
-    assert body.count('class="pf-dc-card__starting"') == 1
+    assert wd_count(body, "finding-moves") == 1
 
     # The Open-case button is armed (ADR-0107, C4): a real control posting to
     # the open-case endpoint, no longer the inert v1 preview.
-    assert "pf-dc-opencase" in body
+    assert wd("open-case") in body
     assert 'hx-post="/api/watch-desk/findings/' in body
     assert "/open-case" in body
     # It sits inside the (single) Possible-moves block, band-gated as before.
-    opencase_form = body[body.index("pf-dc-opencase-form") : body.index("Open case")]
+    opencase_form = wd_block(body, "open-case")
     assert "disabled" not in opencase_form
     assert 'name="csrf_token"' in opencase_form
 
@@ -1107,15 +1107,14 @@ async def test_option_less_higher_band_card_renders_footer_case_affordance(
     body = response.text
 
     # No Possible-moves block — the payload carries no options.
-    assert "pf-dc-card__starting" not in body
+    assert wd("finding-moves") not in body
     # The affordance renders exactly once, in the card footer.
-    assert body.count("pf-dc-opencase-form") == 1
-    assert 'class="pf-dc-card__foot"' in body
+    assert wd_count(body, "open-case") == 1
+    assert wd("finding-foot") in body
 
     # Same endpoint and same HTMX semantics as the in-block variant: the card
     # posts to open-case and replaces itself.
-    foot = body[body.index('class="pf-dc-card__foot"') :]
-    form = foot[: foot.index("</form>")]
+    form = wd_block(wd_block(body, "finding-foot"), "open-case")
     assert f'hx-post="/api/watch-desk/findings/{fid}/open-case"' in form
     assert f'hx-target="#dc-card-{fid}"' in form
     assert 'hx-swap="outerHTML"' in form
@@ -1154,10 +1153,10 @@ async def test_card_with_options_keeps_the_affordance_inside_the_moves_block(
 
     # Exactly one affordance, and it sits between the moves block and the
     # resolution row — i.e. inside the block, not in the footer.
-    assert body.count("pf-dc-opencase-form") == 1
-    assert 'class="pf-dc-card__foot"' not in body
-    moves = body[body.index('class="pf-dc-card__starting"') : body.index("pf-dc-card__actions")]
-    assert "pf-dc-opencase-form" in moves
+    assert wd_count(body, "open-case") == 1
+    assert wd("finding-foot") not in body
+    moves = wd_block(body, "finding-moves")
+    assert wd("open-case") in moves
 
 
 @pytest.mark.parametrize("options", [None, ["Trimming would clear it."]])
@@ -1191,9 +1190,9 @@ async def test_informational_card_renders_no_case_affordance(
     body = response.text
 
     assert "Quiet note" in body  # the card itself rendered
-    assert "pf-dc-opencase" not in body
+    assert wd("open-case") not in body
     assert "/open-case" not in body
-    assert 'class="pf-dc-card__foot"' not in body
+    assert wd("finding-foot") not in body
 
 
 # ---------------------------------------------------------------------------
@@ -1228,7 +1227,7 @@ async def test_resolution_writes_audit_and_removes_card(
     assert response.status_code == 200
     # The card left the feed (the only finding → calm state returned).
     assert "saa:resolve_me" not in response.text
-    assert "pf-dc-calm__status" in response.text
+    assert wd("calm-status") in response.text
 
     # The three resolution columns are written; the audit fields are correct
     # and the immutable history fields are untouched.
@@ -1300,7 +1299,7 @@ async def test_invalid_resolution_returns_422_not_500(
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 422
-    assert "pf-dc-error" in response.text
+    assert wd("error") in response.text
     # The row is untouched — still open.
     async with fresh_superuser_engine.connect() as conn:
         row = (
@@ -1492,7 +1491,7 @@ async def test_poll_returns_the_refreshed_briefing_when_the_beat_landed(
     assert "Open findings" in body
     assert 'id="dc-briefing-next-beat"' in body
     # A fresh Briefing starts no poll of its own — only an enqueue does.
-    assert "pf-dc-request-poll" not in body
+    assert wd("check-poll") not in body
     assert "briefing/poll" not in body
 
 
@@ -1727,7 +1726,7 @@ async def test_request_analysis_without_schedule_starts_no_poller(
     )
     assert response.status_code == 200
     assert "briefing/poll" not in response.text
-    assert "pf-dc-request-poll" not in response.text
+    assert wd("check-poll") not in response.text
 
 
 async def test_briefing_page_starts_no_poller_on_load(
@@ -1783,7 +1782,7 @@ async def test_journal_lists_only_resolved_and_is_read_only(
     assert "saa:done" in body  # resolved shows
     assert "saa:still_open" not in body  # open does not
     # Read-only: no action buttons / resolve forms.
-    assert "pf-dc-btn" not in body
+    assert wd("finding-actions") not in body
     assert "/resolve" not in body
 
 
@@ -1826,7 +1825,7 @@ async def test_calibration_renders_the_editor_on_effective_values(
     # Provenance: every field carries a marker (8 floors + 10 caps + 7
     # deltas + WARN + boundaries + options gate + the pinned row), and with
     # nothing stored yet not one of them reads "customised".
-    assert body.count("pf-dc-calib__marker") >= 29
+    assert wd_count(body, "marker") >= 29
     assert "customised" not in body
 
     # The cadence panel is still rendered inline, unchanged.
@@ -2121,7 +2120,7 @@ async def test_calibration_save_stores_a_family_warn_against_the_tenant_default(
     assert row.warn_pct_price is None
 
     body = response.text
-    saa = body.split('name="warn_pct_saa"')[0].rsplit('<label class="pf-dc-calib__field">', 1)[1]
+    saa = wd_block(body, "field", data_pf_wd_name="warn_pct_saa")
     assert "customised" in saa
     assert 'name="warn_pct_saa" value="80.000" placeholder="85"' in body
     assert 'name="warn_pct_anlv" value="" placeholder="85"' in body
@@ -2145,8 +2144,8 @@ async def test_calibration_save_refuses_a_family_warn_out_of_bounds_inline(
     assert response.status_code == 422
     body = html.unescape(response.text)
     # Inline: the error sits inside the warn_pct_fx field, not as a form notice.
-    fx_field = body.split('name="warn_pct_fx"', 1)[1].split("</label>", 1)[0]
-    assert "pf-dc-calib__field-error" in fx_field
+    fx_field = wd_block(body, "field", data_pf_wd_name="warn_pct_fx")
+    assert wd("field-error") in fx_field
     assert "warn_pct['fx']" in fx_field
     assert "Nothing was saved." not in body
 
@@ -2235,7 +2234,7 @@ async def test_overlay_create_then_revise_writes_two_versions(
     assert created.status_code == 200
     # The whole monitor comes back, so the mark, the tags and the group
     # counts move together.
-    assert 'id="dc-monitor"' in created.text
+    assert wd("monitor") in created.text
 
     revised = await web_client.post(
         "/api/watch-desk/watchpoints/overlay",
@@ -2461,7 +2460,7 @@ async def test_cadence_bad_timezone_returns_422(
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 422
-    assert "pf-dc-cadence__error" in response.text
+    assert wd("cadence-error") in response.text
     # No row written on a rejected save.
     async with fresh_superuser_engine.connect() as conn:
         count = (await conn.execute(text("SELECT COUNT(*) FROM irene_schedule"))).scalar_one()
@@ -2646,10 +2645,10 @@ async def test_never_ran_states_cohere_in_one_briefing(
     # Tile: never-ran, no green dot, no "surfaced N".
     assert "Never ran yet" in body
     assert "surfaced" not in body
-    assert 'class="dot"' not in body
+    assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "never"
     # Feed: affirmative calm, not an empty list.
     assert "All monitored limits are calm" in body
-    assert "pf-dc-card" not in body
+    assert wd("finding") not in body
     # Monitor: renders, and claims no observation time (UI-024).
     assert "On watch" in body
     assert "Irene has not completed a beat yet" not in body
@@ -2786,7 +2785,7 @@ async def test_watch_desk_resolve_rejects_opened_case(
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 422
-    assert "pf-dc-error" in response.text
+    assert wd("error") in response.text
     # The row is untouched — still open.
     assert await _resolution_of(fresh_superuser_engine, fid) == "open"
 
@@ -3078,7 +3077,7 @@ async def test_open_case_stale_acted_finding_gets_calm_error(
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert "pf-dc-error" in response.text
+    assert wd("error") in response.text
     assert "HX-Redirect" not in response.headers
     assert await _case_count(fresh_superuser_engine) == 0
     # Untouched — still acted.
@@ -3119,7 +3118,7 @@ async def test_open_case_rejects_an_informational_finding(
         follow_redirects=False,
     )
     assert response.status_code == 422
-    assert "pf-dc-error" in response.text
+    assert wd("error") in response.text
     assert "HX-Redirect" not in response.headers
     # Nothing composed, and the finding is untouched — still open.
     assert await _case_count(fresh_superuser_engine) == 0
@@ -3249,14 +3248,14 @@ async def test_journal_merges_findings_and_closed_cases_newest_first(
     # The opened_case finding row: "Opened case" label + tag class, links case.
     assert "saa:journal_handover" in body
     assert "Opened case" in body
-    assert "pf-dc-res-tag--opened_case" in body
+    assert wd("res-tag", state="opened_case") in body
     assert f'href="/cases/{opened_case_id}"' in body
 
     # The closed-case row: badge, closer (email fallback), excerpt, link.
     assert "Board preparation — Q3 review" in body
     assert "dc-owner@example.com" in body
     assert "Prepared and circulated" in body
-    assert "pf-dc-journal__row--case" in body
+    assert 'data-row-type="case"' in body
 
     # Newest first: the hand-over (now) precedes the closed case (yesterday).
     assert body.index("saa:journal_handover") < body.index("Board preparation — Q3 review")
@@ -3371,7 +3370,7 @@ async def test_creating_a_price_watchpoint_shows_it_on_the_monitor(
     )
 
     assert created.status_code == 200
-    assert 'id="dc-monitor"' in created.text
+    assert wd("monitor") in created.text
     # The group is there with the instrument's own name, derived live.
     assert "Price moves" in created.text
     assert "Price decline — MSCI World ETF" in created.text
@@ -3664,27 +3663,17 @@ async def test_the_watchpoint_endpoints_require_csrf(
 # the families or the book change.
 
 
-#: The subjects tile, anchored on its own label — the other three tiles carry
-#: markup inside their value span and must not be matched by accident.
-_SUBJECTS_TILE = re.compile(
-    r"Subjects watched</span>\s*"
-    r'<span class="pf-dc-tile__value">([^<]+)</span>\s*'
-    r'<span class="pf-dc-tile__sub">([^<]+)</span>'
-)
-
 #: Every monitor group header stating a subject count — the two quota groups
 #: and whichever signal families rendered. The press group states "N curated
-#: tags" instead, so it is read separately rather than pattern-matched into
-#: the same bucket.
-_GROUP_SUBJECTS = re.compile(r'class="pf-dc-group__meta">\s*(\d+) subjects?\b')
-_GROUP_TAGS = re.compile(r'class="pf-dc-group__meta">\s*(\d+) curated tags\b')
+#: tags" instead, so it is read separately rather than counted into the same
+#: bucket. Both are ``watch-group`` kinds (``data-pf-wd-kind``).
+_GROUP_SUBJECTS = frozenset({"quota", "signal"})
+_GROUP_TAGS = frozenset({"press"})
 
 
 def _subjects_tile(body: str) -> tuple[str, str]:
     """Return the subjects tile's ``(value, sub)`` strings."""
-    match = _SUBJECTS_TILE.search(body)
-    assert match is not None, "the subjects-watched tile did not render"
-    return match.group(1).strip(), match.group(2).strip()
+    return wd_text(body, "subjects-watched"), wd_text(body, "subjects-watched-detail")
 
 
 def _tile_total(body: str) -> int:
@@ -3695,8 +3684,16 @@ def _tile_total(body: str) -> int:
 
 def _monitor_subject_total(body: str) -> int:
     """Sum what every monitor group header below the tile says it watches."""
-    counts = [int(figure) for figure in _GROUP_SUBJECTS.findall(body)]
-    tags = [int(figure) for figure in _GROUP_TAGS.findall(body)]
+    counts: list[int] = []
+    tags: list[int] = []
+    for group in wd_blocks(body, "watch-group"):
+        kind = wd_attr(group, "data-pf-wd-kind")
+        count = wd_attr(group, "data-pf-wd-count")
+        assert count is not None, "a monitor group carries no subject count"
+        if kind in _GROUP_SUBJECTS:
+            counts.append(int(count))
+        elif kind in _GROUP_TAGS:
+            tags.append(int(count))
     assert counts, "the monitor rendered no subject-count headers"
     assert tags, "the monitor rendered no press group"
     return sum(counts) + sum(tags)
@@ -4140,13 +4137,13 @@ async def test_briefing_without_a_row_reads_pending_and_still_renders_the_strip(
     assert response.status_code == 200
     body = _flat(response.text)
 
-    assert 'id="dc-briefing-latest"' in body
-    assert 'id="dc-briefing-pending"' in body
+    assert wd("latest") in body
+    assert wd("briefing-pending") in body
     assert "Briefing pending" in body
     # UI-023: the persona is never named in rendered copy — on this block too.
     assert "Irene" not in body
-    assert 'id="dc-briefing-markets"' not in body
-    assert 'id="dc-briefing-sources"' not in body
+    assert wd("briefing-markets") not in body
+    assert wd("briefing-sources") not in body
     # The strip renders regardless, stamped with the render instant; no
     # valued positions, so both limit chips say so rather than "calm".
     assert re.search(r"On watch now · live \d\d:\d\d", body) is not None
@@ -4154,7 +4151,7 @@ async def test_briefing_without_a_row_reads_pending_and_still_renders_the_strip(
     assert "Regulatory quotas (AnlV) · no coverage" in body
     assert "Press coverage · calm" in body
     # No note while both quota families are on.
-    assert 'id="dc-family-notes"' not in body
+    assert wd("family-notes") not in body
 
 
 async def test_briefing_shows_the_newest_written_row_with_its_check_stamp(
@@ -4194,8 +4191,8 @@ async def test_briefing_shows_the_newest_written_row_with_its_check_stamp(
     body = _flat(response.text)
 
     assert "Check of Wed 07 Oct 2026 08:02 · 1 finding raised" in body
-    assert 'id="dc-briefing-markets"' in body and "Markets and press." in body
-    assert 'id="dc-briefing-watch"' in body and "Under observation." in body
+    assert wd("briefing-markets") in body and "Markets and press." in body
+    assert wd("briefing-watch") in body and "Under observation." in body
     assert _NEWER_MARKETS in body
     assert _NEWER_WATCH in body
     assert _OLDER_MARKETS not in body
@@ -4221,8 +4218,8 @@ async def test_briefing_hides_part_two_when_text_watch_is_empty(
     response = await web_client.get("/api/watch-desk/briefing")
     body = _flat(response.text)
 
-    assert 'id="dc-briefing-markets"' in body
-    assert 'id="dc-briefing-watch"' not in body
+    assert wd("briefing-markets") in body
+    assert wd("briefing-watch") not in body
     assert "Under observation." not in body
 
 
@@ -4253,7 +4250,7 @@ async def test_a_skipped_newest_row_reads_pending_not_an_older_text(
 
     assert "Briefing pending" in body
     assert _OLDER_MARKETS not in body
-    section = body.split('id="dc-briefing-latest"')[1].split("</section>")[0]
+    section = wd_block(body, "latest")
     assert "llm_error" not in section
     assert "error" not in section.lower()
 
@@ -4274,7 +4271,7 @@ async def test_the_sources_line_states_tokens_items_and_window(
     response = await web_client.get("/api/watch-desk/briefing")
     body = _flat(response.text)
 
-    assert 'id="dc-briefing-sources"' in body
+    assert wd("briefing-sources") in body
     assert "Sources · 3 figures · 1 press cluster · window 2026-10-02 to 2026-10-07" in body
     # Figures first, in the material's order, then the clusters; no repeats.
     assert "From: instrument_prices, fx_rates, limit_coverage, rss" in body
@@ -4299,8 +4296,8 @@ async def test_an_unknown_material_version_omits_the_sources_line(
     response = await web_client.get("/api/watch-desk/briefing")
     body = _flat(response.text)
 
-    assert 'id="dc-briefing-markets"' in body
-    assert 'id="dc-briefing-sources"' not in body
+    assert wd("briefing-markets") in body
+    assert wd("briefing-sources") not in body
     assert "future" not in body
 
 
@@ -4332,14 +4329,14 @@ async def test_a_switched_off_quota_family_leaves_a_standing_note(
     assert response.status_code == 200
     body = _flat(response.text)
 
-    assert 'id="dc-family-notes"' in body
+    assert wd("family-notes") in body
     # The seeded owner carries no display name, so the Journal idiom falls
     # back to the email.
     assert "Regulatory quotas (AnlV) off since 30 Sep 2026 · dc-owner@example.com" in body
-    assert 'data-family="saa"' not in body.split('id="dc-family-notes"')[1].split("</div>")[0]
+    assert 'data-family="saa"' not in wd_block(body, "family-notes")
     assert "Currency moves off since" not in body
     # The switched-off families leave the strip with the monitor.
-    strip = body.split('id="dc-watch-strip"')[1].split("</div>")[0]
+    strip = wd_block(body, "strip")
     assert 'data-family="anlv"' not in strip
     assert 'data-family="fx"' not in strip
     assert 'data-family="saa"' in strip
@@ -4358,7 +4355,7 @@ async def test_the_watch_strip_states_the_monitors_own_badges(
     response = await web_client.get("/api/watch-desk/briefing")
     assert response.status_code == 200
     body = _flat(response.text)
-    strip = body.split('id="dc-watch-strip"')[1].split("</div>")[0]
+    strip = wd_block(body, "strip")
 
     assert "Allocation limits (SAA) · 1 WARN" in strip
     assert "Regulatory quotas (AnlV) · calm" in strip
@@ -4376,14 +4373,12 @@ async def test_the_watch_strip_states_the_monitors_own_badges(
 def _family_rows_section(body: str) -> str:
     """Return the flattened Watch points section of a Calibration body."""
     assert 'id="dc-family-rows"' in body, "the Watch points rows did not render"
-    return body.split('id="dc-family-rows"')[1].split("</section>")[0]
+    return wd_block(_flat(body), "family-rows")
 
 
 def _family_row(section: str, family: str) -> str:
     """Return one family's row (its cells, up to the row's end)."""
-    marker = f'data-family="{family}"'
-    assert marker in section, f"no row for {family}"
-    return section.split(marker)[1].split("</tr>")[0]
+    return wd_block(section, "family-row", data_family=family)
 
 
 async def _scope_rows(engine: AsyncEngine, family: str) -> list:
@@ -4422,11 +4417,10 @@ async def test_watch_points_rows_render_every_family_and_the_pacing_placeholder(
     assert "Stale valuations (NAV freshness)" in section
     saa = _family_row(section, "saa")
     assert "/api/watch-desk/families/saa/switch" in saa
-    assert (
-        'value="standard" class="pf-dc-sensitivity__open" aria-pressed="true">Standard</button>'
-        in saa
-    )
-    assert 'value="nervous" class="pf-dc-sensitivity__open" aria-pressed="false">Nervous' in saa
+    btn = wd_block(saa, "preset-button", value="standard")
+    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Standard"
+    btn = wd_block(saa, "preset-button", value="nervous")
+    assert wd_attr(btn, "aria-pressed") == "false" and wd_text(btn) == "Nervous"
     rss = _family_row(section, "rss")
     assert "switch only" in rss
     assert "/preset" not in rss
@@ -4436,7 +4430,7 @@ async def test_watch_points_rows_render_every_family_and_the_pacing_placeholder(
     assert "/switch" not in pacing
     # UI-023 on the new rows, and no confirmation without a switch-off.
     assert "Irene" not in section
-    assert 'id="dc-family-confirm"' not in section
+    assert wd("confirm") not in section
     assert "Watch points are managed by the tenant owner." not in section
 
 
@@ -4465,7 +4459,7 @@ async def test_switching_off_asks_first_and_writes_nothing(
     assert response.status_code == 200
     section = _family_rows_section(_flat(response.text))
 
-    assert 'id="dc-family-confirm"' in section
+    assert wd("confirm") in section
     assert "Switch off Allocation limits (SAA)?" in section
     assert "From the next check, Allocation limits (SAA) is no longer evaluated" in section
     assert "1 open finding of this watch point stays open until you resolve it." in section
@@ -4530,7 +4524,7 @@ async def test_a_confirmed_switch_off_writes_the_revision_and_the_standing_note(
     assert response.status_code == 200
     section = _family_rows_section(_flat(response.text))
     assert 'data-family="saa" data-enabled="off"' in section
-    assert 'id="dc-family-confirm"' not in section
+    assert wd("confirm") not in section
 
     rows = await _scope_rows(fresh_superuser_engine, "saa")
     assert len(rows) == 1
@@ -4541,7 +4535,7 @@ async def test_a_confirmed_switch_off_writes_the_revision_and_the_standing_note(
     briefing = await web_client.get("/api/watch-desk/briefing")
     body = _flat(briefing.text)
     assert "Allocation limits (SAA) off since" in body
-    assert "dc-owner@example.com" in body.split('id="dc-family-notes"')[1].split("</div>")[0]
+    assert "dc-owner@example.com" in wd_block(body, "family-notes")
 
 
 async def test_switching_on_needs_no_confirmation_and_keep_writes_nothing(
@@ -4566,7 +4560,7 @@ async def test_switching_on_needs_no_confirmation_and_keep_writes_nothing(
     assert on.status_code == 200
     section = _family_rows_section(_flat(on.text))
     assert 'data-family="anlv" data-enabled="on"' in section
-    assert 'id="dc-family-confirm"' not in section
+    assert wd("confirm") not in section
     rows = await _scope_rows(fresh_superuser_engine, "anlv")
     assert [row.enabled for row in rows] == [False, True]
 
@@ -4597,8 +4591,10 @@ async def test_a_preset_round_trips_through_calibration_and_scope(
     )
     assert response.status_code == 200
     saa = _family_row(_family_rows_section(_flat(response.text)), "saa")
-    assert 'value="nervous" class="pf-dc-sensitivity__open" aria-pressed="true">Nervous' in saa
-    assert 'value="standard" class="pf-dc-sensitivity__open" aria-pressed="false">Standard' in saa
+    btn = wd_block(saa, "preset-button", value="nervous")
+    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Nervous"
+    btn = wd_block(saa, "preset-button", value="standard")
+    assert wd_attr(btn, "aria-pressed") == "false" and wd_text(btn) == "Standard"
     assert 'data-family="saa" data-enabled="on"' in _family_rows_section(_flat(response.text))
 
     async with fresh_superuser_engine.connect() as conn:
@@ -4627,7 +4623,8 @@ async def test_a_preset_round_trips_through_calibration_and_scope(
     )
     assert back.status_code == 200
     saa = _family_row(_family_rows_section(_flat(back.text)), "saa")
-    assert 'value="standard" class="pf-dc-sensitivity__open" aria-pressed="true">Standard' in saa
+    btn = wd_block(saa, "preset-button", value="standard")
+    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Standard"
     assert await _table_count(fresh_superuser_engine, "floor_calibration") == 2
 
 
@@ -4739,15 +4736,15 @@ async def test_the_sensitivity_column_shows_the_family_preset_or_custom(
     page = await web_client.get("/api/watch-desk/calibration")
     assert page.status_code == 200
     body = _flat(page.text)
-    watch_list = body.split('id="dc-watchpoint-list"')[1].split("</table>")[0]
-    assert '<th scope="col">Sensitivity</th>' in watch_list
+    watch_list = wd_block(body, "watchpoint-list")
+    assert wd("sensitivity") in watch_list
 
-    liquidity = watch_list.split("liquidity:cash_coverage")[1].split("</tr>")[0]
-    assert "<td>Standard</td>" in liquidity
-    saa = watch_list.split("saa:equities")[1].split("</tr>")[0]
-    assert "<td>Custom</td>" in saa
-    rss = watch_list.split("rss:equities")[1].split("</tr>")[0]
-    assert "<td>—</td>" in rss
+    liquidity = wd_block(watch_list, "watchpoint", data_pf_wd_subject="liquidity:cash_coverage")
+    assert wd_text(liquidity, "sensitivity") == "Standard"
+    saa = wd_block(watch_list, "watchpoint", data_pf_wd_subject="saa:equities")
+    assert wd_text(saa, "sensitivity") == "Custom"
+    rss = wd_block(watch_list, "watchpoint", data_pf_wd_subject="rss:equities")
+    assert wd_text(rss, "sensitivity") == "—"
 
 
 # ---------------------------------------------------------------------------
@@ -4774,7 +4771,9 @@ def _material_with_finding(band: str) -> dict:
 
 def _journal_days_of(body: str) -> list[str]:
     """Return the day labels in render order."""
-    return re.findall(r'data-day="[^"]+"[^>]*> <summary>([^<·]+?) ·', body)
+    return [
+        wd_text(d, "journal-day-summary").split(" · ")[0] for d in wd_blocks(body, "journal-day")
+    ]
 
 
 async def test_journal_lists_every_check_by_day(
@@ -4818,7 +4817,7 @@ async def test_journal_lists_every_check_by_day(
     assert response.status_code == 200
     body = _flat(response.text)
 
-    assert 'id="dc-journal-filters"' in body
+    assert wd("journal-filters") in body
     assert body.count('data-row-type="briefing"') == 2
     zone = ZoneInfo("Europe/Berlin")
     assert f"Check at {written_at.astimezone(zone):%H:%M} · 1 finding raised" in body
@@ -4844,7 +4843,7 @@ async def test_journal_lists_every_check_by_day(
     assert labels[:2] == [expected_label(written_at), expected_label(silent_at)]
     assert "Irene" not in body
     # Read-only, as before.
-    assert "pf-dc-btn" not in body
+    assert wd("finding-actions") not in body
     assert "/resolve" not in body
 
 
@@ -4927,21 +4926,24 @@ async def test_journal_period_filter_and_older_pages(
     page = await web_client.get("/api/watch-desk/journal?period=all")
     assert page.status_code == 200
     body = _flat(page.text)
-    assert 'id="dc-journal-filters"' in body
+    assert wd("journal-filters") in body
     hops = 0
     while True:
         seen.extend(re.findall(r'data-row-type="briefing" data-state="skipped"', body))
-        match = re.search(r'id="dc-journal-older"[^>]*hx-get="([^"]+)"', body)
-        if match is None:
+        if wd_count(body, "journal-older") == 0:
             break
+        older_url = wd_attr(wd_block(body, "journal-older"), "hx-get")
+        assert older_url is not None
         hops += 1
         assert hops < 10, "the older link never ends"
-        older = await web_client.get(html.unescape(match.group(1)))
+        older = await web_client.get(html.unescape(older_url))
         assert older.status_code == 200
         body = _flat(older.text)
         # A fragment: no filter bar, no open day.
-        assert 'id="dc-journal-filters"' not in body
-        assert "<details class=" in body and " open>" not in body
+        assert wd("journal-filters") not in body
+        days = wd_blocks(body, "journal-day")
+        assert days
+        assert all(wd_attr(day, "open") is None for day in days)
     assert hops >= 1
     assert len(seen) == 72
 
@@ -4981,10 +4983,10 @@ async def test_journal_stamps_follow_the_schedule_zone(
     await _login(web_client, email, password)
     body = _flat((await web_client.get("/api/watch-desk/journal?period=all")).text)
 
-    row = body.split("fx:USD/EUR")[1].split("</tr>")[0]
-    assert "<td>2026-09-30 22:30</td>" in row
+    row = wd_block(body, "journal-row", data_pf_wd_subject="fx:USD/EUR")
+    assert wd_text(row, "surfaced") == "2026-09-30 22:30"
     # 22:45 UTC is 00:45 the next day in Berlin: the row sits under 1 Oct.
-    assert "<td>2026-10-01 00:45</td>" in row
+    assert wd_text(row, "resolved") == "2026-10-01 00:45"
     assert "Thu 01 Oct 2026 · 1 entry" in body
 
 
@@ -5004,7 +5006,7 @@ async def test_journal_ignores_unusable_filters(
     )
     assert response.status_code == 200
     body = _flat(response.text)
-    assert 'id="dc-journal-filters"' in body
+    assert wd("journal-filters") in body
     assert '<option value="all" selected>All</option>' in body
     assert '<option value="30d" selected>Last 30 days</option>' in body
     assert '<option value="" selected>Any</option>' in body
@@ -5032,7 +5034,7 @@ async def test_the_briefing_view_offers_discuss_beneath_a_written_briefing_only(
 
     # No row: pending, no action.
     body = _flat((await web_client.get("/api/watch-desk/briefing")).text)
-    assert 'id="dc-briefing-pending"' in body
+    assert wd("briefing-pending") in body
     assert _discuss_forms(body) == []
     assert "Discuss briefing with Shirley" not in body
 
@@ -5050,8 +5052,8 @@ async def test_the_briefing_view_offers_discuss_beneath_a_written_briefing_only(
     # UI-023 holds on the action too: it names Shirley, never the writer.
     assert "Irene" not in body
     # The action travels inside the latest-briefing block, above the strip.
-    assert body.index("data-pf-discuss-briefing") < body.index('id="dc-watch-strip"')
-    assert body.index('id="dc-briefing-latest"') < body.index("data-pf-discuss-briefing")
+    assert body.index("data-pf-discuss-briefing") < body.index(wd("strip"))
+    assert body.index(wd("latest")) < body.index("data-pf-discuss-briefing")
 
     # A skipped newest row reads pending and offers nothing — the older
     # written row is not offered in its place either (ADR-0133 §1.4).
@@ -5063,7 +5065,7 @@ async def test_the_briefing_view_offers_discuss_beneath_a_written_briefing_only(
         skip_reason="llm_error",
     )
     body = _flat((await web_client.get("/api/watch-desk/briefing")).text)
-    assert 'id="dc-briefing-pending"' in body
+    assert wd("briefing-pending") in body
     assert _discuss_forms(body) == []
 
 
@@ -5100,7 +5102,7 @@ async def test_journal_offers_discuss_on_written_check_rows_only(
     assert re.search(r'name="csrf_token" value="[^"]+"', body) is not None
     # The Journal's read-only pins hold: no Watch Desk action button, no
     # resolve form, no persona.
-    assert "pf-dc-btn" not in body
+    assert wd("finding-actions") not in body
     assert "/resolve" not in body
     assert "Irene" not in body
 
@@ -5111,6 +5113,6 @@ async def test_journal_offers_discuss_on_written_check_rows_only(
     )
     assert older.status_code == 200
     fragment = _flat(older.text)
-    assert 'id="dc-journal-filters"' not in fragment
+    assert wd("journal-filters") not in fragment
     assert _discuss_forms(fragment) == [str(older_id)]
     assert re.search(r'name="csrf_token" value="[^"]+"', fragment) is not None

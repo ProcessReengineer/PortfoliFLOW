@@ -22,32 +22,32 @@
 
     {# Status tiles. Every figure is derived at request time from existing
        tables — no summary row is persisted. #}
-    <div class="pf-dc-tiles">
+    <div data-pf-wd="tiles" class="pf-dc-tiles">
         <div class="pf-dc-tile">
             <span class="pf-dc-tile__label">Last beat</span>
             {% if tiles.last_beat.ran %}
-                <span class="pf-dc-tile__value"><span class="dot"></span>{{ tiles.last_beat.time }}</span>
-                <span class="pf-dc-tile__sub">{{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }}</span>
+                <span data-pf-wd="last-check" data-pf-wd-state="ran" class="pf-dc-tile__value"><span class="dot"></span>{{ tiles.last_beat.time }}</span>
+                <span data-pf-wd="last-check-detail" class="pf-dc-tile__sub">{{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }}</span>
             {% else %}
                 {# Never-ran state: no dot, no findings count — a beat that
                    has not happened surfaced nothing, and must not look as
                    though it ran and found nothing. #}
-                <span class="pf-dc-tile__value">Never ran yet</span>
-                <span class="pf-dc-tile__sub">No analysis beat has completed for this tenant yet.</span>
+                <span data-pf-wd="last-check" data-pf-wd-state="never" class="pf-dc-tile__value">Never ran yet</span>
+                <span data-pf-wd="last-check-detail" class="pf-dc-tile__sub">No analysis beat has completed for this tenant yet.</span>
             {% endif %}
         </div>
 
         <div class="pf-dc-tile">
             <span class="pf-dc-tile__label">Subjects watched</span>
-            <span class="pf-dc-tile__value">{{ tiles.subjects.value }}</span>
-            <span class="pf-dc-tile__sub">{{ tiles.subjects.sub }}</span>
+            <span data-pf-wd="subjects-watched" class="pf-dc-tile__value">{{ tiles.subjects.value }}</span>
+            <span data-pf-wd="subjects-watched-detail" class="pf-dc-tile__sub">{{ tiles.subjects.sub }}</span>
         </div>
 
         <div class="pf-dc-tile">
             <span class="pf-dc-tile__label">Open findings</span>
-            <span class="pf-dc-tile__value">{{ tiles.open_findings.total }}</span>
+            <span data-pf-wd="open-findings" class="pf-dc-tile__value">{{ tiles.open_findings.total }}</span>
             {% if tiles.open_findings.bands %}
-                <span class="pf-dc-tile__sub">
+                <span data-pf-wd="open-findings-bands" class="pf-dc-tile__sub">
                     {%- for band in tiles.open_findings.bands -%}
                         {% if not loop.first %} · {% endif %}
                         <span class="{{ band.css }}">{{ band.text }}</span>
@@ -61,7 +61,7 @@
                can swap this label out of band by id. #}
             {% include "_partials/watch_desk_briefing_next_beat.html" %}
             {% if schedule_exists %}
-                <form hx-post="/api/watch-desk/request-analysis"
+                <form data-pf-wd="check-now" hx-post="/api/watch-desk/request-analysis"
                       hx-target="#dc-briefing-toolbar"
                       hx-swap="innerHTML">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

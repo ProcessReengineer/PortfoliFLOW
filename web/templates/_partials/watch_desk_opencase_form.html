@@ -8,7 +8,7 @@
    when that block renders, in the card footer otherwise. The *gate* is the
    caller's (`card.case_affordance`); this partial only draws the control, so
    the two placements can never drift apart. Context: `card`, `csrf_token`. #}
-<form class="pf-dc-opencase-form"
+<form data-pf-wd="open-case" class="pf-dc-opencase-form"
       hx-post="/api/watch-desk/findings/{{ card.id }}/open-case"
       hx-target="#dc-card-{{ card.id }}"
       hx-swap="outerHTML">

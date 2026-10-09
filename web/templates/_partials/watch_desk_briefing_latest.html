@@ -29,22 +29,22 @@
 
    Context (see _briefing_context): briefing, family_notes, watch_strip,
    csrf_token. #}
-<section id="dc-briefing-latest" class="pf-dc-tile" aria-label="Latest briefing">
+<section data-pf-wd="latest" id="dc-briefing-latest" class="pf-dc-tile" aria-label="Latest briefing">
     <span class="pf-dc-tile__label">Latest briefing</span>
     {% if briefing.state == 'written' %}
-        <span class="pf-dc-tile__sub">Check of {{ briefing.stamp }} · {{ briefing.raised }}</span>
-        <p id="dc-briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
+        <span data-pf-wd="latest-stamp" class="pf-dc-tile__sub">Check of {{ briefing.stamp }} · {{ briefing.raised }}</span>
+        <p data-pf-wd="briefing-markets" id="dc-briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
         {% if briefing.text_watch %}
-            <p id="dc-briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
+            <p data-pf-wd="briefing-watch" id="dc-briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
         {% endif %}
         {% if briefing.sources %}
             {# R12 provenance line, minimal: what the writer was handed, from
                the persisted inputs — never re-read live. #}
-            <details id="dc-briefing-sources" class="pf-dc-collapse">
+            <details data-pf-wd="briefing-sources" id="dc-briefing-sources" class="pf-dc-collapse">
                 <summary>Sources · {{ briefing.sources.figures }} · {{ briefing.sources.clusters }}{% if briefing.sources.window %} · {{ briefing.sources.window }}{% endif %}</summary>
-                <p class="pf-dc-tile__sub">From: {{ briefing.sources.tokens|join(', ') }}</p>
+                <p data-pf-wd="briefing-tokens" class="pf-dc-tile__sub">From: {{ briefing.sources.tokens|join(', ') }}</p>
                 {% if briefing.sources.press_items %}
-                    <ul>
+                    <ul data-pf-wd="briefing-press">
                         {% for item in briefing.sources.press_items %}
                             <li>{% if item.url %}<a href="{{ item.url }}" rel="noopener noreferrer" target="_blank">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</li>
                         {% endfor %}
@@ -58,23 +58,23 @@
             {% include "_partials/watch_desk_discuss_action.html" %}
         {% endwith %}
     {% else %}
-        <p id="dc-briefing-pending" class="pf-dc-tile__sub">Briefing pending</p>
+        <p data-pf-wd="briefing-pending" id="dc-briefing-pending" class="pf-dc-tile__sub">Briefing pending</p>
     {% endif %}
 </section>
 
 {% if family_notes %}
     {# D-WD-17: a quota family off is said on the page while Part 2 stays
        silent about it. #}
-    <div id="dc-family-notes" role="note">
+    <div data-pf-wd="family-notes" id="dc-family-notes" role="note">
         {% for note in family_notes %}
-            <p class="pf-dc-calibration__note" data-family="{{ note.family }}">{{ note.text }}</p>
+            <p data-pf-wd="family-note" class="pf-dc-calibration__note" data-family="{{ note.family }}">{{ note.text }}</p>
         {% endfor %}
     </div>
 {% endif %}
 
-<div id="dc-watch-strip" aria-label="On watch now">
-    <span class="pf-dc-tile__label">On watch now · live {{ watch_strip.stamp }}</span>
+<div data-pf-wd="strip" id="dc-watch-strip" aria-label="On watch now">
+    <span data-pf-wd="strip-stamp" class="pf-dc-tile__label">On watch now · live {{ watch_strip.stamp }}</span>
     {% for chip in watch_strip.chips %}
-        <span class="tag tag--{{ chip.modifier }}" data-family="{{ chip.family }}">{{ chip.name }} · {{ chip.text }}</span>
+        <span data-pf-wd="chip" data-pf-wd-state="{{ chip.modifier }}" class="tag tag--{{ chip.modifier }}" data-family="{{ chip.family }}">{{ chip.name }} · {{ chip.text }}</span>
     {% endfor %}
 </div>

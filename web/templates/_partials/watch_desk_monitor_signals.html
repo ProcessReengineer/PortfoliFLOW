@@ -49,25 +49,25 @@
 
    Context: monitor.signal_groups, monitor.signal_footer, csrf_token. #}
 {% for group in monitor.signal_groups %}
-    <details class="pf-dc-group pf-dc-group--signal">
+    <details data-pf-wd="watch-group" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="signal" data-family="{{ group.family }}" class="pf-dc-group pf-dc-group--signal">
         <summary>
             <span class="pf-dc-group__chevron">▶</span>
-            <span class="pf-dc-group__name">{{ group.name }}</span>
-            <span class="pf-dc-group__badges">
+            <span data-pf-wd="group-name" class="pf-dc-group__name">{{ group.name }}</span>
+            <span data-pf-wd="group-badges" class="pf-dc-group__badges">
                 {%- for badge in group.badges -%}
-                    <span class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
+                    <span data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}" class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
                 {%- endfor -%}
                 {%- if group.muted_count -%}
-                    <span class="tag tag--muted">{{ group.muted_count }} muted</span>
+                    <span data-pf-wd="muted-count" class="tag tag--muted">{{ group.muted_count }} muted</span>
                 {%- endif -%}
             </span>
-            <span class="pf-dc-group__meta">
+            <span data-pf-wd="group-meta" class="pf-dc-group__meta">
                 {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
                 {{ group.measure }}
                 {% include "_partials/watch_desk_watchpoint_add.html" %}
             </span>
         </summary>
-        <div class="pf-dc-group__body">
+        <div data-pf-wd="group-body" class="pf-dc-group__body">
             <table>
                 <thead>
                     <tr>
@@ -88,11 +88,11 @@
                     {% if group.collapsed_rows %}
                         {# Collapsed, never hidden: the calm remainder is one
                            click away and is counted in the header above. #}
-                        <tr class="pf-dc-group__collapsed">
+                        <tr data-pf-wd="collapsed" class="pf-dc-group__collapsed">
                             <td colspan="7">
-                                <details class="pf-dc-collapse">
+                                <details data-pf-wd="collapsed-disclosure" class="pf-dc-collapse">
                                     <summary>{{ group.collapsed_summary }}</summary>
-                                    <table>
+                                    <table data-pf-wd="collapsed-rows">
                                         <tbody>
                                             {% for row in group.collapsed_rows %}
                                                 {% include "_partials/watch_desk_monitor_signal_row.html" %}
@@ -114,17 +114,17 @@
        nothing of. An empty group would be noise, but a silently missing
        one would hide the capability — so the families are named here with
        their add affordance beside them, in the house empty-state idiom. #}
-    <div class="pf-dc-monitor__footer">
+    <div data-pf-wd="monitor-footer" class="pf-dc-monitor__footer">
         {% for entry in monitor.signal_footer %}
-            <p class="pf-empty-state pf-dc-monitor__footer-line">
-                <span class="pf-dc-monitor__footer-name">{{ entry.name }}</span>
+            <p data-pf-wd="footer-line" data-family="{{ entry.family }}" class="pf-empty-state pf-dc-monitor__footer-line">
+                <span data-pf-wd="footer-name" class="pf-dc-monitor__footer-name">{{ entry.name }}</span>
                 {% if entry.watched %}
                     — watched, but nothing to show yet: {{ entry.measure }}.
                 {% else %}
                     — not watched: {{ entry.measure }}.
                 {% endif %}
                 {% if entry.can_add %}
-                    <button type="button"
+                    <button data-pf-wd="add-watchpoint" type="button"
                             class="pf-dc-sensitivity__open"
                             hx-get="/api/watch-desk/watchpoints/new?family={{ entry.family }}"
                             hx-target="#dc-watchpoint-new"

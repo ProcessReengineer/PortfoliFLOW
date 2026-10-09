@@ -6,18 +6,18 @@
    renderings of the same row would be two chances to differ.
 
    Context: row (see _signal_row), csrf_token. #}
-<tr>
-    <td>
+<tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
+    <td data-pf-wd="subject">
         {{ row.display_name }}
         {% if row.muted %}
-            <span class="tag tag--muted">muted</span>
+            <span data-pf-wd="muted" class="tag tag--muted">muted</span>
         {% endif %}
-        <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+        <span data-pf-wd="subject-key" class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
     </td>
-    <td><span class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
-    <td>{{ row.value }}</td>
-    <td>{{ row.threshold }}</td>
-    <td>
+    <td data-pf-wd="state" data-pf-wd-state="{{ row.modifier }}"><span data-pf-wd="state-tag" data-pf-wd-state="{{ row.modifier }}" class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
+    <td data-pf-wd="value">{{ row.value }}</td>
+    <td data-pf-wd="threshold">{{ row.threshold }}</td>
+    <td data-pf-wd="proximity">
         {% if row.has_data %}
             {# Per-subject mark position, clamped fill — see the fragment
                header. The inline `left` is the whole per-subject affordance;
@@ -28,27 +28,27 @@
                the internal 100-scale magnitude, and that number is not one
                the operator ever set. The bar carries the proportion
                visually, which is what a bar is for. #}
-            <div class="gauge gauge--{{ row.modifier }}"
+            <div data-pf-wd="meter" data-pf-wd-state="{{ row.modifier }}" class="gauge gauge--{{ row.modifier }}"
                  title="{{ row.value }} against {{ row.threshold }} · Approaching mark at {{ '%.0f'|format(row.warn_threshold_pct) }}% of it">
-                <span class="gauge__warnmark"
+                <span data-pf-wd="meter-mark" class="gauge__warnmark"
                       style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span>
-                <span class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
+                <span data-pf-wd="meter-fill" class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
             </div>
         {% else %}
             {# No gauge for a subject nothing was observed for — a bar would
                be a claim, and the one thing certain here is that no claim
                can be made. #}
-            <span class="pf-dc-monitor__nogauge">—</span>
+            <span data-pf-wd="no-meter" class="pf-dc-monitor__nogauge">—</span>
         {% endif %}
     </td>
-    <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+    <td data-pf-wd="note" class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
         {{ row.note }}
         {% if row.finding_anchor %}
-            <a href="{{ row.finding_anchor }}">▲ open finding</a>
+            <a data-pf-wd="finding-link" href="{{ row.finding_anchor }}">▲ open finding</a>
         {% endif %}
     </td>
-    <td>
-        <button type="button"
+    <td data-pf-wd="sensitivity">
+        <button data-pf-wd="adjust" type="button"
                 class="pf-dc-sensitivity__open"
                 hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor"
                 hx-target="#{{ row.editor_id }}"
@@ -56,10 +56,10 @@
             Adjust
         </button>
         {% if row.warn_customised or row.delta_customised %}
-            <span class="pf-dc-sensitivity__flag">customised</span>
+            <span data-pf-wd="customised" class="pf-dc-sensitivity__flag">customised</span>
         {% endif %}
     </td>
 </tr>
-<tr class="pf-dc-sensitivity__slot">
+<tr data-pf-wd="editor-slot" class="pf-dc-sensitivity__slot">
     <td colspan="7" id="{{ row.editor_id }}"></td>
 </tr>

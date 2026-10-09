@@ -18,7 +18,7 @@
 
    Context: group (see _build_signal_group). #}
 {% if group.can_add %}
-    · <button type="button"
+    · <button data-pf-wd="add-watchpoint" type="button"
               class="pf-dc-group__add"
               hx-get="/api/watch-desk/watchpoints/new?family={{ group.family }}"
               hx-target="#dc-watchpoint-new"

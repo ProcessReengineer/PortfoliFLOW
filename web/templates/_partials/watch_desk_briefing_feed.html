@@ -9,13 +9,13 @@
             {% include "_partials/watch_desk_card.html" %}
         {% endfor %}
     {% else %}
-        <div class="pf-dc-calm">
-            <p class="pf-dc-calm__status">
+        <div data-pf-wd="calm" class="pf-dc-calm">
+            <p data-pf-wd="calm-status" class="pf-dc-calm__status">
                 <span class="pf-dc-calm__dot" aria-hidden="true"></span>
                 All monitored limits are calm — nothing material since your
                 last review.
             </p>
-            <details class="pf-dc-lowpri">
+            <details data-pf-wd="lowpri" class="pf-dc-lowpri">
                 <summary class="pf-dc-lowpri__summary">
                     Lower-priority notices
                 </summary>

@@ -12,19 +12,19 @@
    exception: its input shows the stored value or a blank, `placeholder`
    shows the inherited value, and `marker_off` reads "inherits" instead of
    "default". `placeholder` is rendered only when set. #}
-<label class="pf-dc-calib__field">
-    <span class="pf-dc-calib__label">
+<label data-pf-wd="field" data-pf-wd-name="{{ f.name }}" class="pf-dc-calib__field">
+    <span data-pf-wd="field-label" class="pf-dc-calib__label">
         {{ f.label }}
-        <span class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if f.customised }}">
+        <span data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if f.customised else f.marker_off }}" class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if f.customised }}">
             {{ 'customised' if f.customised else f.marker_off }}
         </span>
     </span>
     <input type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}"
            {%- if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
     {% if f.hint %}
-        <span class="pf-dc-calib__hint">{{ f.hint }}</span>
+        <span data-pf-wd="field-hint" class="pf-dc-calib__hint">{{ f.hint }}</span>
     {% endif %}
     {% if f.error %}
-        <span class="pf-dc-calib__field-error" role="alert">{{ f.error }}</span>
+        <span data-pf-wd="field-error" class="pf-dc-calib__field-error" role="alert">{{ f.error }}</span>
     {% endif %}
 </label>

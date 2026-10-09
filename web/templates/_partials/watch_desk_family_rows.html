@@ -16,19 +16,19 @@
 
    Context (see _family_rows): csrf_token, family_rows, family_rows_owner,
    family_rows_error, family_presets, pacing_name, pacing_note. #}
-<section id="dc-family-rows" class="pf-dc-calibration__watchpoints" aria-label="Watch points">
-    <h3 class="pf-dc-calib__heading">Watch points</h3>
-    <p class="pf-dc-calib__note">
+<section data-pf-wd="family-rows" id="dc-family-rows" class="pf-dc-calibration__watchpoints" aria-label="Watch points">
+    <h3 data-pf-wd="family-rows-heading" class="pf-dc-calib__heading">Watch points</h3>
+    <p data-pf-wd="family-rows-note" class="pf-dc-calib__note">
         Everything the checks can watch, and how nervously. A watch point
         that is off is not evaluated, not listed on the Briefing, and not
         mentioned in the briefing text. Markets and press on macro and
         regulator are always read.
     </p>
     {% if family_rows_error %}
-        <p class="pf-dc-calib__error" role="alert">{{ family_rows_error }} Nothing was saved.</p>
+        <p data-pf-wd="family-rows-error" class="pf-dc-calib__error" role="alert">{{ family_rows_error }} Nothing was saved.</p>
     {% endif %}
     {% if not family_rows_owner %}
-        <p class="pf-dc-calib__note" role="note">Watch points are managed by the tenant owner.</p>
+        <p data-pf-wd="family-rows-owner-note" class="pf-dc-calib__note" role="note">Watch points are managed by the tenant owner.</p>
     {% endif %}
     <table class="pf-dc-wplist__table">
         <thead>
@@ -40,16 +40,16 @@
         </thead>
         <tbody>
             {% for row in family_rows %}
-                <tr data-family="{{ row.family }}" data-enabled="{{ 'on' if row.enabled else 'off' }}">
-                    <td>{{ row.name }}</td>
-                    <td>
+                <tr data-pf-wd="family-row" data-family="{{ row.family }}" data-enabled="{{ 'on' if row.enabled else 'off' }}">
+                    <td data-pf-wd="family-name">{{ row.name }}</td>
+                    <td data-pf-wd="switch-cell">
                         {% if family_rows_owner %}
-                            <form hx-post="/api/watch-desk/families/{{ row.family }}/switch"
+                            <form data-pf-wd="switch" hx-post="/api/watch-desk/families/{{ row.family }}/switch"
                                   hx-target="#dc-family-rows"
                                   hx-swap="outerHTML">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="enabled" value="{{ 'off' if row.enabled else 'on' }}">
-                                <button type="submit"
+                                <button data-pf-wd="switch-button" type="submit"
                                         class="pf-dc-sensitivity__open"
                                         aria-pressed="{{ 'true' if row.enabled else 'false' }}"
                                         aria-label="{{ row.name }} {{ 'on' if row.enabled else 'off' }}">
@@ -60,25 +60,25 @@
                             {{ 'On' if row.enabled else 'Off' }}
                         {% endif %}
                     </td>
-                    <td>
+                    <td data-pf-wd="preset-cell">
                         {% if row.preset is none %}
-                            <span class="pf-dc-calib__note">switch only</span>
+                            <span data-pf-wd="switch-only" class="pf-dc-calib__note">switch only</span>
                         {% elif family_rows_owner %}
-                            <form hx-post="/api/watch-desk/families/{{ row.family }}/preset"
+                            <form data-pf-wd="preset" hx-post="/api/watch-desk/families/{{ row.family }}/preset"
                                   hx-target="#dc-family-rows"
                                   hx-swap="outerHTML"
                                   role="group"
                                   aria-label="{{ row.name }} sensitivity">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 {% for key, label in family_presets %}
-                                    <button type="submit"
+                                    <button data-pf-wd="preset-button" type="submit"
                                             name="preset"
                                             value="{{ key }}"
                                             class="pf-dc-sensitivity__open"
                                             aria-pressed="{{ 'true' if key == row.preset else 'false' }}">{{ label }}</button>
                                 {% endfor %}
                                 {% if row.preset == 'custom' %}
-                                    <span class="tag tag--muted">Custom</span>
+                                    <span data-pf-wd="preset-custom" class="tag tag--muted">Custom</span>
                                 {% endif %}
                             </form>
                         {% else %}
@@ -89,14 +89,14 @@
                 {% if row.confirm %}
                     {# R7 inline confirmation (ADR-0133 §2.5): nothing has been
                        written yet; "Switch off" writes, "Keep" re-renders. #}
-                    <tr class="pf-dc-sensitivity__slot" data-confirm="{{ row.family }}">
+                    <tr data-pf-wd="confirm-slot" class="pf-dc-sensitivity__slot" data-confirm="{{ row.family }}">
                         <td colspan="3">
-                            <div id="dc-family-confirm" role="status">
-                                <p class="pf-dc-calib__heading">{{ row.confirm.lead }}</p>
+                            <div data-pf-wd="confirm" id="dc-family-confirm" role="status">
+                                <p data-pf-wd="confirm-lead" class="pf-dc-calib__heading">{{ row.confirm.lead }}</p>
                                 {% for line in row.confirm.lines %}
-                                    <p class="pf-dc-calib__note">{{ line }}</p>
+                                    <p data-pf-wd="confirm-line" class="pf-dc-calib__note">{{ line }}</p>
                                 {% endfor %}
-                                <form hx-post="/api/watch-desk/families/{{ row.family }}/switch"
+                                <form data-pf-wd="confirm-off" hx-post="/api/watch-desk/families/{{ row.family }}/switch"
                                       hx-target="#dc-family-rows"
                                       hx-swap="outerHTML">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -104,7 +104,7 @@
                                     <input type="hidden" name="confirm" value="yes">
                                     <button type="submit" class="pf-dc-request">Switch off</button>
                                 </form>
-                                <form hx-post="/api/watch-desk/families/{{ row.family }}/switch"
+                                <form data-pf-wd="confirm-keep" hx-post="/api/watch-desk/families/{{ row.family }}/switch"
                                       hx-target="#dc-family-rows"
                                       hx-swap="outerHTML">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -116,15 +116,15 @@
                     </tr>
                 {% endif %}
             {% endfor %}
-            <tr data-family="pacing" data-enabled="unavailable">
-                <td>
+            <tr data-pf-wd="family-row" data-family="pacing" data-enabled="unavailable">
+                <td data-pf-wd="family-name">
                     {{ pacing_name }}
-                    <span class="pf-dc-calib__note">{{ pacing_note }}</span>
+                    <span data-pf-wd="pacing-note" class="pf-dc-calib__note">{{ pacing_note }}</span>
                 </td>
-                <td>not yet available</td>
-                <td>—</td>
+                <td data-pf-wd="switch-cell">not yet available</td>
+                <td data-pf-wd="preset-cell">—</td>
             </tr>
         </tbody>
     </table>
-    <p class="pf-dc-calib__note">Every change is a dated revision with your name.</p>
+    <p data-pf-wd="family-rows-foot" class="pf-dc-calib__note">Every change is a dated revision with your name.</p>
 </section>

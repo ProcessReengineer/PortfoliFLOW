@@ -10,6 +10,7 @@ required.
 
 from __future__ import annotations
 
+import html
 import os
 import re
 from collections.abc import AsyncGenerator, Generator
@@ -254,3 +255,218 @@ def chooser_markup(section: str) -> str:
         if depth == 0:
             return section[start : start + match.end()]
     raise ValueError("the flow chooser's <ul> is unbalanced")
+
+
+# ---------------------------------------------------------------------------
+# A-6 test seam (D-UX-A6-5)
+# ---------------------------------------------------------------------------
+
+#: The one attribute family the Watch Desk partials name their elements by
+#: (P-UX-A6-0 §4). Companions carry a value beside the name.
+WD_HOOK = "data-pf-wd"
+
+#: Companion suffixes in the order the templates render them.
+_WD_COMPANIONS = ("state", "count", "kind", "name", "subject")
+
+#: Elements without an end tag: their block is the start tag alone.
+_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+
+_START_TAG = re.compile(
+    r"<([a-zA-Z][a-zA-Z0-9-]*)"
+    r"((?:\s+[^\s=>/]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+))?)*)"
+    r"\s*(/?)>"
+)
+_ATTRIBUTE = re.compile(r"""([^\s=>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""")
+_ANY_TAG = re.compile(r"<!--.*?-->|</?[a-zA-Z][^>]*>", re.DOTALL)
+
+
+def _wd_attributes(attribute_run: str) -> dict[str, str]:
+    """Parse a start tag's attribute run into ``{name: value as written}``."""
+    attributes: dict[str, str] = {}
+    for match in _ATTRIBUTE.finditer(attribute_run):
+        name, double, single, bare = match.groups()
+        value = next((v for v in (double, single, bare) if v is not None), "")
+        attributes.setdefault(name.lower(), value)
+    return attributes
+
+
+def _wd_where(where: dict[str, str]) -> dict[str, str]:
+    """Spell keyword filters as attribute names: underscores stand for hyphens."""
+    return {key.replace("_", "-"): value for key, value in where.items()}
+
+
+def wd(name: str, **companions: str) -> str:
+    """The hook attribute literal for one Watch Desk element.
+
+    Builds the exact attribute run the partials render, so a test can ask
+    ``wd("chip") in body`` or ``body.index(wd("strip"))`` without restating
+    the attribute syntax. Companions come out in the canonical order the
+    templates use (P-UX-A6-0 §4), whatever order the caller passes them in.
+
+    Example: ``wd("res-tag", state="opened_case")`` is
+    ``'data-pf-wd="res-tag" data-pf-wd-state="opened_case"'``.
+
+    Args:
+        name: The hook name (``data-pf-wd`` value).
+        **companions: Companion values keyed by suffix — ``state``,
+            ``count``, ``kind``, ``name`` or ``subject``.
+
+    Returns:
+        The attribute literal.
+
+    Raises:
+        ValueError: If a companion suffix is not one of the five.
+    """
+    unknown = set(companions) - set(_WD_COMPANIONS)
+    if unknown:
+        raise ValueError(f"unknown data-pf-wd companion(s): {sorted(unknown)}")
+    parts = [f'{WD_HOOK}="{name}"']
+    parts.extend(
+        f'{WD_HOOK}-{suffix}="{companions[suffix]}"'
+        for suffix in _WD_COMPANIONS
+        if suffix in companions
+    )
+    return " ".join(parts)
+
+
+def wd_blocks(markup: str, name: str, **where: str) -> list[str]:
+    """Every element carrying ``data-pf-wd=name``, as its full outer markup.
+
+    The Watch Desk tests used to slice rendered markup on class names,
+    ``dc-*`` ids and closing tags — exactly what the A-6 view prompts
+    replace. The hooks stay; this finds them and returns each element
+    balanced on its own tag name (nested same-name elements included), so
+    an assertion scoped to "this row" or "this group" survives the markup
+    around it changing. A void element (``input``, ``br``, …) or a
+    self-closing tag is its start tag alone. Lives here, beside
+    ``chooser_markup``, because both Watch Desk modules slice with it.
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to find.
+        **where: Further attributes the start tag must carry with exactly
+            this value, as written. Underscores in a keyword stand for
+            hyphens: ``data_family="saa"`` is ``data-family="saa"``,
+            ``data_pf_wd_subject=…`` is ``data-pf-wd-subject=…``.
+
+    Returns:
+        The matching elements in document order; empty when none match.
+
+    Raises:
+        ValueError: If a matching element's nesting is unbalanced.
+    """
+    wanted = {WD_HOOK: name, **_wd_where(where)}
+    blocks: list[str] = []
+    for start in _START_TAG.finditer(markup):
+        attributes = _wd_attributes(start.group(2))
+        if any(attributes.get(key) != value for key, value in wanted.items()):
+            continue
+        tag = start.group(1).lower()
+        if tag in _VOID_ELEMENTS or start.group(3):
+            blocks.append(start.group(0))
+            continue
+        depth = 1
+        pattern = re.compile(rf"<(/?){tag}(?=[\s>/])", re.IGNORECASE)
+        for match in pattern.finditer(markup, start.end()):
+            depth += -1 if match.group(1) else 1
+            if depth == 0:
+                close = markup.index(">", match.end())
+                blocks.append(markup[start.start() : close + 1])
+                break
+        else:
+            raise ValueError(f"the <{tag}> carrying {wd(name)} is unbalanced")
+    return blocks
+
+
+def wd_block(markup: str, name: str, **where: str) -> str:
+    """Exactly one element carrying ``data-pf-wd=name`` (see ``wd_blocks``).
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to find.
+        **where: Further exact attribute filters, as for ``wd_blocks``.
+
+    Returns:
+        The element's outer markup.
+
+    Raises:
+        AssertionError: If no element or more than one matches; the message
+            names the hook, the filters and the count.
+    """
+    blocks = wd_blocks(markup, name, **where)
+    assert len(blocks) == 1, (
+        f"expected exactly one {wd(name)} element with {_wd_where(where)}, found {len(blocks)}"
+    )
+    return blocks[0]
+
+
+def wd_count(markup: str, name: str, **where: str) -> int:
+    """How many elements carry ``data-pf-wd=name`` (see ``wd_blocks``).
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to count.
+        **where: Further exact attribute filters, as for ``wd_blocks``.
+
+    Returns:
+        The number of matching elements.
+    """
+    return len(wd_blocks(markup, name, **where))
+
+
+def wd_text(markup_or_block: str, name: str | None = None, **where: str) -> str:
+    """The visible text of a block, for copy assertions scoped to one element.
+
+    Args:
+        markup_or_block: A block, or the markup to find one in.
+        name: When given, the text is that of
+            ``wd_block(markup_or_block, name, **where)``; otherwise of
+            ``markup_or_block`` itself.
+        **where: Further exact attribute filters, as for ``wd_blocks``.
+
+    Returns:
+        The text with tags and comments stripped, entities unescaped and
+        whitespace collapsed to single spaces, trimmed.
+
+    Raises:
+        AssertionError: If ``name`` is given and does not match exactly once.
+    """
+    block = markup_or_block if name is None else wd_block(markup_or_block, name, **where)
+    return re.sub(r"\s+", " ", html.unescape(_ANY_TAG.sub(" ", block))).strip()
+
+
+def wd_attr(block: str, attr: str) -> str | None:
+    """The value of one attribute on a block's start tag, as written.
+
+    Args:
+        block: An element's outer markup, as ``wd_block`` returns it.
+        attr: The attribute name (``"data-pf-wd-state"``, ``"hx-get"``,
+            ``"open"``).
+
+    Returns:
+        The value as written (entities not unescaped); ``""`` for a bare
+        boolean attribute; ``None`` when the start tag does not carry it.
+
+    Raises:
+        ValueError: If the block holds no start tag.
+    """
+    start = _START_TAG.search(block)
+    if start is None:
+        raise ValueError("the block holds no start tag")
+    return _wd_attributes(start.group(2)).get(attr.lower())

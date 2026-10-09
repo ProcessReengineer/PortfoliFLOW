@@ -53,6 +53,7 @@ from services.watch_desk.family_status import (
     _signal_note,
 )
 from services.watch_desk.overlay import SignalWatchpoint, WatchDeskResolution
+from tests.web.conftest import wd, wd_attr, wd_block, wd_blocks, wd_count
 
 _TENANT: UUID = uuid4()
 _AS_OF = date(2026, 8, 11)
@@ -620,13 +621,14 @@ def test_the_fragment_renders_the_six_columns_and_the_gauge() -> None:
     )
     html = _render([group])
 
-    for column in ("Subject", "Status", "Value", "Threshold", "Proximity", "Note"):
-        assert f">{column}<" in html
+    row = wd_block(html, "watch-row", data_pf_wd_subject="price:x")
+    for cell in ("subject", "state", "value", "threshold", "proximity", "note", "sensitivity"):
+        assert wd_count(row, cell) == 1
     assert "MSCI World ETF" in html
     assert "Triggered" in html
     assert "6.20%" in html
-    assert "gauge--triggered" in html
-    assert 'style="width:100.0%"' in html
+    assert wd_attr(wd_block(row, "meter"), "data-pf-wd-state") == "triggered"
+    assert wd_attr(wd_block(row, "meter-fill"), "style") == "width:100.0%"
     assert "/api/watch-desk/watchpoints/" in html
 
 
@@ -740,7 +742,7 @@ def test_the_collapsed_freshness_remainder_is_present_and_expandable() -> None:
     # The calm row is in the document, behind the summary — never omitted.
     assert "Quiet Fund" in html
     assert "1 fresh — show all" in html
-    assert "<details" in html
+    assert wd("collapsed-disclosure") in html
 
 
 def test_a_signal_group_renders_closed_with_its_rows_still_in_the_document() -> None:
@@ -759,8 +761,9 @@ def test_a_signal_group_renders_closed_with_its_rows_still_in_the_document() -> 
     )
     html = _render([group])
 
-    assert '<details class="pf-dc-group pf-dc-group--signal">' in html
-    assert 'pf-dc-group--signal" open' not in html
+    groups = wd_blocks(html, "watch-group", data_pf_wd_kind="signal")
+    assert groups
+    assert all(wd_attr(group, "open") is None for group in groups)
     assert "MSCI World ETF" in html
 
 
@@ -787,10 +790,10 @@ def test_a_no_data_row_renders_its_reason_and_no_gauge() -> None:
     )
     html = _render([group])
 
-    assert "tag--nodata" in html
+    assert wd_attr(wd_block(html, "state-tag"), "data-pf-wd-state") == "nodata"
     assert "No data" in html
     assert "no materialised cash plan path" in html
-    assert "gauge__fill" not in html
+    assert wd("meter-fill") not in html and wd("no-meter") in html
 
 
 def test_an_empty_family_gets_a_footer_line_with_its_add_affordance() -> None:

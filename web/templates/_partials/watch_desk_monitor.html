@@ -41,25 +41,25 @@
    so DC5 can lift the mock CSS cleanly.
 
    Context: monitor — coverage_available, groups, rss (None while Press coverage is off). #}
-<div id="dc-monitor" class="pf-dc-monitor">
+<div data-pf-wd="monitor" id="dc-monitor" class="pf-dc-monitor">
     <div class="pf-dc-monitor__head">
-        <span class="pf-dc-monitor__title">On watch</span>
+        <span data-pf-wd="monitor-title" class="pf-dc-monitor__title">On watch</span>
     </div>
 
     {% for group in monitor.groups %}
-        <details class="pf-dc-group">
+        <details data-pf-wd="watch-group" data-pf-wd-count="{{ group.subject_count }}" data-pf-wd-kind="quota" data-family="{{ group.family }}" class="pf-dc-group">
             <summary>
                 <span class="pf-dc-group__chevron">▶</span>
-                <span class="pf-dc-group__name">{{ group.name }}</span>
-                <span class="pf-dc-group__badges">
+                <span data-pf-wd="group-name" class="pf-dc-group__name">{{ group.name }}</span>
+                <span data-pf-wd="group-badges" class="pf-dc-group__badges">
                     {%- for badge in group.badges -%}
-                        <span class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
+                        <span data-pf-wd="badge" data-pf-wd-state="{{ badge.modifier }}" class="tag tag--{{ badge.modifier }}">{{ badge.text }}</span>
                     {%- endfor -%}
                     {%- if group.muted_count -%}
-                        <span class="tag tag--muted">{{ group.muted_count }} muted</span>
+                        <span data-pf-wd="muted-count" class="tag tag--muted">{{ group.muted_count }} muted</span>
                     {%- endif -%}
                 </span>
-                <span class="pf-dc-group__meta">
+                <span data-pf-wd="group-meta" class="pf-dc-group__meta">
                     {{ group.subject_count }} subject{{ '' if group.subject_count == 1 else 's' }} ·
                     {% if group.effective_label %}
                         effective set “{{ group.effective_label }}”
@@ -74,7 +74,7 @@
                     · <a href="/back-office#limits">manage in Limits</a>
                 </span>
             </summary>
-            <div class="pf-dc-group__body">
+            <div data-pf-wd="group-body" class="pf-dc-group__body">
                 {% if group.rows %}
                     <table>
                         <thead>
@@ -90,36 +90,36 @@
                         </thead>
                         <tbody>
                             {% for row in group.rows %}
-                                <tr>
-                                    <td class="mono">
+                                <tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
+                                    <td data-pf-wd="subject" class="mono">
                                         {{ row.subject_key }}
                                         {% if row.muted %}
-                                            <span class="tag tag--muted">muted</span>
+                                            <span data-pf-wd="muted" class="tag tag--muted">muted</span>
                                         {% endif %}
                                     </td>
-                                    <td><span class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
-                                    <td>{{ '%.2f'|format(row.coverage_pct) }}%</td>
-                                    <td>{% if row.max_pct is not none %}{{ '%.2f'|format(row.max_pct) }}%{% else %}—{% endif %}</td>
-                                    <td>
+                                    <td data-pf-wd="state" data-pf-wd-state="{{ row.modifier }}"><span data-pf-wd="state-tag" data-pf-wd-state="{{ row.modifier }}" class="tag tag--{{ row.modifier }}">{{ row.status }}</span></td>
+                                    <td data-pf-wd="coverage">{{ '%.2f'|format(row.coverage_pct) }}%</td>
+                                    <td data-pf-wd="ceiling">{% if row.max_pct is not none %}{{ '%.2f'|format(row.max_pct) }}%{% else %}—{% endif %}</td>
+                                    <td data-pf-wd="utilisation">
                                         {# Per-subject mark position, clamped fill — see the
                                            header comment. The inline `left` is the whole
                                            per-subject affordance; the stylesheet's 90% is
                                            the fallback for a row without one. #}
-                                        <div class="gauge gauge--{{ row.modifier }}"
+                                        <div data-pf-wd="meter" data-pf-wd-state="{{ row.modifier }}" class="gauge gauge--{{ row.modifier }}"
                                              {% if row.utilisation is not none %}title="{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%"{% endif %}>
-                                            <span class="gauge__warnmark"
+                                            <span data-pf-wd="meter-mark" class="gauge__warnmark"
                                                   style="left:{{ '%.1f'|format(row.warn_threshold_pct) }}%"></span>
-                                            <span class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
+                                            <span data-pf-wd="meter-fill" class="gauge__fill" style="width:{{ '%.1f'|format(row.fill_pct) }}%"></span>
                                         </div>
                                     </td>
-                                    <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+                                    <td data-pf-wd="note" class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
                                         {{ row.note }}
                                         {% if row.finding_anchor %}
-                                            <a href="{{ row.finding_anchor }}">▲ open finding</a>
+                                            <a data-pf-wd="finding-link" href="{{ row.finding_anchor }}">▲ open finding</a>
                                         {% endif %}
                                     </td>
-                                    <td>
-                                        <button type="button"
+                                    <td data-pf-wd="sensitivity">
+                                        <button data-pf-wd="adjust" type="button"
                                                 class="pf-dc-sensitivity__open"
                                                 hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
                                                 hx-target="#{{ row.editor_id }}"
@@ -127,22 +127,22 @@
                                             Adjust sensitivity
                                         </button>
                                         {% if row.warn_customised or row.delta_customised %}
-                                            <span class="pf-dc-sensitivity__flag">customised</span>
+                                            <span data-pf-wd="customised" class="pf-dc-sensitivity__flag">customised</span>
                                         {% endif %}
                                     </td>
                                 </tr>
-                                <tr class="pf-dc-sensitivity__slot">
+                                <tr data-pf-wd="editor-slot" class="pf-dc-sensitivity__slot">
                                     <td colspan="7" id="{{ row.editor_id }}"></td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 {% elif not monitor.coverage_available %}
-                    <p class="pf-dc-monitor__empty">
+                    <p data-pf-wd="monitor-empty" class="pf-dc-monitor__empty">
                         No valued positions yet — nothing to monitor.
                     </p>
                 {% else %}
-                    <p class="pf-dc-monitor__empty">
+                    <p data-pf-wd="monitor-empty" class="pf-dc-monitor__empty">
                         No constrained classes — nothing carries a ceiling to
                         watch in this family.
                     </p>
@@ -160,18 +160,18 @@
        carries alone: a cluster subject is non-scalar, so there is no
        threshold to move and the schema refuses one. #}
     {% if monitor.rss %}
-        <details class="pf-dc-group">
+        <details data-pf-wd="watch-group" data-pf-wd-count="{{ monitor.rss.rows|length }}" data-pf-wd-kind="press" data-family="rss" class="pf-dc-group">
             <summary>
                 <span class="pf-dc-group__chevron">▶</span>
-                <span class="pf-dc-group__name">{{ monitor.rss.name }}</span>
-                <span class="pf-dc-group__badges">
+                <span data-pf-wd="group-name" class="pf-dc-group__name">{{ monitor.rss.name }}</span>
+                <span data-pf-wd="group-badges" class="pf-dc-group__badges">
                     {%- if monitor.rss.muted_count -%}
-                        <span class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
+                        <span data-pf-wd="muted-count" class="tag tag--muted">{{ monitor.rss.muted_count }} muted</span>
                     {%- endif -%}
                 </span>
-                <span class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
+                <span data-pf-wd="group-meta" class="pf-dc-group__meta">{{ monitor.rss.meta }}</span>
             </summary>
-            <div class="pf-dc-group__body">
+            <div data-pf-wd="group-body" class="pf-dc-group__body">
                 <table>
                     <thead>
                         <tr>
@@ -183,22 +183,22 @@
                     </thead>
                     <tbody>
                         {% for row in monitor.rss.rows %}
-                            <tr>
-                                <td class="mono">
+                            <tr data-pf-wd="watch-row" data-pf-wd-subject="{{ row.subject_key }}">
+                                <td data-pf-wd="subject" class="mono">
                                     {{ row.tag }}
                                     {% if row.muted %}
-                                        <span class="tag tag--muted">muted</span>
+                                        <span data-pf-wd="muted" class="tag tag--muted">muted</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ row.corroborates|join(', ') or '—' }}</td>
-                                <td class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
+                                <td data-pf-wd="corroborates">{{ row.corroborates|join(', ') or '—' }}</td>
+                                <td data-pf-wd="note" class="irene-note{% if row.fired_this_beat %} irene-note--fired{% endif %}">
                                     {{ row.note }}
                                     {% if row.finding_anchor %}
-                                        <a href="{{ row.finding_anchor }}">▲ open finding</a>
+                                        <a data-pf-wd="finding-link" href="{{ row.finding_anchor }}">▲ open finding</a>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    <button type="button"
+                                <td data-pf-wd="sensitivity">
+                                    <button data-pf-wd="adjust" type="button"
                                             class="pf-dc-sensitivity__open"
                                             hx-get="/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }}"
                                             hx-target="#{{ row.editor_id }}"
@@ -207,7 +207,7 @@
                                     </button>
                                 </td>
                             </tr>
-                            <tr class="pf-dc-sensitivity__slot">
+                            <tr data-pf-wd="editor-slot" class="pf-dc-sensitivity__slot">
                                 <td colspan="4" id="{{ row.editor_id }}"></td>
                             </tr>
                         {% endfor %}

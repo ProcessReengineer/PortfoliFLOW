@@ -11,7 +11,7 @@
      tiles.next_beat — the projected tile (see ``_next_beat_tile``).
      next_beat_oob   — when true the label carries hx-swap-oob so the enqueue
                        response refreshes it in place. #}
-<span id="dc-briefing-next-beat" class="pf-dc-tile__label"
+<span data-pf-wd="next-check" id="dc-briefing-next-beat" class="pf-dc-tile__label"
       {%- if next_beat_oob %} hx-swap-oob="true"{% endif %}>
     {%- if tiles.next_beat.configured -%}
         Next beat · {{ tiles.next_beat.due }} · {{ tiles.next_beat.cadence }} · {{ 'enabled' if tiles.next_beat.enabled else 'disabled' }}

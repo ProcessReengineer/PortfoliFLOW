@@ -24,7 +24,7 @@
    Context: csrf_token, subject_key, family, scalar, editor_id, muted,
    mute_locked, warn_threshold_pct, re_trigger_delta, notes,
    warn_inherited_pct, delta_default, return_to, target. #}
-<form class="pf-dc-sensitivity"
+<form data-pf-wd="overlay-form" class="pf-dc-sensitivity"
       hx-post="/api/watch-desk/watchpoints/overlay"
       hx-target="{{ target }}"
       hx-swap="outerHTML">
@@ -34,7 +34,7 @@
 
     <div class="pf-dc-sensitivity__fields">
         {% if scalar %}
-            <label class="pf-dc-sensitivity__field">
+            <label data-pf-wd="field" data-pf-wd-name="warn_threshold_pct" class="pf-dc-sensitivity__field">
                 <span class="pf-dc-sensitivity__label">WARN threshold</span>
                 <input type="text" inputmode="decimal" name="warn_threshold_pct"
                        value="{{ warn_threshold_pct }}"
@@ -45,7 +45,7 @@
                 </span>
             </label>
 
-            <label class="pf-dc-sensitivity__field">
+            <label data-pf-wd="field" data-pf-wd-name="re_trigger_delta" class="pf-dc-sensitivity__field">
                 <span class="pf-dc-sensitivity__label">Re-trigger &Delta;</span>
                 <input type="text" inputmode="decimal" name="re_trigger_delta"
                        value="{{ re_trigger_delta }}"
@@ -64,7 +64,7 @@
                "locked" has to mean: unchangeable here, not quietly reset. #}
             <input type="hidden" name="muted" value="on">
         {% endif %}
-        <label class="pf-dc-sensitivity__field pf-dc-sensitivity__field--check">
+        <label data-pf-wd="field" data-pf-wd-name="muted" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--check">
             <input type="checkbox" name="muted"
                    {% if muted %}checked{% endif %}
                    {% if mute_locked %}disabled
@@ -81,7 +81,7 @@
             </span>
         </label>
 
-        <label class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
+        <label data-pf-wd="field" data-pf-wd-name="notes" class="pf-dc-sensitivity__field pf-dc-sensitivity__field--notes">
             <span class="pf-dc-sensitivity__label">Note</span>
             <input type="text" name="notes" value="{{ notes }}" maxlength="500"
                    placeholder="Why this subject is watched differently (optional)">
@@ -89,15 +89,15 @@
     </div>
 
     <div class="pf-dc-sensitivity__footer">
-        <button type="submit" class="pf-dc-btn pf-dc-btn--primary">Save sensitivity</button>
+        <button data-pf-wd="overlay-save" type="submit" class="pf-dc-btn pf-dc-btn--primary">Save sensitivity</button>
         {# Closes the drawer by emptying its slot. Nothing is persisted and
            nothing is fetched, so this stays client-side rather than paying
            a round trip to render emptiness. #}
-        <button type="button" class="pf-dc-btn"
+        <button data-pf-wd="overlay-cancel" type="button" class="pf-dc-btn"
                 onclick="document.getElementById('{{ editor_id }}').innerHTML = '';">
             Cancel
         </button>
-        <span class="pf-dc-sensitivity__note">
+        <span data-pf-wd="overlay-note" class="pf-dc-sensitivity__note">
             Visible in the monitor immediately; effective in the beat from its
             next run.
         </span>

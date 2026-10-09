@@ -11,13 +11,13 @@
    Context: no_schedule (bool), tiles.next_beat, poll_since (encoded ISO
    8601 — the server's enqueue instant). #}
 {% if no_schedule %}
-    <p class="pf-dc-request-result pf-dc-request-result--warn" role="status">
+    <p data-pf-wd="check-now-note" data-pf-wd-state="no-schedule" class="pf-dc-request-result pf-dc-request-result--warn" role="status">
         No cadence is configured yet — set one in the Calibration section first.
     </p>
     {# No poller here on purpose: nothing was enqueued, so there is no beat
        to wait for and a poll would run its full horizon out for nothing. #}
 {% else %}
-    <p class="pf-dc-request-result" role="status">
+    <p data-pf-wd="check-now-note" data-pf-wd-state="queued" class="pf-dc-request-result" role="status">
         Queued — the beat runs on the next tick (typically within a minute).
     </p>
     {% with next_beat_oob = True %}{% include "_partials/watch_desk_briefing_next_beat.html" %}{% endwith %}
@@ -35,7 +35,7 @@
        client clock minutes off would make the done condition fire on the
        first tick or never. The timeout is the server's horizon too (10
        minutes), so there is no JavaScript here beyond these attributes. #}
-    <span class="pf-dc-request-poll" hidden
+    <span data-pf-wd="check-poll" class="pf-dc-request-poll" hidden
           hx-get="/api/watch-desk/briefing/poll?since={{ poll_since }}"
           hx-trigger="every 15s"
           hx-target="#dc-briefing"

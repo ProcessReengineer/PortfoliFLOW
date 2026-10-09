@@ -9,9 +9,9 @@
    would have to be trusted; the rows themselves need not be.
 
    Context: display_name, versions (newest first). #}
-<div class="pf-dc-wphistory">
-    <p class="pf-dc-wphistory__head">Versions of “{{ display_name }}”</p>
-    <table class="pf-dc-wplist__table">
+<div data-pf-wd="history" class="pf-dc-wphistory">
+    <p data-pf-wd="history-head" class="pf-dc-wphistory__head">Versions of “{{ display_name }}”</p>
+    <table data-pf-wd="history-table" class="pf-dc-wplist__table">
         <thead>
             <tr>
                 <th scope="col">Effective from</th>
@@ -25,11 +25,11 @@
         </thead>
         <tbody>
             {% for version in versions %}
-                <tr>
+                <tr data-pf-wd="version"{% if version.retired %} data-pf-wd-state="retired"{% endif %}>
                     <td class="mono">
                         {{ version.effective_from.strftime('%d %b %Y %H:%M') }}
                         {% if version.retired %}
-                            <span class="tag tag--nodata">retired</span>
+                            <span data-pf-wd="retired" class="tag tag--nodata">retired</span>
                         {% endif %}
                     </td>
                     <td>{{ version.display_name }}</td>

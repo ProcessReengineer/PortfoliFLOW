@@ -18,28 +18,28 @@
    Context: journal_kind, journal_period, journal_family, journal_kinds,
    journal_periods, journal_families, and the days-fragment context (days,
    first_page, empty_text, older_url). #}
-<div id="dc-journal" class="pf-dc-journal">
-    <form id="dc-journal-filters"
+<div data-pf-wd="journal" id="dc-journal" class="pf-dc-journal">
+    <form data-pf-wd="journal-filters" id="dc-journal-filters"
           class="pf-dc-journal__filters"
           hx-get="/api/watch-desk/journal"
           hx-target="#dc-journal"
           hx-swap="outerHTML"
           hx-trigger="change">
-        <label class="pf-dc-calib__note">Kind
+        <label data-pf-wd="journal-filter" data-pf-wd-name="kind" class="pf-dc-calib__note">Kind
             <select name="kind">
                 {% for key, label in journal_kinds %}
                     <option value="{{ key }}"{% if key == journal_kind %} selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </label>
-        <label class="pf-dc-calib__note">Period
+        <label data-pf-wd="journal-filter" data-pf-wd-name="period" class="pf-dc-calib__note">Period
             <select name="period">
                 {% for key, label in journal_periods %}
                     <option value="{{ key }}"{% if key == journal_period %} selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </label>
-        <label class="pf-dc-calib__note">Watch point
+        <label data-pf-wd="journal-filter" data-pf-wd-name="family" class="pf-dc-calib__note">Watch point
             <select name="family">
                 <option value=""{% if not journal_family %} selected{% endif %}>Any</option>
                 {% for key, label in journal_families %}
@@ -47,10 +47,10 @@
                 {% endfor %}
             </select>
         </label>
-        <span class="pf-dc-calib__note">Findings are immutable once resolved; cases once closed. A watch point filter hides the check rows.</span>
+        <span data-pf-wd="journal-note" class="pf-dc-calib__note">Findings are immutable once resolved; cases once closed. A watch point filter hides the check rows.</span>
     </form>
 
-    <div id="dc-journal-days">
+    <div data-pf-wd="journal-days" id="dc-journal-days">
         {% include "_partials/watch_desk_journal_days.html" %}
     </div>
 </div>

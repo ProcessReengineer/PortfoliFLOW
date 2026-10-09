@@ -23,9 +23,9 @@
 
    Context (via _watchpoint_list_context): csrf_token, watchpoints,
    retired_watchpoints, show_retired. #}
-<div id="dc-watchpoint-list" class="pf-dc-wplist">
-    <h3 class="pf-dc-calib__heading">Watchpoints</h3>
-    <p class="pf-dc-calib__note">
+<div data-pf-wd="watchpoint-list" id="dc-watchpoint-list" class="pf-dc-wplist">
+    <h3 data-pf-wd="watchpoint-list-heading" class="pf-dc-calib__heading">Watchpoints</h3>
+    <p data-pf-wd="watchpoint-list-note" class="pf-dc-calib__note">
         What this tenant watches. The four signal families define their own
         subjects; the SAA, AnlV and press rows adjust how nervously a
         subject that is derived elsewhere is watched — their ceilings stay
@@ -46,30 +46,30 @@
             </thead>
             <tbody>
                 {% for row in watchpoints %}
-                    <tr>
-                        <td>{{ row.family_label }}</td>
-                        <td>
+                    <tr data-pf-wd="watchpoint" data-pf-wd-subject="{{ row.subject_key }}">
+                        <td data-pf-wd="family">{{ row.family_label }}</td>
+                        <td data-pf-wd="subject">
                             {{ row.display_name }}
-                            <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+                            <span data-pf-wd="subject-key" class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
                         </td>
-                        <td>{{ row.parameters }}</td>
-                        <td>{{ row.sensitivity }}</td>
-                        <td>
+                        <td data-pf-wd="parameters">{{ row.parameters }}</td>
+                        <td data-pf-wd="sensitivity">{{ row.sensitivity }}</td>
+                        <td data-pf-wd="muted-cell">
                             {% if row.muted %}
-                                <span class="tag tag--muted">muted</span>
+                                <span data-pf-wd="muted" class="tag tag--muted">muted</span>
                             {% else %}
                                 —
                             {% endif %}
                         </td>
-                        <td class="pf-dc-wplist__actions">
-                            <button type="button"
+                        <td data-pf-wd="actions" class="pf-dc-wplist__actions">
+                            <button data-pf-wd="adjust" type="button"
                                     class="pf-dc-sensitivity__open"
                                     hx-get="{{ row.edit_url }}"
                                     hx-target="#{{ row.slot_id }}"
                                     hx-swap="innerHTML">
                                 Adjust
                             </button>
-                            <button type="button"
+                            <button data-pf-wd="history-open" type="button"
                                     class="pf-dc-sensitivity__open"
                                     hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history"
                                     hx-target="#{{ row.slot_id }}"
@@ -81,7 +81,7 @@
                                is what keeps a finding it once raised
                                explainable. The confirm is on the destructive
                                *reading* of it, not on data loss. #}
-                            <button type="button"
+                            <button data-pf-wd="retire" type="button"
                                     class="pf-dc-sensitivity__open"
                                     hx-post="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire"
                                     hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'
@@ -92,37 +92,37 @@
                             </button>
                         </td>
                     </tr>
-                    <tr class="pf-dc-sensitivity__slot">
+                    <tr data-pf-wd="slot" class="pf-dc-sensitivity__slot">
                         <td colspan="6" id="{{ row.slot_id }}"></td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% else %}
-        <p class="pf-empty-state">
+        <p data-pf-wd="watchpoint-list-empty" class="pf-empty-state">
             No watchpoints yet. Add one from the monitor beneath the Briefing.
         </p>
     {% endif %}
 
     {% if retired_watchpoints %}
-        <details class="pf-dc-collapse pf-dc-wplist__retired" {% if show_retired %}open{% endif %}>
+        <details data-pf-wd="retired-list" class="pf-dc-collapse pf-dc-wplist__retired" {% if show_retired %}open{% endif %}>
             <summary>{{ retired_watchpoints|length }} retired — show</summary>
             <table class="pf-dc-wplist__table">
                 <tbody>
                     {% for row in retired_watchpoints %}
-                        <tr>
-                            <td>{{ row.family_label }}</td>
-                            <td>
+                        <tr data-pf-wd="retired-watchpoint" data-pf-wd-subject="{{ row.subject_key }}">
+                            <td data-pf-wd="family">{{ row.family_label }}</td>
+                            <td data-pf-wd="subject">
                                 {{ row.display_name }}
-                                <span class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
+                                <span data-pf-wd="subject-key" class="pf-dc-monitor__subject mono">{{ row.subject_key }}</span>
                             </td>
-                            <td>{{ row.parameters }}</td>
-                            <td>{{ row.sensitivity }}</td>
-                            <td>
-                                <span class="tag tag--nodata">retired</span>
+                            <td data-pf-wd="parameters">{{ row.parameters }}</td>
+                            <td data-pf-wd="sensitivity">{{ row.sensitivity }}</td>
+                            <td data-pf-wd="muted-cell">
+                                <span data-pf-wd="retired" class="tag tag--nodata">retired</span>
                             </td>
-                            <td class="pf-dc-wplist__actions">
-                                <button type="button"
+                            <td data-pf-wd="actions" class="pf-dc-wplist__actions">
+                                <button data-pf-wd="history-open" type="button"
                                         class="pf-dc-sensitivity__open"
                                         hx-get="/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history"
                                         hx-target="#{{ row.slot_id }}"
@@ -131,7 +131,7 @@
                                 </button>
                             </td>
                         </tr>
-                        <tr class="pf-dc-sensitivity__slot">
+                        <tr data-pf-wd="slot" class="pf-dc-sensitivity__slot">
                             <td colspan="6" id="{{ row.slot_id }}"></td>
                         </tr>
                     {% endfor %}

@@ -11,6 +11,24 @@
  * state, feed/cards, Possible moves, actions, derivation, journal,
  * calibration, monitor. Keep new rules inside their group. */
 
+/* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
+ * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
+ * --dormant; the Watch Desk needs these. Scoped per §8 rule 2 until the
+ * UX Board admits them to the shared vocabulary (then they move into
+ * pf_components.css and this group goes). The dot colour rides the
+ * --dot custom property pf-state already reads. */
+.pf-watch-desk .pf-state--calm, .pf-watch-desk .pf-state--ok { --dot: var(--ui-semantic-positive); }
+.pf-watch-desk .pf-state--approaching, .pf-watch-desk .pf-state--warn, .pf-watch-desk .pf-state--noteworthy { --dot: var(--ui-semantic-warn); }
+.pf-watch-desk .pf-state--triggered, .pf-watch-desk .pf-state--breach, .pf-watch-desk .pf-state--critical { --dot: var(--ui-semantic-negative); }
+.pf-watch-desk .pf-state--informational { --dot: var(--ui-semantic-info); }
+.pf-watch-desk .pf-state--noteworthy { color: var(--ui-semantic-warn); }
+.pf-watch-desk .pf-state--critical { color: var(--ui-semantic-negative); }
+.pf-watch-desk .pf-state--nodata { color: var(--ui-text-tertiary); }
+.pf-watch-desk .pf-state--nodata::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+.pf-watch-desk .pf-state--muted { color: var(--ui-text-tertiary); --dot: var(--ui-text-tertiary); }
+.pf-watch-desk .pf-state--resolved { color: var(--ui-text-secondary); }
+.pf-watch-desk .pf-state--resolved::before { display: none; }
+
 .pf-dc-briefing,
 .pf-dc-journal,
 .pf-dc-calibration {

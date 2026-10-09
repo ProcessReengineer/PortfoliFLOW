@@ -1,48 +1,55 @@
 {# The latest briefing, the D-WD-17 standing notes and the watch strip
-   (ADR-0133 §1.4–1.5, §2.5).
+   (ADR-0133 §1.4–1.5, §2.5), on M-WD-1 v2 (view #briefing).
 
    UI-023 (tests/web/test_watch_desk.py): the agent persona is never named
    in rendered copy, so nothing here says the writer's name — the row is
    "the briefing", written "at each check".
 
-   D-WD-25 STOP-GAP for UX strand A-6. Built from the existing pf-dc- and
-   tag classes only — enough for the operator's browser walk and for the
-   ASGI tests to hit it. A-6 restyles it on M-WD-1 (pf-prose, pf-sources,
-   pf-fresh, pf-strip / pf-chip) and replaces this partial; nothing is
-   designed here.
-
    Three blocks, in the mockup's order:
-     1. The latest briefing — the newest row by beat_at. A written row shows
-        Part 1 under "Markets and press" and Part 2 under "Under
-        observation" (hidden when text_watch is empty), plus the R12
-        sources line read from the row's persisted inputs. A skipped newest
-        row and no row at all both read "Briefing pending" — one line,
-        never an error panel (ADR-0133 §1.4).
+     1. The latest briefing (pf-panel) — the newest row by beat_at. A written
+        row shows Part 1 under "Markets and press" and Part 2 under "Under
+        observation" (hidden when text_watch is empty), the R12 sources line
+        read from the row's persisted inputs (pf-sources, with the tokens and
+        press items in a pf-more beneath — D-A6-28, Q-UX-S-A6-5), and the
+        "Discuss briefing with Shirley" action in the panel foot (ADR-0133
+        §6). A skipped newest row and no row at all both read "Briefing
+        pending" — one line, never an error panel (ADR-0133 §1.4) — and
+        offer no action.
      2. The standing note per switched-off quota family (D-WD-17), built
         from the scope revision, never from the briefing text.
      3. The watch strip — one chip per family the monitor renders, stated
         off the monitor context with the render stamp; no second
-        observation.
-   Beneath a written briefing sits the "Discuss briefing with Shirley"
-   action (ADR-0133 §6, watch_desk_discuss_action.html); the pending
-   state offers none.
+        observation. The chip links to the family's watch-list row
+        (``#wl-<family>``, A6-a2). The stamp omits the mockup's "· N off":
+        the scope rows are not in the context (D-A6-29, Q-UX-S-A6-7).
 
    Context (see _briefing_context): briefing, family_notes, watch_strip,
    csrf_token. #}
-<section data-pf-wd="latest" id="dc-briefing-latest" class="pf-dc-tile" aria-label="Latest briefing">
-    <span class="pf-dc-tile__label">Latest briefing</span>
+<section class="pf-panel" id="dc-briefing-latest" aria-label="Latest briefing" data-pf-wd="latest">
+    <div class="pf-panel__head">
+        <h2 class="pf-panel__title">Latest briefing</h2>
+        {% if briefing.state == 'written' %}
+            <span class="pf-panel__sub" data-pf-wd="latest-stamp">Check of {{ briefing.stamp }} · {{ briefing.raised }}</span>
+        {% endif %}
+    </div>
     {% if briefing.state == 'written' %}
-        <span data-pf-wd="latest-stamp" class="pf-dc-tile__sub">Check of {{ briefing.stamp }} · {{ briefing.raised }}</span>
-        <p data-pf-wd="briefing-markets" id="dc-briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
+        <p id="dc-briefing-markets" data-pf-wd="briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
         {% if briefing.text_watch %}
-            <p data-pf-wd="briefing-watch" id="dc-briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
+            <p id="dc-briefing-watch" data-pf-wd="briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
         {% endif %}
         {% if briefing.sources %}
-            {# R12 provenance line, minimal: what the writer was handed, from
-               the persisted inputs — never re-read live. #}
-            <details data-pf-wd="briefing-sources" id="dc-briefing-sources" class="pf-dc-collapse">
-                <summary>Sources · {{ briefing.sources.figures }} · {{ briefing.sources.clusters }}{% if briefing.sources.window %} · {{ briefing.sources.window }}{% endif %}</summary>
-                <p data-pf-wd="briefing-tokens" class="pf-dc-tile__sub">From: {{ briefing.sources.tokens|join(', ') }}</p>
+            {# R12 provenance line: what the writer was handed, from the
+               persisted inputs — never re-read live. #}
+            <div class="pf-sources" id="dc-briefing-sources" data-pf-wd="briefing-sources">
+                <span>Sources</span>
+                <span>{{ briefing.sources.figures }}</span>
+                <span>{{ briefing.sources.clusters }}</span>
+                {% if briefing.sources.window %}<span>{{ briefing.sources.window }}</span>{% endif %}
+                <span>Written at each check; the figures come from the check, never from the text.</span>
+            </div>
+            <details class="pf-more">
+                <summary>Show</summary>
+                <p data-pf-wd="briefing-tokens">From: {{ briefing.sources.tokens|join(', ') }}</p>
                 {% if briefing.sources.press_items %}
                     <ul data-pf-wd="briefing-press">
                         {% for item in briefing.sources.press_items %}
@@ -50,31 +57,40 @@
                         {% endfor %}
                     </ul>
                 {% endif %}
-                <p class="pf-dc-tile__sub">Written at each check; the figures come from the check, never from the text.</p>
             </details>
         {% endif %}
         {# The in-place hand-off (ADR-0133 §6) — written briefings only. #}
-        {% with briefing_id = briefing.id %}
-            {% include "_partials/watch_desk_discuss_action.html" %}
-        {% endwith %}
+        <div class="pf-panel__foot">
+            {% with briefing_id = briefing.id %}
+                {% include "_partials/watch_desk_discuss_action.html" %}
+            {% endwith %}
+            <span class="pf-hint">Opens Shirley here, with this briefing as her context.</span>
+        </div>
     {% else %}
-        <p data-pf-wd="briefing-pending" id="dc-briefing-pending" class="pf-dc-tile__sub">Briefing pending</p>
+        <p class="pf-panel__sub" id="dc-briefing-pending" data-pf-wd="briefing-pending">Briefing pending</p>
     {% endif %}
 </section>
 
 {% if family_notes %}
     {# D-WD-17: a quota family off is said on the page while Part 2 stays
        silent about it. #}
-    <div data-pf-wd="family-notes" id="dc-family-notes" role="note">
+    <div id="dc-family-notes" role="note" data-pf-wd="family-notes">
         {% for note in family_notes %}
-            <p data-pf-wd="family-note" class="pf-dc-calibration__note" data-family="{{ note.family }}">{{ note.text }}</p>
+            <div class="pf-note pf-note--info" role="status" data-pf-wd="family-note" data-family="{{ note.family }}">
+                {{ pf_icon("info") }}
+                <p class="pf-note__lead">{{ note.text }}</p>
+                <a class="pf-note__inline" href="#calibration">Watch points</a>
+                <p class="pf-note__sub">Breaches are not raised here while the watch point is off; Back Office › Limits still shows them.</p>
+            </div>
         {% endfor %}
     </div>
 {% endif %}
 
-<div data-pf-wd="strip" id="dc-watch-strip" aria-label="On watch now">
-    <span data-pf-wd="strip-stamp" class="pf-dc-tile__label">On watch now · live {{ watch_strip.stamp }}</span>
-    {% for chip in watch_strip.chips %}
-        <span data-pf-wd="chip" data-pf-wd-state="{{ chip.modifier }}" class="tag tag--{{ chip.modifier }}" data-family="{{ chip.family }}">{{ chip.name }} · {{ chip.text }}</span>
-    {% endfor %}
-</div>
+<section aria-label="On watch now" id="dc-watch-strip" data-pf-wd="strip">
+    <h2 class="pf-block__title">On watch now <span data-pf-wd="strip-stamp">live {{ watch_strip.stamp }} · {{ watch_strip.chips|length }} watch points on</span></h2>
+    <div class="pf-strip">
+        {% for chip in watch_strip.chips %}
+            <a class="pf-chip pf-state pf-state--{{ chip.modifier }}" href="#wl-{{ chip.family }}" data-pf-wd="chip" data-pf-wd-state="{{ chip.modifier }}" data-family="{{ chip.family }}">{{ chip.name }} <span>· {{ chip.text }}</span></a>
+        {% endfor %}
+    </div>
+</section>

@@ -1,0 +1,18 @@
+{# "Check now" — the Briefing view's one primary (R1), rendered into the view
+   head's action slot by areas/_section.html (section_primary_template).
+   Enqueue-only (ADR-0086/0089): the POST pulls the schedule's next_due_at to
+   now and answers into #dc-briefing-toolbar with the confirmation, the
+   refreshed next-check span out of band and the self-terminating poller
+   (watch_desk_request_analysis_result.html).
+
+   Rendered unconditionally (D-A6-27): the head is drawn with the page, before
+   the lazy body knows whether a schedule exists. Without one the route
+   answers with the no-schedule note, which is the honest outcome.
+
+   Context (the area context, web/routes/areas.py): csrf_token. #}
+<form data-pf-wd="check-now" hx-post="/api/watch-desk/request-analysis"
+      hx-target="#dc-briefing-toolbar"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="pf-btn pf-btn--primary">Check now</button>
+</form>

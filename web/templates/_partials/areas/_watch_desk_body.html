@@ -4,7 +4,7 @@
    body over HTMX; no static placeholder. The Scenarios placeholder retired
    with ADR-0104 §8: the Watch Desk watches and raises, the Planning Desk
    projects and simulates, and Feature #034 re-anchors there. #}
-<div class="pf-area" data-area="watch_desk">
+<div class="pf-area pf-watch-desk" data-area="watch_desk">
     <header class="pf-area__header">
         <h1 class="pf-area__title">Watch Desk</h1>
         <p class="pf-area__subtitle">
@@ -14,6 +14,7 @@
     </header>
 
     {% with section_slug="briefing",
+            section_primary_template="_partials/watch_desk_briefing_primary.html",
             section_body_template="_partials/watch_desk_briefing_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

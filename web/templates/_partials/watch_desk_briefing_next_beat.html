@@ -1,21 +1,21 @@
-{# The fourth status tile's next-beat label (ADR-0089), split out of
-   watch_desk_briefing.html so the "Request analysis" enqueue can refresh it
-   out of band: the enqueue moves ``next_due_at`` to now, and without this
-   swap the tile keeps showing the pre-enqueue time.
+{# The check clock's next-check span (ADR-0133 §4, D-UX-A6-1), split out of
+   watch_desk_briefing.html so "Check now" can refresh it out of band: the
+   enqueue moves ``next_due_at`` to now, and without this swap the clock keeps
+   showing the pre-enqueue time. The id is the enqueue's OOB target (KO §8).
 
-   The fragment is the *label only*, not the whole tile: the action form
-   beside it is unaffected by the enqueue, and swapping it would replace the
-   button that fired the request mid-response.
+   The cadence is the raw schedule key spelt as words (``every_6h`` →
+   ``every 6h``, D-A6-26); a cadence label in the briefing context is record
+   question Q-UX-S-A6-4.
 
    Context:
-     tiles.next_beat — the projected tile (see ``_next_beat_tile``).
-     next_beat_oob   — when true the label carries hx-swap-oob so the enqueue
+     tiles.next_beat — the projected next check (see ``_next_beat_tile``).
+     next_beat_oob   — when true the span carries hx-swap-oob so the enqueue
                        response refreshes it in place. #}
-<span data-pf-wd="next-check" id="dc-briefing-next-beat" class="pf-dc-tile__label"
+<span id="dc-briefing-next-beat" data-pf-wd="next-check"
       {%- if next_beat_oob %} hx-swap-oob="true"{% endif %}>
     {%- if tiles.next_beat.configured -%}
-        Next beat · {{ tiles.next_beat.due }} · {{ tiles.next_beat.cadence }} · {{ 'enabled' if tiles.next_beat.enabled else 'disabled' }}
+        next {{ tiles.next_beat.due }} · {{ tiles.next_beat.cadence|replace('_', ' ') }}{% if not tiles.next_beat.enabled %} · checks disabled{% endif %}
     {%- else -%}
-        Next beat · no cadence set
+        no cadence set
     {%- endif -%}
 </span>

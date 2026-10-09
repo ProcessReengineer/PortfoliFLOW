@@ -7,9 +7,10 @@
  * accent crimson, used sparingly. All classes are prefixed `.pf-dc-` to
  * avoid cascade collisions with the other section components.
  *
- * Rule groups below read in render order: area shell, tiles, toolbar, calm
- * state, feed/cards, Possible moves, actions, derivation, journal,
- * calibration, monitor. Keep new rules inside their group. */
+ * Rule groups below read in render order: area shell, toolbar, actions,
+ * journal, calibration, monitor. Keep new rules inside their group. The
+ * Briefing's tiles, calm state, cards, Possible moves and derivation groups
+ * left with A6-a1: those surfaces are drawn from pf_components.css now. */
 
 /* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
  * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
@@ -29,84 +30,23 @@
 .pf-watch-desk .pf-state--resolved { color: var(--ui-text-secondary); }
 .pf-watch-desk .pf-state--resolved::before { display: none; }
 
+/* --- A-6 scoped residue: the Briefing view (P-UX-A6-a1) ---------------------
+ * Record question Q-UX-S-A6-6: the mockup's standing note (pf-note--standing)
+ * is not a tree modifier; until the UX Board names a standing tone/layout
+ * for pf-note, the D-WD-17 note keeps the finding column's measure here. */
+.pf-watch-desk .pf-note[data-pf-wd="family-note"] { max-width: 960px; }
+/* Record question Q-UX-S-A6-9: the mockup stacks the view body and its blocks
+ * with inline flex styles; the vocabulary has no vertical-stack primitive.
+ * The empty "Check now" target takes no gap until a note lands in it. */
+.pf-watch-desk #dc-briefing { display: flex; flex-direction: column; gap: var(--ui-space-6); }
+.pf-watch-desk #dc-briefing-toolbar:empty { display: none; }
+.pf-watch-desk #dc-briefing-feed { display: flex; flex-direction: column; gap: var(--ui-space-3); }
+.pf-watch-desk .pf-finding__acts > form { display: flex; gap: var(--ui-space-2); margin: 0; }
+
 .pf-dc-briefing,
 .pf-dc-journal,
 .pf-dc-calibration {
     max-width: 1100px;
-}
-
-/* --- Briefing status tiles ----------------------------------------- */
-
-/* Four derived tiles above the feed. The mock's hard-coded value colour
- * (`#E6E6E6`) is deliberately NOT copied: `--ui-text-primary` is the
- * crimson accent in this theme, so tile values follow the house
- * metric-card pattern (`--ui-text-secondary`, cf. `.ov-card__value`).
- * DC5 audited this against all three themes and kept the token. */
-
-.pf-dc-tiles {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-bottom: 12px;
-}
-
-@media (max-width: 900px) {
-    .pf-dc-tiles {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-.pf-dc-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 12px 14px;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-}
-
-.pf-dc-tile__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-tile__value {
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-tile__value .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    margin-right: 7px;
-    border-radius: 50%;
-    background: var(--ui-semantic-success);
-    box-shadow: 0 0 0 3px
-        color-mix(in srgb, var(--ui-semantic-success) 25%, transparent);
-}
-
-.pf-dc-tile__sub {
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-tile__sub .crit {
-    color: var(--ui-accent-primary);
-}
-
-.pf-dc-tile__sub .note {
-    color: var(--ui-semantic-warning);
-}
-
-.pf-dc-tile--action {
-    align-items: flex-start;
-    justify-content: center;
-    gap: 8px;
 }
 
 /* --- Briefing toolbar + request analysis --------------------------- */
@@ -153,204 +93,6 @@
     color: var(--ui-semantic-warning);
 }
 
-/* --- Calm (empty) state — affirmative, not empty ------------------- */
-
-.pf-dc-calm {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 20px 22px;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-semantic-success);
-    border-radius: 5px;
-}
-
-.pf-dc-calm__status {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0;
-    font-size: 0.95rem;
-    color: var(--ui-text-primary);
-}
-
-.pf-dc-calm__dot {
-    flex: 0 0 auto;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--ui-semantic-success);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-semantic-success) 25%, transparent);
-}
-
-.pf-dc-lowpri {
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
-}
-
-/* Colour inherits from `.pf-dc-lowpri` — `<summary>` carries no UA colour. */
-.pf-dc-lowpri__summary {
-    cursor: pointer;
-}
-
-.pf-dc-lowpri__empty {
-    margin: 8px 0 0;
-    color: var(--ui-text-disabled);
-}
-
-/* --- Feed + cards -------------------------------------------------- */
-
-.pf-dc-feed {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.pf-dc-card {
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-semantic-muted);
-    border-radius: 5px;
-    padding: 16px 18px;
-}
-
-/* Band-keyed restraint: only critical draws the accent. */
-.pf-dc-card--informational {
-    border-left-color: var(--ui-semantic-muted);
-}
-
-.pf-dc-card--noteworthy {
-    border-left-color: var(--ui-semantic-warning);
-}
-
-.pf-dc-card--critical {
-    border-left-color: var(--ui-accent-primary);
-    background: color-mix(in srgb, var(--ui-accent-primary) 6%, var(--ui-background-section));
-}
-
-.pf-dc-card__head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 6px;
-}
-
-.pf-dc-card__band {
-    flex: 0 0 auto;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-card--critical .pf-dc-card__band {
-    color: var(--ui-accent-primary);
-}
-
-.pf-dc-card__trigger {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--ui-text-primary);
-}
-
-.pf-dc-card__finding {
-    margin: 0 0 10px;
-    font-size: 0.92rem;
-    color: var(--ui-text-primary);
-}
-
-.pf-dc-card__materiality {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin: 0 0 12px;
-    padding: 8px 10px;
-    background: var(--ui-background-primary);
-    border-radius: 4px;
-}
-
-.pf-dc-card__materiality-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-card__materiality-figure {
-    font-size: 0.9rem;
-    color: var(--ui-text-primary);
-}
-
-/* --- Possible moves — the re-told options payload (DC3) ------------- */
-
-.pf-dc-card__starting {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: 0 0 12px;
-    padding: 8px 10px;
-    background: var(--ui-background-primary);
-    border-radius: 4px;
-    border-left: 2px solid var(--ui-semantic-info);
-}
-
-.pf-dc-card__starting-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-card__starting-text {
-    font-size: 0.9rem;
-    color: var(--ui-text-secondary);
-    margin: 0;
-}
-
-.pf-dc-card__starting-foot {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 2px;
-}
-
-/* The Case workspace exists as of ADR-0107 (C4), so the button is a live
-   control now: it posts to the open-case endpoint and HX-Redirects to the
-   pre-filled case. The dashed border is kept — it reads as a "start something"
-   affordance, quieter than the solid resolution buttons above it. */
-.pf-dc-opencase-form {
-    display: inline-flex;
-    margin: 0;
-}
-
-.pf-dc-opencase {
-    background: none;
-    border: 1px dashed var(--ui-border-default);
-    border-radius: 4px;
-    color: var(--ui-text-secondary);
-    font: inherit;
-    font-size: 0.78rem;
-    padding: 3px 10px;
-    cursor: pointer;
-}
-
-.pf-dc-opencase:hover {
-    border-color: var(--ui-semantic-info);
-    color: var(--ui-semantic-info);
-}
-
-/* Standalone placement (ADR-0120 §2): the same form in the card footer when
-   the card carries no Possible-moves block to host it. Layout only — the
-   button keeps the dashed .pf-dc-opencase treatment above, so the affordance
-   reads identically wherever it sits. */
-.pf-dc-card__foot {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
 /* --- Action buttons ------------------------------------------------ */
 
 .pf-dc-card__actions {
@@ -381,46 +123,6 @@
 
 .pf-dc-btn--primary:hover {
     background: var(--ui-accent-primary-hover);
-}
-
-/* --- Collapsible derivation --------------------------------------- */
-
-.pf-dc-card__derivation {
-    font-size: 0.83rem;
-    color: var(--ui-text-secondary);
-    border-top: 1px solid var(--ui-border-default);
-    padding-top: 8px;
-}
-
-/* Colour inherits from `.pf-dc-card__derivation` (same rule as above). */
-.pf-dc-card__derivation-summary {
-    cursor: pointer;
-}
-
-.pf-dc-card__derivation-basis {
-    margin: 8px 0 6px;
-}
-
-.pf-dc-card__members,
-.pf-dc-card__evidence {
-    margin: 6px 0 0;
-    padding-left: 18px;
-}
-
-.pf-dc-card__member-source {
-    color: var(--ui-text-disabled);
-    margin-left: 6px;
-}
-
-.pf-dc-card__derivation-empty {
-    margin: 8px 0 0;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-error {
-    margin: 6px 0;
-    font-size: 0.85rem;
-    color: var(--ui-semantic-error);
 }
 
 /* --- Journal ------------------------------------------------------- */

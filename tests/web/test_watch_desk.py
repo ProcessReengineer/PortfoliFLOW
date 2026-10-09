@@ -415,27 +415,27 @@ async def test_briefing_calm_state_is_affirmative(
 
 
 # ---------------------------------------------------------------------------
-# Briefing — derived status tiles (DC1)
+# Briefing — the check clock (ADR-0133 §4, D-UX-A6-1)
 # ---------------------------------------------------------------------------
 
 
 async def test_tiles_never_ran_state_has_no_dot_and_no_count(
     web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
 ) -> None:
-    """No beat on record ⇒ the explicit never-ran state, not "surfaced 0"."""
+    """No check on record ⇒ the clock's explicit never-checked state, no count."""
     _id, email, password = seeded_user
     await _login(web_client, email, password)
     response = await web_client.get("/api/watch-desk/briefing")
     assert response.status_code == 200
     body = response.text
 
-    assert "Never ran yet" in body
-    assert "No analysis beat has completed for this tenant yet." in body
-    # A beat that never ran surfaced nothing — no count, and no green dot.
+    clock = wd_block(body, "clock")
+    assert wd_attr(wd_block(clock, "last-check"), "data-pf-wd-state") == "never"
+    assert wd_text(clock, "last-check") == "Not checked yet"
+    # A check that never ran surfaced nothing — no count anywhere.
     assert "surfaced" not in body
-    assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "never"
-    # No schedule at all ⇒ the next-beat tile says so and the button is gone.
-    assert "no cadence set" in body
+    # No schedule at all ⇒ the next-check span says so.
+    assert wd_text(clock, "next-check") == "no cadence set"
 
 
 async def test_tiles_last_beat_counts_all_findings_since_beat(
@@ -443,7 +443,7 @@ async def test_tiles_last_beat_counts_all_findings_since_beat(
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """ "Surfaced N" counts every finding since the beat, resolved included."""
+    """The Findings title counts the open findings; the clock reads the check."""
     _id, email, password = seeded_user
     now = datetime.now(timezone.utc)
     beat_at = now - timedelta(hours=3)
@@ -488,64 +488,15 @@ async def test_tiles_last_beat_counts_all_findings_since_beat(
     assert response.status_code == 200
     body = response.text
 
-    # Surfaced-since-beat = the open one + the resolved one. An open-only
-    # count would say 1 and understate what the beat put in front of the PM.
-    assert "surfaced 2 findings" in body
-    # a beat ran ⇒ the green dot renders
+    # A check ran ⇒ the clock reads its stamp, not the never-checked state.
     assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "ran"
 
-    # The open-findings tile counts a *different* set of two: the pre-beat
-    # noteworthy (still open) and the post-beat critical. The resolved one
-    # is absent. The two tiles measure different things by design.
+    # The Findings title counts the open findings: the pre-check noteworthy
+    # (still open) and the post-check critical. The resolved one is absent.
     assert wd_text(body, "open-findings") == "2"
-    assert "1 critical" in body
-    assert "1 noteworthy" in body
-
-
-async def test_tiles_subjects_watched_enumerates_limit_sets(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """Internal subjects = limit rows across the effective saa/anlv sets."""
-    user_id, email, password = seeded_user
-    await _seed_limit_set(
-        fresh_superuser_engine,
-        tenant_id=SENTINEL_TENANT_ID,
-        created_by=user_id,
-        family="saa",
-        class_keys={"equity": 40.0, "credit": 30.0, "real_estate": 30.0},
-    )
-    await _seed_limit_set(
-        fresh_superuser_engine,
-        tenant_id=SENTINEL_TENANT_ID,
-        created_by=user_id,
-        family="anlv",
-        class_keys={"anlv_high_yield": 5.0, "anlv_equity": 35.0},
-    )
-    await _login(web_client, email, password)
-    response = await web_client.get("/api/watch-desk/briefing")
-    assert response.status_code == 200
-    body = response.text
-
-    rss = len(_KNOWN_TAGS)
-    assert f"5 + {rss}" in body
-    assert f"5 internal limits · {rss} press dimensions" in body
-
-
-async def test_tiles_render_with_no_limit_sets(
-    web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
-) -> None:
-    """Empty book ⇒ zero internal subjects, tile still renders."""
-    _id, email, password = seeded_user
-    await _login(web_client, email, password)
-    response = await web_client.get("/api/watch-desk/briefing")
-    assert response.status_code == 200
-    body = response.text
-
-    rss = len(_KNOWN_TAGS)
-    assert f"0 + {rss}" in body
-    assert wd("tiles") in body
+    bands = wd_text(body, "open-findings-bands")
+    assert "1 critical" in bands
+    assert "1 noteworthy" in bands
 
 
 async def test_tiles_next_beat_reflects_schedule(
@@ -553,7 +504,7 @@ async def test_tiles_next_beat_reflects_schedule(
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """The next-beat tile mirrors next_due_at / cadence / enabled."""
+    """The clock's next-check span mirrors next_due_at / cadence / enabled."""
     _id, email, password = seeded_user
     # Relative to the run, and in the future: a due-or-overdue schedule
     # renders "due now" instead of a stamp, which is the state the
@@ -574,8 +525,7 @@ async def test_tiles_next_beat_reflects_schedule(
     # the two stamps must differ.
     berlin = due.astimezone(ZoneInfo("Europe/Berlin")).strftime("%a %H:%M")
     assert berlin != due.strftime("%a %H:%M")
-    assert f"Next beat · {berlin} · daily · enabled" in body
-    assert "Request analysis now" in body
+    assert wd_text(body, "next-check") == f"next {berlin} · daily"
 
 
 async def test_tiles_next_beat_reads_due_now_when_already_due(
@@ -585,10 +535,10 @@ async def test_tiles_next_beat_reads_due_now_when_already_due(
 ) -> None:
     """A schedule that is already due says so, rather than stamping the past.
 
-    The tile is labelled "Next beat": a wall-clock time that has passed
-    states the opposite of what is true. This is also what makes the
-    out-of-band refresh after "Request analysis" visible — the enqueue
-    moves ``next_due_at`` to now, so the tile flips to this state.
+    The span reads "next …": a wall-clock time that has passed states the
+    opposite of what is true. This is also what makes the out-of-band
+    refresh after "Check now" visible — the enqueue moves ``next_due_at`` to
+    now, so the span flips to this state.
     """
     _id, email, password = seeded_user
     await _seed_schedule(
@@ -601,7 +551,7 @@ async def test_tiles_next_beat_reads_due_now_when_already_due(
     response = await web_client.get("/api/watch-desk/briefing")
     assert response.status_code == 200
 
-    assert "Next beat · due now · daily · enabled" in response.text
+    assert wd_text(response.text, "next-check") == "next due now · daily"
 
 
 # ---------------------------------------------------------------------------
@@ -1336,7 +1286,7 @@ async def test_request_analysis_enqueues_without_inline_synthesis(
     after = datetime.now(timezone.utc)
     assert response.status_code == 200
     # The copy names the scheduler tick, not the next cadence occurrence.
-    assert "Queued — the beat runs on the next tick" in response.text
+    assert "Queued — the check runs on the next tick" in response.text
 
     async with fresh_superuser_engine.connect() as conn:
         row = (
@@ -1360,11 +1310,11 @@ async def test_request_analysis_refreshes_the_next_beat_tile(
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """The enqueue answers in the tile, not only in the toolbar line.
+    """The enqueue answers in the clock, not only in the result note.
 
-    The button's main swap targets ``#dc-briefing-toolbar``, so without an
-    out-of-band fragment the fourth tile would keep showing the pre-enqueue
-    ``next_due_at`` and the action would read as a no-op.
+    The form's main swap targets ``#dc-briefing-toolbar``, so without an
+    out-of-band fragment the clock's next-check span would keep showing the
+    pre-enqueue ``next_due_at`` and the action would read as a no-op.
     """
     _id, email, password = seeded_user
     future = datetime.now(timezone.utc) + timedelta(days=3)
@@ -1375,8 +1325,8 @@ async def test_request_analysis_refreshes_the_next_beat_tile(
     # The pre-enqueue briefing stamps a future time, not "due now".
     briefing = await web_client.get("/api/watch-desk/briefing")
     assert briefing.status_code == 200
-    assert 'id="dc-briefing-next-beat"' in briefing.text
-    assert "Next beat · due now" not in briefing.text
+    assert 'id="dc-briefing-next-beat"' in wd_block(briefing.text, "next-check")
+    assert "due now" not in wd_text(briefing.text, "next-check")
 
     response = await web_client.post(
         "/api/watch-desk/request-analysis",
@@ -1385,10 +1335,11 @@ async def test_request_analysis_refreshes_the_next_beat_tile(
     assert response.status_code == 200
     body = response.text
 
-    # The OOB fragment carries the tile by id, and reads the enqueued state.
-    assert 'id="dc-briefing-next-beat"' in body
-    assert 'hx-swap-oob="true"' in body
-    assert "Next beat · due now · daily · enabled" in body
+    # The OOB fragment carries the span by id, and reads the enqueued state.
+    next_check = wd_block(body, "next-check")
+    assert 'id="dc-briefing-next-beat"' in next_check
+    assert wd_attr(next_check, "hx-swap-oob") == "true"
+    assert wd_text(next_check) == "next due now · daily"
 
     async with fresh_superuser_engine.connect() as conn:
         row = (
@@ -1414,18 +1365,36 @@ async def test_request_analysis_without_schedule_sends_no_tile_fragment(
     )
     assert response.status_code == 200
     assert "hx-swap-oob" not in response.text
+    assert wd("next-check") not in response.text
     assert "Queued" not in response.text
 
 
-async def test_request_analysis_button_hidden_without_schedule(
-    web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
+async def test_check_now_is_offered_in_the_head_without_a_schedule(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
 ) -> None:
+    """D-A6-27: the head's primary renders unconditionally; the POST says why.
+
+    The head is drawn with the page, before the lazy body knows whether a
+    schedule exists — without one the route answers with the no-schedule
+    note, which is the honest outcome.
+    """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
-    # No schedule seeded → button absent.
-    briefing = await web_client.get("/api/watch-desk/briefing")
-    assert briefing.status_code == 200
-    assert "Request analysis" not in briefing.text
+    # No schedule seeded → the head still offers the action.
+    page = await web_client.get("/watch-desk")
+    assert page.status_code == 200
+    assert wd("check-now") in page.text
+    assert "Check now" in wd_text(page.text, "check-now")
+
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    response = await web_client.post(
+        "/api/watch-desk/request-analysis",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    assert wd("check-now-note", state="no-schedule") in response.text
 
 
 async def test_request_analysis_button_shown_with_schedule(
@@ -1439,9 +1408,12 @@ async def test_request_analysis_button_shown_with_schedule(
         next_due_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
     await _login(web_client, email, password)
-    briefing = await web_client.get("/api/watch-desk/briefing")
-    assert briefing.status_code == 200
-    assert "Request analysis" in briefing.text
+    page = await web_client.get("/watch-desk")
+    assert page.status_code == 200
+    # R1: "Check now" is the view's one primary, in the head.
+    form = wd_block(page.text, "check-now")
+    assert 'class="pf-btn pf-btn--primary"' in form
+    assert wd_text(form) == "Check now"
 
 
 # ---------------------------------------------------------------------------
@@ -1463,8 +1435,8 @@ async def test_poll_returns_the_refreshed_briefing_when_the_beat_landed(
 
     286 is HTMX's "stop polling" status *and* a swappable one, so this
     single response both ends the poll and refreshes the page. The body has
-    to be the full Briefing body — feed and all four tiles — because a beat
-    moves both: new cards below, a new "Last beat" stamp above.
+    to be the full Briefing body — clock and all — because a check moves
+    both: new findings below, a new "Checked" stamp in the head.
     """
     _id, email, password = seeded_user
     now = datetime.now(timezone.utc)
@@ -1485,10 +1457,12 @@ async def test_poll_returns_the_refreshed_briefing_when_the_beat_landed(
     # with the markup it replaces.
     assert 'id="dc-briefing"' in body
     assert 'id="dc-briefing-feed"' in body
-    # All four status tiles ride along, not just the feed.
-    assert "Last beat" in body
-    assert "Subjects watched" in body
-    assert "Open findings" in body
+    # The clock, the latest briefing, the strip and the Findings block ride
+    # along, not just the feed.
+    assert wd("clock") in body
+    assert wd("latest") in body
+    assert wd("strip") in body
+    assert wd("findings") in body
     assert 'id="dc-briefing-next-beat"' in body
     # A fresh Briefing starts no poll of its own — only an enqueue does.
     assert wd("check-poll") not in body
@@ -2576,14 +2550,14 @@ async def test_tiles_disabled_schedule_still_offers_request_analysis(
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """A disabled schedule is still a schedule — the button gates on existence.
+    """A disabled schedule is still a schedule — the clock says so, the action stays.
 
-    This pins the distinction the two button-gating tests above do not
-    cover: "no schedule" hides the button, "schedule present but disabled"
-    keeps it, because the operator can still enqueue an out-of-band beat.
+    The operator can still enqueue an out-of-band check while the cadence
+    is disabled, so the head keeps "Check now" and the next-check span
+    states the disabled cadence rather than dropping it.
     """
     _id, email, password = seeded_user
-    # Future-dated so the tile renders a stamp, not the "due now" state.
+    # Future-dated so the span renders a stamp, not the "due now" state.
     due = datetime.now(timezone.utc) + timedelta(days=2)
     await _seed_schedule(
         fresh_superuser_engine,
@@ -2597,9 +2571,10 @@ async def test_tiles_disabled_schedule_still_offers_request_analysis(
     body = response.text
 
     berlin = due.astimezone(ZoneInfo("Europe/Berlin")).strftime("%a %H:%M")
-    assert f"Next beat · {berlin} · daily · disabled" in body
+    assert wd_text(body, "next-check") == f"next {berlin} · daily · checks disabled"
     # The schedule row exists, so the action remains available.
-    assert "Request analysis now" in body
+    page = await web_client.get("/watch-desk")
+    assert wd_text(page.text, "check-now") == "Check now"
 
 
 async def test_request_analysis_without_cadence_points_at_calibration(
@@ -2607,13 +2582,13 @@ async def test_request_analysis_without_cadence_points_at_calibration(
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """No schedule ⇒ the hint names Calibration, not the retired Watchlist."""
+    """No schedule ⇒ the hint names Watch points, not the retired Watchlist."""
     _id, email, password = seeded_user
     await _login(web_client, email, password)
 
     briefing = await web_client.get("/api/watch-desk/briefing")
     assert briefing.status_code == 200
-    assert "Next beat · no cadence set" in briefing.text
+    assert wd_text(briefing.text, "next-check") == "no cadence set"
 
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
     response = await web_client.post(
@@ -2621,20 +2596,20 @@ async def test_request_analysis_without_cadence_points_at_calibration(
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 200
-    # DC4 renamed the section; the operator hint must follow it.
-    assert "Calibration section" in response.text
+    # ADR-0133 §4 renamed the view; the operator hint must follow it.
+    assert "Watch points" in response.text
     assert "Watchlist" not in response.text
 
 
 async def test_never_ran_states_cohere_in_one_briefing(
     web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
 ) -> None:
-    """Fresh tenant: tile, calm feed and monitor agree in a single render.
+    """Fresh tenant: clock, calm feed and monitor agree in a single render.
 
     Each piece is tested in isolation above. This pins that they cohere in
-    one response — a never-ran tile that makes no count claim, an
-    affirmative calm feed, and a monitor that admits no beat has run — which
-    is the exact trust case the "One Glass" refresh was built for.
+    one response — a never-checked clock that makes no count claim, an
+    affirmative calm feed, and a monitor that admits no check has run —
+    which is the exact trust case the "One Glass" refresh was built for.
     """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
@@ -2642,8 +2617,8 @@ async def test_never_ran_states_cohere_in_one_briefing(
     assert response.status_code == 200
     body = response.text
 
-    # Tile: never-ran, no green dot, no "surfaced N".
-    assert "Never ran yet" in body
+    # Clock: never checked, no arc, no "surfaced N".
+    assert "Not checked yet" in body
     assert "surfaced" not in body
     assert wd_attr(wd_block(body, "last-check"), "data-pf-wd-state") == "never"
     # Feed: affirmative calm, not an empty list.
@@ -3671,19 +3646,8 @@ _GROUP_SUBJECTS = frozenset({"quota", "signal"})
 _GROUP_TAGS = frozenset({"press"})
 
 
-def _subjects_tile(body: str) -> tuple[str, str]:
-    """Return the subjects tile's ``(value, sub)`` strings."""
-    return wd_text(body, "subjects-watched"), wd_text(body, "subjects-watched-detail")
-
-
-def _tile_total(body: str) -> int:
-    """Sum the subjects tile's ``A + B [+ C]`` breakdown."""
-    value, _sub = _subjects_tile(body)
-    return sum(int(part) for part in value.split("+"))
-
-
 def _monitor_subject_total(body: str) -> int:
-    """Sum what every monitor group header below the tile says it watches."""
+    """Sum what every monitor group header says it watches."""
     counts: list[int] = []
     tags: list[int] = []
     for group in wd_blocks(body, "watch-group"):
@@ -3742,74 +3706,6 @@ async def _arm_every_signal_family(client: AsyncClient, csrf: str, *, instrument
         assert created.status_code == 200, created.text
 
 
-async def test_the_subjects_tile_equals_the_monitors_group_headers(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """The no-drift guarantee, stated once: tile == sum of the group headers.
-
-    With all four signal families armed the tile is the whole answer to
-    "what does the Watch Desk watch", and an operator can add up the group
-    headers underneath and land on the same number. Before P7 they could
-    not: the tile stopped at limits and press and understated the monitor
-    it sits above.
-    """
-    user_id, email, password = seeded_user
-    await _seed_valued_universe(user_id)
-    instrument_id = await _make_priceable(user_id, name="Alpha")
-    await _login(web_client, email, password)
-    csrf = await _session_csrf(web_client, fresh_superuser_engine)
-    await _arm_every_signal_family(web_client, csrf, instrument_id=instrument_id)
-
-    response = await web_client.get("/api/watch-desk/briefing")
-    assert response.status_code == 200
-    body = response.text
-
-    # The fixture is only worth comparing against if every family rendered.
-    for group in ("Price moves", "FX moves", "NAV freshness", "Cash coverage"):
-        assert group in body
-
-    assert _tile_total(body) == _monitor_subject_total(body)
-
-    # The figures the equality is made of, so a coincidental match cannot
-    # pass it: two constrained limit rows, the curated tags, and five signal
-    # subjects — 1 price + 1 fx + 1 liquidity singleton + 2 freshness, the
-    # latter enumerated one per active investment.
-    value, sub = _subjects_tile(body)
-    assert value == f"2 + {len(_KNOWN_TAGS)} + 5"
-    assert sub == f"2 internal limits · {len(_KNOWN_TAGS)} press dimensions · 5 signal subjects"
-
-
-async def test_a_signal_free_tenant_reads_the_tile_unchanged(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """No signal watchpoints ⇒ exactly the pre-P7 tile, not a "+ 0" term.
-
-    A tenant who watches no signal family gains a clause that states
-    nothing. The term is omitted rather than rendered at zero.
-    """
-    user_id, email, password = seeded_user
-    await _seed_limit_set(
-        fresh_superuser_engine,
-        tenant_id=SENTINEL_TENANT_ID,
-        created_by=user_id,
-        family="saa",
-        class_keys={"equity": 40.0, "credit": 60.0},
-    )
-    await _login(web_client, email, password)
-    response = await web_client.get("/api/watch-desk/briefing")
-    assert response.status_code == 200
-    body = response.text
-
-    value, sub = _subjects_tile(body)
-    assert value == f"2 + {len(_KNOWN_TAGS)}"
-    assert sub == f"2 internal limits · {len(_KNOWN_TAGS)} press dimensions"
-    assert "signal subject" not in body
-
-
 async def test_a_muted_and_a_no_data_subject_are_both_counted(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
@@ -3818,8 +3714,7 @@ async def test_a_muted_and_a_no_data_subject_are_both_counted(
     """Two pinned rules on one subject: muted counts, no-data counts.
 
     A muted subject is watched — the monitor's own header counts it
-    (ADR-0116 §3), and a tile that dropped it would contradict the row
-    immediately below. A subject the producer refused to measure is watched
+    (ADR-0116 §3). A subject the producer refused to measure is watched
     too: "cannot be evaluated today" is not "nobody is looking".
     """
     user_id, email, password = seeded_user
@@ -3854,10 +3749,9 @@ async def test_a_muted_and_a_no_data_subject_are_both_counted(
     assert "1 muted" in body
     assert "1 subject ·" in body
 
-    value, sub = _subjects_tile(body)
-    assert value == f"0 + {len(_KNOWN_TAGS)} + 1"
-    assert sub.endswith(f"· {len(_KNOWN_TAGS)} press dimensions · 1 signal subject")
-    assert _tile_total(body) == _monitor_subject_total(body)
+    # The monitor's group headers sum the press dimensions and the one
+    # signal subject.
+    assert _monitor_subject_total(body) == len(_KNOWN_TAGS) + 1
 
 
 async def test_a_retired_identity_leaves_the_count(
@@ -3867,9 +3761,8 @@ async def test_a_retired_identity_leaves_the_count(
 ) -> None:
     """Retirement stops evaluation, rendering and counting alike.
 
-    The tile inherits that for free: a retired identity is absent from the
-    resolution the monitor's groups were built from, so it is absent from
-    the figure they are summed into.
+    A retired identity is absent from the resolution the monitor's groups
+    were built from, so it is absent from the figure they are summed into.
     """
     _id, email, password = seeded_user
     await _login(web_client, email, password)
@@ -3884,8 +3777,7 @@ async def test_a_retired_identity_leaves_the_count(
     watchpoint_id = (await _live_watchpoints(fresh_superuser_engine, "fx"))[0].watchpoint_id
 
     before = (await web_client.get("/api/watch-desk/briefing")).text
-    assert _subjects_tile(before)[0] == f"0 + {len(_KNOWN_TAGS)} + 1"
-    assert _tile_total(before) == _monitor_subject_total(before)
+    assert _monitor_subject_total(before) == len(_KNOWN_TAGS) + 1
 
     retired = await web_client.post(
         f"/api/watch-desk/watchpoints/{watchpoint_id}/retire",
@@ -3894,10 +3786,9 @@ async def test_a_retired_identity_leaves_the_count(
     assert retired.status_code == 200
 
     after = (await web_client.get("/api/watch-desk/briefing")).text
-    assert _subjects_tile(after)[0] == f"0 + {len(_KNOWN_TAGS)}"
     # The family is named in the footer as unwatched, never as a live group.
     assert "— not watched:" in after
-    assert _tile_total(after) == _monitor_subject_total(after)
+    assert _monitor_subject_total(after) == len(_KNOWN_TAGS)
 
 
 # ---------------------------------------------------------------------------
@@ -3917,12 +3808,12 @@ async def _switch_off(engine: AsyncEngine, user_id: UUID, *families: str) -> Non
             )
 
 
-async def test_a_switched_off_family_leaves_the_monitor_and_the_tile(
+async def test_a_switched_off_family_leaves_the_monitor(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """``saa`` and ``rss`` off: no group, no press group, no tile term."""
+    """``saa`` and ``rss`` off: no group, no press group."""
     user_id, email, password = seeded_user
     await _seed_limit_set(
         fresh_superuser_engine,
@@ -3948,9 +3839,6 @@ async def test_a_switched_off_family_leaves_the_monitor_and_the_tile(
     assert "AnlV quotas" in body
     assert "SAA limits" not in body
     assert "Press dimensions (RSS)" not in body
-    # Only the switched-on limit family is counted, and the press term is
-    # omitted with the press group it is read off.
-    assert _subjects_tile(body) == ("2", "2 internal limits")
 
 
 async def test_an_open_finding_of_a_switched_off_family_stays_resolvable(
@@ -4146,10 +4034,13 @@ async def test_briefing_without_a_row_reads_pending_and_still_renders_the_strip(
     assert wd("briefing-sources") not in body
     # The strip renders regardless, stamped with the render instant; no
     # valued positions, so both limit chips say so rather than "calm".
-    assert re.search(r"On watch now · live \d\d:\d\d", body) is not None
-    assert "Allocation limits (SAA) · no coverage" in body
-    assert "Regulatory quotas (AnlV) · no coverage" in body
-    assert "Press coverage · calm" in body
+    stamp = wd_text(body, "strip-stamp")
+    assert re.match(r"live \d\d:\d\d", stamp) is not None
+    assert stamp.endswith(" · 3 watch points on")
+    strip = wd_text(body, "strip")
+    assert "Allocation limits (SAA) · no coverage" in strip
+    assert "Regulatory quotas (AnlV) · no coverage" in strip
+    assert "Press coverage · calm" in strip
     # No note while both quota families are on.
     assert wd("family-notes") not in body
 
@@ -4271,12 +4162,18 @@ async def test_the_sources_line_states_tokens_items_and_window(
     response = await web_client.get("/api/watch-desk/briefing")
     body = _flat(response.text)
 
-    assert wd("briefing-sources") in body
-    assert "Sources · 3 figures · 1 press cluster · window 2026-10-02 to 2026-10-07" in body
+    sources = wd_text(body, "briefing-sources")
+    assert sources.startswith("Sources")
+    assert "3 figures" in sources
+    assert "1 press cluster" in sources
+    assert "window 2026-10-02 to 2026-10-07" in sources
     # Figures first, in the material's order, then the clusters; no repeats.
-    assert "From: instrument_prices, fx_rates, limit_coverage, rss" in body
-    assert 'href="https://example.com/spreads"' in body
-    assert "Spreads widen in high yield" in body
+    assert (
+        wd_text(body, "briefing-tokens") == "From: instrument_prices, fx_rates, limit_coverage, rss"
+    )
+    press = wd_block(body, "briefing-press")
+    assert 'href="https://example.com/spreads"' in press
+    assert "Spreads widen in high yield" in press
 
 
 async def test_an_unknown_material_version_omits_the_sources_line(
@@ -4357,8 +4254,8 @@ async def test_the_watch_strip_states_the_monitors_own_badges(
     body = _flat(response.text)
     strip = wd_block(body, "strip")
 
-    assert "Allocation limits (SAA) · 1 WARN" in strip
-    assert "Regulatory quotas (AnlV) · calm" in strip
+    assert "Allocation limits (SAA) · 1 WARN" in wd_text(strip)
+    assert "Regulatory quotas (AnlV) · calm" in wd_text(strip)
     assert 'data-family="rss"' not in strip
     # The chip restates the monitor's badge, which is still rendered below.
     assert body.count("1 WARN") >= 2

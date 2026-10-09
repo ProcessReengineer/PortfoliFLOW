@@ -1,88 +1,81 @@
-{# Briefing section body (ADR-0089) — status tiles plus the calm-by-default
-   card feed.
+{# Briefing section body (ADR-0089, ADR-0133, M-WD-1 v2 view #briefing).
 
-   Structure: four status tiles, then a toolbar (which now only receives the
-   "Request analysis" confirmation — the button itself lives in the fourth
-   tile), then the feed fragment. The feed fragment is a separate include so
-   a resolution POST can swap just the feed (#dc-briefing-feed) and leave the
-   rest in place. Context:
-     tiles            — the four derived status tiles (see _build_tiles).
+   Structure, in the mockup's order: the check clock (out of band into the
+   view head), the "Check now" result target, the latest briefing with the
+   standing notes and the watch strip (watch_desk_briefing_latest.html), the
+   Findings block with the feed, and the live monitor beneath. The feed is a
+   separate include so a resolution POST can swap just #dc-briefing-feed and
+   leave the rest in place.
+
+   The clock is the view head's ``#briefing-asof``, filled out of band on the
+   ``_partials/transactions/_blotter.html`` idiom: the head is rendered by
+   areas/_section.html and no contiguous swap from here can reach it. The
+   lazy load and the post-check poll both re-render this whole body, so every
+   refresh restates the clock. The ring is a state ring (D-A6-24): the arc
+   while checks run on a cadence and one has run, the dot alone before the
+   first check, the track alone while checks are disabled or no cadence is
+   set. A real progress ring needs a figure the context does not carry
+   (Q-UX-S-A6-3). The date is the route's, never derived here (D-A6-25).
+
+   "Check now" is the view's primary and lives in the head
+   (watch_desk_briefing_primary.html); #dc-briefing-toolbar stays as its
+   swap target.
+
+   Context:
+     tiles            — tiles.last_beat (the clock), tiles.next_beat (the
+                        next-check span), tiles.open_findings (the Findings
+                        title). tiles.subjects is not rendered (ADR-0133 §4).
      cards            — list of projected card dicts (may be empty → calm).
-     schedule_exists  — whether the "Request analysis" button renders.
-     monitor          — the live "What Irene watches" projection (DC2).
+     monitor          — the live monitor projection (DC2).
      csrf_token       — session CSRF token for the action forms.
      briefing         — the newest briefing row, or the pending state (ADR-0133).
      family_notes     — the D-WD-17 standing notes (switched-off quota families).
      watch_strip      — one chip per monitored family, with the render stamp. #}
-<div id="dc-briefing" class="pf-dc-briefing">
+{%- set clock_running = tiles.next_beat.configured and tiles.next_beat.enabled -%}
+<span id="briefing-asof" class="pf-view__asof pf-fresh" hx-swap-oob="outerHTML" data-pf-wd="clock">
+    <svg class="pf-fresh__ring" viewBox="0 0 20 20" aria-hidden="true">
+        <circle class="pf-fresh__track" cx="10" cy="10" r="8"/>
+        {%- if clock_running and tiles.last_beat.ran %}
+        <path class="pf-fresh__arc" d="M10 2a8 8 0 1 1 0 16a8 8 0 1 1 0-16"/>
+        {%- endif %}
+        {%- if clock_running %}
+        <circle class="pf-fresh__dot" cx="10" cy="10" r="2"/>
+        {%- endif %}
+    </svg>
+    <span>
+        {%- if tiles.last_beat.ran -%}
+            <span data-pf-wd="last-check" data-pf-wd-state="ran"><b>Checked {{ tiles.last_beat.time }} · {{ tiles.last_beat.date }}</b></span>
+        {%- else -%}
+            <span data-pf-wd="last-check" data-pf-wd-state="never"><b>Not checked yet</b></span>
+        {%- endif %} · {% include "_partials/watch_desk_briefing_next_beat.html" -%}
+    </span>
+    <a href="#calibration" data-pf-wd="clock-change">Change</a>
+</span>
+<div id="dc-briefing">
+    {# The "Check now" confirmation lands here (the head's form targets it). #}
+    <div id="dc-briefing-toolbar" data-pf-wd="check-now-result"></div>
+
     {# The latest briefing, the standing notes and the watch strip sit at
-       the top of the body (ADR-0133 §1.5). D-WD-25 stop-gap partial; A-6
-       restyles it on M-WD-1. #}
+       the top of the body (ADR-0133 §1.5). #}
     {% include "_partials/watch_desk_briefing_latest.html" %}
 
-    {# Status tiles. Every figure is derived at request time from existing
-       tables — no summary row is persisted. #}
-    <div data-pf-wd="tiles" class="pf-dc-tiles">
-        <div class="pf-dc-tile">
-            <span class="pf-dc-tile__label">Last beat</span>
-            {% if tiles.last_beat.ran %}
-                <span data-pf-wd="last-check" data-pf-wd-state="ran" class="pf-dc-tile__value"><span class="dot"></span>{{ tiles.last_beat.time }}</span>
-                <span data-pf-wd="last-check-detail" class="pf-dc-tile__sub">{{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }}</span>
-            {% else %}
-                {# Never-ran state: no dot, no findings count — a beat that
-                   has not happened surfaced nothing, and must not look as
-                   though it ran and found nothing. #}
-                <span data-pf-wd="last-check" data-pf-wd-state="never" class="pf-dc-tile__value">Never ran yet</span>
-                <span data-pf-wd="last-check-detail" class="pf-dc-tile__sub">No analysis beat has completed for this tenant yet.</span>
-            {% endif %}
-        </div>
+    {# Findings (R8): the open count and its bands in the title, derived at
+       request time; the band dot is read off the band's own text (D-A6-31). #}
+    <section aria-label="Findings" data-pf-wd="findings">
+        <h2 class="pf-block__title">Findings <span data-pf-wd="findings-title"><b data-pf-wd="open-findings">{{ tiles.open_findings.total }}</b> open
+            {%- if tiles.open_findings.bands %} · <span data-pf-wd="open-findings-bands">
+                {%- for band in tiles.open_findings.bands -%}
+                    {% if not loop.first %} · {% endif -%}
+                    <span class="pf-state pf-state--{{ band.text.split(' ')[-1] }}">{{ band.text }}</span>
+                {%- endfor -%}
+            </span>
+            {%- endif %} · since your last review</span></h2>
+        {% include "_partials/watch_desk_briefing_feed.html" %}
+    </section>
 
-        <div class="pf-dc-tile">
-            <span class="pf-dc-tile__label">Subjects watched</span>
-            <span data-pf-wd="subjects-watched" class="pf-dc-tile__value">{{ tiles.subjects.value }}</span>
-            <span data-pf-wd="subjects-watched-detail" class="pf-dc-tile__sub">{{ tiles.subjects.sub }}</span>
-        </div>
-
-        <div class="pf-dc-tile">
-            <span class="pf-dc-tile__label">Open findings</span>
-            <span data-pf-wd="open-findings" class="pf-dc-tile__value">{{ tiles.open_findings.total }}</span>
-            {% if tiles.open_findings.bands %}
-                <span data-pf-wd="open-findings-bands" class="pf-dc-tile__sub">
-                    {%- for band in tiles.open_findings.bands -%}
-                        {% if not loop.first %} · {% endif %}
-                        <span class="{{ band.css }}">{{ band.text }}</span>
-                    {%- endfor -%}
-                </span>
-            {% endif %}
-        </div>
-
-        <div class="pf-dc-tile pf-dc-tile--action">
-            {# Included rather than inlined so the "Request analysis" enqueue
-               can swap this label out of band by id. #}
-            {% include "_partials/watch_desk_briefing_next_beat.html" %}
-            {% if schedule_exists %}
-                <form data-pf-wd="check-now" hx-post="/api/watch-desk/request-analysis"
-                      hx-target="#dc-briefing-toolbar"
-                      hx-swap="innerHTML">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="pf-dc-request">
-                        Request analysis now
-                    </button>
-                </form>
-            {% endif %}
-        </div>
-    </div>
-
-    {# Kept as the swap target for the "Request analysis" confirmation; the
-       button it used to hold now lives in the fourth tile. DC5 reconciles
-       this container with the tile layout. #}
-    <div id="dc-briefing-toolbar" class="pf-dc-briefing__toolbar"></div>
-
-    {% include "_partials/watch_desk_briefing_feed.html" %}
-
-    {# The live monitor sits beneath the cards (DC2): what Irene watches,
-       computed now via the limits engine rather than read from the beat's
-       snapshot. Part of the Briefing body, so it lazy-loads in the same
-       request and the same tenant context. #}
+    {# The live monitor sits beneath the findings (DC2), computed now via the
+       limits engine rather than read from the check's snapshot. Part of the
+       Briefing body, so it lazy-loads in the same request and the same
+       tenant context. Restyled in A6-a2. #}
     {% include "_partials/watch_desk_monitor.html" %}
 </div>

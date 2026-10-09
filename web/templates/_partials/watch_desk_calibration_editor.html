@@ -1,4 +1,5 @@
-{# The tenant calibration editor (ADR-0116 §7). Follows the Back-Office SAA
+{# The tenant calibration editor (ADR-0116 §7), rendered inside the Watch
+   points view's Advanced tuning disclosure. Follows the Back-Office SAA
    configuration pattern: editable fields, an explicit save bar with dirty
    state, server-validated on POST.
 
@@ -24,69 +25,72 @@
        rules render as constraint hints on the fields they bind. The write
        path enforces all four regardless of what this renders.
 
+   Every number is a text field (R10): the two band boundaries take
+   `inputmode="numeric"` (integers 1–9), every other figure
+   `inputmode="decimal"`; the route parses and refuses verbatim. The save
+   bar is the form's pf-actionbar (D-A6-68).
+
    Context (via _calibration_context): csrf_token, calibration_saved,
    calibration_error, warn_default, band_boundaries, options_gate,
    family_warns, floors, caps, deltas, pinned, notes. #}
 <form data-pf-wd="editor" id="dc-calibration-editor"
-      class="pf-dc-calib"
       hx-post="/api/watch-desk/calibration"
       hx-target="#dc-calibration-editor"
       hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     {% if calibration_saved %}
-        <p data-pf-wd="editor-flash" class="pf-dc-calib__flash" role="status">Calibration saved.</p>
+        <div class="pf-note pf-note--info" role="status" data-pf-wd="editor-flash">{{ pf_icon("info") }}<p class="pf-note__lead">Calibration saved.</p></div>
     {% endif %}
     {% if calibration_error %}
         {# A composition failure is about the configuration as a whole, so it
            has no field to sit beside. The service's wording is reused
            verbatim — it is written for a human to act on. #}
-        <p data-pf-wd="editor-error" class="pf-dc-calib__error" role="alert">
-            {{ calibration_error }} Nothing was saved.
-        </p>
+        <div class="pf-note pf-note--block" role="alert" data-pf-wd="editor-error">{{ pf_icon("block") }}<p class="pf-note__lead">{{ calibration_error }} Nothing was saved.</p></div>
     {% endif %}
 
-    <section data-pf-wd="editor-block" data-pf-wd-name="thresholds" class="pf-dc-calib__block">
-        <h3 data-pf-wd="editor-block-heading" class="pf-dc-calib__heading">Thresholds</h3>
+    <section class="pf-settings__group" data-pf-wd="editor-block" data-pf-wd-name="thresholds">
+        <h3 class="pf-settings__title" data-pf-wd="editor-block-heading">Thresholds</h3>
 
-        <div class="pf-dc-calib__fields">
+        <div class="pf-grid">
             {% with f = warn_default %}
                 {% include "_partials/watch_desk_calibration_field.html" %}
             {% endwith %}
 
             {# One paired control, both or neither — mirroring the schema
                CHECK that stores the two boundary columns together. #}
-            <div data-pf-wd="field" data-pf-wd-name="band_boundaries" class="pf-dc-calib__field pf-dc-calib__field--pair">
-                <span data-pf-wd="field-label" class="pf-dc-calib__label">
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="band_boundaries">
+                <span class="pf-label" data-pf-wd="field-label">
                     Band boundaries
-                    <span data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if band_boundaries.customised else 'default' }}" class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if band_boundaries.customised }}">
-                        {{ 'customised' if band_boundaries.customised else 'default' }}
-                    </span>
+                    <span class="pf-hint" data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if band_boundaries.customised else 'default' }}">{{ 'customised' if band_boundaries.customised else 'default' }}</span>
                 </span>
-                <span class="pf-dc-calib__pair">
-                    <input type="number" step="1" min="1" max="9"
-                           name="{{ band_boundaries.lower.name }}"
-                           value="{{ band_boundaries.lower.value }}"
-                           aria-label="{{ band_boundaries.lower.label }}">
-                    <input type="number" step="1" min="1" max="9"
-                           name="{{ band_boundaries.upper.name }}"
-                           value="{{ band_boundaries.upper.value }}"
-                           aria-label="{{ band_boundaries.upper.label }}">
-                </span>
-                <span data-pf-wd="field-hint" class="pf-dc-calib__hint">{{ band_boundaries.hint }}</span>
+                <div class="pf-grid">
+                    <div class="pf-field pf-field--half">
+                        <input class="pf-input pf-input--num" type="text" inputmode="numeric"
+                               name="{{ band_boundaries.lower.name }}" value="{{ band_boundaries.lower.value }}"
+                               aria-label="{{ band_boundaries.lower.label }}"
+                               {%- if band_boundaries.error or band_boundaries.lower.error %} aria-invalid="true"{% endif %}>
+                    </div>
+                    <div class="pf-field pf-field--half">
+                        <input class="pf-input pf-input--num" type="text" inputmode="numeric"
+                               name="{{ band_boundaries.upper.name }}" value="{{ band_boundaries.upper.value }}"
+                               aria-label="{{ band_boundaries.upper.label }}"
+                               {%- if band_boundaries.error or band_boundaries.upper.error %} aria-invalid="true"{% endif %}>
+                    </div>
+                </div>
+                <span class="pf-hint" data-pf-wd="field-hint">{{ band_boundaries.hint }}</span>
                 {% for message in [band_boundaries.error, band_boundaries.lower.error, band_boundaries.upper.error] if message %}
-                    <span data-pf-wd="field-error" class="pf-dc-calib__field-error" role="alert">{{ message }}</span>
+                    <span class="pf-hint" role="alert" data-pf-wd="field-error">{{ message }}</span>
                 {% endfor %}
             </div>
 
-            <div data-pf-wd="field" data-pf-wd-name="options_min_band" class="pf-dc-calib__field">
-                <span data-pf-wd="field-label" class="pf-dc-calib__label">
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="options_min_band">
+                <label class="pf-label" for="pf-cal-{{ options_gate.name }}" data-pf-wd="field-label">
                     {{ options_gate.label }}
-                    <span data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if options_gate.customised else 'default' }}" class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if options_gate.customised }}">
-                        {{ 'customised' if options_gate.customised else 'default' }}
-                    </span>
-                </span>
-                <select name="{{ options_gate.name }}">
+                    <span class="pf-hint" data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if options_gate.customised else 'default' }}">{{ 'customised' if options_gate.customised else 'default' }}</span>
+                </label>
+                <select class="pf-select" id="pf-cal-{{ options_gate.name }}" name="{{ options_gate.name }}"
+                        {%- if options_gate.error %} aria-invalid="true"{% endif %}>
                     {% for band in options_gate.choices %}
                         <option value="{{ band }}"
                             {% if band == options_gate.value %}selected{% endif %}>
@@ -94,49 +98,48 @@
                         </option>
                     {% endfor %}
                 </select>
-                <span data-pf-wd="field-hint" class="pf-dc-calib__hint">{{ options_gate.hint }}</span>
+                <span class="pf-hint" data-pf-wd="field-hint">{{ options_gate.hint }}</span>
                 {% if options_gate.error %}
-                    <span data-pf-wd="field-error" class="pf-dc-calib__field-error" role="alert">{{ options_gate.error }}</span>
+                    <span class="pf-hint" role="alert" data-pf-wd="field-error">{{ options_gate.error }}</span>
                 {% endif %}
             </div>
         </div>
     </section>
 
-    {# D-WD-25 stop-gap on the existing pf-dc-calib vocabulary; A-6 restyles it. #}
-    <section data-pf-wd="editor-block" data-pf-wd-name="family-warn" class="pf-dc-calib__block">
-        <h3 data-pf-wd="editor-block-heading" class="pf-dc-calib__heading">WARN per family</h3>
-        <p data-pf-wd="editor-block-note" class="pf-dc-calib__note">
+    <section class="pf-settings__group" data-pf-wd="editor-block" data-pf-wd-name="family-warn">
+        <h3 class="pf-settings__title" data-pf-wd="editor-block-heading">WARN per family</h3>
+        <p class="pf-hint" data-pf-wd="editor-block-note">
             Coverage above this percentage of a ceiling, or a signal above this percentage of its trigger threshold, is WARN for every subject of the family. Empty follows the WARN default above. Strictly between 50 and 100.
         </p>
-        <div class="pf-dc-calib__fields">
+        <div class="pf-grid">
             {% for f in family_warns %}
                 {% include "_partials/watch_desk_calibration_field.html" %}
             {% endfor %}
         </div>
     </section>
 
-    <section data-pf-wd="editor-block" data-pf-wd-name="deltas" class="pf-dc-calib__block">
-        <h3 data-pf-wd="editor-block-heading" class="pf-dc-calib__heading">Re-trigger &Delta; per family</h3>
-        <p data-pf-wd="editor-block-note" class="pf-dc-calib__note">
+    <section class="pf-settings__group" data-pf-wd="editor-block" data-pf-wd-name="deltas">
+        <h3 class="pf-settings__title" data-pf-wd="editor-block-heading">Re-trigger &Delta; per family</h3>
+        <p class="pf-hint" data-pf-wd="editor-block-note">
             How far a subject's magnitude must move, within an unchanged
             band, before it is worth raising again. The four signal families
             are calibratable before their producers land — the values simply
             wait.
         </p>
-        <div class="pf-dc-calib__fields">
+        <div class="pf-grid">
             {% for f in deltas %}
                 {% include "_partials/watch_desk_calibration_field.html" %}
             {% endfor %}
         </div>
     </section>
 
-    <section data-pf-wd="editor-block" data-pf-wd-name="floors" class="pf-dc-calib__block">
-        <h3 data-pf-wd="editor-block-heading" class="pf-dc-calib__heading">Floors</h3>
-        <p data-pf-wd="editor-block-note" class="pf-dc-calib__note">
+    <section class="pf-settings__group" data-pf-wd="editor-block" data-pf-wd-name="floors">
+        <h3 class="pf-settings__title" data-pf-wd="editor-block-heading">Floors</h3>
+        <p class="pf-hint" data-pf-wd="editor-block-note">
             The minimum final urgency each trigger raises to, on the 1–10
             scale.
         </p>
-        <div class="pf-dc-calib__fields">
+        <div class="pf-grid">
             {% for f in floors %}
                 {% include "_partials/watch_desk_calibration_field.html" %}
             {% endfor %}
@@ -144,47 +147,44 @@
             {# The pinned level. No input element at all: not submittable,
                rather than submittable-but-styled-as-locked. The write path
                refuses the key too — it has no column to be stored in. #}
-            <div data-pf-wd="field" data-pf-wd-name="pinned" data-pf-wd-state="locked" class="pf-dc-calib__field pf-dc-calib__field--locked">
-                <span data-pf-wd="field-label" class="pf-dc-calib__label">
+            <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="pinned" data-pf-wd-state="locked">
+                <span class="pf-label" data-pf-wd="field-label">
                     {{ pinned.label }}
-                    <span data-pf-wd="marker" data-pf-wd-state="locked" class="pf-dc-calib__marker pf-dc-calib__marker--locked">locked</span>
+                    <span class="pf-hint" data-pf-wd="marker" data-pf-wd-state="locked">locked</span>
                 </span>
-                <span data-pf-wd="pinned-value" class="pf-dc-calib__locked-value">
-                    Pinned at {{ pinned.value }} — not calibration
-                </span>
-                <span data-pf-wd="field-hint" class="pf-dc-calib__hint">{{ pinned.rationale }}</span>
+                <p class="pf-hint" data-pf-wd="pinned-value">Pinned at {{ pinned.value }} — not calibration</p>
+                <span class="pf-hint" data-pf-wd="field-hint">{{ pinned.rationale }}</span>
             </div>
         </div>
     </section>
 
-    <section data-pf-wd="editor-block" data-pf-wd-name="caps" class="pf-dc-calib__block">
-        <h3 data-pf-wd="editor-block-heading" class="pf-dc-calib__heading">Caps</h3>
-        <p data-pf-wd="editor-block-note" class="pf-dc-calib__note">
+    <section class="pf-settings__group" data-pf-wd="editor-block" data-pf-wd-name="caps">
+        <h3 class="pf-settings__title" data-pf-wd="editor-block-heading">Caps</h3>
+        <p class="pf-hint" data-pf-wd="editor-block-note">
             The maximum final urgency, keyed by both source and trigger; a
             finding's effective cap is the lower of the two.
         </p>
-        <div class="pf-dc-calib__fields">
+        <div class="pf-grid">
             {% for f in caps %}
                 {% include "_partials/watch_desk_calibration_field.html" %}
             {% endfor %}
         </div>
     </section>
 
-    <label data-pf-wd="field" data-pf-wd-name="notes" class="pf-dc-calib__notes">
-        <span data-pf-wd="field-label" class="pf-dc-calib__label">Note on this revision</span>
-        <input type="text" name="notes" value="{{ notes }}" maxlength="500"
-               placeholder="Why this calibration was changed (optional)">
-    </label>
+    <div class="pf-grid">
+        <div class="pf-field pf-field--full" data-pf-wd="field" data-pf-wd-name="notes">
+            <label class="pf-label" for="pf-cal-notes" data-pf-wd="field-label">Note on this revision</label>
+            <input class="pf-input" id="pf-cal-notes" type="text" name="notes" value="{{ notes }}" maxlength="500"
+                   placeholder="Why this calibration was changed (optional)">
+        </div>
+    </div>
 
-    {# The SAA save-bar *pattern* — an explicit save with a dirty state —
-       but not its `.save-bar` class: that one is `position: fixed` and
-       would float a bar over the whole app from inside a long-scroll
-       section. #}
-    <div data-pf-wd="savebar" class="pf-dc-calib__savebar" role="region" aria-label="Save controls">
-        <button data-pf-wd="save" type="submit" class="pf-dc-btn pf-dc-btn--primary" disabled>
-            Save calibration
-        </button>
-        <span data-pf-wd="save-status" class="pf-dc-calib__savebar-status">No changes</span>
+    {# The form's outcome bar (A1e rule, D-A6-68). The SAA save-bar *pattern*
+       — an explicit save with a dirty state — but not its `.save-bar`
+       class: that one is `position: fixed`. #}
+    <div class="pf-actionbar" data-pf-wd="savebar">
+        <button type="submit" class="pf-btn" data-pf-wd="save" disabled>Save calibration</button>
+        <p class="pf-actionbar__hint" data-pf-wd="save-status">No changes</p>
     </div>
 </form>
 
@@ -192,17 +192,17 @@
 /* Dirty-state save bar, mirroring the SAA configuration pattern. Purely a
    guard against an accidental empty revision — every revision is immutable
    and audited, so a no-op save is noise in the history. The server decides
-   what is valid; this only decides whether the button is offered. */
+   what is valid; this only decides whether the button is offered. The
+   status text is the state. */
 (function () {
     const form = document.getElementById("dc-calibration-editor");
     if (!form || form.dataset.dirtyWired === "1") return;
     form.dataset.dirtyWired = "1";
-    const button = form.querySelector(".pf-dc-calib__savebar button");
-    const status = form.querySelector(".pf-dc-calib__savebar-status");
+    const button = form.querySelector('[data-pf-wd="save"]');
+    const status = form.querySelector('[data-pf-wd="save-status"]');
     form.addEventListener("input", function () {
         button.disabled = false;
         status.textContent = "Unsaved changes";
-        status.classList.add("pf-dc-calib__savebar-status--dirty");
     });
 })();
 </script>

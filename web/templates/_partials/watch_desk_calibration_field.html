@@ -1,6 +1,7 @@
-{# One calibration editor field (ADR-0116 §7). Included with `f` bound to a
-   field dict from `_calibration_field`: name, label, value, customised,
-   hint, error, placeholder, marker_off.
+{# One calibration editor field (ADR-0116 §7), a half-width pf-field in the
+   block's pf-grid. Included with `f` bound to a field dict from
+   `_calibration_field`: name, label, value, customised, hint, error,
+   placeholder, marker_off.
 
    The marker states **provenance**, not the value: the input always shows
    the effective figure, and "default" means only that no stored column
@@ -11,20 +12,21 @@
    An inheriting field (the family WARN group, ADR-0133 §3.4) is the one
    exception: its input shows the stored value or a blank, `placeholder`
    shows the inherited value, and `marker_off` reads "inherits" instead of
-   "default". `placeholder` is rendered only when set. #}
-<label data-pf-wd="field" data-pf-wd-name="{{ f.name }}" class="pf-dc-calib__field">
-    <span data-pf-wd="field-label" class="pf-dc-calib__label">
+   "default". `placeholder` is rendered only when set.
+
+   A text field, never a native number field (R10). #}
+<div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="{{ f.name }}">
+    <label class="pf-label" for="pf-cal-{{ f.name }}" data-pf-wd="field-label">
         {{ f.label }}
-        <span data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if f.customised else f.marker_off }}" class="pf-dc-calib__marker{{ ' pf-dc-calib__marker--on' if f.customised }}">
-            {{ 'customised' if f.customised else f.marker_off }}
-        </span>
-    </span>
-    <input type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}"
-           {%- if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
+        <span class="pf-hint" data-pf-wd="marker" data-pf-wd-state="{{ 'customised' if f.customised else f.marker_off }}">{{ 'customised' if f.customised else f.marker_off }}</span>
+    </label>
+    <input class="pf-input pf-input--num" id="pf-cal-{{ f.name }}" type="text" inputmode="decimal" name="{{ f.name }}" value="{{ f.value }}"
+           {%- if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}
+           {%- if f.error %} aria-invalid="true"{% endif %}>
     {% if f.hint %}
-        <span data-pf-wd="field-hint" class="pf-dc-calib__hint">{{ f.hint }}</span>
+        <span class="pf-hint" data-pf-wd="field-hint">{{ f.hint }}</span>
     {% endif %}
     {% if f.error %}
-        <span data-pf-wd="field-error" class="pf-dc-calib__field-error" role="alert">{{ f.error }}</span>
+        <span class="pf-hint" role="alert" data-pf-wd="field-error">{{ f.error }}</span>
     {% endif %}
-</label>
+</div>

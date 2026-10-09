@@ -29,3 +29,28 @@
         {% include "areas/_section.html" %}
     {% endwith %}
 </div>
+
+<script>
+(function () {
+    "use strict";
+
+    var area = document.querySelector('[data-area="watch_desk"]');
+    if (!area || area.dataset.wdBound === "1") return;
+    area.dataset.wdBound = "1";
+
+    // D-UX-A6-8: a refused save answers 422 with the re-rendered form and
+    // its reason — the cadence popover, the calibration editor, a preset and
+    // a switch (web/routes/watch_desk.py). HTMX does not swap error
+    // responses by default, so the reason would never reach the operator —
+    // allow the swap for exactly this status, on exactly the Watch points
+    // view (D-A6-72): the Briefing's resolve 422 targets the whole feed and
+    // keeps HTMX's default (Q-UX-S-A6-19).
+    area.addEventListener("htmx:beforeSwap", function (event) {
+        if (event.detail.xhr && event.detail.xhr.status === 422 &&
+                event.detail.target && event.detail.target.closest("#calibration")) {
+            event.detail.shouldSwap = true;
+            event.detail.isError = false;
+        }
+    });
+})();
+</script>

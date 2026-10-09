@@ -8,10 +8,11 @@
  * avoid cascade collisions with the other section components.
  *
  * Rule groups below read in render order: area shell, toolbar, actions,
- * journal, calibration. Keep new rules inside their group. The
- * Briefing's tiles, calm state, cards, Possible moves and derivation groups
- * left with A6-a1, and the monitor, its drawers and the watchpoint form and
- * history with A6-a2: those surfaces are drawn from pf_components.css now. */
+ * journal. Keep new rules inside their group. The Briefing's tiles, calm
+ * state, cards, Possible moves and derivation groups left with A6-a1, the
+ * monitor, its drawers and the watchpoint form and history with A6-a2, and
+ * the Calibration section — rows, editor, cadence panel and watchpoint
+ * list — with A6-b: those surfaces are drawn from pf_components.css now. */
 
 /* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
  * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
@@ -61,9 +62,35 @@
  * the slot cell, which the family pads to nothing; this gives it room. */
 .pf-watch-desk .pf-table .pf-table { margin: var(--ui-space-2) 0; }
 
+/* --- A-6 scoped residue: the Watch points view (P-UX-A6-b) -----------------
+ * Record question Q-UX-S-A6-20: the mockup's `is-pending` row — the family
+ * whose switch-off awaits its R7 confirmation — has no pf-setting state. */
+.pf-watch-desk .pf-setting[data-pf-wd-state="pending"] { background: var(--ui-background-secondary); }
+/* Record question Q-UX-S-A6-9 (as for the Briefing): the view's blocks stack
+ * with the gap the mockup sets inline; the vocabulary has no stack primitive. */
+.pf-watch-desk .pf-settings[data-pf-wd="calibration"] { display: flex; flex-direction: column; gap: var(--ui-space-5); }
+/* Record question Q-UX-S-A6-21: pf-note has no actions slot (the mockup's
+ * pf-note__acts is not in the tree). The R7 acts sit in the note's third
+ * column side by side, a form each on the family rows. */
+.pf-watch-desk .pf-note > div { display: flex; align-items: center; gap: var(--ui-space-2); }
+.pf-watch-desk .pf-note > div > form { margin: 0; }
+/* Record question Q-UX-S-A6-24: pf-popover stacks its children, but the
+ * schedule popover's one child is the form its swap re-renders; the form
+ * lends the popover its children so the family's gap reaches them. */
+.pf-watch-desk .pf-popover > form { display: contents; }
+/* Record question Q-UX-S-A6-22: pf-check carries the form stack's top margin,
+ * which sets it off the popover foot's centre line. */
+.pf-watch-desk .pf-popover__foot .pf-check { margin-top: 0; }
+/* Record question Q-UX-S-A6-23: pf-more is prose on demand, and its `p` rule
+ * outranks the zero margins of the families Advanced tuning holds. */
+.pf-watch-desk .pf-more .pf-note__lead, .pf-watch-desk .pf-more .pf-note__sub, .pf-watch-desk .pf-more .pf-actionbar__hint { margin: 0; }
+/* Record question Q-UX-S-A6-10: the list's second slot is the hidden R7 retire
+ * row, never empty, which the shared :has() writer reads as an open drawer.
+ * An empty drawer slot over a hidden retire row keeps the closed look. */
+.pf-watch-desk .pf-table__row:not(:hover):has(+ .pf-table__slot > td:empty):has(+ .pf-table__slot + .pf-table__slot[hidden]) td { background: transparent; border-bottom-color: var(--ui-border-soft); }
+
 .pf-dc-briefing,
-.pf-dc-journal,
-.pf-dc-calibration {
+.pf-dc-journal {
     max-width: 1100px;
 }
 
@@ -86,21 +113,6 @@
     margin-bottom: 0;
 }
 
-.pf-dc-request {
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 7px 14px;
-    font-size: 0.85rem;
-    cursor: pointer;
-}
-
-.pf-dc-request:hover {
-    border-color: var(--ui-accent-primary);
-    color: var(--ui-accent-primary);
-}
-
 .pf-dc-request-result {
     margin: 0;
     font-size: 0.85rem;
@@ -117,30 +129,6 @@
     display: flex;
     gap: 8px;
     margin-bottom: 10px;
-}
-
-.pf-dc-btn {
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    cursor: pointer;
-}
-
-.pf-dc-btn:hover {
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-dc-btn--primary {
-    background: var(--ui-accent-primary);
-    color: var(--ui-accent-on-accent);
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-dc-btn--primary:hover {
-    background: var(--ui-accent-primary-hover);
 }
 
 /* --- Journal ------------------------------------------------------- */
@@ -249,165 +237,10 @@ a.pf-dc-res-tag:hover {
     color: var(--ui-text-disabled);
 }
 
-/* --- Calibration + cadence ----------------------------------------- */
+/* --- Journal leftovers of the Calibration vocabulary -------------------- */
 
-/* Read-only threshold facts from the Floor Config. Rules lifted from the
- * mock (~L141-145); DC5 audited the tokens. As with the DC1
- * tiles, the mock's hard-coded label colour (`#E6E6E6`) is deliberately
- * NOT copied: it is invisible on the light theme's section background, and
- * `--ui-text-primary` is the accent here — so the label follows the house
- * small-caps pattern (`--ui-text-secondary`, cf. `.pf-dc-journal__table th`)
- * and is distinguished typographically rather than by hue. */
-
-.calib-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(200px, 1fr));
-    gap: 10px;
-}
-
-@media (max-width: 900px) {
-    .calib-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.calib-cell {
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 10px 12px;
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-}
-
-.calib-cell b {
-    display: block;
-    color: var(--ui-text-secondary);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 4px;
-    font-weight: 600;
-}
-
-.pf-dc-calibration__cadence {
-    margin-top: 26px;
-}
-
-.pf-dc-calibration__cadence-heading {
-    font-size: 0.95rem;
-    margin: 0 0 4px;
-    color: var(--ui-text-primary);
-}
-
-.pf-dc-calibration__note {
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-    margin: 0 0 10px;
-}
-
-.pf-dc-cadence__fields {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: flex-end;
-    margin-bottom: 12px;
-}
-
-.pf-dc-cadence__field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-cadence__field--check {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-}
-
-.pf-dc-cadence__field select,
-.pf-dc-cadence__field input[type="text"] {
-    padding: 5px 7px;
-    background: var(--ui-background-primary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-    min-width: 150px;
-}
-
-/* Anchor-hour semantics for the sub-daily cadences (ADR-0119 §3) — one
-   quiet line under the field row, not a per-field caption, so the
-   flex-end alignment of the row itself stays undisturbed. */
-.pf-dc-cadence__hint {
-    font-size: 0.8rem;
-    color: var(--ui-text-secondary);
-    margin: 0 0 12px;
-    max-width: 62ch;
-}
-
-.pf-dc-cadence__footer {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-
-.pf-dc-cadence__next {
-    font-size: 0.8rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-cadence__flash {
-    font-size: 0.85rem;
-    color: var(--ui-semantic-success);
-    margin: 0 0 8px;
-}
-
-.pf-dc-cadence__error {
-    font-size: 0.85rem;
-    color: var(--ui-semantic-error);
-    margin: 0 0 8px;
-}
-
-/* --- The sensitivity affordance on the watchpoint list (ADR-0116 §6) --- */
-
-/* The monitor's muted tag, flag, drawer slot and drawer left with A6-a2
- * (pf-state, pf-hint, pf-table__slot, pf-panel); the button below is still
- * drawn by the Watch points list and the family rows until A6-b. */
-
-.pf-dc-sensitivity__open {
-    background: none;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 3px 9px;
-    font-size: 0.74rem;
-    color: var(--ui-text-secondary);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.pf-dc-sensitivity__open:hover {
-    border-color: var(--ui-accent-primary);
-}
-
-/* --- Calibration editor (ADR-0116 §7) ------------------------------- */
-
-/* The provenance marker is typographic, never chromatic: "customised" is
- * a fact about storage, not a warning, and colouring it would read as
- * one. Only the locked marker departs, because it marks something the
- * operator cannot act on at all. */
-
-.pf-dc-calib__block {
-    margin-bottom: 22px;
-}
-
-.pf-dc-calib__heading {
-    font-size: 0.88rem;
-    margin: 0 0 4px;
-    color: var(--ui-text-secondary);
-}
+/* The Calibration section left this vocabulary with A6-b; the Journal's
+ * filters and note still draw this one rule until A6-j. */
 
 .pf-dc-calib__note {
     font-size: 0.8rem;
@@ -416,155 +249,14 @@ a.pf-dc-res-tag:hover {
     max-width: 60ch;
 }
 
-.pf-dc-calib__fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 14px;
-}
-
-.pf-dc-calib__field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 9px 11px;
-}
-
-.pf-dc-calib__field--locked {
-    border-style: dashed;
-}
-
-.pf-dc-calib__label {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    justify-content: space-between;
-}
-
-.pf-dc-calib__marker {
-    font-size: 0.66rem;
-    text-transform: none;
-    letter-spacing: 0;
-    font-weight: 400;
-    font-style: italic;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-calib__marker--on {
-    font-style: normal;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-calib__marker--locked {
-    font-style: normal;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-calib__field input[type="text"],
-.pf-dc-calib__field input[type="number"],
-.pf-dc-calib__field select,
-.pf-dc-calib__notes input[type="text"] {
-    padding: 5px 7px;
-    background: var(--ui-background-primary);
-    color: var(--ui-text-primary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-    width: 100%;
-}
-
-.pf-dc-calib__pair {
-    display: flex;
-    gap: 8px;
-}
-
-.pf-dc-calib__locked-value {
-    font-size: 0.82rem;
-    color: var(--ui-text-disabled);
-    padding: 5px 0;
-}
-
-.pf-dc-calib__hint {
-    font-size: 0.71rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-calib__field-error {
-    font-size: 0.75rem;
-    color: var(--ui-semantic-error);
-}
-
-.pf-dc-calib__notes {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-width: 520px;
-    margin-bottom: 16px;
-}
-
-.pf-dc-calib__flash {
-    font-size: 0.85rem;
-    color: var(--ui-semantic-success);
-    margin: 0 0 10px;
-}
-
-.pf-dc-calib__error {
-    font-size: 0.85rem;
-    color: var(--ui-semantic-error);
-    margin: 0 0 10px;
-    max-width: 70ch;
-}
-
-.pf-dc-calib__savebar {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding-top: 10px;
-    border-top: 1px solid var(--ui-border-default);
-}
-
-.pf-dc-calib__savebar-status {
-    font-size: 0.8rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-dc-calib__savebar-status--dirty {
-    color: var(--ui-semantic-warning);
-}
-
 /* The Scenarios placeholder rules retired with the stub itself (ADR-0104
    §8). Their successors live in components/planning_desk.css, where
    Feature #034 re-anchors. */
 
-/* --- Watchpoint list leftovers of the signal monitor (ADR-0116 §4, §6) -- */
+/* --- Collapsed remainder ------------------------------------------------ */
 
-/* The monitor's signal tags, gauges, group header, footer and add button
- * left with A6-a2. Three rules stay, because the Watch points list and the
- * Journal still draw them until A6-b/j. */
-
-/* A no-data row is *visually distinct from calm*, which is the whole
- * point of having it: absence of data must never read as reassurance
- * (ADR-0116 §4). Dashed and neutral; the list's retired tag wears it. */
-.tag--nodata {
-    color: var(--ui-text-disabled);
-    border-style: dashed;
-    border-color: var(--ui-text-disabled);
-}
-
-/* The subject key beside the operator's own label: present for the audit
- * trail, quiet enough not to compete with the name. */
-.pf-dc-monitor__subject {
-    display: block;
-    font-size: 0.7rem;
-    color: var(--ui-text-disabled);
-}
+/* The list's retired tag and subject key left with A6-b; the Journal's day
+ * and briefing disclosures still draw this rule until A6-j. */
 
 /* A collapsed remainder. Collapsed, never hidden — the summary states the
  * count and expands on demand. */
@@ -573,49 +265,4 @@ a.pf-dc-res-tag:hover {
     font-size: 0.78rem;
     color: var(--ui-text-disabled);
     padding: 4px 0;
-}
-
-/* --- Watchpoint list (ADR-0116 §7) ----------------------------------- */
-
-/* The history panel and the watchpoint form left with A6-a2 (pf-panel). */
-
-.pf-dc-calibration__watchpoints {
-    margin-bottom: 22px;
-}
-
-.pf-dc-wplist__table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.84rem;
-}
-
-.pf-dc-wplist__table th {
-    text-align: left;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-disabled);
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-}
-
-.pf-dc-wplist__table td {
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--ui-border-default);
-    vertical-align: top;
-}
-
-.pf-dc-wplist__table .pf-dc-sensitivity__slot > td {
-    padding: 0;
-    border-bottom: none;
-}
-
-.pf-dc-wplist__actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.pf-dc-wplist__retired {
-    margin-top: 12px;
 }

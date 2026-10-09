@@ -1,62 +1,86 @@
-{# Calibration section body (ADR-0089; renamed from Watchlist per DC4/D5;
-   grown into the tenant calibration editor per ADR-0116 §7).
+{# The Watch points view (ADR-0133 §2–§4; ADR-0116 §7; M-WD-1 v2), served
+   under the Calibration slug until A6-s renames the section.
 
-   Three panels, in this order: the calibration editor (what the beat is
-   calibrated to), the watchpoint list (what it watches), and the cadence
-   panel (when it runs). The three read-only `calib-cell` facts that used to
-   sit on top are superseded by the editor — they stated three of the values
-   it now renders editable, and keeping them would be a second, staler view
-   of the same numbers.
+   The clock is the view head's ``#calibration-asof``, filled out of band as
+   the Briefing fills ``#briefing-asof`` (watch_desk_briefing.html): the head
+   is rendered by areas/_section.html and no contiguous swap from here can
+   reach it. This context carries no last-check stamp, so the clock states
+   the schedule half only (D-A6-60, Q-UX-S-A6-16): the arc while checks run
+   on a cadence, the dot alone while a cadence is set but checks are
+   disabled, the track alone before a cadence is set. "Change" opens the
+   check-schedule popover, which is the cadence surface (D-UX-A6-4); the
+   cadence form keeps ``#dc-cadence-panel`` as its swap target, so a save or
+   a refusal re-renders inside the open popover.
 
-   Each panel posts to its own endpoint and swaps its own target, so none of
-   them can clobber another.
-
-   The cadence caption states only the instruction. Its earlier wording also
-   carried the ADR-0086 rationale — that cadence is a domain calibration
-   interface for the heartbeat, not a deployment artifact — which is
-   background the operator does not need on screen while setting one; it is
-   kept in ``save_cadence``'s docstring and in the ADR, so do not restore it
-   here as a missing rationale.
+   The body, in this order: the Watch points rows (what is watched and how
+   nervously), Advanced tuning (the calibration editor, owner only), the
+   watchpoint list (what this tenant watches, one row per live identity).
+   Each posts to its own endpoint and swaps its own target, so none of them
+   can clobber another.
 
    The editor is owner-only (D-WD-18): for any other role the route never
    builds its context and `calibration_owner_only` is true, so a one-line
-   notice takes its place. The watchpoint list and the cadence panel stay
-   rendered for every role — members may read this page and mute.
+   notice takes its place inside the disclosure. The rows, the watchpoint
+   list and the schedule render for every role — members may read this page
+   and mute.
 
    Context: calibration_owner_only, the editor context (see
    _calibration_context; owner only), the Watch points rows context (see
-   _family_rows; ADR-0133, D-WD-25 stop-gap), the watchpoint list context
-   (see _watchpoint_list_context) and the cadence-panel context (see
-   _cadence_context). #}
-<div data-pf-wd="calibration" class="pf-dc-calibration">
-    {# The Watch points rows sit first (ADR-0133 §2.2–2.5): what is watched
-       and how nervously, before the tuning beneath. D-WD-25 stop-gap
-       partial; A-6 restyles it on M-WD-1. #}
+   _family_rows), the watchpoint list context (see _watchpoint_list_context)
+   and the cadence context (see _cadence_context). #}
+<span id="calibration-asof" class="pf-view__asof pf-fresh" hx-swap-oob="outerHTML" data-pf-wd="clock">
+    <svg class="pf-fresh__ring" viewBox="0 0 20 20" aria-hidden="true">
+        <circle class="pf-fresh__track" cx="10" cy="10" r="8"/>
+        {%- if current.configured and current.enabled %}
+        <path class="pf-fresh__arc" d="M10 2a8 8 0 1 1 0 16a8 8 0 1 1 0-16"/>
+        {%- endif %}
+        {%- if current.configured %}
+        <circle class="pf-fresh__dot" cx="10" cy="10" r="2"/>
+        {%- endif %}
+    </svg>
+    <span data-pf-wd="next-check">
+        {%- if current.configured -%}
+            next {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') if current.next_due_at else 'due now' }} · {{ cadence_labels[current.cadence] }}{% if not current.enabled %} · checks disabled{% endif %}
+        {%- else -%}
+            no cadence set
+        {%- endif -%}
+    </span>
+    <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-wd="clock-change"
+            aria-expanded="false" aria-controls="dc-cadence-panel"
+            hx-on:click="const p=document.getElementById('dc-cadence-panel'); p.hidden=!p.hidden; this.setAttribute('aria-expanded', String(!p.hidden))">Change</button>
+    <div class="pf-popover" id="dc-cadence-panel" hidden data-pf-wd="cadence-popover">
+        {% include "_partials/watch_desk_cadence_panel.html" %}
+    </div>
+</span>
+<div class="pf-settings" data-pf-wd="calibration">
+    <div>
+        {# The view's name until A6-s retitles the section (D-A6-74). #}
+        <h2 class="pf-block__title" data-pf-wd="family-rows-heading">Watch points</h2>
+        <p class="pf-hint" data-pf-wd="family-rows-note">
+            Everything the checks can watch, and how nervously. A watch point
+            that is off is not evaluated, not listed on the Briefing, and not
+            mentioned in the briefing text. Markets and press on macro and
+            regulator are always read.
+        </p>
+    </div>
+
     {% include "_partials/watch_desk_family_rows.html" %}
 
-    <p data-pf-wd="tuning-note" class="pf-dc-calibration__note">
-        What the beat considers material, for this tenant. Fields show the
-        value in force; “default” means no override is stored, so a later
-        change to the platform default still reaches you.
-    </p>
-
-    {% if calibration_owner_only %}
-        <p data-pf-wd="owner-only-note" class="pf-dc-calibration__note" role="note">Advanced tuning is managed by the tenant owner.</p>
-    {% else %}
-        {% include "_partials/watch_desk_calibration_editor.html" %}
-    {% endif %}
-
-    <section data-pf-wd="watchpoints-section" class="pf-dc-calibration__watchpoints">
-        {% include "_partials/watch_desk_watchpoint_list.html" %}
-    </section>
-
-    <section data-pf-wd="cadence-section" class="pf-dc-calibration__cadence">
-        <h3 data-pf-wd="cadence-heading" class="pf-dc-calibration__cadence-heading">Cadence</h3>
-        <p data-pf-wd="cadence-note" class="pf-dc-calibration__note">
-            Set the timeframe for the analysis beat.
+    <details class="pf-more" data-pf-wd="tuning">
+        <summary>Advanced tuning <span class="pf-hint">band boundaries, floors and caps, re-trigger thresholds, the options gate · owner only</span></summary>
+        <p class="pf-hint" data-pf-wd="tuning-note">
+            What the check considers material, for this tenant. Fields show
+            the value in force; “default” means no override is stored, so a
+            later change to the platform default still reaches you.
         </p>
-        <div id="dc-cadence-panel">
-            {% include "_partials/watch_desk_cadence_panel.html" %}
-        </div>
-    </section>
+        {% if calibration_owner_only %}
+            <div class="pf-note pf-note--info" role="note" data-pf-wd="owner-only-note">{{ pf_icon("info") }}<p class="pf-note__lead">Advanced tuning is managed by the tenant owner.</p></div>
+        {% else %}
+            {% include "_partials/watch_desk_calibration_editor.html" %}
+        {% endif %}
+    </details>
+
+    {% include "_partials/watch_desk_watchpoint_list.html" %}
+
+    <p class="pf-hint" data-pf-wd="family-rows-foot">Every change is a dated revision with your name.</p>
 </div>

@@ -1809,8 +1809,8 @@ async def test_calibration_renders_the_editor_on_effective_values(
     assert wd_count(body, "marker") >= 29
     assert "customised" not in body
 
-    # The cadence panel is still rendered inline, unchanged.
-    assert 'id="dc-cadence-panel"' in body
+    # The cadence panel is the clock's popover in the view head (D-UX-A6-4).
+    assert 'id="dc-cadence-panel"' in wd_block(body, "clock")
 
 
 async def test_calibration_renders_the_pinned_invariants_locked(
@@ -2658,6 +2658,7 @@ async def test_calibration_renders_without_any_tenant_data(
     # The cadence panel degrades to its default rather than erroring.
     assert 'id="dc-cadence-panel"' in body
     assert "Not yet configured." in body
+    assert wd_text(wd_block(body, "clock"), "next-check") == "no cadence set"
 
 
 # ---------------------------------------------------------------------------
@@ -4285,6 +4286,13 @@ def _family_row(section: str, family: str) -> str:
     return wd_block(section, "family-row", data_family=family)
 
 
+def _assert_preset(row: str, key: str, label: str, *, checked: bool) -> None:
+    """Assert one preset segment: its radio's checked state and its label (D-A6-65)."""
+    radio = wd_block(row, "preset-button", value=key)
+    assert (wd_attr(radio, "checked") is not None) is checked
+    assert f'<label for="{wd_attr(radio, "id")}">{label}</label>' in row
+
+
 async def _scope_rows(engine: AsyncEngine, family: str) -> list:
     async with engine.connect() as conn:
         return list(
@@ -4320,11 +4328,11 @@ async def test_watch_points_rows_render_every_family_and_the_pacing_placeholder(
     assert "Allocation limits (SAA)" in section
     assert "Stale valuations (NAV freshness)" in section
     saa = _family_row(section, "saa")
-    assert "/api/watch-desk/families/saa/switch" in saa
-    btn = wd_block(saa, "preset-button", value="standard")
-    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Standard"
-    btn = wd_block(saa, "preset-button", value="nervous")
-    assert wd_attr(btn, "aria-pressed") == "false" and wd_text(btn) == "Nervous"
+    assert wd_attr(wd_block(saa, "switch-button"), "hx-post") == (
+        "/api/watch-desk/families/saa/switch"
+    )
+    _assert_preset(saa, "standard", "Standard", checked=True)
+    _assert_preset(saa, "nervous", "Nervous", checked=False)
     rss = _family_row(section, "rss")
     assert "switch only" in rss
     assert "/preset" not in rss
@@ -4371,8 +4379,9 @@ async def test_switching_off_asks_first_and_writes_nothing(
     # No valued positions: the breach read says so rather than claiming calm.
     assert "Current breaches could not be read" in section
     assert "Back Office › Limits continues to show them." in section
-    # The switch is still on, and nothing was written.
+    # The switch is still on, its row pending, and nothing was written.
     assert 'data-family="saa" data-enabled="on"' in section
+    assert wd_attr(_family_row(section, "saa"), "data-pf-wd-state") == "pending"
     assert await _scope_rows(fresh_superuser_engine, "saa") == []
     assert "Irene" not in section
 
@@ -4495,10 +4504,8 @@ async def test_a_preset_round_trips_through_calibration_and_scope(
     )
     assert response.status_code == 200
     saa = _family_row(_family_rows_section(_flat(response.text)), "saa")
-    btn = wd_block(saa, "preset-button", value="nervous")
-    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Nervous"
-    btn = wd_block(saa, "preset-button", value="standard")
-    assert wd_attr(btn, "aria-pressed") == "false" and wd_text(btn) == "Standard"
+    _assert_preset(saa, "nervous", "Nervous", checked=True)
+    _assert_preset(saa, "standard", "Standard", checked=False)
     assert 'data-family="saa" data-enabled="on"' in _family_rows_section(_flat(response.text))
 
     async with fresh_superuser_engine.connect() as conn:
@@ -4527,8 +4534,7 @@ async def test_a_preset_round_trips_through_calibration_and_scope(
     )
     assert back.status_code == 200
     saa = _family_row(_family_rows_section(_flat(back.text)), "saa")
-    btn = wd_block(saa, "preset-button", value="standard")
-    assert wd_attr(btn, "aria-pressed") == "true" and wd_text(btn) == "Standard"
+    _assert_preset(saa, "standard", "Standard", checked=True)
     assert await _table_count(fresh_superuser_engine, "floor_calibration") == 2
 
 
@@ -4585,8 +4591,11 @@ async def test_members_read_the_rows_but_cannot_switch_or_preset_while_mute_stay
     section = _family_rows_section(_flat(page.text))
     assert "Watch points are managed by the tenant owner." in section
     assert "/api/watch-desk/families/" not in section
+    assert "hx-post" not in section
     assert 'data-family="saa" data-enabled="on"' in section
-    assert "Standard" in _family_row(section, "saa")
+    saa = _family_row(section, "saa")
+    assert wd_attr(wd_block(saa, "switch-button"), "disabled") == ""
+    assert wd_text(saa, "preset-label") == "Standard"
 
     switched = await web_client.post(
         "/api/watch-desk/families/saa/switch",

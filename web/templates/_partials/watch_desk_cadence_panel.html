@@ -1,26 +1,34 @@
-{# Cadence settings panel (ADR-0089) — the one editable calibration
-   surface in v0. Posts to /api/watch-desk/cadence and swaps back
-   into #dc-cadence-panel. Context (via _cadence_context): csrf_token,
-   cadence_choices, cadence_labels, hours,
+{# The check schedule (ADR-0089, ADR-0119), rendered inside the Watch points
+   clock's popover (D-UX-A6-4: the cadence hangs on the clock). Posts to
+   /api/watch-desk/cadence and swaps back into #dc-cadence-panel — the
+   popover itself — so a save or a 422 re-renders the form inside the open
+   popover. The title sits inside the form for that reason: the swap
+   replaces the popover's whole content.
+
+   The view has no primary (D-A6-61): Save is a default button.
+
+   Context (via _cadence_context): csrf_token, cadence_choices,
+   cadence_labels, hours,
    current{cadence,preferred_hour,timezone,enabled,next_due_at,configured},
    cadence_saved, cadence_error. #}
-<form data-pf-wd="cadence-form" class="pf-dc-cadence"
+<form data-pf-wd="cadence-form"
       hx-post="/api/watch-desk/cadence"
       hx-target="#dc-cadence-panel"
       hx-swap="innerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="pf-popover__title">Check schedule</div>
 
     {% if cadence_saved %}
-        <p data-pf-wd="cadence-flash" class="pf-dc-cadence__flash" role="status">Cadence saved.</p>
+        <div class="pf-note pf-note--info" role="status" data-pf-wd="cadence-flash">{{ pf_icon("info") }}<p class="pf-note__lead">Cadence saved.</p></div>
     {% endif %}
     {% if cadence_error %}
-        <p data-pf-wd="cadence-error" class="pf-dc-cadence__error" role="alert">{{ cadence_error }}</p>
+        <div class="pf-note pf-note--block" role="alert" data-pf-wd="cadence-error">{{ pf_icon("block") }}<p class="pf-note__lead">{{ cadence_error }}</p></div>
     {% endif %}
 
-    <div class="pf-dc-cadence__fields">
-        <label data-pf-wd="field" data-pf-wd-name="cadence" class="pf-dc-cadence__field">
-            <span class="pf-dc-cadence__label">Cadence</span>
-            <select name="cadence">
+    <div class="pf-grid">
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="cadence">
+            <label class="pf-label" for="pf-cadence-cadence">Every</label>
+            <select class="pf-select" id="pf-cadence-cadence" name="cadence">
                 {% for choice in cadence_choices %}
                     <option value="{{ choice }}"
                         {% if choice == current.cadence %}selected{% endif %}>
@@ -28,11 +36,11 @@
                     </option>
                 {% endfor %}
             </select>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="preferred_hour" class="pf-dc-cadence__field">
-            <span class="pf-dc-cadence__label">Anchor hour</span>
-            <select name="preferred_hour">
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="preferred_hour">
+            <label class="pf-label" for="pf-cadence-hour">Anchored at</label>
+            <select class="pf-select" id="pf-cadence-hour" name="preferred_hour">
                 {% for hour in hours %}
                     <option value="{{ hour }}"
                         {% if hour == current.preferred_hour %}selected{% endif %}>
@@ -40,38 +48,38 @@
                     </option>
                 {% endfor %}
             </select>
-        </label>
+        </div>
 
-        <label data-pf-wd="field" data-pf-wd-name="timezone" class="pf-dc-cadence__field">
-            <span class="pf-dc-cadence__label">Timezone</span>
-            <input type="text" name="timezone" value="{{ current.timezone }}">
-        </label>
-
-        <label data-pf-wd="field" data-pf-wd-name="enabled" class="pf-dc-cadence__field pf-dc-cadence__field--check">
-            <input type="checkbox" name="enabled"
-                   {% if current.enabled %}checked{% endif %}>
-            <span class="pf-dc-cadence__label">Enabled</span>
-        </label>
+        <div class="pf-field pf-field--half" data-pf-wd="field" data-pf-wd-name="timezone">
+            <label class="pf-label" for="pf-cadence-timezone">Timezone</label>
+            <input class="pf-input" id="pf-cadence-timezone" type="text" name="timezone" value="{{ current.timezone }}">
+        </div>
     </div>
 
-    <p data-pf-wd="cadence-hint" class="pf-dc-cadence__hint">
-        Sub-daily cadences beat at the anchor hour and every interval from
+    <p class="pf-hint" data-pf-wd="cadence-hint">
+        Sub-daily cadences check at the anchor hour and every interval from
         it — an anchor of 08:00 on “Every 6 hours” means 02:00, 08:00,
         14:00 and 20:00 in the timezone set here.
     </p>
 
-    <div class="pf-dc-cadence__footer">
-        <button data-pf-wd="cadence-save" type="submit" class="pf-dc-btn pf-dc-btn--primary">
-            Save cadence
-        </button>
-        {% if current.next_due_at %}
-            <span data-pf-wd="cadence-next" class="pf-dc-cadence__next">
-                Next beat due: {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }}
-            </span>
-        {% elif current.configured %}
-            <span data-pf-wd="cadence-next" class="pf-dc-cadence__next">Next beat scheduled.</span>
-        {% else %}
-            <span data-pf-wd="cadence-next" class="pf-dc-cadence__next">Not yet configured.</span>
-        {% endif %}
+    {% if current.next_due_at %}
+        <span class="pf-hint" data-pf-wd="cadence-next">next check {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }}</span>
+    {% elif current.configured %}
+        <span class="pf-hint" data-pf-wd="cadence-next">Next check scheduled.</span>
+    {% else %}
+        <span class="pf-hint" data-pf-wd="cadence-next">Not yet configured.</span>
+    {% endif %}
+
+    <div class="pf-popover__foot">
+        <button type="submit" class="pf-btn pf-btn--sm" data-pf-wd="cadence-save">Save</button>
+        {# Scoped to this clock: the Briefing's head carries a clock-change
+           link too, and it comes first in the document (D-A6-76). #}
+        <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm"
+                hx-on:click="const p=this.closest('.pf-popover'); p.hidden=true; p.parentElement.querySelector('[data-pf-wd=clock-change]').setAttribute('aria-expanded','false')">Keep</button>
+        <label class="pf-check" data-pf-wd="field" data-pf-wd-name="enabled">
+            <input type="checkbox" name="enabled"
+                   {% if current.enabled %}checked{% endif %}>
+            Checks enabled
+        </label>
     </div>
 </form>

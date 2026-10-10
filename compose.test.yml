@@ -1,0 +1,49 @@
+# Postgres for the test suite, held in RAM (ADR-0135).
+#
+# A separate Compose project from compose.yml: its own container, its own
+# loopback port, and a data directory on tmpfs instead of a volume. Nothing
+# it holds survives a stop, which is the point — the suite truncates every
+# domain table before and after each test, and on a volume those writes go to
+# the disk. The test run migrates the empty cluster to head on its first
+# connection (tests/_test_database.py), so a fresh start needs no setup.
+#
+# Usage:
+#   podman compose -f compose.test.yml up -d     # start (empty, in RAM)
+#   podman compose -f compose.test.yml down      # stop; its data is gone
+#
+# The credentials are fixed, loopback-only test literals, not secrets; the
+# test suite's defaults in tests/_test_database.py carry the same values.
+# compose.yml — the development and installed database — is untouched.
+
+name: portfoliflow-test
+
+services:
+  postgres-test:
+    image: docker.io/library/postgres:16
+    container_name: portfoliflow-postgres-test
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_test
+      POSTGRES_DB: portfoliflow_test
+      # Consumed by db/init/01-create-app-role.sh on every start, because
+      # every start is a first start on tmpfs.
+      APP_DB_PASSWORD: app_test
+    ports:
+      # Bind to loopback only. If you change the port, set
+      # TEST_DATABASE_URL and TEST_DATABASE_URL_SUPERUSER to match.
+      - "127.0.0.1:${POSTGRES_TEST_PORT:-5433}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=2g,mode=0700
+    volumes:
+      - ./db/postgresql.conf:/etc/postgresql/postgresql.conf:ro,Z
+      - ./db/init:/docker-entrypoint-initdb.d:ro,Z
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d portfoliflow_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

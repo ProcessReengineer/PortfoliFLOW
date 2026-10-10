@@ -42,10 +42,31 @@ development database; never run it against data you want to keep.
 | Path | Purpose |
 | --- | --- |
 | `compose.yml` *(repo root)* | Container definition, port binding, volume mounts, healthcheck. |
+| `compose.test.yml` *(repo root)* | The test suite's own container: data in tmpfs (RAM), port 5433, same config and init script (ADR-0135). See below. |
 | `db/postgresql.conf` | Custom Postgres config overrides, mounted read-only. Currently empty. |
 | `db/init/01-create-app-role.sh` | Creates the unprivileged `portfoliflow_app` role on first start. |
 | `db/alembic.ini` | Alembic configuration (URL, script location). |
 | `db/migrations/` | Alembic `env.py` plus the `versions/` directory of migrations. |
+
+## The test database
+
+The test suite does not use this development database. It runs against a
+second container, `portfoliflow-postgres-test`, whose data directory is a
+tmpfs mount — the suite's truncate-heavy writes stay in RAM and never reach
+the disk (ADR-0135):
+
+```bash
+podman compose -f compose.test.yml up -d     # start, empty
+podman compose -f compose.test.yml down      # stop; everything in it is gone
+```
+
+It is a separate Compose project (`portfoliflow-test`) on `127.0.0.1:5433`,
+with fixed loopback-only test credentials and the same `postgresql.conf` and
+`init/` script, which runs on every start because every start is a first
+start. A test run migrates it to head on its first connection and needs no
+bootstrap. The restart policy is `always`; with
+`systemctl --user enable podman-restart.service` rootless Podman starts it
+again after a reboot. Details: `docs/testing.md` ("The database").
 
 ## The `init/` directory
 
@@ -171,8 +192,9 @@ run without the flag exits non-zero. The command also refuses to run
 when `DATABASE_URL_SUPERUSER` does not target `portfoliflow_dev`,
 guarding against a `.env` mistakenly pointing at a non-dev database.
 
-Use this when manual experiments or interrupted tests have left the
-dev DB in a half-configured state. For a non-destructive snapshot of
+Use this when manual experiments have left the dev DB in a
+half-configured state. (Test runs no longer touch it; they use the test
+database above.) For a non-destructive snapshot of
 the current state (schema head, sentinel status, user count, AI
 service configuration), use `portfoliflow status` instead.
 

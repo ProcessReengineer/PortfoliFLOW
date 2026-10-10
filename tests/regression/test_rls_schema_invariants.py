@@ -182,7 +182,8 @@ async def test_portfoliflow_app_role_does_not_bypass_rls(
     assert role is not None, (
         "portfoliflow_app role is missing. db/init/01-create-app-role.sh "
         "should have created it on first container start. Run "
-        "`podman compose down -v && podman compose up -d` to re-run init."
+        "`podman compose -f compose.test.yml down && "
+        "podman compose -f compose.test.yml up -d` to re-run init."
     )
     assert not role["rolbypassrls"], (
         "portfoliflow_app must NOT have BYPASSRLS — the whole point of RLS "

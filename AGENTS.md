@@ -215,8 +215,10 @@ If a task asks you to break one of these rules, stop and say why.
   Ruff's line length is 100.
   Pyright covers only the typing islands listed under `[tool.pyright]` in
   `pyproject.toml`.
-- A database-backed test run empties the development database. Afterwards,
-  restore it with `portfoliflow bootstrap`.
+- Database-backed tests run against the RAM-held test container
+  (`compose.test.yml`, port 5433), never the development database
+  (ADR-0135). Start it with `podman compose -f compose.test.yml up -d`; a run
+  migrates it to head itself and leaves the development database untouched.
 - Never run two database-backed pytest processes at once — not even two
   single modules. `tests/conftest.py` stops the second run at its first
   database connection; do not work around it.

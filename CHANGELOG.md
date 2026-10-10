@@ -23,6 +23,12 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ### Changed
 
+- Database-backed tests run against their own PostgreSQL container with its
+  data in RAM (`compose.test.yml`, port 5433; ADR-0135), never the
+  development database. A run migrates it to head by itself, no longer
+  empties the development database, and no longer needs a
+  `portfoliflow bootstrap` afterwards. Start it with
+  `podman compose -f compose.test.yml up -d`.
 - The Watch Desk's three views — Briefing, Watch points (the former
   Calibration) and Journal — are drawn from the shared component vocabulary:
   the check clock in the view head with the cadence behind it, the watch list

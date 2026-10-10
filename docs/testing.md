@@ -50,16 +50,39 @@ pytest -m "not integration and not timing" tests/regression
 
 ## The database
 
-Database-backed tests run against the development PostgreSQL container
-(`compose.yml`) and need `DATABASE_URL` and `DATABASE_URL_SUPERUSER` in `.env`
-(see `.env.example`).
+Database-backed tests run against **their own PostgreSQL container, held in
+RAM** (`compose.test.yml`, ADR-0135), never against the development database
+of `compose.yml`. Start it once per session; it listens on `127.0.0.1:5433`:
 
-- **A run empties the development database.** An autouse fixture truncates
-  every domain table before and after each database-backed test
-  (`tests/_db_fixtures.py`). After any such run, restore the seed with
-  `portfoliflow bootstrap`, and create a member user with
-  `portfoliflow create-user` before any browser walk (both commands are
-  described in `docs/operator-handbook.md`).
+```sh
+podman compose -f compose.test.yml up -d      # empty, in RAM
+podman compose -f compose.test.yml down       # stop; its data is gone
+```
+
+- **The suite points itself at the test database.** Importing
+  `tests/conftest.py` sets `DATABASE_URL` and `DATABASE_URL_SUPERUSER` to the
+  test container's URLs before any test module loads
+  (`tests/_test_database.py`), so the application, the fixtures and every
+  subprocess (Alembic, the CLI) see only the test database. The URLs default
+  to the values in `compose.test.yml`; `TEST_DATABASE_URL` and
+  `TEST_DATABASE_URL_SUPERUSER` (environment or `.env`, both or neither)
+  override them. A run whose test URLs name the development database of
+  `.env` stops before collection. On a checkout with no `DATABASE_URL*` at
+  all, nothing is set and the database-bound modules skip, as in the fast
+  CI tier.
+- **The run migrates the test database itself.** The container keeps its
+  data in tmpfs, so every start is an empty cluster. The first database
+  connection of a run, once it holds the run lock, runs
+  `alembic upgrade head` (about a second when already at head). A failed
+  migration stops the run. No bootstrap is needed: the tests seed what they
+  use.
+- **A run empties the test database, not the development one.** An autouse
+  fixture truncates every domain table before and after each
+  database-backed test (`tests/_db_fixtures.py`). The development database
+  keeps its data; no `portfoliflow bootstrap` is needed after a run.
+- **Why RAM.** Those truncations are the bulk of the suite's database writes.
+  On a volume they wear the disk; in tmpfs they cost neither wear nor
+  `fsync`, and the database-backed tiers run several times faster.
 - **Never run two database-backed pytest processes at once.** The second
   truncates the schema under the first. Typical symptoms are a spurious
   `303` where a `200` was expected (the session the first run created is
@@ -72,23 +95,28 @@ Database-backed tests run against the development PostgreSQL container
   a connection takes no lock. While the container is up, every module under
   `tests/services/` opens one, because the package conftest makes the
   truncating fixture autouse. Other database clients are not covered: do not
-  run `portfoliflow bootstrap` or another database command during a test
-  run.
-- **A skip is not a pass.** With the two URLs unset, database-bound modules
-  skip at module level; with the container unreachable, each database-bound
-  test skips with a reason that begins `Cannot reach Postgres`. A green run
-  proves the database half only if its log contains no such skip.
+  point another database command at the test container during a test run.
+  Commands against the development database (`portfoliflow bootstrap`, the
+  web server) no longer collide with a run.
+- **A skip is not a pass.** With no database configured, database-bound
+  modules skip at module level; with the test container not running, most
+  database-bound tests skip with a reason that begins `Cannot reach Postgres`
+  and some modules error instead. A green run proves the database half only
+  if its log contains no such skip. The usual cause is a test container that
+  was not started.
 - The migration-roundtrip guards in `tests/regression` run on per-test scratch
   databases and leave the service database at head
   (`tests/regression/conftest.py`).
 
 ## Running the full suite locally
 
-A full run takes about two hours on the development machine; `tests/web`
-alone accounts for roughly 85 minutes. Treat it as a session of its own.
+A full run took about two hours on the development machine while the tests
+used the disk-backed development database; on the RAM-held test container
+(ADR-0135) it takes well under one. Treat it as a session of its own.
 
-1. Start the database container and confirm that no other pytest process is
-   running (`pgrep -af pytest` prints nothing).
+1. Start the test container (`podman compose -f compose.test.yml up -d`)
+   and confirm that no other pytest process is running (`pgrep -af pytest`
+   prints nothing).
 2. From the repository root, launch the two workflow steps detached, with all
    output written **outside** the repository:
 
@@ -115,7 +143,8 @@ alone accounts for roughly 85 minutes. Treat it as a session of its own.
    logs: no `Cannot reach Postgres` skip and no `XPASS`. JUnit files record an
    expected failure as a skip, so their `skipped` attribute reads one higher
    per xfail than the console summary.
-5. Restore the database with `portfoliflow bootstrap`.
+5. Nothing to restore: the run used the test container, and the
+   development database is untouched.
 
 ## Deliberately kept skips and expected failures
 

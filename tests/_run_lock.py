@@ -3,7 +3,7 @@
 
 """A Postgres advisory lock that keeps database-backed pytest runs apart.
 
-Database-backed tests truncate the shared development database before and
+Database-backed tests truncate the shared test database before and
 after every test (``tests/_db_fixtures.py`` and the module-local truncate
 lists in ``tests/web``). Two such runs at once truncate the schema under each
 other. The symptoms are a spurious ``303`` where a ``200`` was expected, and an

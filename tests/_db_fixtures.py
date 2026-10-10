@@ -80,7 +80,7 @@ async def superuser_engine() -> AsyncGenerator[AsyncEngine, None]:
         await engine.dispose()
         pytest.skip(
             f"Cannot reach Postgres at {redacted_url(DATABASE_URL_SUPERUSER)!r}: {exc}. "
-            "Is the compose container running? `podman compose up -d`.",
+            "Is the test container running? `podman compose -f compose.test.yml up -d`.",
             allow_module_level=False,
         )
     try:

@@ -47,6 +47,10 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://portfoliflow_app:app_dev_password_change_me@localhost:5432/portfoliflow_dev
       DATABASE_URL_SUPERUSER: postgresql+asyncpg://postgres:postgres_ci@localhost:5432/portfoliflow_dev
+      # The suite runs against TEST_DATABASE_URL*, never DATABASE_URL* (ADR-0135).
+      # CI has one throwaway service database, so both pairs name it.
+      TEST_DATABASE_URL: postgresql+asyncpg://portfoliflow_app:app_dev_password_change_me@localhost:5432/portfoliflow_dev
+      TEST_DATABASE_URL_SUPERUSER: postgresql+asyncpg://postgres:postgres_ci@localhost:5432/portfoliflow_dev
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

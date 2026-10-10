@@ -1022,3 +1022,38 @@
     color: var(--ui-text-primary);
     white-space: pre-wrap;
 }
+
+/* Band and resolution tags on the case detail and its origin embed (moved from components/watch_desk.css with P-UX-A6-s1; the Journal left them with A6-j). Strand A-3 retires them onto pf-state. */
+.pf-cases .pf-dc-band-tag,
+.pf-cases .pf-dc-res-tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 1px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--ui-border-default);
+    color: var(--ui-text-secondary);
+}
+
+.pf-cases .pf-dc-band-tag--critical {
+    border-color: var(--ui-accent-primary);
+    color: var(--ui-accent-primary);
+}
+
+.pf-cases .pf-dc-band-tag--noteworthy {
+    border-color: var(--ui-semantic-warning);
+    color: var(--ui-semantic-warning);
+}
+
+.pf-cases .pf-dc-res-tag--opened_case,
+.pf-cases .pf-dc-res-tag--closed {
+    border-color: var(--ui-semantic-info);
+    color: var(--ui-semantic-info);
+}
+
+.pf-cases a.pf-dc-res-tag {
+    text-decoration: none;
+}
+
+.pf-cases a.pf-dc-res-tag:hover {
+    background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
+}

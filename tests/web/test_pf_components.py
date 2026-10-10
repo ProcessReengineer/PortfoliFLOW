@@ -535,3 +535,60 @@ def test_the_transactions_stylesheet_declares_no_tx_class() -> None:
     assert selectors, "the sheet declares nothing at all"
     for selector in selectors:
         assert selector.startswith(".pf-transactions"), selector
+
+
+# ---------------------------------------------------------------------------
+# The second Area that has swept itself (UX A-6, P-UX-A6-s1)
+# ---------------------------------------------------------------------------
+
+
+_WD_PARTIALS = _REPO_ROOT / "web" / "templates" / "_partials"
+_WD_LEGACY_CLASS = re.compile(r'class="[^"]*\bpf-dc-')
+
+
+def test_the_watch_desk_partials_carry_no_legacy_class() -> None:
+    """Strand UX A-6 ends with every Watch Desk surface on the vocabulary.
+
+    P-UX-A6-a1 through P-UX-A6-j moved the Briefing, the watch list and its
+    drawers, the Watch points rows, the cadence popover, the tuning editor,
+    the watchpoint list and the Journal onto `pf-*`. The `pf-dc-*` sheet is
+    gone, so a `pf-dc-` class here would be a rule with no stylesheet behind
+    it. Ids (`#dc-…`) are HTMX targets and route contracts, not classes, and
+    are deliberately excluded.
+    """
+    offenders = {
+        path.name: sorted(set(_WD_LEGACY_CLASS.findall(path.read_text(encoding="utf-8"))))
+        for path in sorted(_WD_PARTIALS.glob("watch_desk_*.html"))
+        if _WD_LEGACY_CLASS.search(path.read_text(encoding="utf-8"))
+    }
+    assert offenders == {}, offenders
+
+
+def test_the_watch_desk_stylesheet_is_scoped_residue() -> None:
+    """Its residue is scoped rules over shared families, and nothing else.
+
+    Every rule is one line, `selector { declarations }`, scoped to the Area
+    root; the groups' comments name the record questions that retire them.
+    Comments are stripped first, as for the Transactions sheet.
+    """
+    source = _CSS_DIR / "components" / "watch_desk.css"
+    stripped = re.sub(r"/\*.*?\*/", "", source.read_text(encoding="utf-8"), flags=re.S)
+    assert ".pf-dc-" not in stripped, [line for line in stripped.splitlines() if ".pf-dc-" in line]
+    selectors = [
+        part.strip()
+        for group in re.findall(r"(?m)^([^{};]+?)\s*\{", stripped)
+        for part in group.split(",")
+    ]
+    assert selectors, "the sheet declares nothing at all"
+    for selector in selectors:
+        assert selector.startswith(".pf-watch-desk"), selector
+
+
+def test_the_watch_desk_partials_draw_no_native_number_field() -> None:
+    """R10: the Area's three `type="number"` fields are gone (P-UX-A6-b)."""
+    offenders = sorted(
+        path.name
+        for path in _WD_PARTIALS.glob("watch_desk_*.html")
+        if 'type="number"' in path.read_text(encoding="utf-8")
+    )
+    assert not offenders, f"R10 is not held in {offenders}"

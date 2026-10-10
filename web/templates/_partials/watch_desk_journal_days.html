@@ -63,10 +63,12 @@
                             {# The written briefing, closed on load (D-A6-87). #}
                             <tr data-pf-wd="briefing-disclosure" class="pf-table__slot" id="journal-briefing-{{ entry.id }}" hidden>
                                 <td colspan="7">
-                                    <p data-pf-wd="briefing-markets"><strong>Markets and press.</strong> {{ entry.text_markets }}</p>
-                                    {% if entry.text_watch %}
-                                        <p data-pf-wd="briefing-watch"><strong>Under observation.</strong> {{ entry.text_watch }}</p>
-                                    {% endif %}
+                                    <div data-pf-wd="briefing-text">
+                                        <p data-pf-wd="briefing-markets"><strong>Markets and press.</strong> {{ entry.text_markets }}</p>
+                                        {% if entry.text_watch %}
+                                            <p data-pf-wd="briefing-watch"><strong>Under observation.</strong> {{ entry.text_watch }}</p>
+                                        {% endif %}
+                                    </div>
                                     <div data-pf-wd="briefing-archive" class="pf-sources"><span>Archived as written; never edited.</span></div>
                                     {# The in-place hand-off (ADR-0133 §6). #}
                                     {% with briefing_id = entry.id %}

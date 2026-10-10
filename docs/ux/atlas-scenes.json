@@ -254,5 +254,53 @@
       {"wait": "#tx-wizard-context"}
     ],
     "shot": "wizard-step-3"
+  },
+  {
+    "name": "watch-desk-briefing",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "briefing",
+    "steps": [
+      {"wait": "#dc-briefing-latest"},
+      {"wait": "#dc-monitor"}
+    ],
+    "shot": "briefing"
+  },
+  {
+    "name": "watch-desk-briefing-watch-list-open",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "briefing",
+    "steps": [
+      {"wait": "#dc-monitor"},
+      {"click": "#wl-saa button[aria-controls=\"wl-saa-slot\"]"},
+      {"wait": "#wl-saa-slot"}
+    ],
+    "shot": "briefing-watch-list-open"
+  },
+  {
+    "name": "watch-desk-watch-points",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "calibration",
+    "steps": [
+      {"wait": "#dc-family-rows"},
+      {"wait": "#dc-watchpoint-list"}
+    ],
+    "shot": "watch-points"
+  },
+  {
+    "name": "watch-desk-journal",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "journal",
+    "steps": [
+      {"wait": "#dc-journal"}
+    ],
+    "shot": "journal"
   }
 ]

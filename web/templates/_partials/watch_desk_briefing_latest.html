@@ -33,10 +33,12 @@
         {% endif %}
     </div>
     {% if briefing.state == 'written' %}
-        <p id="dc-briefing-markets" data-pf-wd="briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
-        {% if briefing.text_watch %}
-            <p id="dc-briefing-watch" data-pf-wd="briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
-        {% endif %}
+        <div data-pf-wd="briefing-text">
+            <p id="dc-briefing-markets" data-pf-wd="briefing-markets"><strong>Markets and press.</strong> {{ briefing.text_markets }}</p>
+            {% if briefing.text_watch %}
+                <p id="dc-briefing-watch" data-pf-wd="briefing-watch"><strong>Under observation.</strong> {{ briefing.text_watch }}</p>
+            {% endif %}
+        </div>
         {% if briefing.sources %}
             {# R12 provenance line: what the writer was handed, from the
                persisted inputs — never re-read live. #}

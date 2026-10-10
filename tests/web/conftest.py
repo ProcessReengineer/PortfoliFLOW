@@ -311,7 +311,7 @@ def _wd_where(where: dict[str, str]) -> dict[str, str]:
     return {key.replace("_", "-"): value for key, value in where.items()}
 
 
-def wd(name: str, **companions: str) -> str:
+def wd(name: str, /, **companions: str) -> str:
     """The hook attribute literal for one Watch Desk element.
 
     Builds the exact attribute run the partials render, so a test can ask
@@ -324,6 +324,7 @@ def wd(name: str, **companions: str) -> str:
 
     Args:
         name: The hook name (``data-pf-wd`` value).
+            Positional-only, so the ``name`` companion can be passed as a keyword.
         **companions: Companion values keyed by suffix — ``state``,
             ``count``, ``kind``, ``name`` or ``subject``.
 

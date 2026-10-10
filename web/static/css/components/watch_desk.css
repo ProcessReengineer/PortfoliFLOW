@@ -1,20 +1,12 @@
-/* Watch Desk (ADR-0089).
+/* Watch Desk (ADR-0089) — A-6's scoped residue.
  *
- * Calm-by-default. Band colours are deliberately RESTRAINED — a small,
- * quiet palette keyed off the finding band, not a loud red-amber-green
- * alarm board. `informational` is the quietest (neutral border, no fill);
- * `noteworthy` is a slightly warmer neutral; `critical` alone gets the
- * accent crimson, used sparingly. All classes are prefixed `.pf-dc-` to
- * avoid cascade collisions with the other section components.
- *
- * Rule groups below read in render order. The Briefing's tiles, calm
- * state, cards, Possible moves and derivation groups left with A6-a1, the
- * monitor, its drawers and the watchpoint form and history with A6-a2, the
- * Calibration section — rows, editor, cadence panel and watchpoint list —
- * with A6-b, and the Journal — filters, day groups, rows and the briefing
- * disclosure — with A6-j: those surfaces are drawn from pf_components.css
- * now. What remains is the A-6 scoped residue and Cases' tag group, which
- * A-3 owns. */
+ * Every Watch Desk surface is drawn from pf_components.css: the Briefing,
+ * the watch list and its drawers, the Watch points view and the Journal.
+ * What remains here, in the transactions.css model, is scoped residue only:
+ * every rule is `.pf-watch-desk`-scoped, one line each, and each group names
+ * the record question (`Q-UX-S-A6-n`) whose answer retires it. The `pf-dc`
+ * vocabulary left in A6-a1, A6-a2, A6-b and A6-j; Cases' two tags went to
+ * components/cases.css with A6-s1. No `pf-dc` class exists any more. */
 
 /* --- A-6 scoped residue: Watch Desk states of the shared pf-state family -----
  * Record question Q-UX-S-A6-1: ui-standards §2.6.1 names seven states plus
@@ -104,50 +96,11 @@
  * the controls' centre line; the Kind seg takes the selects' height. */
 .pf-watch-desk .pf-filters [data-pf-wd="journal-note"] { margin-left: auto; align-self: center; max-width: 60ch; }
 .pf-watch-desk .pf-filters .pf-seg { height: calc(var(--ui-control-input-height) - 4px); }
-
-/* --- Cases' tags (A-3) ----------------------------------------------------
- * Restrained band / resolution tags. The Journal left them with A6-j (its
- * rows draw pf-state now); cases_detail.html and cases_detail_origin.html
- * still draw the two classes, so the group stays until A-3 restyles Cases.
- * `a.pf-dc-res-tag` has no linking user left, but it is a state of a class
- * that has one and stays with its group. */
-.pf-dc-band-tag,
-.pf-dc-res-tag {
-    display: inline-block;
-    font-size: 0.72rem;
-    padding: 1px 7px;
-    border-radius: 3px;
-    border: 1px solid var(--ui-border-default);
-    color: var(--ui-text-secondary);
-}
-
-.pf-dc-band-tag--critical {
-    border-color: var(--ui-accent-primary);
-    color: var(--ui-accent-primary);
-}
-
-.pf-dc-band-tag--noteworthy {
-    border-color: var(--ui-semantic-warning);
-    color: var(--ui-semantic-warning);
-}
-
-/* The fifth resolution (ADR-0107, C4 rider 2) and the closed-case marker:
- * toned as quiet siblings of the neutral res-tag, keyed to "informational"
- * blue rather than an alarm colour — a hand-over and a documented close are
- * calm outcomes, not warnings. Used on the case detail and its origin
- * embed. */
-.pf-dc-res-tag--opened_case,
-.pf-dc-res-tag--closed {
-    border-color: var(--ui-semantic-info);
-    color: var(--ui-semantic-info);
-}
-
-/* res-tags that link (an opened_case finding → its case, a closed-case row →
- * the case) keep the tag look — no underline, the tag colour wins. */
-a.pf-dc-res-tag {
-    text-decoration: none;
-}
-
-a.pf-dc-res-tag:hover {
-    background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
-}
+/* Record question Q-UX-S-A6-31: a reading measure and a scroll container for
+ * long prose (D-A6-108). The written briefing — on the Briefing view and in
+ * the Journal slot — keeps the 78ch measure pf-panel__sub and pf-more p use,
+ * and scrolls inside its wrapper past half the viewport; the record names only
+ * pf-scroll-x. The paragraphs drop the slot's pf-more p measure so the text
+ * is not narrowed twice. */
+.pf-watch-desk [data-pf-wd="briefing-text"] { max-width: 78ch; max-height: 50vh; overflow-y: auto; }
+.pf-watch-desk [data-pf-wd="briefing-text"] > p { max-width: none; }

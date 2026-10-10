@@ -155,8 +155,8 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
     # anchor; Feature #034 re-anchors on the Planning Desk below.
     "watch_desk": (
         SectionMeta(slug="briefing", title="Briefing"),
+        SectionMeta(slug="calibration", title="Watch points"),
         SectionMeta(slug="journal", title="Journal"),
-        SectionMeta(slug="calibration", title="Calibration"),
     ),
     # Two stacked sections, one parameter set, two lenses (ADR-0104 §6).
     "planning_desk": (

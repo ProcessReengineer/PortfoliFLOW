@@ -22,6 +22,7 @@ owns it. Values are never restated — they are generated from
 | Component vocabulary | `web/static/css/components/pf_components.css` | The one set of classes every surface builds from (§4). |
 | Legacy component sheets | `web/static/css/components/*.css` | Per-area sheets, migrating onto §4 strand by strand. |
 | A finished migration's residue | `web/static/css/components/transactions.css` | What is left when an Area has moved: 150 lines, **no `tx-` class rule at all**. Nine groups, each scoped to `.pf-transactions`, each painting a *shared* family in a state or at a measurement the record does not name — the five mono-holdout ids; a `pf-field` holding a control; a missing fact on `pf-context` and its input form on `pf-field`; a choice that refuses; the gap between a note and a filter bar; `pf-leg`'s 124 px type track; and the negative-cash wrapper's margin with its `:empty` collapse. Every group names the record answer that retires it. |
+| A second finished migration's residue | `web/static/css/components/watch_desk.css` | What is left when the Watch Desk has moved: 106 lines, **no `pf-dc-` class rule at all**, 35 one-line rules in five groups, each scoped to `.pf-watch-desk`, each painting a *shared* family in a state the record does not name and each group naming the `Q-UX-S-A6-n` that retires it — ten `pf-state` states the Watch Desk needs (calm, approaching, triggered, breach, critical, informational, nodata, muted, resolved, ok/warn); the Briefing's stack gaps and the standing note's measure; a `pf-table` slot rendered with the page and closed by `hidden`, its closed look scoped back; a triggered signal meter toned off its hook; a nested `pf-table`'s room in a slot; a pending `pf-setting`; the R7 acts in a `pf-note`'s third column; a `pf-popover` holding one form; `pf-more` as a container; prose and an action in a slot; a trailing note and a `pf-seg` in `pf-filters`; a reading measure with a scroll for long prose. |
 | Projection family | `pf_components.css` — `pf-lenses`, `pf-lens__title`, `pf-delta` + `__label` / `__before` / `__arrow` / `__after` / `__flag` | Before → after across several lenses: **one grid per lens**, five cells a row so the columns line up down a lens, and the tone on the flag and nowhere else. Transcribed from the record for the Transactions impact panel; one user. |
 | Chart theme | `config/chart_theme*.json` → `services/chart_specs/_theme.py` | Series colours, canvas, axes. **Not UI tokens** (§2.8). |
 | Icons | `web/icons.py` (`ICONS`, `pf_icon`), `web/static/vendor/lucide/` | One vendored open-source set, inlined as SVG at 16 px / 1.5 px stroke. |
@@ -66,7 +67,7 @@ Record §2, one rule per line, with the product's implementation beside it.
 | 3 | Content column max 1664 px; administrative lists and forms at 960 px. | `--ui-layout-content-max` on `.pf-main`; `.pf-narrow` exists, no user yet — strand A-4. |
 | 4 | Layout responds to the **content column**, never the viewport; minimum 1280 px. | **Not yet** — `.pf-main` declares no container (§5.4). The first *layout-level* consequence has arrived: the impact panel's three lens columns do not collapse inside a table slot. Measured at 1280 px the two-column form is comfortable (824 px main column, 264 px fields); the case that hurts, 968 px, is already below the minimum this rule answers for and is the nav auto-collapse's to fix, not a component's. |
 | 5 | Chart triplet: 3 across, else 2+1, stacked below 684 px. | **Not yet** — strand A-5 (Front Office). |
-| 6 | **R5** Detail opens in a slot row under the row; a sub-surface with a crumb for creation; `<dialog>` only off-view and for the command search. No side panel — the right edge is Shirley's. | The command palette is the one `<dialog>`; slot rows are the Transactions anatomy (`#tx-detail-{id}`). |
+| 6 | **R5** Detail opens in a slot row under the row; a sub-surface with a crumb for creation; `<dialog>` only off-view and for the command search. No side panel — the right edge is Shirley's. | The command palette is the one `<dialog>`; slot rows are the Transactions anatomy (`#tx-detail-{id}`) and the Watch Desk's — the watch list's family slots, the watchpoint list's editor and retire slots, the Journal's briefing slot. |
 | 7 | Depth by surface — chrome / work area / panel / raised — with one border colour; no card inside a card. | Four `--ui-background-*` tokens, one `--ui-border-default`. |
 | 8 | The status bar stays: area, tenant, activities, source link, build id, config state. | `statusbar.html`; the activities list is **not yet** — strand A-5. |
 
@@ -74,12 +75,12 @@ Record §2, one rule per line, with the product's implementation beside it.
 
 | # | Rule | Implementation |
 |---|---|---|
-| 1 | One button family, `pf-btn`: primary · default · quiet · danger (outlined) · icon · sm. It replaces `btn`, `tx-btn`, old `pf-btn`, `pf-dc-btn`. | Declared in full; **58 sites across 25 templates**. **`tx-btn` is gone** — A-1 took it from 40 to 0. `btn` (174 sites, 75 files) and `pf-dc-btn` (9 sites) are still live; each Area strand migrates its own. |
+| 1 | One button family, `pf-btn`: primary · default · quiet · danger (outlined) · icon · sm. It replaces `btn`, `tx-btn`, old `pf-btn`, `pf-dc-btn`. | Declared in full; **91 sites across 41 templates**. **`tx-btn` and `pf-dc-btn` are gone** — A-1 took the one from 40 to 0, A-6 the other from 9 to 0. `btn` is still live (94 sites in 42 files, counted as `class="(?:[^"]*\s)?btn\b`); each Area strand migrates its own. |
 | 2 | **R1** At most one primary per view; the accent never appears inside a repeated item. | Rule stands; enforced per strand, not by code. Pinned in Transactions by six `…_carries_exactly_one_primary` tests over the four composers and the wizard's four steps. The rule reaches **inside a sub-surface**: a panel that opens in a table slot is part of its view, so it offers no primary of its own — the cancel and reverse panels lead with `pf-btn--danger`, and a list never carries the accent. |
-| 3 | Peer answers form a decision set of default buttons; none is primary. | Watch Desk — strand A-6. |
+| 3 | Peer answers form a decision set of default buttons; none is primary. | **Built** — the Watch Desk's findings: Acted · Dismissed · Acknowledged are three default `pf-btn` in `pf-finding__acts`, Open case the quiet one; the view's one primary is Check now in the head's action slot (`watch_desk_card.html`, `watch_desk_briefing_primary.html`). |
 | 4 | Form outcomes in a sticky action bar with a hint sentence; **R3** leading slot for Back. | **Built** — 8 templates. `pf-actionbar` is a **form outcome** bar and never sits inside a `pf-panel`: it is sticky over `--ui-background-primary`, so on a panel's ground it paints a mismatched strip that clings to the viewport while the table scrolls behind it. A panel closes with **`pf-panel__foot`** instead — danger first, then the quiet way out — and R3's leading slot is the action bar's rule, not the foot's, which has no hint to lead. |
 | 5 | The row is the open gesture; at most one quiet secondary; destructive acts in a `<details>` menu. | **Built** — the Blotter and History rows, 2 templates. The gesture sits on the row's **id button**, not on the `<tr>`: a row handler would also swallow the menu's `<summary>` and the quiet secondary beside it. Whether a delegated handler should take the whole row instead is a record question. |
-| 6 | **R7** Confirmation is inline, verbatim, with a danger button. No `confirm()`, `alert()` or `hx-confirm`. | **Built** — the cancel and reverse panels draw `pf-btn--danger` beside a quiet *Keep* in a `pf-panel__foot`; 2 templates. The way out is `this.closest('td').innerHTML = ''` — the panel asks the server nothing to go away, and emptying the cell is also what un-rotates the row's chevron (§2.4.2). |
+| 6 | **R7** Confirmation is inline, verbatim, with a danger button. No `confirm()`, `alert()` or `hx-confirm`. | **Built** — the cancel and reverse panels draw `pf-btn--danger` beside a quiet *Keep* in a `pf-panel__foot`; 2 templates. The way out is `this.closest('td').innerHTML = ''` — the panel asks the server nothing to go away, and emptying the cell is also what un-rotates the row's chevron (§2.4.2). The Watch Desk draws it twice more: switching a family off asks in a `pf-note--warn` beneath the row (Switch off · Keep, the breaches it names verbatim), and Retire… reveals a hidden slot row with the same note; **the tree's last `hx-confirm` went with it** (`watch_desk_family_rows.html`, `watch_desk_watchpoint_list.html`). |
 | 7 | A control the route will refuse is disabled with the refusal as visible text. | `.pf-btn[disabled]`; strand A-4. |
 | 8 | Shirley's Send takes the accent only while the box holds text. | Strand A-7 (Assistants). |
 | 9 | **In the shell** red is the one primary action, the active nav marker, focus and the logo — nothing else. **In charts** the chart theme governs verbatim; red leads there. | `--ui-accent-primary` vs `--chart-colours-primary`; `--ui-text-primary` is neutral since A-0. |
@@ -88,13 +89,13 @@ Record §2, one rule per line, with the product's implementation beside it.
 
 | # | Rule | Implementation |
 |---|---|---|
-| 1 | One table look, `pf-table`: low-contrast header, right-aligned figures, optional sub-line, hover by surface. | **Built** — the Blotter and History, 2 surfaces over 4 templates, with `__row` / `__sub` / `__unit` / `__slot` / `__actions` / `__id` / `pf-num`. |
-| 2 | Detail opens in a slot row under the row; one open at a time per table. | `.pf-table__slot`. **`is-open` is written by CSS, not by script** — `.pf-table__row:has(+ .pf-table__slot > td:not(:empty), + .pf-table__slot + .pf-table__slot > td:not(:empty))` in the component layer, so filling or emptying the cell rotates the chevron with no handler anywhere. The class survives beside the selector for a later script writer. Whether `:has()` is the sanctioned writer is a record question. |
+| 1 | One table look, `pf-table`: low-contrast header, right-aligned figures, optional sub-line, hover by surface. | **Built** — the Blotter, History, the watch list and its two sub-tables, the watchpoint list, the watchpoint history and the Journal: 7 templates, with `__row` / `__sub` / `__unit` / `__slot` / `__actions` / `__id` / `__chev` / `pf-num`. |
+| 2 | Detail opens in a slot row under the row; one open at a time per table. | `.pf-table__slot`. **`is-open` is written by CSS, not by script** — `.pf-table__row:has(+ .pf-table__slot > td:not(:empty), + .pf-table__slot + .pf-table__slot > td:not(:empty))` in the component layer, so filling or emptying the cell rotates the chevron with no handler anywhere. The class survives beside the selector for a later script writer. Whether `:has()` is the sanctioned writer is a record question. The Watch Desk renders a slot **with** the page and closes it with `hidden` (there is no fragment route per family), so the writer reads the filled slot as open and the Area scopes the closed look back — Q-UX-S-A6-10. |
 | 3 | **R6** Leading chevron = expands in place; trailing chevron = navigates. | `.pf-table__chev`. |
 | 4 | Sort state shown in the header and exposed through `aria-sort`. | `.pf-table th[aria-sort]`. |
 | 5 | Plain HTML with HTMX slots is the default engine; Tabulator may stay where client-side sort is needed, skinned the same. | `components/tables.css` skins Tabulator; both engines, one look. |
 | 6 | Signed figures take the sign colour as text; no cell backgrounds; ADR-0062 §2 thresholds stay. | `.pf-table td.pf-pos` / `td.pf-neg`. `pf-neg` had **no user at all** until A-1's last prompt drew it in five templates — four in Transactions plus the investment detail — so it is now inline prose as well as a cell, and ADR-0062 §2's wording question (Q-UX-D-14) is cross-Area and open. `pf-pos` still has none. |
-| 7 | **R6** Grouped table: a disclosing group header row; no interactive content in `<summary>`. `pf-meter` for utilisation cells. | `pf-meter` is **not built** — strand A-6. |
+| 7 | **R6** Grouped table: a disclosing group header row; no interactive content in `<summary>`. `pf-meter` for utilisation cells. | **Built** — `pf-meter` (`__fill`, `__mark`, `--approaching`, `--breach`) on the watch list's quota and signal rows, 2 templates: the fill runs 0 → ceiling and is never rescaled, the mark sits at the WARN fraction in force, a crossing clamps the fill while the figures stay honest, a no-data row draws no meter. The group header is a `pf-table__row` with a chevron button, the group's rows open in its slot (R5); nothing interactive sits in a `<summary>` because the Watch Desk draws no `<details>` for a group. |
 | 8 | Several small forms in one slot share one panel as action groups. | `.pf-acts` / `.pf-act`. |
 | 9 | No selection model in this iteration. | Nothing acts on several rows at once. |
 
@@ -103,25 +104,25 @@ Record §2, one rule per line, with the product's implementation beside it.
 | # | Rule | Implementation |
 |---|---|---|
 | 1 | Labels above, hints below, "(optional)" verbatim, numbers right-aligned. | `.pf-label` / `.pf-hint` / `.pf-optional` / `.pf-input--num`. |
-| 2 | Small exclusive choices are a segmented control; optional groups collapse. | `pf-seg` is **built** — the order composer's Direction, two radios kept as radios; the checked state is carried by ground **and** weight, so §2.11.1 holds with no rule of the Area's. One user. The "optional groups collapse" half is not done anywhere: no group in the book is a `<details>` yet. |
+| 2 | Small exclusive choices are a segmented control; optional groups collapse. | `pf-seg` is **built** — radios kept as radios, the checked state carried by ground **and** weight, so §2.11.1 holds with no rule of the Area's. Three users: the order composer's Direction, the Watch points' sensitivity presets (posting on `change`) and the Journal's Kind filter. The "optional groups collapse" half has its first user: the Watch points' Advanced tuning is a `pf-more` holding the calibration editor. |
 | 3 | Derived figures sit in a sticky summary rail placed by CSS grid; DOM order and `hx-include` unchanged. | **Built** — 4 rails. The rail **is** the recalculation's swap target (`#tx-derived`) and the form's second child, so `.pf-form`'s own `minmax(0, 1fr) 360px` places it with no rule of the Area's — no host wrapper, no `display: contents`. Two consequences hold generally: the settlement block sits **inside** the rail, so one swap covers every block in it; and a facts strip stays in the **main column**, because an element carrying `hx-swap-oob` inside the swap target is lifted out of the fragment before the fragment lands, and the rail would arrive without it. |
 | 4 | **R4** Stepped surfaces: a non-interactive `pf-stepper`; one stable form column. | **Built** — the wizard runs on it: `<ol class="pf-stepper">`, one `aria-current="step"`, and no `hx-`, no `<button>` and no `<a>` between the list's tags. **Authored from the record's specification, not transcribed** — `shared.css` has no stepper family, and its `.pf-step` belongs to the setup checklist (§2.9.2), so the item is `pf-stepper__step`: two families that share a block name share a fate. The column is stable because `.pf-form` declares both tracks on **every** step and only the figure step fills the second. One user. |
 | 5 | Validation: the refusal verbatim, first, inside the surface that caused it; `aria-invalid` and a border, never colour alone. | `.pf-input[aria-invalid="true"]`. |
-| 6 | **R10** Number fields accept both notations, parsed **server-side**; fields become `type="text" inputmode="decimal"`. Dates stay native. | **Done in Transactions.** `core/decimal_input.py` reads both notations into a `Decimal` (never a `float`) and returns `None` for anything it cannot read — the endpoint still refuses nothing. 16 amount fields are `type="text" inputmode="decimal"`; the two vintage **years** are `inputmode="numeric"` with no echo, because a year is not an amount. The recalculation echoes *Read as …* into a `pf-read` slot beside each amount field, and that echo is load-bearing: a **lone** separator reads as the *decimal* separator, so `1,234` is one-point-two-three-four and the operator has to be told. **20 `type="number"` remain outside the Area** — investments 7, planning desk 4, SAA 4, watch desk 3, portfolio analysis 2. Each sweep inherits the parser and owes the **echo** as well: a field that accepts two notations and says nothing is worse than one that accepts one. |
+| 6 | **R10** Number fields accept both notations, parsed **server-side**; fields become `type="text" inputmode="decimal"`. Dates stay native. | **Done in Transactions.** `core/decimal_input.py` reads both notations into a `Decimal` (never a `float`) and returns `None` for anything it cannot read — the endpoint still refuses nothing. 16 amount fields are `type="text" inputmode="decimal"`; the two vintage **years** are `inputmode="numeric"` with no echo, because a year is not an amount. The recalculation echoes *Read as …* into a `pf-read` slot beside each amount field, and that echo is load-bearing: a **lone** separator reads as the *decimal* separator, so `1,234` is one-point-two-three-four and the operator has to be told. **17 `type="number"` remain outside the Area** — investments 7, planning desk 4, SAA 4, portfolio analysis 2. The Watch Desk's three went in A-6: the two band boundaries are `inputmode="numeric"` (integers, no echo), the one decimal field `inputmode="decimal"` with the route's refusal verbatim and **no echo** (Q-UX-S-A6-13). Each sweep inherits the parser and owes the **echo** as well: a field that accepts two notations and says nothing is worse than one that accepts one. |
 | 7 | Confirmation and outcome screens keep their content; legs and effects use `pf-leg` / `pf-facts`. | Both **built** — `pf-leg` in 6 templates, `pf-facts` in 2. The family the record calls `pf-kv` is declared here as **`pf-facts`**; `pf-context` is its sibling and differs only in which way the margin runs (`0 0 space-5` against `space-4 0 0`), so a strip *inside* a panel takes `pf-facts` and one *under* a field grid takes `pf-context`. `pf-leg` was drawn for `buy` and `sell`: its 34 px type track does not hold a longer effect vocabulary, and the type carries one tertiary ink whatever the leg does — both are record questions, and the Area's stand-in is a scoped 124 px track (§4). |
 
 ### 2.6 Status and feedback
 
 | # | Rule | Implementation |
 |---|---|---|
-| 1 | Functional state is a dot plus a word, never a filled pill; never colour alone. | `.pf-state` with seven state modifiers plus `--dormant`; 5 templates. `--dormant` still has no user: the `auditor` role is its declared one, and an *approved* ticket is not dormant — the row acts on it. |
-| 2 | One note pattern, `pf-note`, in three tones, with an optional inline action and a `pf-more` disclosure. | `.pf-note--info` / `--warn` / `--block`; **17 templates**, the most-used family after `pf-btn`. The action slot is the third `auto` grid column — a **position, not a class**: a note with no action fills it with an empty `<span>`. The record should either bless the `pf-btn--quiet pf-btn--sm` that now sits there or grow a `pf-note__action`. There is no `--done` tone; `--info` plus `pf_icon("done")` stands in, which leaves `--ui-semantic-success` with no user. |
+| 1 | Functional state is a dot plus a word, never a filled pill; never colour alone. | `.pf-state` with seven state modifiers plus `--dormant`; 16 templates. `--dormant` still has no user: the `auditor` role is its declared one, and an *approved* ticket is not dormant — the row acts on it. The Watch Desk needs ten states the record does not name (calm, approaching, triggered, breach, critical, informational, nodata, muted, resolved, ok/warn); they are scoped in `watch_desk.css` under Q-UX-S-A6-1 until the record admits them. |
+| 2 | One note pattern, `pf-note`, in three tones, with an optional inline action and a `pf-more` disclosure. | `.pf-note--info` / `--warn` / `--block`; **25 templates**, the most-used family after `pf-btn`. The action slot is the third `auto` grid column — a **position, not a class**: a note with no action fills it with an empty `<span>`. The record should either bless the `pf-btn--quiet pf-btn--sm` that now sits there or grow a `pf-note__action`. There is no `--done` tone; `--info` plus `pf_icon("done")` stands in, which leaves `--ui-semantic-success` with no user. |
 | 3 | Service refusals are shown verbatim and first. | Rule stands; per-surface. |
-| 4 | Explanatory prose moves behind `pf-more`; internal identifiers leave visible copy. | `.pf-more`; 6 templates. The identifier half is measurable: moving the five flow codes out of the chooser's visible copy into `data-flow` took the Transactions **abbrev** finding from 13 to 3. |
+| 4 | Explanatory prose moves behind `pf-more`; internal identifiers leave visible copy. | `.pf-more`; 14 templates. The identifier half is measurable: moving the five flow codes out of the chooser's visible copy into `data-flow` took the Transactions **abbrev** finding from 13 to 3, and the Watch Desk's subject keys left every visible cell for a *Subject keys* disclosure per group and the row's `data-pf-wd-subject` companion (ADR-0133 §4). |
 | 5 | Long-running jobs live in the status bar and survive navigation. | `.pf-activity` declared; the list is **not yet** — strand A-5. |
-| 6 | **R9** Every figure-bearing view carries an as-of stamp in its head. | `areas/_section.html` renders the span **unconditionally**, with `id="{slug}-asof"`, so a lazy body fills it out of band; the Blotter and History do. On a **live list the stamp is render time, in UTC** — it is not a property of the data. The Overview states its `HH:MM` in the market-data schedule's timezone instead, so the book now carries **two clocks**; the record has not chosen between them. A sub-surface reuses the same slot for its ident and state pill, which is why leaving one restores it empty. `.pf-asof` (the richer pair form) still has no user. |
-| 7 | **R12** One disclosure pattern for provenance — Shirley's sources line and the Watch Desk's derivation. | `.pf-sources` renders in the chat; the Watch Desk half is strand A-6. |
-| 8 | **R8** A finding is a toned panel: band as dot plus word, trigger as title, no box inside it. | `pf-finding` is **not built** — strand A-6. |
+| 6 | **R9** Every figure-bearing view carries an as-of stamp in its head. | `areas/_section.html` renders the span **unconditionally**, with `id="{slug}-asof"`, so a lazy body fills it out of band; the Blotter and History do. On a **live list the stamp is render time, in UTC** — it is not a property of the data. The Overview states its `HH:MM` in the market-data schedule's timezone instead, so the book now carries **two clocks**; the record has not chosen between them. A sub-surface reuses the same slot for its ident and state pill, which is why leaving one restores it empty. `.pf-asof` (the richer pair form) still has no user. The Watch Desk carries **two clocks by design** (ADR-0133): the Briefing head's `pf-fresh` states the check that wrote the briefing — *Checked HH:MM · next … · every N h* with the ring between — filled out of band, while the watch strip and the watch list carry the render stamp; the Watch points head shows the schedule half only and the Journal head none, because neither context carries a render stamp (Q-UX-S-A6-16, -25, -28). |
+| 7 | **R12** One disclosure pattern for provenance — Shirley's sources line and the Watch Desk's derivation. | **Built on both sides** — `.pf-sources` renders in the chat, under the latest briefing (figures · clusters · window, the tokens and press items behind a `pf-more`) and as the archive line in the Journal's briefing slot; a finding's derivation and evidence sit behind its own `pf-more`; 3 templates. The Journal row carries no sources dict yet (Q-UX-S-A6-29). |
+| 8 | **R8** A finding is a toned panel: band as dot plus word, trigger as title, no box inside it. | **Built** — `pf-finding` (`__band`, `__trigger`, `__text`, `__moves`, `__acts`) on `pf-panel`, the tone on the band's `pf-state` through `[data-band]`, no box inside; 1 template. |
 | 9 | JSON-backed surfaces render notes and inline confirmations through one shared client helper. | **Not yet** — strand A-4 (`/investments`). |
 
 ### 2.7 Progressive disclosure by role
@@ -146,7 +147,7 @@ vendored locally (ADR-0037 §9). **Charts are not UI tokens** — see §3.
 
 | # | Rule | Implementation |
 |---|---|---|
-| 1 | **R2** Empty: one sentence plus the view's primary action. A calm state is an empty state without an action. | `.pf-empty` / `.pf-empty__lead`, 3 templates; the legacy `pf-empty-state` is still in 12. A list's empty state carries **no** action even where the record draws one — R1 keeps the accent off a list, and the view's primary lives where the thing is created. |
+| 1 | **R2** Empty: one sentence plus the view's primary action. A calm state is an empty state without an action. | `.pf-empty` / `.pf-empty__lead`, 7 templates; the legacy `pf-empty-state` is still in 9. A list's empty state carries **no** action even where the record draws one — R1 keeps the accent off a list, and the view's primary lives where the thing is created. |
 | 2 | A setup checklist stands where the empty states stand while the book is empty, and disappears by itself. | `.pf-setup` / `.pf-step` declared; **not wired** — strand A-5. |
 | 3 | Loading: the lazy partial renders the skeleton of its own section, with `aria-busy`. | `.pf-skel` declared; the lazy shells still render "Loading…" text — per-strand. |
 | 4 | Error: a block-tone note in place, verbatim, with the way out as its inline action. | `.pf-note--block`. |
@@ -159,7 +160,7 @@ vendored locally (ADR-0037 §9). **Charts are not UI tokens** — see §3.
 | 2 | One DOM instance, moved between dock and stage, never duplicated. | `shirley.js` `relocate()`; `#chat-history` and `#chat-form` stay unique, so a running stream survives navigation. |
 | 3 | Answers carry the sources line; the model line moves to Providers & Credentials. | `.pf-sources` renders; the model line has **no home** — strand A-7. |
 | 4 | Shirley does not receive the current view as context; the "Consulting for" banner is the only context mechanism. | The case brief stash; no view context anywhere. |
-| 5 | The Watch Desk is not conversational — it takes the tabular anatomy. | Strand A-6. |
+| 5 | The Watch Desk is not conversational — it takes the tabular anatomy. | **Built** — the watch list, the watchpoint list and the Journal are `pf-table`s with slot rows, the Watch points are `pf-settings` rows, the briefing is a `pf-panel` with one action beneath it; nothing in the Area is a chat, and the hand-off to Shirley is a button. |
 
 ### 2.11 Accessibility
 
@@ -226,10 +227,11 @@ it; the rest is the cleanup. **Do not add to this block.**
 
 ## 4. Component catalogue
 
-`web/static/css/components/pf_components.css`, **59 `pf-` block names** —
+`web/static/css/components/pf_components.css`, **66 `pf-` block names** —
 50 transcribed whole from the record's `shared.css` onto `--ui-*` tokens in
-A0d, and **nine added by strand A-1**, marked **A-1** below. Two rules govern
-the file: no colour literal, no `--pf-*` reference.
+A0d, **nine added by strand A-1**, marked **A-1** below, and **seven by
+strand A-6**, marked **A-6**. Two rules govern the file: no colour literal,
+no `--pf-*` reference.
 
 ```sh
 # the block names
@@ -252,41 +254,41 @@ certainly counting mentions in comments too.
 
 | Family | Modifiers | Serves | Users |
 |---|---|---|---|
-| `pf-btn` | `--primary`, `--quiet`, `--danger`, `--icon`, `--sm`, `[disabled]` | §2.3.1 | 25 |
-| `pf-table` | `__row`, `__slot`, `__sub`, `__unit`, `__chev`, `__actions`, `__id`, `__creating`, `pf-num`, `th[aria-sort]`, `td.pf-pos` / `.pf-neg` | §2.4.1–§2.4.6 | 2 |
-| `pf-panel` | `__head`, `__titles`, `__title`, `__sub`, `__foot`, `__chart` | §2.2.6, §2.3.4 | 4 |
-| `pf-menu` | `__list`, `__item`, `__item--danger` | §2.3.5 | 2 |
-| `pf-actionbar` | `__hint` | §2.3.4 | 8 |
+| `pf-btn` | `--primary`, `--quiet`, `--danger`, `--icon`, `--sm`, `[disabled]` | §2.3.1 | 41 |
+| `pf-table` | `__row`, `__slot`, `__sub`, `__unit`, `__chev`, `__actions`, `__id`, `__creating`, `pf-num`, `th[aria-sort]`, `td.pf-pos` / `.pf-neg` | §2.4.1–§2.4.7, §2.10.5 | 7 |
+| `pf-panel` | `__head`, `__titles`, `__title`, `__sub`, `__foot`, `__chart` | §2.2.6, §2.3.4 | 9 |
+| `pf-menu` | `__list`, `__item`, `__item--danger` | §2.3.5 | 7 |
+| `pf-actionbar` | `__hint` | §2.3.4 | 9 |
 | `pf-form` | `__main`; `pf-field` `--half` / `--wide` / `--full`; `pf-label`, `pf-hint`, `pf-optional` | §2.5.1 | 5 |
-| **A-1** `pf-grid` | — (six tracks; `pf-field`'s spans are counted against it) | §2.5.1 | 10 |
-| **A-1** `pf-block__title` | — | §2.5.1 | 11 |
-| `pf-input` / `pf-select` / `pf-textarea` | `--num`, `.is-unclear`, `[aria-invalid]` | §2.5.1, §2.5.5 | 10 / 8 / 2 |
-| `pf-check` | — | §2.5.1 | 1 |
-| **A-1** `pf-seg` | `input`, `label`, `:checked + label` | §2.5.2 | 1 |
+| **A-1** `pf-grid` | — (six tracks; `pf-field`'s spans are counted against it) | §2.5.1 | 14 |
+| **A-1** `pf-block__title` | — | §2.5.1 | 15 |
+| `pf-input` / `pf-select` / `pf-textarea` | `--num`, `.is-unclear`, `[aria-invalid]` | §2.5.1, §2.5.5 | 15 / 12 / 2 |
+| `pf-check` | — | §2.5.1 | 4 |
+| **A-1** `pf-seg` | `input`, `label`, `:checked + label` | §2.5.2 | 3 |
 | **A-1** `pf-choice` | `.is-selected`, `__figure` | §2.5.1, §2.5.3 | 3 |
 | **A-1** `pf-stepper` | `__step`, `__dot`, `__label`, `.is-done`, `.is-active` | §2.5.4 | 1 |
 | `pf-rail-sum` | `__title` | §2.5.3 | 4 |
 | `pf-sum` | `__formula`, `__total` | §2.5.3 | 3 |
 | `pf-leg` | `__type`, `__amount`, `em` | §2.5.7 | 6 |
-| `pf-facts` | — (the in-panel fact list; the record's `pf-kv`) | §2.5.7 | 2 |
+| `pf-facts` | — (the in-panel fact list; the record's `pf-kv`) | §2.5.7 | 3 |
 | **A-1** `pf-context` | `dt`, `dd` | §2.5.7 | 4 |
 | **A-1** `pf-lenses` / `pf-lens__title` / `pf-delta` | `__label`, `__before`, `__arrow`, `__after`, `__flag` (+ `--warn`, `--breach`) | §2.2.6 (a slot panel's projection) | 1 |
-| `pf-state` | `--draft`, `--unsaved`, `--proposed`, `--approved`, `--booked`, `--reversed`, `--cancelled`, **`--dormant`** | §2.6.1 | 5 |
-| `pf-note` | `--info`, `--warn`, `--block`, `__lead`, `__inline`, `__sub` | §2.6.2 | 17 |
-| `pf-more` | `[open]` | §2.6.4 | 6 |
+| `pf-state` | `--draft`, `--unsaved`, `--proposed`, `--approved`, `--booked`, `--reversed`, `--cancelled`, **`--dormant`** | §2.6.1 (ten Watch Desk states scoped, Q-UX-S-A6-1) | 16 |
+| `pf-note` | `--info`, `--warn`, `--block`, `__lead`, `__inline`, `__sub` | §2.6.2 | 25 |
+| `pf-more` | `[open]` | §2.6.4 | 14 |
 | `pf-read` | `b` | §2.5.6 | 7 |
-| `pf-sources` | `[hidden]` (load-bearing) | §2.6.7 | 1 |
+| `pf-sources` | `[hidden]` (load-bearing) | §2.6.7 | 3 |
 | `pf-activity` | `__btn`, `__panel`, `pf-spin` | §2.2.8, §2.6.5 | 1 |
 | `pf-asof` | `__pair` | §2.6.6 | 0 |
 | `pf-figures` / `pf-hero` | — | §2.12.5 | 0 |
 | `pf-chart` | `__title`, `__legend`, `__key`, `__plot` | §2.12.2 | 0 |
 | `pf-flows` / `pf-flow` | `__name`, `__hint` | §2.2.6 | 1 / 1 |
-| `pf-filters` | `__field` | §2.4 | 1 |
-| `pf-empty` | `__lead` | §2.9.1 | 3 |
+| `pf-filters` | `__field` | §2.4 | 2 |
+| `pf-empty` | `__lead` | §2.9.1 | 7 |
 | `pf-skel` | `--plot` | §2.9.3 | 0 |
 | `pf-setup` / `pf-step` | `__head`, `__title`, `__count`; `__mark`, `__name`, `__sub`, `__tag`, `__action`, `.is-done` | §2.9.2 | 0 |
-| `pf-settings` / `pf-setting` | `__group`, `__title`; `__name`, `__sub`, `__control` | §2.7.4 | 0 |
-| `pf-switch` | `input:checked`, `:focus-visible` | §2.7.4 | 0 |
+| `pf-settings` / `pf-setting` | `__group`, `__title`; `__name`, `__sub`, `__control` | §2.7.4, §2.10.5 | 1 |
+| `pf-switch` | `input:checked`, `:focus-visible` | §2.7.4 | 1 |
 | `pf-tabs` / `pf-tab` | `[aria-selected]` | §2.1.5 | 0 |
 | `pf-toolbar` | `__spacer` | §2.4 | 0 |
 | `pf-crumb` | `__back`, `__sep`, `__here` | §2.1.6 | 2 |
@@ -296,6 +298,12 @@ certainly counting mentions in comments too.
 | `pf-narrow` | — | §2.2.3 | 0 |
 | `pf-scroll-x` | — | §2.11.3 | 0 |
 | `pf-sr` | — | §2.11.1 | 0 |
+| **A-6** `pf-fresh` | `__ring`, `__track`, `__arc`, `__dot` | §2.6.6 | 2 |
+| **A-6** `pf-strip` / `pf-chip` | — (a chip is also a `pf-state`) | §2.6.1 | 1 / 2 |
+| **A-6** `pf-finding` | `__band`, `__trigger`, `__text`, `__moves`, `__acts`, `[data-band]` | §2.6.8 | 1 |
+| **A-6** `pf-meter` | `__fill`, `__mark`, `--approaching`, `--breach` | §2.4.7 | 2 |
+| **A-6** `pf-popover` | `__title`, `__foot` | §2.2.6 | 1 |
+| **A-6** `pf-journal` | `__day`, `__time`, `__kind`, `__kind--briefing`, `__actor` | §2.10.5 | 1 |
 
 **Two derivations use `color-mix`**, the only computed colours in the file:
 `.pf-input:hover` and `.pf-btn--danger`. Both keep a literal out of the sheet
@@ -314,11 +322,24 @@ the setup checklist — so the family was written from the specification and its
 item named `pf-stepper__step`. `pf-btn--danger` is not new; A-1 gave it its
 **first user**.
 
-**Still to build** (in the record, absent here): `pf-finding` (R8), `pf-meter`
-(R6), `pf-triplet`, `pf-charts-grid`, `pf-inv`, `pf-kpis`, `pf-ask`,
-`pf-fresh`. The record's `pf-nav`, `pf-view`, `pf-search` and `pf-skip` exist
-in `layout.css` under the product's own names. The record's `pf-kv` exists
-here as **`pf-facts`** — a rename, not a gap.
+**Still to build** (in the record, absent here): `pf-triplet`,
+`pf-charts-grid`, `pf-inv`, `pf-kpis`, `pf-ask`. The record's `pf-nav`,
+`pf-view`, `pf-search` and `pf-skip` exist in `layout.css` under the product's
+own names. The record's `pf-kv` exists here as **`pf-facts`** — a rename, not
+a gap.
+
+**The seven A-6 blocks, and where they came from.** All seven were transcribed
+from M-WD-1 v2's `<style>` block onto `--ui-*` tokens, with the mockup's
+colour literals resolved to the semantic tokens and the ring's strokes moved
+from the SVG's attributes into `pf-fresh__track` / `__arc` / `__dot`.
+`pf-journal` carries only the row's cells — the rows themselves are
+`pf-table`'s own `<tr>`. `pf-chip` **collides with a Cases class of the same
+name**: `cases_open.html` draws its two filter chips as `pf-chip` under
+`.pf-cases .pf-chip` rules in `cases.css` (`:72`, `:83`, `:88`), which
+out-specify the shared family for border, radius, padding and colour but not
+for `display`, `height` and `gap`; the chips read the same as before, and
+strand A-3 renames or adopts them. The §4 count of `pf-chip` users (2) includes
+that homonym.
 
 **`pf-mono` is not on that list, because it is not a family.** The record names
 none, and five elements want the mono stack: `#tx-id-value`, `#tx-id-figi`,
@@ -338,7 +359,7 @@ rather than an input; and the gap between a note and a filter bar. One
 constraint is the family's own rather than a scoped rule and is recorded here
 because it bites: **`pf-choice__figure` sets `white-space: nowrap`** — right
 for the projected balance the record put there, wrong for the sentence a scope
-option puts there.
+option puts there. The Watch Desk registers **35 rules in five groups** (`watch_desk.css`): the ten `pf-state` states (Q-UX-S-A6-1); the Briefing's stack gaps and the standing note's measure (Q-6, Q-9); the watch list's page-rendered slot and its closed look, a triggered signal meter and a nested table's room (Q-10, Q-14, Q-15); the Watch points' pending row, the R7 acts in a `pf-note`, a `pf-popover` holding a form, a `pf-check` in its foot, `pf-more` as a container and the retire row's closed look (Q-20 … Q-24, Q-10); the Journal's prose in a slot, a note and a `pf-seg` in `pf-filters`, and the reading measure with a scroll for long prose (Q-26, Q-27, Q-31). Each rule's comment names its question.
 
 ---
 
@@ -384,15 +405,23 @@ These are decided, not open. Each names why.
     starts `closed` unless the server says otherwise.
 11. **The model line has no home** — §2.10.3 sends it to Providers &
     Credentials; strand A-7.
-12. **Twenty `type="number"` are still outside R10.** The parser exists and
+12. **Seventeen `type="number"` are still outside R10.** The parser exists and
     imports nothing (`core/decimal_input.py`); what is missing is the sweep,
-    and it is per-Area: investments 7, planning desk 4, SAA 4, watch desk 3,
+    and it is per-Area: investments 7, planning desk 4, SAA 4,
     portfolio analysis 2. Each one owes the *Read as …* echo too — see §2.5.6.
 13. **`login.css:18` is the one colour literal outside `theme.css`**, a
     `box-shadow` with an `rgba()` in it. `_auth_base.html` does not link the
     component vocabulary, so the login card keeps its own; the exemption is
     explicit and budgeted at exactly one, in
     `tests/web/test_css_tokens.py:44`.
+14. **Cases' band and resolution tags live in `cases.css` as `pf-dc-band-tag`
+    / `pf-dc-res-tag`** — the last two classes of the retired `pf-dc` vocabulary,
+    moved there from `watch_desk.css` with A-6 (scoped `.pf-cases`) because the
+    case detail and its origin embed still draw them. Strand A-3 retires them
+    onto `pf-state`.
+15. **`pf-chip` is a homonym** — the shared watch-strip chip and Cases' filter
+    chip share the name (§4). Cases' scoped rules win where they disagree;
+    strand A-3 resolves it.
 
 ---
 
@@ -459,15 +488,17 @@ that breaks one of them is a change to this document, not to a test.
 
 | Pins | Where |
 |---|---|
-| The component vocabulary's family names exist in the sheet — one parametrised case per name, so a family cannot be referenced from a template it was never declared for | `tests/web/test_pf_components.py:48` (`_EXPECTED_CLASSES`), `:311` |
-| **No bespoke class under an Area that has migrated** — every `class="…"` token in `_partials/transactions/*.html`, ids excluded | `tests/web/test_pf_components.py:467` |
-| **No bespoke class selector in a migrated Area's sheet**, and every surviving selector `.pf-<area>`-scoped | `tests/web/test_pf_components.py:490` |
+| The component vocabulary's family names exist in the sheet — one parametrised case per name, so a family cannot be referenced from a template it was never declared for | `tests/web/test_pf_components.py:48` (`_EXPECTED_CLASSES`), `:340` |
+| **No bespoke class under an Area that has migrated** — every `class="…"` token in `_partials/transactions/*.html`, ids excluded | `tests/web/test_pf_components.py:495` |
+| **No bespoke class selector in a migrated Area's sheet**, and every surviving selector `.pf-<area>`-scoped | `tests/web/test_pf_components.py:518` |
+| **No legacy class under the Watch Desk** — no `pf-dc-` class in `_partials/watch_desk_*.html`; and **its sheet is scoped residue**: no `.pf-dc-` selector, every selector `.pf-watch-desk`-scoped | `tests/web/test_pf_components.py:549`, `:567` |
+| **R10 in the Watch Desk** — no `type="number"` under `_partials/watch_desk_*.html` | `tests/web/test_pf_components.py:587` |
 | **R1, one primary per view** — six surfaces, each asserted to hold exactly one `pf-btn--primary` | `tests/web/test_transactions_composer.py:1641`, `…_commitment.py:846`, `…_secondary_buy.py:956`, `…_secondary_sale.py:988`, `…_wizard.py:1222` and `:1411` |
 | **R10, the number parser** — 41 cases over 4 functions (28 notations, 11 "was it read", 2 properties), all `Decimal`, never `float` | `tests/core/test_decimal_input.py` |
 | **R9, the as-of slot** — every section head renders one, whether or not a body fills it | `tests/web/test_transactions_area.py:240` |
 | **R4, the stepper is an indicator** — no `hx-`, no `<button>`, no `<a>` between the list's tags | `tests/web/test_transactions_wizard.py:1193` |
 | A sub-surface swapped into a hidden section **switches the shell to it** (§1, `shell.js`) | `tests/web/test_transactions_composer.py:1666` |
-| One markup selector per shared surface, so a family rename is one edit — e.g. the flow chooser's | `tests/web/conftest.py:217` (`chooser_markup`) |
+| One markup selector per shared surface, so a family rename is one edit — e.g. the flow chooser's | `tests/web/conftest.py:218` (`chooser_markup`) and `:314` (`wd`, the Watch Desk's `data-pf-wd` hook seam: 336 hooks, 2 modules bound to them) |
 | No colour literal outside `theme.css`, one budgeted exemption | `tests/web/test_css_tokens.py:44` |
 
 ---
@@ -491,7 +522,7 @@ document.querySelector('.pf-shell').dataset.a11y = 'on'
 | Assistants | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
 | Planning Desk | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
 | Investor Communication | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
-| Watch Desk | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
+| Watch Desk | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | ☑ | checked 2026-10-10 after A-6 (P-UX-A6-s1); nothing found |
 | Cases | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
 | Transactions | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |
 | Admin | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | ☐ | |

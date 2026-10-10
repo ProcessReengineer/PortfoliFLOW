@@ -66,11 +66,12 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Purpose:** bring every Area to one consistent, calmer interface — one
   Section per view, intent first, Shirley dockable in every view — and write the
   user manual on top of it.
-- **Shipped so far:** the shell, design tokens and component layer (A-0) and the
-  Transactions Area as the pilot (A-1).
+- **Shipped so far:** the shell, design tokens and component layer (A-0), the
+  Transactions Area as the pilot (A-1) and the Watch Desk on M-WD-1 v2 (A-6:
+  Briefing, Watch points, Journal; seven families added to the vocabulary).
 - **Remaining, in order:** A-2 Back Office, A-3 Cases, A-4 Admin and My
-  settings, A-5 Front Office and the shell, A-6 Watch Desk (UI only, after
-  #069), A-7 Assistants; then the user manual.
+  settings, A-5 Front Office and the shell, A-7 Assistants; then the user
+  manual.
 - **ADR:** ADR-0134 (Section as one view); conventions in
   [`docs/ux/ui-standards.md`](ux/ui-standards.md).
 - **Depends on:** none; A-6 on #069.

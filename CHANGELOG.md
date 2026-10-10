@@ -23,6 +23,12 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ### Changed
 
+- The Watch Desk's three views — Briefing, Watch points (the former
+  Calibration) and Journal — are drawn from the shared component vocabulary:
+  the check clock in the view head with the cadence behind it, the watch list
+  with utilisation meters, findings as toned panels with a peer decision set,
+  switch-off and retire confirmations inline, and the Journal by day with the
+  written briefing beneath each check.
 - `docs/roadmap.md` is now a steering document: active work, ranked next
   steps, ideas, decisions against, and a record of what shipped.
 - `docs/architecture.md` is reconciled with the code.

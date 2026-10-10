@@ -110,7 +110,7 @@ podman compose -f compose.test.yml down       # stop; its data is gone
 
 ## Running the full suite locally
 
-A full run took about two hours on the development machine while the tests
+A full run took about two hours forty (2 h 39 min, 2026-10-08) on the development machine while the tests
 used the disk-backed development database; on the RAM-held test container
 (ADR-0135) it takes well under one. Treat it as a session of its own.
 

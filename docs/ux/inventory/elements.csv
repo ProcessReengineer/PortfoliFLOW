@@ -1,75 +1,83 @@
 area,template,block,source_kind,element_kind,visible_text,target,hx_target,source_file,source_line,flags
-_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,397,
-_shell,,shell,python,python_label,Front Office,,,web/shell.py,72,
-_shell,,shell,python,python_label,Back Office,,,web/shell.py,73,
-_shell,,shell,python,python_label,Assistants,,,web/shell.py,74,
-_shell,,shell,python,python_label,Planning Desk,,,web/shell.py,79,
-_shell,,shell,python,python_label,Investor Communication,,,web/shell.py,84,
-_shell,,shell,python,python_label,Watch Desk,,,web/shell.py,91,internal-name
-_shell,,shell,python,python_label,Cases,,,web/shell.py,97,
-_shell,,shell,python,python_label,Transactions,,,web/shell.py,101,
-_shell,,shell,python,python_label,Admin,,,web/shell.py,102,
-_shell,,shell,python,python_title,Overview,,,web/shell.py,147,
-_shell,,shell,python,python_title,Charts,,,web/shell.py,152,
-_shell,,shell,python,python_title,Statistics,,,web/shell.py,153,
-_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,154,
-_shell,,shell,python,python_title,Briefing,,,web/shell.py,159,
-_shell,,shell,python,python_title,Journal,,,web/shell.py,160,
-_shell,,shell,python,python_title,Calibration,,,web/shell.py,161,
-_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,165,
-_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,166,
-_shell,,shell,python,python_title,Open Cases,,,web/shell.py,172,
-_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,173,
-_shell,,shell,python,python_title,Archive,,,web/shell.py,174,
-_shell,,shell,python,python_title,New transaction,,,web/shell.py,180,
-_shell,,shell,python,python_title,Blotter,,,web/shell.py,181,internal-name
-_shell,,shell,python,python_title,History,,,web/shell.py,182,
-_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,185,
-_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,186,
-_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,187,
-_shell,,shell,python,python_title,Data Import,,,web/shell.py,190,
-_shell,,shell,python,python_title,Market Data,,,web/shell.py,198,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,201,
-_shell,,shell,python,python_title,Users,,,web/shell.py,209,
-_shell,,shell,python,python_title,Investments,,,web/shell.py,216,
-_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,218,
-_shell,,shell,python,python_title,Shirley,,,web/shell.py,220,internal-name
-_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,221,
-_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,224,
+_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,312,
+_shell,,shell,python,python_label,Front Office,,,web/shell.py,70,
+_shell,,shell,python,python_label,Back Office,,,web/shell.py,71,
+_shell,,shell,python,python_label,Assistants,,,web/shell.py,72,
+_shell,,shell,python,python_label,Planning Desk,,,web/shell.py,77,
+_shell,,shell,python,python_label,Investor Communication,,,web/shell.py,82,
+_shell,,shell,python,python_label,Watch Desk,,,web/shell.py,89,internal-name
+_shell,,shell,python,python_label,Cases,,,web/shell.py,95,
+_shell,,shell,python,python_label,Transactions,,,web/shell.py,99,
+_shell,,shell,python,python_label,Admin,,,web/shell.py,100,
+_shell,,shell,python,python_title,Overview,,,web/shell.py,145,
+_shell,,shell,python,python_title,Charts,,,web/shell.py,150,
+_shell,,shell,python,python_title,Statistics,,,web/shell.py,151,
+_shell,,shell,python,python_title,Portfolio Analysis,,,web/shell.py,152,
+_shell,,shell,python,python_title,Briefing,,,web/shell.py,157,
+_shell,,shell,python,python_title,Watch points,,,web/shell.py,158,
+_shell,,shell,python,python_title,Journal,,,web/shell.py,159,
+_shell,,shell,python,python_title,Cash Flow Planning,,,web/shell.py,163,
+_shell,,shell,python,python_title,Scenario Analysis,,,web/shell.py,164,
+_shell,,shell,python,python_title,Open Cases,,,web/shell.py,170,
+_shell,,shell,python,python_title,Recently Closed,,,web/shell.py,171,
+_shell,,shell,python,python_title,Archive,,,web/shell.py,172,
+_shell,,shell,python,python_title,New transaction,,,web/shell.py,178,
+_shell,,shell,python,python_title,Blotter,,,web/shell.py,179,internal-name
+_shell,,shell,python,python_title,History,,,web/shell.py,180,
+_shell,,shell,python,python_title,Strategic Asset Allocation,,,web/shell.py,183,
+_shell,,shell,python,python_title,Benchmarks & Attribution,,,web/shell.py,184,
+_shell,,shell,python,python_title,Investment Limits,,,web/shell.py,185,
+_shell,,shell,python,python_title,Data Import,,,web/shell.py,188,
+_shell,,shell,python,python_title,Market Data,,,web/shell.py,196,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,199,
+_shell,,shell,python,python_title,Users,,,web/shell.py,207,
+_shell,,shell,python,python_title,Investments,,,web/shell.py,214,
+_shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,216,
+_shell,,shell,python,python_title,Shirley,,,web/shell.py,218,internal-name
+_shell,,shell,python,python_title,Report Scraper,,,web/shell.py,219,
+_shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,222,
+_shell,_partials/chat_brief_banner.html,,template,link,the briefing of {{ brief_banner.stamp }},{{ brief_banner.href }},,web/templates/_partials/chat_brief_banner.html,15,dynamic
+_shell,_partials/chat_brief_banner.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,16,duplicate-label|synonym-candidate
+_shell,_partials/chat_brief_banner.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,16,duplicate-label|synonym-candidate|verb:POST
+_shell,_partials/chat_brief_banner.html,,template,tooltip,Stop discussing this briefing,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,16,from:aria-label|synonym-candidate
+_shell,_partials/chat_brief_banner.html,,template,link,{{ brief_banner.badge }},{{ brief_banner.href }},,web/templates/_partials/chat_brief_banner.html,24,dynamic
+_shell,_partials/chat_brief_banner.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,26,duplicate-label|synonym-candidate
+_shell,_partials/chat_brief_banner.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,26,duplicate-label|synonym-candidate|verb:POST
+_shell,_partials/chat_brief_banner.html,,template,tooltip,Stop consulting for this case,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,26,from:aria-label|synonym-candidate
 _shell,_partials/chat_empty.html,,template,empty_state,Start a conversation by typing a message below.,,,web/templates/_partials/chat_empty.html,9,
 _shell,_partials/command_palette.html,,template,tooltip,Command palette,,,web/templates/_partials/command_palette.html,10,from:aria-label|icon-only
 _shell,_partials/command_palette.html,,template,placeholder,"Jump to area, section or action…",,,web/templates/_partials/command_palette.html,12,
 _shell,_partials/command_palette.html,,template,tooltip,Search results,,,web/templates/_partials/command_palette.html,17,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,tooltip,Conversation with Shirley,,,web/templates/_partials/shirley_dock.html,36,from:aria-label|internal-name
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,43,dynamic
-_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,43,dynamic|verb:POST
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""stage"") }}",,,web/templates/_partials/shirley_dock.html,49,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,49,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,49,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""close"") }}",,,web/templates/_partials/shirley_dock.html,54,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Close Ctrl J,,,web/templates/_partials/shirley_dock.html,54,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Close Shirley,,,web/templates/_partials/shirley_dock.html,54,from:aria-label|internal-name
-_shell,_partials/shirley_dock.html,,template,link,{{ brief_banner.badge }},{{ brief_banner.href }},,web/templates/_partials/shirley_dock.html,70,dynamic
-_shell,_partials/shirley_dock.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,duplicate-label|synonym-candidate
-_shell,_partials/shirley_dock.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,duplicate-label|synonym-candidate|verb:POST
-_shell,_partials/shirley_dock.html,,template,tooltip,Stop consulting for this case,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/shirley_dock.html,72,from:aria-label|synonym-candidate
-_shell,_partials/shirley_dock.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_dock.html,88,icon-only|verb:GET
-_shell,_partials/shirley_dock.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_dock.html,88,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,htmx,Send 🎤 ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it,/chat/messages,#chat-history,web/templates/_partials/shirley_dock.html,113,verb:POST
-_shell,_partials/shirley_dock.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_dock.html,125,internal-name
-_shell,_partials/shirley_dock.html,,template,tooltip,Message,,,web/templates/_partials/shirley_dock.html,125,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,130,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,button,Send,,,web/templates/_partials/shirley_dock.html,135,
-_shell,_partials/shirley_dock.html,,template,button,🎤,,,web/templates/_partials/shirley_dock.html,142,
-_shell,_partials/shirley_dock.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_dock.html,142,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_dock.html,142,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,● Record,,,web/templates/_partials/shirley_dock.html,153,
-_shell,_partials/shirley_dock.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_dock.html,153,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_dock.html,155,hidden
-_shell,_partials/shirley_dock.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_dock.html,155,from:aria-label|hidden
-_shell,_partials/shirley_dock.html,,template,button,Cancel,,,web/templates/_partials/shirley_dock.html,157,duplicate-label|hidden
-_shell,_partials/shirley_dock.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_dock.html,157,from:aria-label|hidden
-_shell,_partials/shirley_dock.html,,template,pill,,,,web/templates/_partials/shirley_dock.html,159,
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation with Shirley,,,web/templates/_partials/shirley_dock.html,40,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,47,dynamic
+_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,47,dynamic|verb:POST
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""stage"") }}",,,web/templates/_partials/shirley_dock.html,53,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,53,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,53,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""close"") }}",,,web/templates/_partials/shirley_dock.html,58,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Ctrl J,,,web/templates/_partials/shirley_dock.html,58,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Shirley,,,web/templates/_partials/shirley_dock.html,58,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,htmx,,/chat/brief/banner,,web/templates/_partials/shirley_dock.html,73,icon-only|no-accessible-name|verb:GET
+_shell,_partials/shirley_dock.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_dock.html,86,icon-only|verb:GET
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_dock.html,86,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""attach"") }} {{ pf_icon(""voice"") }} Send ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it",/chat/messages,#chat-history,web/templates/_partials/shirley_dock.html,111,dynamic|verb:POST
+_shell,_partials/shirley_dock.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_dock.html,123,internal-name
+_shell,_partials/shirley_dock.html,,template,tooltip,Message,,,web/templates/_partials/shirley_dock.html,123,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,132,from:aria-label|hidden|icon-only
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""attach"") }}",,,web/templates/_partials/shirley_dock.html,136,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,136,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,136,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""voice"") }}",,,web/templates/_partials/shirley_dock.html,144,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_dock.html,144,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_dock.html,144,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,Send,,,web/templates/_partials/shirley_dock.html,150,
+_shell,_partials/shirley_dock.html,,template,button,● Record,,,web/templates/_partials/shirley_dock.html,162,
+_shell,_partials/shirley_dock.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_dock.html,162,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_dock.html,164,hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_dock.html,164,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,button,Cancel,,,web/templates/_partials/shirley_dock.html,166,duplicate-label|hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_dock.html,166,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,pill,,,,web/templates/_partials/shirley_dock.html,168,
 _shell,_partials/sidebar.html,,template,tooltip,Areas,,,web/templates/_partials/sidebar.html,35,from:aria-label
 _shell,_partials/sidebar.html,,template,tooltip,Area navigation,,,web/templates/_partials/sidebar.html,42,from:aria-label
 _shell,_partials/sidebar.html,,template,htmx,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,44,dynamic|verb:GET
@@ -84,21 +92,21 @@ _shell,_partials/statusbar.html,,template,link,Source code,https://github.com/Pr
 _shell,_partials/statusbar.html,,template,tooltip,Corresponding source (AGPL §13),https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,33,abbrev|from:title|synonym-candidate
 _shell,_partials/statusbar.html,,template,tooltip,Build,,,web/templates/_partials/statusbar.html,41,from:title
 _shell,_partials/statusbar.html,,template,tooltip,Configuration loaded Configuration error,,,web/templates/_partials/statusbar.html,44,from:title
-_shell,base.html,shirley,template,heading,Shirley,,,web/templates/base.html,109,internal-name
-_shell,base.html,shirley,template,button,"{{ pf_icon(""dock"") }}Back to dock",,,web/templates/base.html,110,dynamic
-_shell,base.html,shirley,template,empty_state,Nothing on the stage yet. Figures Shirley renders will open here at full size.,,,web/templates/base.html,113,internal-name
-_shell,base.html,shirley,template,tooltip,Shirley,,,web/templates/base.html,126,from:aria-label|internal-name
-_shell,base.html,shirley,template,button,"{{ pf_icon(""shirley"") }}",,,web/templates/base.html,128,dynamic
-_shell,base.html,shirley,template,tooltip,Open Shirley Ctrl J,,,web/templates/base.html,128,from:title|internal-name
-_shell,base.html,shirley,template,tooltip,Open Shirley,,,web/templates/base.html,128,from:aria-label|internal-name
-_shell,base.html,shirley,template,htmx,,/chat/dock,,web/templates/base.html,134,icon-only|no-accessible-name|verb:GET
+_shell,base.html,shirley,template,heading,Shirley,,,web/templates/base.html,113,internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""dock"") }}Back to dock",,,web/templates/base.html,114,dynamic
+_shell,base.html,shirley,template,empty_state,Nothing on the stage yet. Figures Shirley renders will open here at full size.,,,web/templates/base.html,117,internal-name
+_shell,base.html,shirley,template,tooltip,Shirley,,,web/templates/base.html,130,from:aria-label|internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""shirley"") }}",,,web/templates/base.html,132,dynamic
+_shell,base.html,shirley,template,tooltip,Open Shirley Ctrl J,,,web/templates/base.html,132,from:title|internal-name
+_shell,base.html,shirley,template,tooltip,Open Shirley,,,web/templates/base.html,132,from:aria-label|internal-name
+_shell,base.html,shirley,template,htmx,,/chat/dock,,web/templates/base.html,138,icon-only|no-accessible-name|verb:GET
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,444,abbrev
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,447,abbrev
 admin,,overview,python,python_title,Cashflows,,,web/routes/overview.py,454,
 admin,,overview,python,python_title,Cashflows,,,web/routes/overview.py,456,
 admin,,overview,python,python_title,NAV by fund,,,web/routes/overview.py,462,abbrev
 admin,,overview,python,python_title,Currency exposure,,,web/routes/overview.py,485,
-admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,985,identifier-leak-loose|internal-name
+admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,1002,identifier-leak-loose|internal-name
 admin,_partials/areas/_admin_body.html,,template,area_header,"Admin Internal management — data import, market data, investments, user administration and audit surfaces.",,,web/templates/_partials/areas/_admin_body.html,3,
 admin,_partials/areas/_admin_body.html,Admin,template,heading,Admin,,,web/templates/_partials/areas/_admin_body.html,4,
 admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,59,inline-html|synonym-candidate
@@ -155,33 +163,33 @@ admin,_partials/overview_section.html,Foreign-currency cash,template,heading,For
 admin,_partials/overview_section.html,Foreign-currency cash,template,tooltip,Portfolio overview charts,,,web/templates/_partials/overview_section.html,185,from:aria-label
 admin,_partials/overview_section.html,{{ chart.title }},template,heading,{{ chart.title }},,,web/templates/_partials/overview_section.html,190,dynamic
 admin,_partials/overview_section.html,{{ chart.title }},template,empty_state,No data available.,,,web/templates/_partials/overview_section.html,200,
-admin,_partials/provider_credentials_section.html,,template,htmx,{{ label }},{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,40,dynamic|verb:POST
-admin,_partials/provider_credentials_section.html,,template,button,{{ label }},,,web/templates/_partials/provider_credentials_section.html,48,dynamic
-admin,_partials/provider_credentials_section.html,,template,htmx,{{ field.label }} Save,{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,66,dynamic|verb:POST
-admin,_partials/provider_credentials_section.html,,template,form_label,{{ field.label }},{{ prefix }}-{{ field.provider }}-{{ field.key }},,web/templates/_partials/provider_credentials_section.html,75,dynamic
-admin,_partials/provider_credentials_section.html,,template,placeholder,•••••••• Not set,value,,web/templates/_partials/provider_credentials_section.html,79,
-admin,_partials/provider_credentials_section.html,,template,button,Save,,,web/templates/_partials/provider_credentials_section.html,99,
-admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,107,
-admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,114,
-admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,117,
-admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,119,
-admin,_partials/provider_credentials_section.html,,template,pill,disabled,,,web/templates/_partials/provider_credentials_section.html,123,
-admin,_partials/provider_credentials_section.html,,template,button,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,155,duplicate-label
-admin,_partials/provider_credentials_section.html,,template,htmx,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,155,duplicate-label|verb:GET
-admin,_partials/provider_credentials_section.html,Tenant credentials,template,heading,Tenant credentials,,,web/templates/_partials/provider_credentials_section.html,189,internal-name
-admin,_partials/provider_credentials_section.html,Tenant credentials,template,tile,"{{ card.label }} {{ card.consumer_status }} {{ card.description }} {{ field_row(tenant_endpoint, csrf_token, field, vault_configured, 'tenant') }}",,,web/templates/_partials/provider_credentials_section.html,194,dynamic
-admin,_partials/provider_credentials_section.html,{{ card.label }},template,heading,{{ card.label }},,,web/templates/_partials/provider_credentials_section.html,196,dynamic
-admin,_partials/provider_credentials_section.html,{{ card.label }},template,pill,{{ card.consumer_status }},,,web/templates/_partials/provider_credentials_section.html,197,dynamic
-admin,_partials/provider_credentials_section.html,My settings,template,heading,My settings,,,web/templates/_partials/provider_credentials_section.html,217,
-admin,_partials/provider_credentials_section.html,My settings,template,tile,"{{ field.provider_label }} {{ field.provider_description }} {{ field_row(user_endpoint, csrf_token, field, vault_configured, 'user') }}",,,web/templates/_partials/provider_credentials_section.html,222,dynamic
-admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,heading,{{ field.provider_label }},,,web/templates/_partials/provider_credentials_section.html,224,dynamic
-admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,tile,"Telegram paired not paired Send /pair {{ telegram_pairing.code }} to the bot from the Telegram chat you want to use. The code is valid for {{ telegram_pairing.ttl_minutes }} minutes and works once — it is shown here only now. Chat {{ telegram_pairing.chat_id }} is linked to your account. Shirley answers there with your own settings. Link a Telegram chat to your account to use Shirley there. Generate a code, then send it to the bot from that chat. Generate new pairing code Generate pairing code Revoke pairing",,,web/templates/_partials/provider_credentials_section.html,233,dynamic
-admin,_partials/provider_credentials_section.html,Telegram,template,heading,Telegram,,,web/templates/_partials/provider_credentials_section.html,235,
-admin,_partials/provider_credentials_section.html,Telegram,template,pill,paired not paired,,,web/templates/_partials/provider_credentials_section.html,236,
-admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Generate new pairing code Generate pairing code,{{ telegram_pairing.pair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,264,verb:POST
-admin,_partials/provider_credentials_section.html,Telegram,template,button,Generate new pairing code Generate pairing code,,,web/templates/_partials/provider_credentials_section.html,269,
-admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Revoke pairing,{{ telegram_pairing.unpair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,274,verb:POST
-admin,_partials/provider_credentials_section.html,Telegram,template,button,Revoke pairing,,,web/templates/_partials/provider_credentials_section.html,279,
+admin,_partials/provider_credentials_section.html,,template,htmx,{{ label }},{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,50,dynamic|verb:POST
+admin,_partials/provider_credentials_section.html,,template,button,{{ label }},,,web/templates/_partials/provider_credentials_section.html,58,dynamic
+admin,_partials/provider_credentials_section.html,,template,htmx,{{ field.label }} Save,{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,77,dynamic|verb:POST
+admin,_partials/provider_credentials_section.html,,template,form_label,{{ field.label }},{{ prefix }}-{{ field.provider }}-{{ field.key }},,web/templates/_partials/provider_credentials_section.html,86,dynamic
+admin,_partials/provider_credentials_section.html,,template,placeholder,•••••••• Not set,value,,web/templates/_partials/provider_credentials_section.html,90,
+admin,_partials/provider_credentials_section.html,,template,button,Save,,,web/templates/_partials/provider_credentials_section.html,110,
+admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,118,
+admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,125,
+admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,128,
+admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,130,
+admin,_partials/provider_credentials_section.html,,template,pill,disabled,,,web/templates/_partials/provider_credentials_section.html,134,
+admin,_partials/provider_credentials_section.html,,template,button,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,166,duplicate-label
+admin,_partials/provider_credentials_section.html,,template,htmx,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,166,duplicate-label|verb:GET
+admin,_partials/provider_credentials_section.html,Tenant credentials,template,heading,Tenant credentials,,,web/templates/_partials/provider_credentials_section.html,200,internal-name
+admin,_partials/provider_credentials_section.html,Tenant credentials,template,tile,"{{ card.label }} {{ card.consumer_status }} {{ card.description }} {{ field_row(tenant_endpoint, csrf_token, field, vault_configured, 'tenant') }}",,,web/templates/_partials/provider_credentials_section.html,205,dynamic
+admin,_partials/provider_credentials_section.html,{{ card.label }},template,heading,{{ card.label }},,,web/templates/_partials/provider_credentials_section.html,207,dynamic
+admin,_partials/provider_credentials_section.html,{{ card.label }},template,pill,{{ card.consumer_status }},,,web/templates/_partials/provider_credentials_section.html,208,dynamic
+admin,_partials/provider_credentials_section.html,My settings,template,heading,My settings,,,web/templates/_partials/provider_credentials_section.html,228,
+admin,_partials/provider_credentials_section.html,My settings,template,tile,"{{ field.provider_label }} {{ field.provider_description }} {{ field_row(user_endpoint, csrf_token, field, vault_configured, 'user') }}",,,web/templates/_partials/provider_credentials_section.html,233,dynamic
+admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,heading,{{ field.provider_label }},,,web/templates/_partials/provider_credentials_section.html,235,dynamic
+admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,tile,"Telegram paired not paired The Telegram bot is switched off for this deployment (TELEGRAM_BOT_ENABLED). Pairing is not possible until the operator enables it. The Telegram bot is enabled but not running. Check the web process start-up log. No bot is running for this tenant. An owner stores a bot token under Tenant credentials; token changes apply after a restart. The bot for this tenant is running. Send /pair {{ telegram_pairing.code }} to the bot from the Telegram chat you want to use. The code is valid for {{ telegram_pairing.ttl_minutes }} minutes and works once — it is shown here only now. Chat {{ telegram_pairing.chat_id }} is linked to your account. Shirley answers there with your own settings. Link a Telegram chat to your account to use Shirley there. Generate a code, then send it to the bot from that chat. Generate new pairing code Generate pairing code Revoke pairing",,,web/templates/_partials/provider_credentials_section.html,244,dynamic
+admin,_partials/provider_credentials_section.html,Telegram,template,heading,Telegram,,,web/templates/_partials/provider_credentials_section.html,246,
+admin,_partials/provider_credentials_section.html,Telegram,template,pill,paired not paired,,,web/templates/_partials/provider_credentials_section.html,247,
+admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Generate new pairing code Generate pairing code,{{ telegram_pairing.pair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,300,verb:POST
+admin,_partials/provider_credentials_section.html,Telegram,template,button,Generate new pairing code Generate pairing code,,,web/templates/_partials/provider_credentials_section.html,305,
+admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Revoke pairing,{{ telegram_pairing.unpair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,310,verb:POST
+admin,_partials/provider_credentials_section.html,Telegram,template,button,Revoke pairing,,,web/templates/_partials/provider_credentials_section.html,315,
 admin,_partials/provider_credentials_section_lazy.html,,template,htmx,Loading providers & credentials…,/admin/providers-credentials/section,this,web/templates/_partials/provider_credentials_section_lazy.html,9,verb:GET
 admin,_partials/tenant_users_section.html,,template,htmx,Role {{ label }} Change role You will lose access to this area immediately.,{{ user.role_url }},closest .pf-users,web/templates/_partials/tenant_users_section.html,37,dynamic|verb:POST
 admin,_partials/tenant_users_section.html,,template,form_label,Role {{ label }},role-{{ user.id }},,web/templates/_partials/tenant_users_section.html,42,dynamic
@@ -1110,132 +1118,180 @@ unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,pla
 unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate
 unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,htmx,Cancel,{{ pin_url }}?cancel=1,#chat-pin-dialog,web/templates/_partials/chat_pin_dialog.html,93,duplicate-label|synonym-candidate|verb:GET
 unassigned,_partials/chat_pin_dialog.html,Pin this answer to a case,template,button,Pin to case,,,web/templates/_partials/chat_pin_dialog.html,97,
-watch_desk,,watch_desk,python,python_label,Informational top,,,web/routes/watch_desk.py,2610,
-watch_desk,,watch_desk,python,python_label,Noteworthy top,,,web/routes/watch_desk.py,2618,
-watch_desk,,watch_desk,python,python_label,Decline threshold,,,web/routes/watch_desk.py,3299,
-watch_desk,,watch_desk,python,python_hint,A fall of at least this much across the window is Triggered.,,,web/routes/watch_desk.py,3301,
-watch_desk,,watch_desk,python,python_label,Window,,,web/routes/watch_desk.py,3306,
-watch_desk,,watch_desk,python,python_hint,How far back the move is measured from.,,,web/routes/watch_desk.py,3308,
-watch_desk,,watch_desk,python,python_label,Move threshold,,,web/routes/watch_desk.py,3315,
-watch_desk,,watch_desk,python,python_hint,A move of at least this much either way is Triggered.,,,web/routes/watch_desk.py,3317,
-watch_desk,,watch_desk,python,python_label,Window,,,web/routes/watch_desk.py,3322,
-watch_desk,,watch_desk,python,python_hint,How far back the move is measured from.,,,web/routes/watch_desk.py,3324,
-watch_desk,,watch_desk,python,python_label,Maximum NAV age,,,web/routes/watch_desk.py,3331,abbrev
-watch_desk,,watch_desk,python,python_hint,"Applies to every active investment — one rule, not one per position.",,,web/routes/watch_desk.py,3333,
-watch_desk,,watch_desk,python,python_label,Horizon,,,web/routes/watch_desk.py,3340,
-watch_desk,,watch_desk,python,python_hint,How far ahead projected capital calls are counted.,,,web/routes/watch_desk.py,3342,
-watch_desk,,watch_desk,python,python_label,Coverage floor,,,web/routes/watch_desk.py,3347,
-watch_desk,,watch_desk,python,python_hint,Cover below this multiple of the projected calls is Triggered.,,,web/routes/watch_desk.py,3349,
+watch_desk,,watch_desk,python,python_label,Informational top,,,web/routes/watch_desk.py,2385,
+watch_desk,,watch_desk,python,python_label,Noteworthy top,,,web/routes/watch_desk.py,2393,
+watch_desk,,watch_desk,python,python_label,Decline threshold,,,web/routes/watch_desk.py,3433,
+watch_desk,,watch_desk,python,python_hint,A fall of at least this much across the window is Triggered.,,,web/routes/watch_desk.py,3435,
+watch_desk,,watch_desk,python,python_label,Window,,,web/routes/watch_desk.py,3440,
+watch_desk,,watch_desk,python,python_hint,How far back the move is measured from.,,,web/routes/watch_desk.py,3442,
+watch_desk,,watch_desk,python,python_label,Move threshold,,,web/routes/watch_desk.py,3449,
+watch_desk,,watch_desk,python,python_hint,A move of at least this much either way is Triggered.,,,web/routes/watch_desk.py,3451,
+watch_desk,,watch_desk,python,python_label,Window,,,web/routes/watch_desk.py,3456,
+watch_desk,,watch_desk,python,python_hint,How far back the move is measured from.,,,web/routes/watch_desk.py,3458,
+watch_desk,,watch_desk,python,python_label,Maximum NAV age,,,web/routes/watch_desk.py,3465,abbrev
+watch_desk,,watch_desk,python,python_hint,"Applies to every active investment — one rule, not one per position.",,,web/routes/watch_desk.py,3467,
+watch_desk,,watch_desk,python,python_label,Horizon,,,web/routes/watch_desk.py,3474,
+watch_desk,,watch_desk,python,python_hint,How far ahead projected capital calls are counted.,,,web/routes/watch_desk.py,3476,
+watch_desk,,watch_desk,python,python_label,Coverage floor,,,web/routes/watch_desk.py,3481,
+watch_desk,,watch_desk,python,python_hint,Cover below this multiple of the projected calls is Triggered.,,,web/routes/watch_desk.py,3483,
 watch_desk,_partials/areas/_watch_desk_body.html,,template,area_header,"Watch Desk Calm-by-default briefing — what changed materially since your last review, and the audit trail of how you responded.",,,web/templates/_partials/areas/_watch_desk_body.html,8,identifier-leak-loose|internal-name
 watch_desk,_partials/areas/_watch_desk_body.html,Watch Desk,template,heading,Watch Desk,,,web/templates/_partials/areas/_watch_desk_body.html,9,internal-name
-watch_desk,_partials/watch_desk_briefing.html,,template,tile,Last beat {{ tiles.last_beat.time }} {{ tiles.last_beat.date }} · {{ tiles.last_beat.surfaced }} Never ran yet No analysis beat has completed for this tenant yet.,,,web/templates/_partials/watch_desk_briefing.html,18,dynamic
-watch_desk,_partials/watch_desk_briefing.html,,template,tile,Subjects watched {{ tiles.subjects.value }} {{ tiles.subjects.sub }},,,web/templates/_partials/watch_desk_briefing.html,32,dynamic
-watch_desk,_partials/watch_desk_briefing.html,,template,tile,Open findings {{ tiles.open_findings.total }} · {{ band.text }},,,web/templates/_partials/watch_desk_briefing.html,38,dynamic
-watch_desk,_partials/watch_desk_briefing.html,,template,tile,Request analysis now,,,web/templates/_partials/watch_desk_briefing.html,51,
-watch_desk,_partials/watch_desk_briefing.html,,template,htmx,Request analysis now,/api/watch-desk/request-analysis,#dc-briefing-toolbar,web/templates/_partials/watch_desk_briefing.html,56,verb:POST
-watch_desk,_partials/watch_desk_briefing.html,,template,button,Request analysis now,,,web/templates/_partials/watch_desk_briefing.html,60,
-watch_desk,_partials/watch_desk_briefing_feed.html,,template,pill,All monitored limits are calm — nothing material since your last review.,,,web/templates/_partials/watch_desk_briefing_feed.html,13,
-watch_desk,_partials/watch_desk_briefing_feed.html,,template,empty_state,No lower-priority notices right now.,,,web/templates/_partials/watch_desk_briefing_feed.html,22,identifier-leak-loose
+watch_desk,_partials/watch_desk_briefing.html,,template,tooltip,Findings,,,web/templates/_partials/watch_desk_briefing.html,64,from:aria-label
+watch_desk,_partials/watch_desk_briefing.html,Findings {{ tiles.open_findings.total }} open · · {{ band.text }} · since your last review,template,heading,Findings {{ tiles.open_findings.total }} open · · {{ band.text }} · since your last review,,,web/templates/_partials/watch_desk_briefing.html,65,dynamic
+watch_desk,_partials/watch_desk_briefing_feed.html,,template,empty_state,All monitored limits are calm — nothing material since your last review. Lower-priority notices No lower-priority notices right now.,,,web/templates/_partials/watch_desk_briefing_feed.html,13,identifier-leak-loose
+watch_desk,_partials/watch_desk_briefing_latest.html,,template,tooltip,Latest briefing,,,web/templates/_partials/watch_desk_briefing_latest.html,28,from:aria-label
+watch_desk,_partials/watch_desk_briefing_latest.html,Latest briefing,template,heading,Latest briefing,,,web/templates/_partials/watch_desk_briefing_latest.html,30,
+watch_desk,_partials/watch_desk_briefing_latest.html,Latest briefing,template,link,{{ item.title }},{{ item.url }},,web/templates/_partials/watch_desk_briefing_latest.html,58,dynamic
+watch_desk,_partials/watch_desk_briefing_latest.html,Latest briefing,template,tooltip,On watch now,,,web/templates/_partials/watch_desk_briefing_latest.html,91,from:aria-label
+watch_desk,_partials/watch_desk_briefing_latest.html,On watch now live {{ watch_strip.stamp }} · {{ watch_strip.chips|length }} watch points on,template,heading,On watch now live {{ watch_strip.stamp }} · {{ watch_strip.chips|length }} watch points on,,,web/templates/_partials/watch_desk_briefing_latest.html,92,dynamic
+watch_desk,_partials/watch_desk_briefing_latest.html,On watch now live {{ watch_strip.stamp }} · {{ watch_strip.chips|length }} watch points on,template,pill,{{ chip.name }} · {{ chip.text }},,,web/templates/_partials/watch_desk_briefing_latest.html,95,dynamic
 watch_desk,_partials/watch_desk_briefing_lazy.html,,template,htmx,Loading briefing…,/api/watch-desk/briefing,this,web/templates/_partials/watch_desk_briefing_lazy.html,6,verb:GET
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,htmx,"Cadence saved. {{ cadence_error }} Cadence {{ cadence_labels[choice] }} Anchor hour {{ '%02d:00'|format(hour) }} Timezone Enabled Sub-daily cadences beat at the anchor hour and every interval from it — an anchor of 08:00 on “Every 6 hours” means 02:00, 08:00, 14:00 and 20:00 in the timezone set here. Save cadence Next beat due: {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }} Next beat scheduled. Not yet configured.",/api/watch-desk/cadence,#dc-cadence-panel,web/templates/_partials/watch_desk_cadence_panel.html,7,dynamic|verb:POST
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Cadence {{ cadence_labels[choice] }},,,web/templates/_partials/watch_desk_cadence_panel.html,21,dynamic
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,select,{{ cadence_labels[choice] }},cadence,,web/templates/_partials/watch_desk_cadence_panel.html,23,dynamic|options:1
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Anchor hour {{ '%02d:00'|format(hour) }},,,web/templates/_partials/watch_desk_cadence_panel.html,33,dynamic
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,select,{{ '%02d:00'|format(hour) }},preferred_hour,,web/templates/_partials/watch_desk_cadence_panel.html,35,dynamic|options:1
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Timezone,,,web/templates/_partials/watch_desk_cadence_panel.html,45,
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Enabled,,,web/templates/_partials/watch_desk_cadence_panel.html,50,
-watch_desk,_partials/watch_desk_cadence_panel.html,,template,button,Save cadence,,,web/templates/_partials/watch_desk_cadence_panel.html,64,
-watch_desk,_partials/watch_desk_calibration.html,Cadence,template,heading,Cadence,,,web/templates/_partials/watch_desk_calibration.html,38,
-watch_desk,_partials/watch_desk_calibration_editor.html,,template,htmx,"Calibration saved. {{ calibration_error }} Nothing was saved. Thresholds Band boundaries {{ 'customised' if band_boundaries.customised else 'default' }} {{ band_boundaries.hint }} {{ message }} {{ options_gate.label }} {{ 'customised' if options_gate.customised else 'default' }} {{ band|capitalize }} and above {{ options_gate.hint }} {{ options_gate.error }} Re-trigger Δ per family How far a subject's magnitude must move, within an unchanged band, before it is worth raising again. The four signal families are calibratable before their producers land — the values simply wait. Floors The minimum final urgency each trigger raises to, on the 1–10 scale. {{ pinned.label }} locked Pinned at {{ pinned.value }} — not calibration {{ pinned.rationale }} Caps The maximum final urgency, keyed by both source and trigger; a finding's effective cap is the lower of the two. Note on this revision Save calibration No changes",/api/watch-desk/calibration,#dc-calibration-editor,web/templates/_partials/watch_desk_calibration_editor.html,25,dynamic|verb:POST
-watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,heading,Thresholds,,,web/templates/_partials/watch_desk_calibration_editor.html,45,
-watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,tooltip,{{ band_boundaries.lower.label }},,,web/templates/_partials/watch_desk_calibration_editor.html,62,dynamic|from:aria-label|icon-only
-watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,tooltip,{{ band_boundaries.upper.label }},,,web/templates/_partials/watch_desk_calibration_editor.html,66,dynamic|from:aria-label|icon-only
-watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,select,{{ band|capitalize }} and above,{{ options_gate.name }},,web/templates/_partials/watch_desk_calibration_editor.html,84,dynamic|options:1
-watch_desk,_partials/watch_desk_calibration_editor.html,Re-trigger Δ per family,template,heading,Re-trigger Δ per family,,,web/templates/_partials/watch_desk_calibration_editor.html,101,
-watch_desk,_partials/watch_desk_calibration_editor.html,Floors,template,heading,Floors,,,web/templates/_partials/watch_desk_calibration_editor.html,116,
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,heading,Caps,,,web/templates/_partials/watch_desk_calibration_editor.html,143,
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,form_label,Note on this revision,,,web/templates/_partials/watch_desk_calibration_editor.html,155,
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,placeholder,Why this calibration was changed (optional),notes,,web/templates/_partials/watch_desk_calibration_editor.html,157,synonym-candidate
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,tooltip,Save controls,,,web/templates/_partials/watch_desk_calibration_editor.html,165,from:aria-label
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,button,Save calibration,,,web/templates/_partials/watch_desk_calibration_editor.html,166,
-watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,pill,No changes,,,web/templates/_partials/watch_desk_calibration_editor.html,169,
-watch_desk,_partials/watch_desk_calibration_field.html,,template,form_label,{{ f.label }} {{ 'customised' if f.customised else 'default' }} {{ f.hint }} {{ f.error }},,,web/templates/_partials/watch_desk_calibration_field.html,10,dynamic
+watch_desk,_partials/watch_desk_briefing_primary.html,,template,htmx,Check now,/api/watch-desk/request-analysis,#dc-briefing-toolbar,web/templates/_partials/watch_desk_briefing_primary.html,13,verb:POST
+watch_desk,_partials/watch_desk_briefing_primary.html,,template,button,Check now,,,web/templates/_partials/watch_desk_briefing_primary.html,17,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,htmx,"Check schedule {{ pf_icon(""info"") }}Cadence saved. {{ pf_icon(""block"") }}{{ cadence_error }} Every {{ cadence_labels[choice] }} Anchored at {{ '%02d:00'|format(hour) }} Timezone Sub-daily cadences check at the anchor hour and every interval from it — an anchor of 08:00 on “Every 6 hours” means 02:00, 08:00, 14:00 and 20:00 in the timezone set here. next check {{ current.next_due_at.strftime('%Y-%m-%d %H:%M %Z') }} Next check scheduled. Not yet configured. Save Keep Checks enabled",/api/watch-desk/cadence,#dc-cadence-panel,web/templates/_partials/watch_desk_cadence_panel.html,14,dynamic|verb:POST
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Every,pf-cadence-cadence,,web/templates/_partials/watch_desk_cadence_panel.html,30,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,select,{{ cadence_labels[choice] }},cadence,,web/templates/_partials/watch_desk_cadence_panel.html,31,dynamic|options:1
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Anchored at,pf-cadence-hour,,web/templates/_partials/watch_desk_cadence_panel.html,42,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,select,{{ '%02d:00'|format(hour) }},preferred_hour,,web/templates/_partials/watch_desk_cadence_panel.html,43,dynamic|options:1
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Timezone,pf-cadence-timezone,,web/templates/_partials/watch_desk_cadence_panel.html,54,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,button,Save,,,web/templates/_partials/watch_desk_cadence_panel.html,74,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,button,Keep,,,web/templates/_partials/watch_desk_cadence_panel.html,77,
+watch_desk,_partials/watch_desk_cadence_panel.html,,template,form_label,Checks enabled,,,web/templates/_partials/watch_desk_cadence_panel.html,79,
+watch_desk,_partials/watch_desk_calibration.html,,template,button,Change,,,web/templates/_partials/watch_desk_calibration.html,48,
+watch_desk,_partials/watch_desk_calibration_editor.html,,template,htmx,"{{ pf_icon(""info"") }}Calibration saved. {{ pf_icon(""block"") }}{{ calibration_error }} Nothing was saved. Thresholds Band boundaries {{ 'customised' if band_boundaries.customised else 'default' }} {{ band_boundaries.hint }} {{ message }} {{ options_gate.label }} {{ 'customised' if options_gate.customised else 'default' }} {{ band|capitalize }} and above {{ options_gate.hint }} {{ options_gate.error }} WARN per family Coverage above this percentage of a ceiling, or a signal above this percentage of its trigger threshold, is WARN for every subject of the family. Empty follows the WARN default above. Strictly between 50 and 100. Re-trigger Δ per family How far a subject's magnitude must move, within an unchanged band, before it is worth raising again. The four signal families are calibratable before their producers land — the values simply wait. Floors The minimum final urgency each trigger raises to, on the 1–10 scale. {{ pinned.label }} locked Pinned at {{ pinned.value }} — not calibration {{ pinned.rationale }} Caps The maximum final urgency, keyed by both source and trigger; a finding's effective cap is the lower of the two. Note on this revision Save calibration No changes",/api/watch-desk/calibration,#dc-calibration-editor,web/templates/_partials/watch_desk_calibration_editor.html,36,dynamic|verb:POST
+watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,heading,Thresholds,,,web/templates/_partials/watch_desk_calibration_editor.html,53,
+watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,tooltip,{{ band_boundaries.lower.label }},,,web/templates/_partials/watch_desk_calibration_editor.html,69,dynamic|from:aria-label|icon-only
+watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,tooltip,{{ band_boundaries.upper.label }},,,web/templates/_partials/watch_desk_calibration_editor.html,75,dynamic|from:aria-label|icon-only
+watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,form_label,{{ options_gate.label }} {{ 'customised' if options_gate.customised else 'default' }},pf-cal-{{ options_gate.name }},,web/templates/_partials/watch_desk_calibration_editor.html,88,dynamic
+watch_desk,_partials/watch_desk_calibration_editor.html,Thresholds,template,select,{{ band|capitalize }} and above,{{ options_gate.name }},,web/templates/_partials/watch_desk_calibration_editor.html,92,dynamic|options:1
+watch_desk,_partials/watch_desk_calibration_editor.html,WARN per family,template,heading,WARN per family,,,web/templates/_partials/watch_desk_calibration_editor.html,110,abbrev
+watch_desk,_partials/watch_desk_calibration_editor.html,Re-trigger Δ per family,template,heading,Re-trigger Δ per family,,,web/templates/_partials/watch_desk_calibration_editor.html,122,
+watch_desk,_partials/watch_desk_calibration_editor.html,Floors,template,heading,Floors,,,web/templates/_partials/watch_desk_calibration_editor.html,137,
+watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,heading,Caps,,,web/templates/_partials/watch_desk_calibration_editor.html,162,
+watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,form_label,Note on this revision,pf-cal-notes,,web/templates/_partials/watch_desk_calibration_editor.html,176,
+watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,placeholder,Why this calibration was changed (optional),notes,,web/templates/_partials/watch_desk_calibration_editor.html,177,synonym-candidate
+watch_desk,_partials/watch_desk_calibration_editor.html,Caps,template,button,Save calibration,,,web/templates/_partials/watch_desk_calibration_editor.html,186,
+watch_desk,_partials/watch_desk_calibration_field.html,,template,form_label,{{ f.label }} {{ 'customised' if f.customised else f.marker_off }},pf-cal-{{ f.name }},,web/templates/_partials/watch_desk_calibration_field.html,19,dynamic
+watch_desk,_partials/watch_desk_calibration_field.html,,template,placeholder,{{ f.placeholder }},{{ f.name }},,web/templates/_partials/watch_desk_calibration_field.html,23,dynamic
 watch_desk,_partials/watch_desk_calibration_lazy.html,,template,htmx,Loading calibration…,/api/watch-desk/calibration,this,web/templates/_partials/watch_desk_calibration_lazy.html,3,verb:GET
-watch_desk,_partials/watch_desk_card.html,,template,tile,{{ (card.band or 'informational')|capitalize }} {{ card.trigger }} {{ card.finding }} Computed materiality {{ card.basis }} Possible moves {{ card.options_prose }} Acted Dismissed Acknowledged Derivation & evidence {{ card.basis }} {{ member.title or member.url }} {{ member.source_name }} {{ ref }} No derivation recorded.,,,web/templates/_partials/watch_desk_card.html,12,dynamic
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,heading,{{ card.trigger }},,,web/templates/_partials/watch_desk_card.html,20,dynamic
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,htmx,Acted Dismissed Acknowledged,/api/watch-desk/findings/{{ card.id }}/resolve,#dc-briefing-feed,web/templates/_partials/watch_desk_card.html,53,verb:POST
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Acted,,,web/templates/_partials/watch_desk_card.html,58,
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Dismissed,,,web/templates/_partials/watch_desk_card.html,60,
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Acknowledged,,,web/templates/_partials/watch_desk_card.html,62,
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,link,{{ member.title or member.url }},{{ member.url }},,web/templates/_partials/watch_desk_card.html,91,dynamic
-watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,empty_state,No derivation recorded.,,,web/templates/_partials/watch_desk_card.html,112,
-watch_desk,_partials/watch_desk_journal.html,,template,link,{{ entry.badge }},{{ entry.case_href }},,web/templates/_partials/watch_desk_journal.html,35,dynamic
-watch_desk,_partials/watch_desk_journal.html,,template,link,Closed,{{ entry.case_href }},,web/templates/_partials/watch_desk_journal.html,49,
-watch_desk,_partials/watch_desk_journal.html,,template,link,{{ entry.resolution_label }},{{ entry.case_href }},,web/templates/_partials/watch_desk_journal.html,73,dynamic
-watch_desk,_partials/watch_desk_journal.html,,template,empty_state,No resolved findings or closed cases yet — they will appear here as you work the briefing.,,,web/templates/_partials/watch_desk_journal.html,90,
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,heading,{{ card.trigger }},,,web/templates/_partials/watch_desk_card.html,21,dynamic
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,htmx,Acted Dismissed Acknowledged,/api/watch-desk/findings/{{ card.id }}/resolve,#dc-briefing-feed,web/templates/_partials/watch_desk_card.html,47,verb:POST
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Acted,,,web/templates/_partials/watch_desk_card.html,52,
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Dismissed,,,web/templates/_partials/watch_desk_card.html,53,
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,button,Acknowledged,,,web/templates/_partials/watch_desk_card.html,54,
+watch_desk,_partials/watch_desk_card.html,{{ card.trigger }},template,link,{{ member.title or member.url }},{{ member.url }},,web/templates/_partials/watch_desk_card.html,80,dynamic
+watch_desk,_partials/watch_desk_discuss_action.html,,template,htmx,Discuss briefing with Shirley,/chat/brief/watch-briefing/{{ briefing_id }},this,web/templates/_partials/watch_desk_discuss_action.html,19,internal-name|verb:POST
+watch_desk,_partials/watch_desk_discuss_action.html,,template,button,Discuss briefing with Shirley,,,web/templates/_partials/watch_desk_discuss_action.html,24,internal-name
+watch_desk,_partials/watch_desk_family_rows.html,,template,tooltip,Watch points,,,web/templates/_partials/watch_desk_family_rows.html,38,from:aria-label
+watch_desk,_partials/watch_desk_family_rows.html,,template,form_label,,,,web/templates/_partials/watch_desk_family_rows.html,52,
+watch_desk,_partials/watch_desk_family_rows.html,,template,htmx,,/api/watch-desk/families/{{ row.family }}/switch,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,52,verb:POST
+watch_desk,_partials/watch_desk_family_rows.html,,template,tooltip,{{ row.name }} {{ 'on' if row.enabled else 'off' }},/api/watch-desk/families/{{ row.family }}/switch,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,52,dynamic|from:aria-label|icon-only
+watch_desk,_partials/watch_desk_family_rows.html,,template,form_label,,,,web/templates/_partials/watch_desk_family_rows.html,59,
+watch_desk,_partials/watch_desk_family_rows.html,,template,tooltip,{{ row.name }} {{ 'on' if row.enabled else 'off' }},,,web/templates/_partials/watch_desk_family_rows.html,59,dynamic|from:aria-label|icon-only
+watch_desk,_partials/watch_desk_family_rows.html,,template,htmx,{{ label }},/api/watch-desk/families/{{ row.family }}/preset,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,66,dynamic|verb:POST
+watch_desk,_partials/watch_desk_family_rows.html,,template,tooltip,{{ row.name }} sensitivity,/api/watch-desk/families/{{ row.family }}/preset,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,66,dynamic|from:aria-label
+watch_desk,_partials/watch_desk_family_rows.html,,template,form_label,{{ label }},pf-preset-{{ row.family }}-{{ key }},,web/templates/_partials/watch_desk_family_rows.html,74,dynamic
+watch_desk,_partials/watch_desk_family_rows.html,,template,htmx,Switch off,/api/watch-desk/families/{{ row.family }}/switch,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,94,synonym-candidate|verb:POST
+watch_desk,_partials/watch_desk_family_rows.html,,template,button,Switch off,,,web/templates/_partials/watch_desk_family_rows.html,100,
+watch_desk,_partials/watch_desk_family_rows.html,,template,htmx,Keep,/api/watch-desk/families/{{ row.family }}/switch,#dc-family-rows,web/templates/_partials/watch_desk_family_rows.html,102,synonym-candidate|verb:POST
+watch_desk,_partials/watch_desk_family_rows.html,,template,button,Keep,,,web/templates/_partials/watch_desk_family_rows.html,107,
+watch_desk,_partials/watch_desk_family_rows.html,,template,form_label,,,,web/templates/_partials/watch_desk_family_rows.html,121,
+watch_desk,_partials/watch_desk_family_rows.html,,template,tooltip,{{ pacing_name }} not yet available,,,web/templates/_partials/watch_desk_family_rows.html,121,dynamic|from:aria-label|icon-only
+watch_desk,_partials/watch_desk_journal.html,,template,htmx,Kind {{ label }} Period {{ label }} Watch point Any {{ label }} Findings are immutable once resolved; cases once closed. A watch point filter hides the check rows.,/api/watch-desk/journal,#dc-journal,web/templates/_partials/watch_desk_journal.html,24,dynamic|verb:GET
+watch_desk,_partials/watch_desk_journal.html,,template,tooltip,Kind,,,web/templates/_partials/watch_desk_journal.html,31,from:aria-label
+watch_desk,_partials/watch_desk_journal.html,,template,form_label,{{ label }},dc-journal-kind-{{ key }},,web/templates/_partials/watch_desk_journal.html,33,dynamic
+watch_desk,_partials/watch_desk_journal.html,,template,form_label,Period {{ label }},,,web/templates/_partials/watch_desk_journal.html,37,dynamic
+watch_desk,_partials/watch_desk_journal.html,,template,select,{{ label }},period,,web/templates/_partials/watch_desk_journal.html,39,dynamic|options:1
+watch_desk,_partials/watch_desk_journal.html,,template,form_label,Watch point Any {{ label }},,,web/templates/_partials/watch_desk_journal.html,45,dynamic
+watch_desk,_partials/watch_desk_journal.html,,template,select,Any {{ label }},family,,web/templates/_partials/watch_desk_journal.html,47,dynamic|options:2
+watch_desk,_partials/watch_desk_journal_days.html,,template,link,{{ entry.badge }},{{ entry.case_href }},,web/templates/_partials/watch_desk_journal_days.html,40,dynamic
+watch_desk,_partials/watch_desk_journal_days.html,,template,link,Closed,{{ entry.case_href }},,web/templates/_partials/watch_desk_journal_days.html,41,
+watch_desk,_partials/watch_desk_journal_days.html,,template,button,›,,,web/templates/_partials/watch_desk_journal_days.html,50,
+watch_desk,_partials/watch_desk_journal_days.html,,template,tooltip,Show briefing,,,web/templates/_partials/watch_desk_journal_days.html,50,from:aria-label
+watch_desk,_partials/watch_desk_journal_days.html,,template,link,{{ entry.resolution_label }},{{ entry.case_href }},,web/templates/_partials/watch_desk_journal_days.html,94,dynamic
+watch_desk,_partials/watch_desk_journal_days.html,,template,empty_state,{{ empty_text }},,,web/templates/_partials/watch_desk_journal_days.html,110,dynamic
+watch_desk,_partials/watch_desk_journal_days.html,,template,button,Older entries — show,{{ older_url }},this,web/templates/_partials/watch_desk_journal_days.html,116,
+watch_desk,_partials/watch_desk_journal_days.html,,template,htmx,Older entries — show,{{ older_url }},this,web/templates/_partials/watch_desk_journal_days.html,116,verb:GET
+watch_desk,_partials/watch_desk_journal_days.html,,template,link,Older entries — show,{{ older_url }},this,web/templates/_partials/watch_desk_journal_days.html,116,
 watch_desk,_partials/watch_desk_journal_lazy.html,,template,htmx,Loading journal…,/api/watch-desk/journal,this,web/templates/_partials/watch_desk_journal_lazy.html,3,verb:GET
-watch_desk,_partials/watch_desk_monitor.html,,template,link,manage in Limits,/back-office#limits,,web/templates/_partials/watch_desk_monitor.html,74,
-watch_desk,_partials/watch_desk_monitor.html,,template,tooltip,{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%,,,web/templates/_partials/watch_desk_monitor.html,108,dynamic|from:title|icon-only
-watch_desk,_partials/watch_desk_monitor.html,,template,link,▲ open finding,{{ row.finding_anchor }},,web/templates/_partials/watch_desk_monitor.html,118,
-watch_desk,_partials/watch_desk_monitor.html,,template,button,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor.html,122,
-watch_desk,_partials/watch_desk_monitor.html,,template,htmx,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor.html,122,verb:GET
-watch_desk,_partials/watch_desk_monitor.html,,template,empty_state,No valued positions yet — nothing to monitor.,,,web/templates/_partials/watch_desk_monitor.html,141,
-watch_desk,_partials/watch_desk_monitor.html,,template,empty_state,No constrained classes — nothing carries a ceiling to watch in this family.,,,web/templates/_partials/watch_desk_monitor.html,145,
-watch_desk,_partials/watch_desk_monitor.html,,template,link,▲ open finding,{{ row.finding_anchor }},,web/templates/_partials/watch_desk_monitor.html,196,
-watch_desk,_partials/watch_desk_monitor.html,,template,button,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor.html,200,
-watch_desk,_partials/watch_desk_monitor.html,,template,htmx,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor.html,200,verb:GET
-watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,tooltip,{{ row.value }} against {{ row.threshold }} · Approaching mark at {{ '%.0f'|format(row.warn_threshold_pct) }}% of it,,,web/templates/_partials/watch_desk_monitor_signal_row.html,31,dynamic|from:title|icon-only
-watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,link,▲ open finding,{{ row.finding_anchor }},,web/templates/_partials/watch_desk_monitor_signal_row.html,47,
-watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,button,Adjust,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,51,duplicate-label
-watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,htmx,Adjust,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,51,duplicate-label|verb:GET
-watch_desk,_partials/watch_desk_monitor_signals.html,,template,empty_state,"{{ entry.name }} — watched, but nothing to show yet: {{ entry.measure }}. — not watched: {{ entry.measure }}. + Add watchpoint",,,web/templates/_partials/watch_desk_monitor_signals.html,119,dynamic
-watch_desk,_partials/watch_desk_monitor_signals.html,,template,button,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ entry.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_monitor_signals.html,127,duplicate-label
-watch_desk,_partials/watch_desk_monitor_signals.html,,template,htmx,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ entry.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_monitor_signals.html,127,duplicate-label|verb:GET
-watch_desk,_partials/watch_desk_opencase_form.html,,template,htmx,Open case →,/api/watch-desk/findings/{{ card.id }}/open-case,#dc-card-{{ card.id }},web/templates/_partials/watch_desk_opencase_form.html,11,verb:POST
-watch_desk,_partials/watch_desk_opencase_form.html,,template,button,Open case →,,,web/templates/_partials/watch_desk_opencase_form.html,16,
-watch_desk,_partials/watch_desk_opencase_form.html,,template,tooltip,"Turns this finding into a case — analysis, discussion, engagement",,,web/templates/_partials/watch_desk_opencase_form.html,16,from:title
-watch_desk,_partials/watch_desk_request_analysis_result.html,,template,htmx,,/api/watch-desk/briefing/poll?since={{ poll_since }},#dc-briefing,web/templates/_partials/watch_desk_request_analysis_result.html,38,hidden|verb:GET
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,htmx,"WARN threshold % of ceiling, strictly between 50 and 100. Empty follows the tenant default ({{ '%.0f'|format(warn_default_pct) }}%). Re-trigger Δ pp of movement within an unchanged band. Empty follows the family default ({{ '%.1f'|format(delta_default) }} pp). Mute This subject is in BREACH. A breach cannot be muted — the beat raises it whatever this says. Suppresses finding creation only. The row stays visible, its status stays live, and a breach still raises. Note Save sensitivity Cancel Visible in the monitor immediately; effective in the beat from its next run.",/api/watch-desk/watchpoints/overlay,{{ target }},web/templates/_partials/watch_desk_sensitivity_editor.html,27,dynamic|verb:POST
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,"WARN threshold % of ceiling, strictly between 50 and 100. Empty follows the tenant default ({{ '%.0f'|format(warn_default_pct) }}%).",,,web/templates/_partials/watch_desk_sensitivity_editor.html,37,dynamic
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,{{ '%.0f'|format(warn_default_pct) }},warn_threshold_pct,,web/templates/_partials/watch_desk_sensitivity_editor.html,39,dynamic
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,Re-trigger Δ pp of movement within an unchanged band. Empty follows the family default ({{ '%.1f'|format(delta_default) }} pp).,,,web/templates/_partials/watch_desk_sensitivity_editor.html,48,dynamic
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,{{ '%.1f'|format(delta_default) }},re_trigger_delta,,web/templates/_partials/watch_desk_sensitivity_editor.html,50,dynamic
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,"Mute This subject is in BREACH. A breach cannot be muted — the beat raises it whatever this says. Suppresses finding creation only. The row stays visible, its status stays live, and a breach still raises.",,,web/templates/_partials/watch_desk_sensitivity_editor.html,67,abbrev
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,tooltip,A breach cannot be muted — the beat raises it regardless.,,,web/templates/_partials/watch_desk_sensitivity_editor.html,68,from:title|icon-only
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,Note,,,web/templates/_partials/watch_desk_sensitivity_editor.html,84,
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,Why this subject is watched differently (optional),notes,,web/templates/_partials/watch_desk_sensitivity_editor.html,86,synonym-candidate
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,button,Save sensitivity,,,web/templates/_partials/watch_desk_sensitivity_editor.html,92,
-watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,button,Cancel,,,web/templates/_partials/watch_desk_sensitivity_editor.html,96,duplicate-label
-watch_desk,_partials/watch_desk_watchpoint_add.html,,template,button,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ group.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_watchpoint_add.html,21,duplicate-label
-watch_desk,_partials/watch_desk_watchpoint_add.html,,template,htmx,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ group.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_watchpoint_add.html,21,duplicate-label|verb:GET
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,htmx,"New {{ family_label }} watchpoint Edit {{ family_label }} watchpoint One rule for the whole book — this family carries a single watchpoint per tenant, and every subject it enumerates reads its settings from this row. Instrument {{ instrument.name }} Active investments carrying a market identifier — the ones the platform can price. Instruments already watched are not listed. No active investment carries a market identifier that is not already watched. Add an identifier under the investment first. Instrument {{ display_name }} Fixed for the life of the watchpoint — watching a different instrument is a different watchpoint. Currency pair BASE/QUOTE, two three-letter codes — the move is read in that orientation. Currency pair {{ currency_pair }} Fixed for the life of the watchpoint. {{ field.label }} In {{ field.unit }}. {{ field.hint }} Approaching mark % of the trigger threshold, strictly between 50 and 100. Empty follows the tenant default ({{ '%.0f'|format(warn_default_pct) }}%). Re-trigger Δ How far the figure must move, within an unchanged status, before it is worth raising again. Empty follows the family default ({{ '%.1f'|format(delta_default) }}). Mute Suppresses finding creation only. The row stays visible and its status stays live. Muting this row silences the whole family. Name Note Add watchpoint Save watchpoint Cancel Visible in the monitor immediately; effective in the beat from its next run.",{{ action }},{{ target }},web/templates/_partials/watch_desk_watchpoint_form.html,29,dynamic|verb:POST
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Instrument {{ instrument.name }} Active investments carrying a market identifier — the ones the platform can price. Instruments already watched are not listed. No active investment carries a market identifier that is not already watched. Add an identifier under the investment first.,,,web/templates/_partials/watch_desk_watchpoint_form.html,51,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,select,{{ instrument.name }},instrument_id,,web/templates/_partials/watch_desk_watchpoint_form.html,54,dynamic|options:1
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,empty_state,No active investment carries a market identifier that is not already watched. Add an identifier under the investment first.,,,web/templates/_partials/watch_desk_watchpoint_form.html,65,
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,"Currency pair BASE/QUOTE, two three-letter codes — the move is read in that orientation.",,,web/templates/_partials/watch_desk_watchpoint_form.html,84,abbrev|identifier-leak-loose
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,USD/EUR,currency_pair,,web/templates/_partials/watch_desk_watchpoint_form.html,86,abbrev
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,{{ field.label }} In {{ field.unit }}. {{ field.hint }},,,web/templates/_partials/watch_desk_watchpoint_form.html,105,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,"Approaching mark % of the trigger threshold, strictly between 50 and 100. Empty follows the tenant default ({{ '%.0f'|format(warn_default_pct) }}%).",,,web/templates/_partials/watch_desk_watchpoint_form.html,115,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,{{ '%.0f'|format(warn_default_pct) }},warn_threshold_pct,,web/templates/_partials/watch_desk_watchpoint_form.html,117,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,"Re-trigger Δ How far the figure must move, within an unchanged status, before it is worth raising again. Empty follows the family default ({{ '%.1f'|format(delta_default) }}).",,,web/templates/_partials/watch_desk_watchpoint_form.html,127,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,{{ '%.1f'|format(delta_default) }},re_trigger_delta,,web/templates/_partials/watch_desk_watchpoint_form.html,129,dynamic
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Mute Suppresses finding creation only. The row stays visible and its status stays live. Muting this row silences the whole family.,,,web/templates/_partials/watch_desk_watchpoint_form.html,139,
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Name,,,web/templates/_partials/watch_desk_watchpoint_form.html,151,duplicate-label
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,Leave empty for the default name,display_name,,web/templates/_partials/watch_desk_watchpoint_form.html,153,synonym-candidate
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Note,,,web/templates/_partials/watch_desk_watchpoint_form.html,158,
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,Why this subject is watched (optional),notes,,web/templates/_partials/watch_desk_watchpoint_form.html,160,synonym-candidate
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,button,Add watchpoint Save watchpoint,,,web/templates/_partials/watch_desk_watchpoint_form.html,166,
-watch_desk,_partials/watch_desk_watchpoint_form.html,,template,button,Cancel,,,web/templates/_partials/watch_desk_watchpoint_form.html,172,duplicate-label
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,heading,Watchpoints,,,web/templates/_partials/watch_desk_watchpoint_list.html,23,
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,Adjust,{{ row.edit_url }},#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,59,duplicate-label
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,Adjust,{{ row.edit_url }},#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,59,duplicate-label|verb:GET
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,66,
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,66,verb:GET
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,Retire,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire,#dc-watchpoint-list,web/templates/_partials/watch_desk_watchpoint_list.html,78,
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,Retire,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire,#dc-watchpoint-list,web/templates/_partials/watch_desk_watchpoint_list.html,78,verb:POST
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,empty_state,No watchpoints yet. Add one from the monitor beneath the Briefing.,,,web/templates/_partials/watch_desk_watchpoint_list.html,96,
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,
-watch_desk,_partials/watch_desk_watchpoint_list.html,Watchpoints,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,118,verb:GET
+watch_desk,_partials/watch_desk_monitor.html,,template,tooltip,Watch list,,,web/templates/_partials/watch_desk_monitor.html,57,from:aria-label
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,heading,Watch list what each watch point sees right now,,,web/templates/_partials/watch_desk_monitor.html,58,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,button,›,,,web/templates/_partials/watch_desk_monitor.html,66,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,tooltip,Show {{ group.name }},,,web/templates/_partials/watch_desk_monitor.html,66,dynamic|from:aria-label
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,button,"{{ pf_icon(""more"", ""Actions for "" ~ group.name) }}",,,web/templates/_partials/watch_desk_monitor.html,83,dynamic
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,link,Manage in Limits,/back-office#limits,,web/templates/_partials/watch_desk_monitor.html,86,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,empty_state,No valued positions yet — nothing to monitor.,,,web/templates/_partials/watch_desk_monitor.html,122,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,empty_state,No constrained classes — nothing carries a ceiling to watch in this family.,,,web/templates/_partials/watch_desk_monitor.html,126,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,button,›,,,web/templates/_partials/watch_desk_monitor.html,145,
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,tooltip,Show {{ monitor.rss.name }},,,web/templates/_partials/watch_desk_monitor.html,145,dynamic|from:aria-label
+watch_desk,_partials/watch_desk_monitor.html,Watch list what each watch point sees right now,template,button,"{{ pf_icon(""more"", ""Actions for "" ~ monitor.rss.name) }}",,,web/templates/_partials/watch_desk_monitor.html,155,dynamic
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,tooltip,{{ row.value }} against {{ row.threshold }} · Approaching mark at {{ '%.0f'|format(row.warn_threshold_pct) }}% of it,,,web/templates/_partials/watch_desk_monitor_signal_row.html,35,dynamic|from:title|icon-only
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,link,open finding,{{ row.finding_anchor }},,web/templates/_partials/watch_desk_monitor_signal_row.html,47,
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,button,"{{ pf_icon(""more"", ""Actions for "" ~ row.display_name) }}",,,web/templates/_partials/watch_desk_monitor_signal_row.html,56,dynamic
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,button,Adjust,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,58,duplicate-label
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,htmx,Adjust,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/edit?return_to=monitor,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,58,duplicate-label|verb:GET
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,63,
+watch_desk,_partials/watch_desk_monitor_signal_row.html,,template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.editor_id }},web/templates/_partials/watch_desk_monitor_signal_row.html,63,verb:GET
+watch_desk,_partials/watch_desk_monitor_signals.html,,template,button,›,,,web/templates/_partials/watch_desk_monitor_signals.html,65,
+watch_desk,_partials/watch_desk_monitor_signals.html,,template,tooltip,Show {{ group.name }},,,web/templates/_partials/watch_desk_monitor_signals.html,65,dynamic|from:aria-label
+watch_desk,_partials/watch_desk_monitor_signals.html,,template,button,"{{ pf_icon(""more"", ""Actions for "" ~ group.name) }}",,,web/templates/_partials/watch_desk_monitor_signals.html,76,dynamic
+watch_desk,_partials/watch_desk_monitor_signals.html,,template,button,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ entry.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_monitor_signals.html,149,duplicate-label
+watch_desk,_partials/watch_desk_monitor_signals.html,,template,htmx,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ entry.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_monitor_signals.html,149,duplicate-label|verb:GET
+watch_desk,_partials/watch_desk_opencase_form.html,,template,htmx,Open case,/api/watch-desk/findings/{{ card.id }}/open-case,#dc-card-{{ card.id }},web/templates/_partials/watch_desk_opencase_form.html,12,verb:POST
+watch_desk,_partials/watch_desk_opencase_form.html,,template,button,Open case,,,web/templates/_partials/watch_desk_opencase_form.html,17,
+watch_desk,_partials/watch_desk_opencase_form.html,,template,tooltip,"Turns this finding into a case — analysis, discussion, engagement",,,web/templates/_partials/watch_desk_opencase_form.html,17,from:title
+watch_desk,_partials/watch_desk_request_analysis_result.html,,template,htmx,,/api/watch-desk/briefing/poll?since={{ poll_since }},#dc-briefing,web/templates/_partials/watch_desk_request_analysis_result.html,34,hidden|verb:GET
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,htmx,"Adjust sensitivity {{ subject_key.split(':', 1)[1]|replace('_', ' ')|capitalize }} · {{ subject_key }} WARN threshold % of ceiling, strictly between 50 and 100. Empty follows the family default ({{ '%.0f'|format(warn_inherited_pct) }}%). Re-trigger Δ pp of movement within an unchanged band. Empty follows the family default ({{ '%.1f'|format(delta_default) }} pp). Mute This subject is in BREACH. A breach cannot be muted — the beat raises it whatever this says. Suppresses finding creation only. The row stays visible, its status stays live, and a breach still raises. Note Save sensitivity Keep Visible in the monitor immediately; effective from the next check.",/api/watch-desk/watchpoints/overlay,{{ target }},web/templates/_partials/watch_desk_sensitivity_editor.html,36,dynamic|verb:POST
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,WARN threshold,{{ fid }}-warn,,web/templates/_partials/watch_desk_sensitivity_editor.html,54,abbrev|synonym-candidate
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,{{ '%.0f'|format(warn_inherited_pct) }},warn_threshold_pct,,web/templates/_partials/watch_desk_sensitivity_editor.html,55,dynamic
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,Re-trigger Δ,{{ fid }}-delta,,web/templates/_partials/watch_desk_sensitivity_editor.html,66,
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,{{ '%.1f'|format(delta_default) }},re_trigger_delta,,web/templates/_partials/watch_desk_sensitivity_editor.html,67,dynamic
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,Mute,,,web/templates/_partials/watch_desk_sensitivity_editor.html,86,
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,tooltip,A breach cannot be muted — the beat raises it regardless.,,,web/templates/_partials/watch_desk_sensitivity_editor.html,87,from:title|icon-only
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,form_label,Note,{{ fid }}-notes,,web/templates/_partials/watch_desk_sensitivity_editor.html,105,
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,placeholder,Why this subject is watched differently (optional),notes,,web/templates/_partials/watch_desk_sensitivity_editor.html,106,synonym-candidate
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,button,Save sensitivity,,,web/templates/_partials/watch_desk_sensitivity_editor.html,113,
+watch_desk,_partials/watch_desk_sensitivity_editor.html,,template,button,Keep,,,web/templates/_partials/watch_desk_sensitivity_editor.html,117,
+watch_desk,_partials/watch_desk_watch_row.html,,template,tooltip,{{ '%.1f'|format(row.utilisation) }}% of ceiling · WARN mark at {{ '%.0f'|format(row.warn_threshold_pct) }}%,,,web/templates/_partials/watch_desk_watch_row.html,60,dynamic|from:title|icon-only
+watch_desk,_partials/watch_desk_watch_row.html,,template,link,open finding,{{ row.finding_anchor }},,web/templates/_partials/watch_desk_watch_row.html,71,
+watch_desk,_partials/watch_desk_watch_row.html,,template,button,"{{ pf_icon(""more"", ""Actions for "" ~ label) }}",,,web/templates/_partials/watch_desk_watch_row.html,80,dynamic
+watch_desk,_partials/watch_desk_watch_row.html,,template,button,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_watch_row.html,82,
+watch_desk,_partials/watch_desk_watch_row.html,,template,htmx,Adjust sensitivity,/api/watch-desk/watchpoints/overlay?subject_key={{ row.subject_key|urlencode }},#{{ row.editor_id }},web/templates/_partials/watch_desk_watch_row.html,82,verb:GET
+watch_desk,_partials/watch_desk_watchpoint_add.html,,template,button,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ group.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_watchpoint_add.html,25,duplicate-label
+watch_desk,_partials/watch_desk_watchpoint_add.html,,template,htmx,+ Add watchpoint,/api/watch-desk/watchpoints/new?family={{ group.family }},#dc-watchpoint-new,web/templates/_partials/watch_desk_watchpoint_add.html,25,duplicate-label|verb:GET
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,htmx,"New {{ family_label }} watchpoint Edit {{ family_label }} watchpoint One rule for the whole book — this family carries a single watchpoint per tenant, and every subject it enumerates reads its settings from this row. Instrument {{ instrument.name }} Active investments carrying a market identifier — the ones the platform can price. Instruments already watched are not listed. Instrument No active investment carries a market identifier that is not already watched. Add an identifier under the investment first. Instrument {{ display_name }} Fixed for the life of the watchpoint — watching a different instrument is a different watchpoint. Currency pair BASE/QUOTE, two three-letter codes — the move is read in that orientation. Currency pair {{ currency_pair }} Fixed for the life of the watchpoint. {{ field.label }} In {{ field.unit }}. {{ field.hint }} Approaching mark % of the trigger threshold, strictly between 50 and 100. Empty follows the family default ({{ '%.0f'|format(warn_inherited_pct) }}%). Re-trigger Δ How far the figure must move, within an unchanged status, before it is worth raising again. Empty follows the family default ({{ '%.1f'|format(delta_default) }}). Mute Suppresses finding creation only. The row stays visible and its status stays live. Muting this row silences the whole family. Name Note Add watchpoint Save watchpoint Keep Visible in the monitor immediately; effective from the next check.",{{ action }},{{ target }},web/templates/_partials/watch_desk_watchpoint_form.html,38,dynamic|verb:POST
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Instrument,{{ fid }}-instrument,,web/templates/_partials/watch_desk_watchpoint_form.html,64,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,select,{{ instrument.name }},instrument_id,,web/templates/_partials/watch_desk_watchpoint_form.html,65,dynamic|options:1
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Currency pair,{{ fid }}-pair,,web/templates/_partials/watch_desk_watchpoint_form.html,97,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,USD/EUR,currency_pair,,web/templates/_partials/watch_desk_watchpoint_form.html,98,abbrev
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,{{ field.label }},{{ fid }}-{{ field.name }},,web/templates/_partials/watch_desk_watchpoint_form.html,119,dynamic
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Approaching mark,{{ fid }}-warn,,web/templates/_partials/watch_desk_watchpoint_form.html,130,synonym-candidate
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,{{ '%.0f'|format(warn_inherited_pct) }},warn_threshold_pct,,web/templates/_partials/watch_desk_watchpoint_form.html,131,dynamic
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Re-trigger Δ,{{ fid }}-delta,,web/templates/_partials/watch_desk_watchpoint_form.html,143,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,{{ '%.1f'|format(delta_default) }},re_trigger_delta,,web/templates/_partials/watch_desk_watchpoint_form.html,144,dynamic
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Mute,,,web/templates/_partials/watch_desk_watchpoint_form.html,156,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Name,{{ fid }}-name,,web/templates/_partials/watch_desk_watchpoint_form.html,170,duplicate-label
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,Leave empty for the default name,display_name,,web/templates/_partials/watch_desk_watchpoint_form.html,171,synonym-candidate
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,form_label,Note,{{ fid }}-notes,,web/templates/_partials/watch_desk_watchpoint_form.html,178,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,placeholder,Why this subject is watched (optional),notes,,web/templates/_partials/watch_desk_watchpoint_form.html,179,synonym-candidate
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,button,Add watchpoint Save watchpoint,,,web/templates/_partials/watch_desk_watchpoint_form.html,186,
+watch_desk,_partials/watch_desk_watchpoint_form.html,,template,button,Keep,,,web/templates/_partials/watch_desk_watchpoint_form.html,190,
+watch_desk,_partials/watch_desk_watchpoint_history.html,Versions of “{{ display_name }}”,template,heading,Versions of “{{ display_name }}”,,,web/templates/_partials/watch_desk_watchpoint_history.html,18,dynamic
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,heading,"Watchpoints what this tenant watches, one row per live identity",,,web/templates/_partials/watch_desk_watchpoint_list.html,32,internal-name
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,tooltip,Actions,,,web/templates/_partials/watch_desk_watchpoint_list.html,43,from:aria-label|icon-only
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,"{{ pf_icon(""more"", ""Actions for "" ~ row.display_name) }}",,,web/templates/_partials/watch_desk_watchpoint_list.html,63,dynamic
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,Adjust,{{ row.edit_url }},#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,65,duplicate-label
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,htmx,Adjust,{{ row.edit_url }},#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,65,duplicate-label|verb:GET
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,70,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,70,verb:GET
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,Retire…,,,web/templates/_partials/watch_desk_watchpoint_list.html,80,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,Retire,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire,#dc-watchpoint-list,web/templates/_partials/watch_desk_watchpoint_list.html,97,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,htmx,Retire,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/retire,#dc-watchpoint-list,web/templates/_partials/watch_desk_watchpoint_list.html,97,verb:POST
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,Keep,,,web/templates/_partials/watch_desk_watchpoint_list.html,102,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,empty_state,No watchpoints yet. Add one from the watch list beneath the Briefing.,,,web/templates/_partials/watch_desk_watchpoint_list.html,122,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,"{{ pf_icon(""more"", ""Actions for "" ~ row.display_name) }}",,,web/templates/_partials/watch_desk_watchpoint_list.html,142,dynamic
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,button,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,144,
+watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tenant watches, one row per live identity",template,htmx,History,/api/watch-desk/watchpoints/{{ row.watchpoint_id }}/history,#{{ row.slot_id }},web/templates/_partials/watch_desk_watchpoint_list.html,144,verb:GET
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,51,dynamic
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,52,dynamic
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,56,dynamic
@@ -1273,12 +1329,12 @@ investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templa
 investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,79,event:submit|linked|navigation|verb:GET
 investments,investments/list.html,,js,js_call,,/investments/{param},,web/templates/investments/list.html,79,unlinked|verb:DELETE
 investments,investments/list.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/list.html,95,unlinked|verb:PATCH
-unassigned,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,104,unlinked|verb:GET|via:appendPinButton
-unassigned,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,118,unlinked|verb:GET|via:appendPinButton
-unassigned,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,133,dynamic-url|linked|verb:GET
-unassigned,_partials/turn_started.html,,js,js_call,,/chat/stream/{param},,web/static/js/chat.js,170,event:keydown|linked|sse|url-from-attribute|verb:GET
-unassigned,,,js,js_call,,/chat/tts,,web/static/js/chat.js,353,unlinked|verb:POST
-unassigned,,,js,js_call,,/chat/voice,,web/static/js/chat.js,507,unlinked|verb:POST
+unassigned,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,153,unlinked|verb:GET|via:appendPinButton
+unassigned,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,167,unlinked|verb:GET|via:appendPinButton
+unassigned,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,182,dynamic-url|linked|verb:GET
+unassigned,_partials/turn_started.html,,js,js_call,,/chat/stream/{param},,web/static/js/chat.js,219,event:reset|linked|sse|url-from-attribute|verb:GET
+unassigned,,,js,js_call,,/chat/tts,,web/static/js/chat.js,402,unlinked|verb:POST
+unassigned,,,js,js_call,,/chat/voice,,web/static/js/chat.js,556,unlinked|verb:POST
 unassigned,,,js,js_call,,<dynamic>,,web/static/js/saa_section.js,62,dynamic-url|unlinked|verb:GET
 unassigned,,,js,js_call,,/api/cmd-search,,web/static/js/section_nav.js,115,unlinked|verb:GET
 unassigned,,,js,js_call,,<dynamic>,,web/static/js/section_nav.js,153,dynamic-url|unlinked|verb:GET

@@ -58,8 +58,8 @@ against, and what has shipped. It records no history — that lives in git and i
   Standard · Nervous; every check as a Journal row; "Discuss briefing with
   Shirley"; Irene is never presented to herself as Shirley.
 - **ADR:** ADR-0133 (annex amendments to ADR-0088 and ADR-0116).
-- **Depends on:** #033, #057 (both shipped). UX strand A-6 of #070 restyles the
-  surface afterwards.
+- **Depends on:** #033, #057 (both shipped). UX strand A-6 of #070 restyled the
+  surface (shipped 2026-10-10).
 
 ### #070 — UX overhaul and user manual
 
@@ -74,7 +74,7 @@ against, and what has shipped. It records no history — that lives in git and i
   manual.
 - **ADR:** ADR-0134 (Section as one view); conventions in
   [`docs/ux/ui-standards.md`](ux/ui-standards.md).
-- **Depends on:** none; A-6 on #069.
+- **Depends on:** none; A-6 shipped 2026-10-10 on #069.
 
 ---
 
@@ -345,6 +345,10 @@ not before #023.
 
 **Workflow linting.** Lint the GitHub Actions workflows with `actionlint` and
 `zizmor`; needs tool installs.
+
+**Fail fast on an unreachable test container.** Stop the run at the first
+connection with "start the test container" instead of letting each module skip
+or error (ADR-0135 report, F1).
 
 ---
 

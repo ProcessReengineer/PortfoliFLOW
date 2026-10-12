@@ -7,6 +7,8 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ## [Unreleased]
 
+## [2026.10.0] — 2026-10-12
+
 ### Added
 
 - `AGENTS.md`, the rules file for coding agents, and `docs/glossary.md`, the
@@ -45,6 +47,10 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 - The web server reads its configuration through `WebSettings` instead of raw
   environment variables; an invalid `WEB_MAX_UPLOAD_SIZE_MB` now refuses
   startup.
+- The sidebar no longer shows the signed-in e-mail address; it appears as the
+  tooltip of the Sign out button. The navigation is the sidebar's scroll
+  region and scrolls without a visible scrollbar.
+- Charts show the Plotly toolbar only while the pointer is over them.
 
 ### Removed
 

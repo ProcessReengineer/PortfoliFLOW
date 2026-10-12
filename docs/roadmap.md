@@ -47,20 +47,6 @@ against, and what has shipped. It records no history — that lives in git and i
   [`docs/concepts/provider-channel-stage-b-decisions.md`](concepts/provider-channel-stage-b-decisions.md).
 - **Depends on:** #061 (shipped).
 
-### #069 — Watch Desk refinement: briefing artefact, watch-point scope, presets
-
-- **Purpose:** make the Watch Desk's proactive role visible to an average
-  portfolio manager — the first refinement item after feature-completeness.
-- **Scope:** Irene writes a two-part briefing in a second synthesis call after
-  the deterministic floor (markets and press read against the whole priceable
-  book, then the watched families), persisted per check; an owner-only on/off
-  switch per signal family, separate from mute; sensitivity presets Quiet ·
-  Standard · Nervous; every check as a Journal row; "Discuss briefing with
-  Shirley"; Irene is never presented to herself as Shirley.
-- **ADR:** ADR-0133 (annex amendments to ADR-0088 and ADR-0116).
-- **Depends on:** #033, #057 (both shipped). UX strand A-6 of #070 restyled the
-  surface (shipped 2026-10-10).
-
 ### #070 — UX overhaul and user manual
 
 - **Purpose:** bring every Area to one consistent, calmer interface — one
@@ -350,6 +336,13 @@ not before #023.
 connection with "start the test container" instead of letting each module skip
 or error (ADR-0135 report, F1).
 
+**Underwater tile successor.** Replace the listed-equity "Underwater" drawdown
+tile (Tile 2 of the triplet, ADR-0082) with a chart carrying more meaningful
+information while keeping its basic optics (filled area against the zero
+line); inspiration from Bloomberg-style terminals. Deferred from the
+pre-release polish of `2026.10.0`; needs a short concept note before a build
+prompt.
+
 ---
 
 ## Won't-do
@@ -403,6 +396,7 @@ or error (ADR-0135 report, F1).
 | #058 | Built-in tick scheduler | ≤ 2026-08-16 | ADR-0117 |
 | #059 | Per-tenant voice settings | ≤ 2026-08-16 | ADR-0118 |
 | #061 | Transactions | 2026-09-08 | ADR-0128 – ADR-0130 |
+| #069 | Watch Desk refinement: briefing artefact, watch-point scope, presets | 2026-10-12 | ADR-0133 |
 
 ---
 

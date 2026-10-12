@@ -449,10 +449,15 @@ async def test_if08_list_resolved_before_pages_by_event_instant(
         assert [row.subject_key for row in saa] == ["saa:a"]
 
     # A row resolved without a stamp sorts on created_at (the Journal's
-    # own fallback), which is later than every stamped instant here.
+    # own fallback). created_at is pinned between the newest stamped instant
+    # and ``far`` so the result never depends on the day the suite runs.
     async with tenant_context(app_engine, tenant_id) as session:
         await session.execute(
-            text("UPDATE irene_finding SET resolved_at = NULL WHERE subject_key = 'saa:a'")
+            text(
+                "UPDATE irene_finding SET resolved_at = NULL, created_at = :created_at "
+                "WHERE subject_key = 'saa:a'"
+            ),
+            {"created_at": base + 5 * day},
         )
     async with tenant_context(app_engine, tenant_id) as session:
         page = await IreneFindingRepository(session).list_resolved_before(before=far, limit=10)

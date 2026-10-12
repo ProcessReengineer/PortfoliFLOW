@@ -121,7 +121,7 @@ def build_multiples_stacked_spec(
         "data": [dpi_trace, rvpi_trace, irr_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

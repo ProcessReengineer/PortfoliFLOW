@@ -214,7 +214,7 @@ def _interpolate_colour(value: float, cold: str, neutral: str, hot: str) -> str:
 
 def _config() -> dict[str, Any]:
     return {
-        "displayModeBar": True,
+        "displayModeBar": "hover",
         "displaylogo": False,
         "modeBarButtonsToRemove": ["lasso2d", "select2d"],
         "responsive": True,

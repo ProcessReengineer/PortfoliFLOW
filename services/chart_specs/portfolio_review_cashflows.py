@@ -121,7 +121,7 @@ def build_yearly_cashflows_spec(
         "data": [calls_trace, distributions_trace, nav_trace, ncg_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

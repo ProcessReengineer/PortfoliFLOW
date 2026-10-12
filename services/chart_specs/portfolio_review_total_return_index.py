@@ -86,7 +86,7 @@ def build_total_return_index_spec(
         "data": [line_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

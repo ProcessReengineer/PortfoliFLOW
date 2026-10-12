@@ -143,7 +143,7 @@ def build_multiples_spec(
         "data": [tvpi_trace, dpi_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

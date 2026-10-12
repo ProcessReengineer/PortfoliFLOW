@@ -222,7 +222,7 @@ def build_cashflows_nav_spec(
         "data": data,
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

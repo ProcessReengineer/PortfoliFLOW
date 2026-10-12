@@ -81,7 +81,7 @@ def build_region_treemap_spec(
         "data": [treemap_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

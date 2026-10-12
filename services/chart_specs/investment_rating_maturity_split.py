@@ -166,7 +166,7 @@ def build_rating_maturity_split_spec(
         "data": [rating_trace, maturity_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

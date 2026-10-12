@@ -95,7 +95,7 @@ def build_invested_capital_nav_spec(
         "data": [invested_trace, nav_trace],
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

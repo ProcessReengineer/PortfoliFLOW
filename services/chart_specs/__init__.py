@@ -15,6 +15,15 @@ The package is deliberately Qt-free, FastAPI-free, and matplotlib-
 free per ADR-0042 §4 / §5. It is importable from any
 consumer (web routes today, Shirley tool calls in Phase 5+) without
 dragging a UI toolkit into the import graph.
+
+Every interactive spec sets ``config.displayModeBar = "hover"``
+(P-GP-2): the modebar is there for whoever wants to zoom or export,
+but it only appears while the pointer is over the figure, so the
+resting surface shows the chart and nothing else. ``False`` is
+reserved for figures that are not meant to be operated at all
+(sparklines, small multiples, the scenario and cash-flow strips).
+``True`` — a permanently visible bar — is not used anywhere;
+``tests/services/chart_specs/test_modebar_policy.py`` guards that.
 """
 
 from services.chart_specs._theme import (

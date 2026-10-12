@@ -174,7 +174,7 @@ def build_nav_timeseries_spec(
     apply_axis_end(layout, axis_end, has_data=bool(actual_trace["x"] or plan_trace["x"]))
 
     config = {
-        "displayModeBar": True,
+        "displayModeBar": "hover",
         "displaylogo": False,
         "modeBarButtonsToRemove": ["lasso2d", "select2d"],
         "responsive": True,

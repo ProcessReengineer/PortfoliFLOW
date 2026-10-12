@@ -1028,7 +1028,7 @@ def render_chart(
                 layout["barmode"] = "group"
 
         config = {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

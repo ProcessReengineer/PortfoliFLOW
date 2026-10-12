@@ -238,7 +238,7 @@ def build_benchmark_saa_hypothetical_spec(
         "data": traces,
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

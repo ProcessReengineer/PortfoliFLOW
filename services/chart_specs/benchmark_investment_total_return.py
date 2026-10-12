@@ -144,7 +144,7 @@ def build_benchmark_investment_total_return_spec(
         "data": traces,
         "layout": layout,
         "config": {
-            "displayModeBar": True,
+            "displayModeBar": "hover",
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             "responsive": True,

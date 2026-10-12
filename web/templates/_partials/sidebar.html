@@ -20,7 +20,13 @@
    The id ``pf-sidebar`` is the OOB swap target — when the
    ``sidebar_oob`` flag is set, the rendered <aside> carries
    ``hx-swap-oob="outerHTML"`` so HTMX replaces the live sidebar in
-   place with this rendering. #}
+   place with this rendering.
+
+   The footer carries Collapse and Sign out only. The signed-in
+   address used to sit above them as its own line; it was redundant
+   (the Front Office welcome header greets by name, ADR-0068) and,
+   on short viewports, painted over the last nav entries. It now
+   lives in the Sign out button's title tooltip (P-GP-1). #}
 {% set _areas = [
     ("front_office", "Front Office", "/front-office"),
     ("back_office", "Back Office", "/back-office"),
@@ -74,11 +80,6 @@
         {% endif %}
     </nav>
     <div class="pf-sidebar__footer">
-        {% if user_email %}
-            <span class="pf-sidebar__user" title="{{ user_email }}">
-                {{ user_email }}
-            </span>
-        {% endif %}
         <form class="pf-sidebar__collapse-form"
               method="post"
               action="/shell/sidebar/toggle">
@@ -106,7 +107,8 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 {% endif %}
                 <button type="submit"
-                        class="pf-sidebar__signout-button">
+                        class="pf-sidebar__signout-button"
+                        title="Signed in as {{ user_email }}">
                     <span class="pf-sidebar__signout-label-expanded">
                         {{ pf_icon("sign-out") }}Sign out
                     </span>

@@ -121,6 +121,10 @@
     height: 32px;
 }
 
+/* The nav is the sidebar's only scroll region (P-GP-1). Without an
+ * overflow of its own the flex item shrinks to fit (min-height: 0)
+ * and its entries run under the footer; the footer is pinned, so
+ * Collapse and Sign out stay reachable however long the list gets. */
 .pf-sidebar__nav {
     flex: 1 1 auto;
     min-height: 0;
@@ -128,6 +132,8 @@
     flex-direction: column;
     padding: var(--ui-space-2) var(--ui-space-3);
     gap: 2px;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* First level — one entry per Area. The label is allowed to wrap onto a
@@ -253,8 +259,7 @@
 /* Collapsed state: icons only. The second level goes with the labels —
  * a 56px column cannot carry section titles. */
 .pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__label,
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__sections,
-.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__user {
+.pf-shell[data-sidebar-collapsed="true"] .pf-sidebar__sections {
     display: none;
 }
 
@@ -276,22 +281,11 @@
 .pf-sidebar__footer {
     flex: 0 0 auto;
     border-top: 1px solid var(--ui-border-soft);
+    background-color: var(--ui-background-chrome);
     padding: var(--ui-space-2) var(--ui-space-3);
     display: flex;
     flex-direction: column;
     gap: 2px;
-}
-
-.pf-sidebar__user {
-    padding: 0 var(--ui-space-3);
-    height: 28px;
-    display: flex;
-    align-items: center;
-    color: var(--ui-text-tertiary);
-    font-size: var(--ui-font-scale-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .pf-sidebar__collapse-form,

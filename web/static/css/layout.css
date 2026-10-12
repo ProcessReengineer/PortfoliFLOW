@@ -94,6 +94,11 @@
     border-right: 1px solid var(--ui-border-soft);
     overflow-y: auto;
     overflow-x: hidden;
+    scrollbar-width: none;
+}
+
+.pf-sidebar::-webkit-scrollbar {
+    display: none;
 }
 
 .pf-sidebar__brand {
@@ -134,6 +139,17 @@
     gap: 2px;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Scrolls, but shows no bar (P-GP-3): wheel, trackpad, arrow keys and
+     * focus all still move the list; the native bar — light and
+     * arrow-capped on Windows — sat on the dark chrome like a foreign
+     * object. The standard property covers Firefox and Chromium >= 121;
+     * the ::-webkit-scrollbar rule below covers Safari and older
+     * Chromium. */
+    scrollbar-width: none;
+}
+
+.pf-sidebar__nav::-webkit-scrollbar {
+    display: none;
 }
 
 /* First level — one entry per Area. The label is allowed to wrap onto a

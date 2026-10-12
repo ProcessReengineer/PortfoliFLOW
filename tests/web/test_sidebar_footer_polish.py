@@ -10,8 +10,9 @@ over the last entries. The address line is gone (redundant with the
 welcome header, ADR-0068); the address itself moved into the Sign
 out button's ``title`` tooltip, and the nav is now the sidebar's own
 scroll region, so the footer can never be overlapped. These tests
-pin all three at the source level; the browser walk is the
-operator's.
+pin all three at the source level, plus (P-GP-3) the
+hidden scrollbar on both sidebar scroll regions; the browser walk is
+the operator's.
 """
 
 from __future__ import annotations
@@ -74,3 +75,12 @@ def test_sidebar_footer_is_opaque() -> None:
     css = _LAYOUT.read_text(encoding="utf-8")
     footer = _rule(css, ".pf-sidebar__footer")
     assert "background-color: var(--ui-background-chrome)" in footer
+
+
+def test_sidebar_scroll_regions_hide_their_scrollbar() -> None:
+    """P-GP-3: the nav scrolls without a visible bar; so does the aside."""
+    css = _LAYOUT.read_text(encoding="utf-8")
+    for selector in (".pf-sidebar__nav", ".pf-sidebar"):
+        assert "scrollbar-width: none" in _rule(css, selector), selector
+        webkit = _rule(css, f"{selector}::-webkit-scrollbar")
+        assert "display: none" in webkit, selector

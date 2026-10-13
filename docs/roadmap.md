@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-13
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#076`.**
+  bucket and is never reused. **Next free ID: `#077`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -61,6 +61,23 @@ against, and what has shipped. It records no history — that lives in git and i
 - **ADR:** ADR-0134 (Section as one view); conventions in
   [`docs/ux/ui-standards.md`](ux/ui-standards.md).
 - **Depends on:** none; A-6 shipped 2026-10-10 on #069.
+
+### #076 — Voice providers, round 2
+
+- **Purpose:** Shirley's voice messages (web chat and Telegram) stop depending
+  on OpenAI, whose speech models retire on 2027-01-06 (text-to-speech) and
+  2027-02-26 (transcription). Speech-to-text and text-to-speech become two
+  ports with one adapter each, chosen per tenant and per half: any OpenAI-wire
+  server (a tenant's own, keyless), ElevenLabs natively, or OpenAI until its
+  shutdown. No provider default — with nothing chosen the half is inactive and
+  the Admin card says so; the program always starts. Telegram voice replies
+  are transcoded to Ogg/Opus with the host `ffmpeg` when needed.
+- **Shipped so far:** nothing yet.
+- **Remaining:** the implementation strand — port split, taxonomy and
+  availability, OpenAI-wire adapter and transcoding, ElevenLabs adapter,
+  documentation; the legacy `openai` declaration is removed after 2027-02-26.
+- **ADR:** ADR-0136.
+- **Depends on:** none. Must ship before 2027-01-06.
 
 ---
 

@@ -5,13 +5,15 @@
 
 These drive :func:`bot.telegram_bot._handle_voice_message` directly with faked
 aiogram ``Message`` / ``Bot`` objects (the same scaffolding style as
-``tests/bot/test_telegram_image_input.py``) plus a fake
-:class:`~services.voice.provider.VoiceProvider`.
+``tests/bot/test_telegram_image_input.py``) plus a fake adapter satisfying
+:class:`~services.voice.provider.SpeechToText` and
+:class:`~services.voice.provider.TextToSpeech`.
 
-Since ADR-0118 §4 the handler resolves one
-:class:`~services.voice.ResolvedVoice` per inbound message and builds both legs
-from it, so the injection seam is the factory rather than a singleton: the fake
-provider is installed by monkeypatching ``tb.build_provider`` with a recorder,
+Since ADR-0118 §4 the handler resolves one voice resolution per inbound
+message — a :class:`~services.voice.ResolvedSTT` and a
+:class:`~services.voice.ResolvedTTS` — and builds each leg from its half, so
+the injection seam is the factory rather than a singleton: the fake adapter is
+installed by monkeypatching ``tb.build_stt`` and ``tb.build_tts`` with a recorder,
 and gating runs the **real** ``voice.enabled`` chain over the environment
 (``_bot_engine`` is ``None`` here, so there are no vault sources). No real
 STT/TTS call is made, and every ``VOICE_*`` variable is cleared by the reset
@@ -57,6 +59,8 @@ from services.ai_models import Conversation, Message, MessageRole
 from services.ai_service_core import AIServiceCore, StreamEvent
 from services.voice import (
     EmptyTranscriptError,
+    ResolvedSTT,
+    ResolvedTTS,
     VoiceSynthesisError,
     VoiceTranscriptionError,
 )
@@ -164,7 +168,7 @@ def aiobot_mock() -> MagicMock:
 
 
 class _FakeVoiceProvider:
-    """In-memory :class:`VoiceProvider` stand-in recording its calls."""
+    """In-memory :class:`SpeechToText` / :class:`TextToSpeech` stand-in recording its calls."""
 
     def __init__(
         self,
@@ -263,19 +267,28 @@ def _make_chart_only_stream() -> Any:
 
 
 class _ProviderRecorder:
-    """Stands in for ``build_provider``: records the resolution, serves the fake.
+    """Stands in for ``build_stt`` / ``build_tts``: records each half, serves the fake.
 
-    The seam ADR-0118 §4 left behind — both legs of a voice message build
-    their provider from the message's :class:`ResolvedVoice`, so recording the
-    factory records the resolution too.
+    The seam ADR-0118 §4 left behind — each leg of a voice message builds its
+    adapter from its half of the message's resolution (ADR-0136 §1), so
+    recording the builders records the resolution too.
     """
 
     def __init__(self, fake: _FakeVoiceProvider) -> None:
         self._fake = fake
-        self.calls: list[Any] = []
+        self.stt: ResolvedSTT | None = None
+        self.tts: ResolvedTTS | None = None
+        self.stt_calls = 0
+        self.tts_calls = 0
 
-    def __call__(self, voice: Any) -> _FakeVoiceProvider:
-        self.calls.append(voice)
+    def build_stt(self, resolved: ResolvedSTT) -> _FakeVoiceProvider:
+        self.stt = resolved
+        self.stt_calls += 1
+        return self._fake
+
+    def build_tts(self, resolved: ResolvedTTS) -> _FakeVoiceProvider:
+        self.tts = resolved
+        self.tts_calls += 1
         return self._fake
 
 
@@ -287,11 +300,11 @@ def _install_voice(
     Gating and resolution are the real ones (env-only, since ``_bot_engine``
     is ``None``): ``VOICE_ENABLED`` decides the gate and the two API keys are
     what an enabled tenant needs. The models, base URL and persona voice stay
-    unset on purpose — the ``DEFAULT_*`` constants serve as the chains' tails.
+    unset on purpose — the retired code defaults serve as the chains' tails.
 
     Returns:
-        The recorder installed over ``tb.build_provider``, so a caller can
-        assert on *whether* and *with what* the factory was reached.
+        The recorder installed over ``tb.build_stt`` / ``tb.build_tts``, so a
+        caller can assert on *whether* and *with what* each builder was reached.
     """
     if enabled:
         monkeypatch.setenv("VOICE_ENABLED", "true")
@@ -299,7 +312,8 @@ def _install_voice(
     monkeypatch.setenv("VOICE_TTS_API_KEY", "sk-env-tts")
 
     recorder = _ProviderRecorder(fake)
-    monkeypatch.setattr(tb, "build_provider", recorder)
+    monkeypatch.setattr(tb, "build_stt", recorder.build_stt)
+    monkeypatch.setattr(tb, "build_tts", recorder.build_tts)
     return recorder
 
 
@@ -478,7 +492,8 @@ async def test_v06_disabled_service_replies_not_enabled(
     aiobot_mock.download.assert_not_awaited()
     aiobot_mock.send_voice.assert_not_awaited()
     # Nothing was resolved and no provider was ever built.
-    assert recorder.calls == []
+    assert recorder.stt_calls == 0
+    assert recorder.tts_calls == 0
     sent = [c.kwargs.get("text", "") for c in aiobot_mock.send_message.await_args_list]
     assert any("not enabled" in t for t in sent), sent
 

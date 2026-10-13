@@ -6,9 +6,9 @@
 These are plain :class:`Exception` subclasses, mirroring the local-error
 discipline of :mod:`services.scraper.capabilities` (``UnsupportedModelError``).
 They are defined locally — rather than anchored on a project-wide
-``PortfoliFlowError`` — to honour the "stdlib + ``openai`` only" layering rule
-for ``services/voice/`` (ADR-0038): nothing under this package imports from
-``core/``.
+``PortfoliFlowError`` — to honour the layering rule for ``services/voice/``
+(ADR-0038, ADR-0136 §8): the package imports only the standard library,
+``openai`` and ``httpx``, and nothing under it imports from ``core/``.
 
 The hierarchy exists to make "no silent fallback" enforceable: a
 misconfigured provider, an unsupported audio format, an empty transcript, or an
@@ -24,10 +24,10 @@ class VoiceError(Exception):
 
 
 class VoiceConfigurationError(VoiceError):
-    """Required ``VOICE_*`` configuration is missing or invalid.
+    """Voice is enabled but its resolved configuration is missing or invalid.
 
-    Raised only when :attr:`VoiceConfig.enabled` is true — a disabled voice
-    service is a valid, quiet state and never raises.
+    An inactive or disabled voice service is a valid, quiet state and never
+    raises.
     """
 
 

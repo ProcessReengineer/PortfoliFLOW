@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""The :class:`VoiceProvider` protocol — the seam for STT/TTS adapters (ADR-0076).
+"""The two speech ports — :class:`SpeechToText` and :class:`TextToSpeech` (ADR-0136 §1).
 
-A provider turns audio into text (STT) and text into audio (TTS). The Protocol
-is the single abstraction that keeps the system "ElevenLabs-ready" without
-building a second adapter now: a new provider is a new class satisfying this
-interface, not a change to any caller.
+One port per half: an STT adapter turns audio into text, a TTS adapter turns
+text into audio. The factory composes **one adapter per half**, so a tenant may
+pair any speech-to-text adapter with any text-to-speech adapter; a single
+adapter class may still satisfy both Protocols (the OpenAI-wire one does). A
+new provider is a new class satisfying the port of its half, not a change to
+any caller.
 
-The Protocol is :func:`~typing.runtime_checkable` so callers and tests can
-assert ``isinstance(adapter, VoiceProvider)``.
+Both Protocols are :func:`~typing.runtime_checkable` so callers and tests can
+assert ``isinstance(adapter, SpeechToText)`` / ``isinstance(adapter,
+TextToSpeech)``.
 """
 
 from __future__ import annotations
@@ -18,8 +21,8 @@ from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
-class VoiceProvider(Protocol):
-    """Channel-agnostic speech-to-text and text-to-speech operations.
+class SpeechToText(Protocol):
+    """Channel-agnostic speech-to-text operation.
 
     Implementations process audio in memory for the duration of one turn and
     never persist it (ADR-0076). They raise — never return empty results — on
@@ -44,6 +47,17 @@ class VoiceProvider(Protocol):
             EmptyTranscriptError: If the transcript is empty/whitespace-only.
         """
         ...
+
+
+@runtime_checkable
+class TextToSpeech(Protocol):
+    """Channel-agnostic text-to-speech operation.
+
+    Implementations process audio in memory for the duration of one turn and
+    never persist it (ADR-0076). They raise — never return empty results — on
+    failure, so callers can surface a clear message instead of silently
+    degrading.
+    """
 
     async def synthesize(self, text: str, *, fmt: str) -> tuple[bytes, str]:
         """Synthesise ``text`` to speech in container ``fmt``.

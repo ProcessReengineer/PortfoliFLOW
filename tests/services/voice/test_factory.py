@@ -1,89 +1,102 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for :mod:`services.voice.factory` (ADR-0076, Block 1; ADR-0118 §3).
+"""Tests for :mod:`services.voice.factory` (ADR-0076; ADR-0136 §1).
 
-``build_provider`` accepts both shapes — the env-backed :class:`VoiceConfig`
-and the per-tenant :class:`ResolvedVoice` — so every case is pinned twice.
+One builder per half: :func:`build_stt` takes a :class:`ResolvedSTT` and
+returns a :class:`SpeechToText`, :func:`build_tts` takes a :class:`ResolvedTTS`
+and returns a :class:`TextToSpeech`. Each refuses an unknown provider key, and
+each builds only the half it was asked for. The single-port names retire with
+no alias.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from services.voice.config import VoiceConfig
-from services.voice.errors import UnsupportedVoiceProviderError
-from services.voice.factory import build_provider
+import services.voice
+from services.voice.errors import UnsupportedVoiceProviderError, VoiceConfigurationError
+from services.voice.factory import build_stt, build_tts
 from services.voice.openai_provider import OpenAIVoiceProvider
-from services.voice.provider import VoiceProvider
-from services.voice.resolved import ResolvedVoice
+from services.voice.provider import SpeechToText, TextToSpeech
+from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
 
-def _config(*, stt_provider: str = "openai", tts_provider: str = "openai") -> VoiceConfig:
-    """Build a disabled config with explicit provider keys (no env coupling)."""
-    return VoiceConfig(
-        enabled=False,
-        stt_provider=stt_provider,
-        stt_model="gpt-4o-mini-transcribe",
-        stt_api_key="",
-        stt_base_url="https://api.openai.com/v1",
-        tts_provider=tts_provider,
-        tts_model="gpt-4o-mini-tts",
-        tts_voice="nova",
-        tts_api_key="",
+def _stt(provider: str = "openai") -> ResolvedSTT:
+    """Build an STT resolution with explicit fields (no env coupling)."""
+    return ResolvedSTT(
+        provider=provider,
+        model="gpt-4o-mini-transcribe",
+        api_key="sk-stt",
+        base_url="https://api.openai.com/v1",
     )
 
 
-def _resolved(*, stt_provider: str = "openai", tts_provider: str = "openai") -> ResolvedVoice:
-    """Mirror :func:`_config` in the per-request shape (no ``enabled``)."""
-    return ResolvedVoice(
-        stt_provider=stt_provider,
-        stt_model="gpt-4o-mini-transcribe",
-        stt_api_key="sk-stt",
-        stt_base_url="https://api.openai.com/v1",
-        tts_provider=tts_provider,
-        tts_model="gpt-4o-mini-tts",
-        tts_voice="nova",
-        tts_api_key="sk-tts",
+def _tts(provider: str = "openai") -> ResolvedTTS:
+    """Build a TTS resolution with explicit fields (no env coupling)."""
+    return ResolvedTTS(
+        provider=provider,
+        model="gpt-4o-mini-tts",
+        voice="nova",
+        api_key="sk-tts",
+        base_url="https://api.openai.com/v1",
     )
 
 
-def test_build_provider_openai_returns_adapter() -> None:
-    """Both providers ``"openai"`` yields an :class:`OpenAIVoiceProvider`."""
-    provider = build_provider(_config())
+def test_build_stt_openai_returns_adapter() -> None:
+    """``"openai"`` yields an :class:`OpenAIVoiceProvider` satisfying the STT port."""
+    adapter = build_stt(_stt())
 
-    assert isinstance(provider, OpenAIVoiceProvider)
+    assert isinstance(adapter, OpenAIVoiceProvider)
     # The Protocol is runtime-checkable, so the adapter satisfies it.
-    assert isinstance(provider, VoiceProvider)
+    assert isinstance(adapter, SpeechToText)
 
 
-def test_build_provider_unknown_stt_provider_raises() -> None:
+def test_build_tts_openai_returns_adapter() -> None:
+    """``"openai"`` yields an :class:`OpenAIVoiceProvider` satisfying the TTS port."""
+    adapter = build_tts(_tts())
+
+    assert isinstance(adapter, OpenAIVoiceProvider)
+    assert isinstance(adapter, TextToSpeech)
+
+
+def test_build_stt_unknown_provider_raises() -> None:
     """An unknown STT provider raises rather than silently falling back."""
     with pytest.raises(UnsupportedVoiceProviderError, match="elevenlabs"):
-        build_provider(_config(stt_provider="elevenlabs"))
+        build_stt(_stt("elevenlabs"))
 
 
-def test_build_provider_unknown_tts_provider_raises() -> None:
+def test_build_tts_unknown_provider_raises() -> None:
     """An unknown TTS provider raises rather than silently falling back."""
     with pytest.raises(UnsupportedVoiceProviderError, match="deepgram"):
-        build_provider(_config(tts_provider="deepgram"))
+        build_tts(_tts("deepgram"))
 
 
-def test_build_provider_accepts_resolved_voice() -> None:
-    """A per-tenant :class:`ResolvedVoice` builds the same adapter."""
-    provider = build_provider(_resolved())
+async def test_build_stt_builds_only_the_stt_half(httpx_mock) -> None:
+    """The STT adapter has no TTS half: ``synthesize`` refuses before any HTTP."""
+    adapter = build_stt(_stt())
+    assert isinstance(adapter, OpenAIVoiceProvider)
 
-    assert isinstance(provider, OpenAIVoiceProvider)
-    assert isinstance(provider, VoiceProvider)
+    with pytest.raises(VoiceConfigurationError, match="text-to-speech"):
+        await adapter.synthesize("hello", fmt="mp3")
 
-
-def test_build_provider_resolved_unknown_stt_provider_raises() -> None:
-    """The no-silent-fallback rule holds on the resolved shape too (STT)."""
-    with pytest.raises(UnsupportedVoiceProviderError, match="elevenlabs"):
-        build_provider(_resolved(stt_provider="elevenlabs"))
+    assert httpx_mock.get_requests() == []
 
 
-def test_build_provider_resolved_unknown_tts_provider_raises() -> None:
-    """The no-silent-fallback rule holds on the resolved shape too (TTS)."""
-    with pytest.raises(UnsupportedVoiceProviderError, match="deepgram"):
-        build_provider(_resolved(tts_provider="deepgram"))
+async def test_build_tts_builds_only_the_tts_half(httpx_mock) -> None:
+    """The TTS adapter has no STT half: ``transcribe`` refuses before any HTTP."""
+    adapter = build_tts(_tts())
+    assert isinstance(adapter, OpenAIVoiceProvider)
+
+    with pytest.raises(VoiceConfigurationError, match="speech-to-text"):
+        await adapter.transcribe(b"audio-bytes", "audio/webm")
+
+    assert httpx_mock.get_requests() == []
+
+
+def test_build_provider_is_gone() -> None:
+    """The single-port names retire at once, with no alias (ADR-0136 §1)."""
+    assert not hasattr(services.voice, "build_provider")
+    assert not hasattr(services.voice, "VoiceProvider")
+    assert not hasattr(services.voice, "ResolvedVoice")
+    assert not hasattr(services.voice, "VoiceConfig")

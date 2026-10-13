@@ -5,15 +5,17 @@
 
 The voice twin of ``test_chat_llm_resolution.py``, and built the same way:
 live Postgres, the real login flow, real vault rows written through
-``ScopedSettingRepository`` — only ``build_provider`` is a double, and it is
-one precisely so the test can read *what the request resolved*.
+``ScopedSettingRepository`` — only ``build_stt`` / ``build_tts`` are doubles,
+and they are precisely so the test can read *what the request resolved*.
 
 What is pinned here:
 
 * **The rows drive the turn.** A tenant's ``voice_stt`` / ``voice_tts`` keys
-  and its model / persona-voice rows reach the provider factory as the
-  request's :class:`ResolvedVoice`, with **no restart** between the write and
-  the recording.
+  and its model / persona-voice rows reach the two builders as the
+  request's :class:`ResolvedSTT` / :class:`ResolvedTTS`, with **no restart**
+  between the write and the recording. ``POST /chat/voice`` builds only the
+  STT half and ``POST /chat/tts`` only the TTS half, so a test reading a half
+  posts to that half's endpoint.
 * **Scope precedence.** A tenant row outranks the environment — the ADR-0112
   §1 chain, observed end to end.
 * **Env-only degradation.** With no vault rows the resolution is exactly the
@@ -24,8 +26,8 @@ What is pinned here:
   and their absence turns them off (ADR-0118 §5).
 * **Enabled-but-keyless is loud.** Voice on with no credential anywhere
   answers 503 on both endpoints, naming Providers & Credentials *and*
-  ``.env`` — the startup validation ``VoiceConfig.__post_init__`` used to do,
-  relocated to first use (ADR-0118 §2).
+  ``.env`` — the start-up validation ADR-0076 had, relocated to first use
+  (ADR-0118 §2).
 """
 
 from __future__ import annotations
@@ -52,14 +54,7 @@ from services.ai_models import ConnectionStatus
 from services.ai_service_core import StreamEvent
 from services.credential_vault import MASTER_KEY_ENV_VAR, VaultCipher
 from services.password_hashing import hash_password
-from services.voice import (
-    DEFAULT_STT_BASE_URL,
-    DEFAULT_STT_MODEL,
-    DEFAULT_TTS_MODEL,
-    DEFAULT_TTS_VOICE,
-    DEFAULT_VOICE_PROVIDER,
-    ResolvedVoice,
-)
+from services.voice import ResolvedSTT, ResolvedTTS
 from web.main import create_app
 from web.routes import chat as chat_routes
 from web.settings import WebSettings
@@ -70,6 +65,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 DATABASE_URL_SUPERUSER = os.getenv("DATABASE_URL_SUPERUSER")
 
 _MASTER_KEY = Fernet.generate_key().decode()
+
+# The retired code defaults, pinned as values (ADR-0136 §2 moves them into the
+# adapter declarations).
+_LEGACY_PROVIDER = "openai"
+_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
+_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
+_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
+_LEGACY_TTS_VOICE = "nova"
 
 _AUDIO_BYTES = b"OggS" + b"\x00" * 32
 
@@ -142,7 +145,10 @@ class _FakeCore:
 
 
 class _FakeVoiceProvider:
-    """Succeeds at everything; this module tests resolution, not I/O."""
+    """Satisfies :class:`SpeechToText` and :class:`TextToSpeech`; always succeeds.
+
+    This module tests resolution, not I/O.
+    """
 
     async def transcribe(self, audio: bytes, mime_type: str) -> str:
         return "how is my portfolio doing"
@@ -152,15 +158,22 @@ class _FakeVoiceProvider:
 
 
 class _ProviderRecorder:
-    """Stands in for :func:`build_provider` and keeps what it was handed."""
+    """Stands in for :func:`build_stt` and :func:`build_tts` and keeps what each was handed."""
 
     def __init__(self) -> None:
-        self.resolved: ResolvedVoice | None = None
-        self.calls = 0
+        self.stt: ResolvedSTT | None = None
+        self.tts: ResolvedTTS | None = None
+        self.stt_calls = 0
+        self.tts_calls = 0
 
-    def __call__(self, resolved: ResolvedVoice) -> _FakeVoiceProvider:
-        self.resolved = resolved
-        self.calls += 1
+    def build_stt(self, resolved: ResolvedSTT) -> _FakeVoiceProvider:
+        self.stt = resolved
+        self.stt_calls += 1
+        return _FakeVoiceProvider()
+
+    def build_tts(self, resolved: ResolvedTTS) -> _FakeVoiceProvider:
+        self.tts = resolved
+        self.tts_calls += 1
         return _FakeVoiceProvider()
 
 
@@ -180,9 +193,10 @@ def pinned_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def voice_build(monkeypatch: pytest.MonkeyPatch) -> _ProviderRecorder:
-    """Replace ``web.routes.chat.build_provider`` with the recorder."""
+    """Replace ``web.routes.chat.build_stt`` / ``build_tts`` with the recorder."""
     recorder = _ProviderRecorder()
-    monkeypatch.setattr(chat_routes, "build_provider", recorder)
+    monkeypatch.setattr(chat_routes, "build_stt", recorder.build_stt)
+    monkeypatch.setattr(chat_routes, "build_tts", recorder.build_tts)
     return recorder
 
 
@@ -380,9 +394,8 @@ async def test_tenant_rows_drive_the_request_without_a_restart(
 ) -> None:
     """Vault rows written after startup reach the very next recording.
 
-    The unset config fields fall through to the ``DEFAULT_*`` constants —
-    the tails of the chains, and the reason no resolution site constructs a
-    :class:`VoiceConfig` to learn them (ADR-0118 §4).
+    The unset config fields fall through to the retired code defaults —
+    the tails of the chains (ADR-0118 §4).
     """
     client, app = app_client
     _uid, email, password = seeded_user
@@ -408,21 +421,21 @@ async def test_tenant_rows_drive_the_request_without_a_restart(
     )
     await _write_setting(app.state.engine, provider="voice_tts", key="voice", value="tenant-voice")
 
-    response = await _post_voice(client, csrf)
+    assert (await _post_voice(client, csrf)).status_code == 200
+    assert (await _post_tts(client, csrf)).status_code == 200
 
-    assert response.status_code == 200
-    resolved = voice_build.resolved
-    assert resolved is not None
-    assert resolved.stt_api_key == "sk-tenant-stt"
-    assert resolved.tts_api_key == "sk-tenant-tts"
-    assert resolved.stt_model == "tenant/stt-model"
-    assert resolved.tts_voice == "tenant-voice"
+    stt, tts = voice_build.stt, voice_build.tts
+    assert stt is not None and tts is not None
+    assert stt.api_key == "sk-tenant-stt"
+    assert tts.api_key == "sk-tenant-tts"
+    assert stt.model == "tenant/stt-model"
+    assert tts.voice == "tenant-voice"
     # Unset everywhere: the code defaults are the tails of these two chains.
-    assert resolved.stt_base_url == DEFAULT_STT_BASE_URL
-    assert resolved.tts_model == DEFAULT_TTS_MODEL
+    assert stt.base_url == _LEGACY_STT_BASE_URL
+    assert tts.model == _LEGACY_TTS_MODEL
     # Undeclared by design (ADR-0118 §1) — env-only, defaulted here.
-    assert resolved.stt_provider == DEFAULT_VOICE_PROVIDER
-    assert resolved.tts_provider == DEFAULT_VOICE_PROVIDER
+    assert stt.provider == _LEGACY_PROVIDER
+    assert tts.provider == _LEGACY_PROVIDER
 
 
 async def test_tenant_rows_outrank_the_environment(
@@ -461,18 +474,18 @@ async def test_tenant_rows_outrank_the_environment(
         app.state.engine, provider="voice_tts", key="model", value="tenant/tts-model"
     )
 
-    response = await _post_voice(client, csrf)
+    assert (await _post_voice(client, csrf)).status_code == 200
+    assert (await _post_tts(client, csrf)).status_code == 200
 
-    assert response.status_code == 200
-    resolved = voice_build.resolved
-    assert resolved is not None
-    assert resolved.stt_api_key == "sk-tenant-stt"
-    assert resolved.tts_api_key == "sk-tenant-tts"
-    assert resolved.stt_base_url == "https://tenant.example/stt/v1"
-    assert resolved.tts_model == "tenant/tts-model"
+    stt, tts = voice_build.stt, voice_build.tts
+    assert stt is not None and tts is not None
+    assert stt.api_key == "sk-tenant-stt"
+    assert tts.api_key == "sk-tenant-tts"
+    assert stt.base_url == "https://tenant.example/stt/v1"
+    assert tts.model == "tenant/tts-model"
     # The fields the tenant left alone still come from the environment.
-    assert resolved.stt_model == _ENV_VOICE["VOICE_STT_MODEL"]
-    assert resolved.tts_voice == _ENV_VOICE["VOICE_TTS_VOICE"]
+    assert stt.model == _ENV_VOICE["VOICE_STT_MODEL"]
+    assert tts.voice == _ENV_VOICE["VOICE_TTS_VOICE"]
 
 
 async def test_env_only_resolution_is_the_whole_configuration(
@@ -492,20 +505,21 @@ async def test_env_only_resolution_is_the_whole_configuration(
     _uid, email, password = seeded_user
     csrf = await _login(client, email, password)
 
-    response = await _post_voice(client, csrf)
+    assert (await _post_voice(client, csrf)).status_code == 200
+    assert (await _post_tts(client, csrf)).status_code == 200
 
-    assert response.status_code == 200
-    resolved = voice_build.resolved
-    assert resolved is not None
-    assert resolved == ResolvedVoice(
-        stt_provider=_ENV_VOICE["VOICE_STT_PROVIDER"],
-        stt_model=_ENV_VOICE["VOICE_STT_MODEL"],
-        stt_api_key=_ENV_VOICE["VOICE_STT_API_KEY"],
-        stt_base_url=_ENV_VOICE["VOICE_STT_BASE_URL"],
-        tts_provider=_ENV_VOICE["VOICE_TTS_PROVIDER"],
-        tts_model=_ENV_VOICE["VOICE_TTS_MODEL"],
-        tts_voice=_ENV_VOICE["VOICE_TTS_VOICE"],
-        tts_api_key=_ENV_VOICE["VOICE_TTS_API_KEY"],
+    assert voice_build.stt == ResolvedSTT(
+        provider=_ENV_VOICE["VOICE_STT_PROVIDER"],
+        model=_ENV_VOICE["VOICE_STT_MODEL"],
+        api_key=_ENV_VOICE["VOICE_STT_API_KEY"],
+        base_url=_ENV_VOICE["VOICE_STT_BASE_URL"],
+    )
+    assert voice_build.tts == ResolvedTTS(
+        provider=_ENV_VOICE["VOICE_TTS_PROVIDER"],
+        model=_ENV_VOICE["VOICE_TTS_MODEL"],
+        voice=_ENV_VOICE["VOICE_TTS_VOICE"],
+        api_key=_ENV_VOICE["VOICE_TTS_API_KEY"],
+        base_url="https://api.openai.com/v1",
     )
 
 
@@ -517,7 +531,7 @@ async def test_the_defaults_are_the_tails_of_every_config_chain(
     env_enabled_only: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Keys alone, nothing else: all four settings fall to the constants."""
+    """Keys alone, nothing else: all four settings fall to the code defaults."""
     monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
     monkeypatch.setenv("VOICE_TTS_API_KEY", "sk-env-tts")
 
@@ -525,14 +539,15 @@ async def test_the_defaults_are_the_tails_of_every_config_chain(
     _uid, email, password = seeded_user
     csrf = await _login(client, email, password)
 
+    assert (await _post_voice(client, csrf)).status_code == 200
     assert (await _post_tts(client, csrf)).status_code == 200
 
-    resolved = voice_build.resolved
-    assert resolved is not None
-    assert resolved.stt_model == DEFAULT_STT_MODEL
-    assert resolved.stt_base_url == DEFAULT_STT_BASE_URL
-    assert resolved.tts_model == DEFAULT_TTS_MODEL
-    assert resolved.tts_voice == DEFAULT_TTS_VOICE
+    stt, tts = voice_build.stt, voice_build.tts
+    assert stt is not None and tts is not None
+    assert stt.model == _LEGACY_STT_MODEL
+    assert stt.base_url == _LEGACY_STT_BASE_URL
+    assert tts.model == _LEGACY_TTS_MODEL
+    assert tts.voice == _LEGACY_TTS_VOICE
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +608,7 @@ async def test_enabled_without_a_credential_answers_503_naming_both_scopes(
 ) -> None:
     """Voice on, no key anywhere → 503 on both endpoints, and no provider.
 
-    This is the startup validation ``VoiceConfig.__post_init__`` performed,
+    This is the start-up validation ADR-0076 had,
     relocated to first use: a tenant that switched voice on and stopped
     there learns so from a 503 that says where to fix it, not from a
     provider quietly failing upstream.
@@ -612,7 +627,8 @@ async def test_enabled_without_a_credential_answers_503_naming_both_scopes(
     assert ".env" in body
     # Tenant rows apply on the next voice message — never a restart.
     assert "restart" not in body.lower()
-    assert voice_build.calls == 0
+    assert voice_build.stt_calls == 0
+    assert voice_build.tts_calls == 0
 
 
 async def test_one_half_of_the_credential_is_still_unconfigured(
@@ -636,4 +652,5 @@ async def test_one_half_of_the_credential_is_still_unconfigured(
     csrf = await _login(client, email, password)
 
     assert (await _post_voice(client, csrf)).status_code == 503
-    assert voice_build.calls == 0
+    assert voice_build.stt_calls == 0
+    assert voice_build.tts_calls == 0

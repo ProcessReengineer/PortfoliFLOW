@@ -1,16 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""OpenAI adapter for the voice service (ADR-0076).
+"""OpenAI-wire adapter for the voice service (ADR-0076, ADR-0136 §1, §6).
 
-Implements :class:`~services.voice.provider.VoiceProvider` against the OpenAI
-``/v1/audio/transcriptions`` (STT) and ``/v1/audio/speech`` (TTS) endpoints
-using the ``openai`` SDK already present in the project — **no new dependency**.
+Implements both ports — :class:`~services.voice.provider.SpeechToText` against
+``/v1/audio/transcriptions`` and :class:`~services.voice.provider.TextToSpeech`
+against ``/v1/audio/speech`` — using the ``openai`` SDK already present in the
+project, **no new dependency**. The adapter is built **per half**: the factory
+hands it a :class:`~services.voice.resolved.ResolvedSTT` or a
+:class:`~services.voice.resolved.ResolvedTTS`, and each half talks to its own
+``base_url`` with its own key.
 
 Two layering / lifecycle disciplines mirror :mod:`services.ai_service_core`:
 
-- **No env reads here.** The adapter receives a :class:`VoiceConfig` and never
-  touches ``os.environ``, which keeps it unit-testable.
+- **No env reads here.** The adapter receives its resolved half (or halves)
+  and never touches ``os.environ``, which keeps it unit-testable.
 - **Per-call client lifecycle.** A fresh ``openai.AsyncOpenAI`` is built inside
   each method and closed in a ``finally`` — an ``httpx.AsyncClient`` is bound to
   the loop it was created on, so it must not be cached across calls/threads.
@@ -20,6 +24,10 @@ Two layering / lifecycle disciplines mirror :mod:`services.ai_service_core`:
 "No silent fallback": an unsupported MIME / ``fmt``, an empty transcript, an
 empty synthesis input, or an SDK error each raises a clear
 :mod:`services.voice.errors` exception instead of returning empty data.
+
+The module imports only the standard library and ``openai`` — within the
+package formula of ADR-0136 §8 (the standard library, ``openai`` and
+``httpx``).
 """
 
 from __future__ import annotations
@@ -28,14 +36,14 @@ import logging
 
 import openai
 
-from services.voice.config import VoiceConfig
 from services.voice.errors import (
     EmptyTranscriptError,
     UnsupportedAudioFormatError,
+    VoiceConfigurationError,
     VoiceSynthesisError,
     VoiceTranscriptionError,
 )
-from services.voice.resolved import ResolvedVoice
+from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
 logger = logging.getLogger(__name__)
 
@@ -65,19 +73,28 @@ _FMT_TO_RESPONSE: dict[str, tuple[str, str]] = {
 
 
 class OpenAIVoiceProvider:
-    """OpenAI-backed STT/TTS adapter satisfying :class:`VoiceProvider`.
+    """OpenAI-wire adapter satisfying :class:`SpeechToText` and :class:`TextToSpeech`.
+
+    One class, two halves (ADR-0136 §1): the factory builds it with exactly
+    the half it was asked for, so a tenant's STT and TTS never share an
+    adapter instance. The adapter never reads the environment; endpoint, key
+    and model of each half come from its resolution (ADR-0136 §6).
 
     Args:
-        config: The resolved configuration — an env-backed
-            :class:`VoiceConfig` or a per-tenant
-            :class:`~services.voice.resolved.ResolvedVoice` (ADR-0118 §3).
-            STT and TTS credentials, models, the STT base URL, and the TTS
-            voice are read from it; the adapter never reads the environment
-            directly, and reads attributes only, so both shapes fit.
+        stt: The speech-to-text resolution, or ``None`` when this instance
+            serves only text-to-speech.
+        tts: The text-to-speech resolution, or ``None`` when this instance
+            serves only speech-to-text.
+
+    Raises:
+        ValueError: If neither half is given.
     """
 
-    def __init__(self, config: VoiceConfig | ResolvedVoice) -> None:
-        self._config = config
+    def __init__(self, *, stt: ResolvedSTT | None = None, tts: ResolvedTTS | None = None) -> None:
+        if stt is None and tts is None:
+            raise ValueError("OpenAIVoiceProvider needs at least one half: stt= or tts=.")
+        self._stt = stt
+        self._tts = tts
 
     async def transcribe(self, audio: bytes, mime_type: str) -> str:
         """Transcribe ``audio`` via ``/v1/audio/transcriptions``.
@@ -92,6 +109,9 @@ class OpenAIVoiceProvider:
             The non-empty, stripped transcript.
 
         Raises:
+            VoiceConfigurationError: If this instance was built without a
+                speech-to-text resolution. A defensive guard — the factory
+                never builds a half it was not asked for. No HTTP call is made.
             UnsupportedAudioFormatError: If the (normalised) MIME type has no
                 known extension. No HTTP call is made.
             VoiceTranscriptionError: If the SDK call fails (auth, non-2xx, or
@@ -99,6 +119,11 @@ class OpenAIVoiceProvider:
             EmptyTranscriptError: If the API returns an empty/whitespace-only
                 transcript.
         """
+        if self._stt is None:
+            raise VoiceConfigurationError(
+                "OpenAIVoiceProvider was built without a speech-to-text resolution."
+            )
+
         base = mime_type.split(";", 1)[0].strip().lower()
         ext = _MIME_TO_EXT.get(base)
         if ext is None:
@@ -108,12 +133,10 @@ class OpenAIVoiceProvider:
                 f"Supported types: {supported}."
             )
 
-        client = openai.AsyncOpenAI(
-            base_url=self._config.stt_base_url, api_key=self._config.stt_api_key
-        )
+        client = openai.AsyncOpenAI(base_url=self._stt.base_url, api_key=self._stt.api_key)
         try:
             result = await client.audio.transcriptions.create(
-                model=self._config.stt_model,
+                model=self._stt.model,
                 file=(f"audio.{ext}", audio, base),
             )
         except openai.OpenAIError as exc:
@@ -143,11 +166,19 @@ class OpenAIVoiceProvider:
             A ``(audio_bytes, output_mime_type)`` tuple.
 
         Raises:
+            VoiceConfigurationError: If this instance was built without a
+                text-to-speech resolution. A defensive guard — the factory
+                never builds a half it was not asked for. No HTTP call is made.
             UnsupportedAudioFormatError: If ``fmt`` is unknown. No HTTP call is
                 made.
             VoiceSynthesisError: If ``text`` is empty (no HTTP call) or the SDK
                 call fails.
         """
+        if self._tts is None:
+            raise VoiceConfigurationError(
+                "OpenAIVoiceProvider was built without a text-to-speech resolution."
+            )
+
         mapping = _FMT_TO_RESPONSE.get(fmt)
         if mapping is None:
             supported = ", ".join(sorted(_FMT_TO_RESPONSE))
@@ -161,13 +192,11 @@ class OpenAIVoiceProvider:
 
         response_format, out_mime = mapping
 
-        # TTS is OpenAI-specific; use the SDK default base URL — there is
-        # intentionally no VOICE_TTS_BASE_URL knob.
-        client = openai.AsyncOpenAI(api_key=self._config.tts_api_key)
+        client = openai.AsyncOpenAI(base_url=self._tts.base_url, api_key=self._tts.api_key)
         try:
             async with client.audio.speech.with_streaming_response.create(
-                model=self._config.tts_model,
-                voice=self._config.tts_voice,
+                model=self._tts.model,
+                voice=self._tts.voice,
                 input=clean,
                 response_format=response_format,
             ) as response:

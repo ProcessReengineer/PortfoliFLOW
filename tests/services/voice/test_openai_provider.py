@@ -17,7 +17,6 @@ import json
 
 import pytest
 
-from services.voice.config import VoiceConfig
 from services.voice.errors import (
     EmptyTranscriptError,
     UnsupportedAudioFormatError,
@@ -25,25 +24,29 @@ from services.voice.errors import (
     VoiceTranscriptionError,
 )
 from services.voice.openai_provider import OpenAIVoiceProvider
+from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
 _STT_URL = "https://api.openai.com/v1/audio/transcriptions"
 _TTS_URL = "https://api.openai.com/v1/audio/speech"
 
 
 def _make_provider() -> OpenAIVoiceProvider:
-    """Build a provider over an enabled config with dummy keys (no env reads)."""
-    cfg = VoiceConfig(
-        enabled=True,
-        stt_provider="openai",
-        stt_model="gpt-4o-mini-transcribe",
-        stt_api_key="sk-stt-test",
-        stt_base_url="https://api.openai.com/v1",
-        tts_provider="openai",
-        tts_model="gpt-4o-mini-tts",
-        tts_voice="nova",
-        tts_api_key="sk-tts-test",
+    """Build a provider over both halves with dummy keys (no env reads)."""
+    return OpenAIVoiceProvider(
+        stt=ResolvedSTT(
+            provider="openai",
+            model="gpt-4o-mini-transcribe",
+            api_key="sk-stt-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        tts=ResolvedTTS(
+            provider="openai",
+            model="gpt-4o-mini-tts",
+            voice="nova",
+            api_key="sk-tts-test",
+            base_url="https://api.openai.com/v1",
+        ),
     )
-    return OpenAIVoiceProvider(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +181,33 @@ async def test_synthesize_api_error_surfaced(httpx_mock) -> None:
     provider = _make_provider()
     with pytest.raises(VoiceSynthesisError):
         await provider.synthesize("hi", fmt="mp3")
+
+
+async def test_synthesize_honours_the_tts_base_url(httpx_mock) -> None:
+    """The TTS client talks to the resolved ``base_url`` (ADR-0136 §3)."""
+    url = "https://tts.example/v1/audio/speech"
+    httpx_mock.add_response(url=url, content=b"AUDIO", headers={"content-type": "audio/mpeg"})
+
+    provider = OpenAIVoiceProvider(
+        tts=ResolvedTTS(
+            provider="openai",
+            model="tts-model-x",
+            voice="voice-y",
+            api_key="sk-tts-test",
+            base_url="https://tts.example/v1",
+        )
+    )
+    audio, _mime = await provider.synthesize("hi", fmt="mp3")
+
+    assert audio == b"AUDIO"
+    posts = [r for r in httpx_mock.get_requests() if r.method == "POST"]
+    assert [str(r.url) for r in posts] == [url]
+    body = json.loads(posts[0].content)
+    assert body["model"] == "tts-model-x"
+    assert body["voice"] == "voice-y"
+
+
+def test_constructor_requires_a_half() -> None:
+    """An adapter with neither half is a programming error."""
+    with pytest.raises(ValueError, match="at least one half"):
+        OpenAIVoiceProvider()

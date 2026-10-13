@@ -110,7 +110,7 @@ import logging
 import threading
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -146,15 +146,13 @@ from services.vision_capabilities import (
     supports_vision,
 )
 from services.voice import (
-    DEFAULT_STT_BASE_URL,
-    DEFAULT_STT_MODEL,
-    DEFAULT_TTS_MODEL,
-    DEFAULT_TTS_VOICE,
     EmptyTranscriptError,
-    ResolvedVoice,
+    ResolvedSTT,
+    ResolvedTTS,
     UnsupportedAudioFormatError,
     VoiceError,
-    build_provider,
+    build_stt,
+    build_tts,
     env_stt_provider,
     env_tts_provider,
 )
@@ -283,6 +281,18 @@ class _BotLLMUnconfiguredError(Exception):
     """
 
 
+# The former code defaults of ``services/voice/config.py`` (ADR-0076; the
+# chain tails of ADR-0118 §4), carried here verbatim for exactly one step of the
+# ADR-0136 build. The adapter declarations and the pure assembly of ADR-0136
+# §2/§5 replace them; nothing else may read these names. The web surface carries its own copy: the
+# duplication is deliberate, because the bot must not import from ``web/``
+# (ADR-0030).
+_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
+_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
+_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
+_LEGACY_TTS_VOICE = "nova"
+_LEGACY_TTS_BASE_URL = "https://api.openai.com/v1"
+
 #: One user-facing message for every "voice is on but no credential
 #: resolved" outcome, either half. Mirrors :data:`_NO_LLM_MESSAGE`: names both
 #: fixable scopes, never says "restart", and carries no leading emoji — the
@@ -293,6 +303,22 @@ _NO_VOICE_MESSAGE = (
     "under Admin → Providers & Credentials (or VOICE_STT_API_KEY and "
     "VOICE_TTS_API_KEY in .env)."
 )
+
+
+class _BotVoiceResolution(NamedTuple):
+    """Both halves of one message's voice resolution.
+
+    The bot-local twin of the web surface's ``_VoiceResolution``. One step
+    only: ADR-0136 §5 makes the resolution per half, which retires this
+    carrier.
+
+    Attributes:
+        stt: The speech-to-text half, used by the inbound leg.
+        tts: The text-to-speech half, threaded onto the reply leg.
+    """
+
+    stt: ResolvedSTT
+    tts: ResolvedTTS
 
 
 class _BotVoiceUnconfiguredError(Exception):
@@ -307,10 +333,10 @@ class _BotVoiceUnconfiguredError(Exception):
 
     Enabled voice requires **both** halves: a tenant holding one key of two is
     a configuration error that surfaces loudly at first use. That is what
-    :meth:`~services.voice.config.VoiceConfig.__post_init__` enforced at
-    startup, relocated to the message by ADR-0118 §2 — which is why an inbound
-    voice message resolves the full :class:`~services.voice.ResolvedVoice`
-    even before the STT leg needs only one half of it.
+    ADR-0076's start-up validation enforced, relocated to the message by
+    ADR-0118 §2 — which is why an inbound voice message resolves both halves
+    even though each leg uses only one of them (ADR-0136 §5 ends this in the
+    next step).
 
     A :class:`~services.credential_vault.VaultDecryptError` is deliberately
     **not** translated into this: a vault that will not decrypt is an operator
@@ -1495,7 +1521,7 @@ async def _run_turn(
     attachment: Attachment | None,
     is_voice: bool = False,
     llm: ResolvedLLM | None = None,
-    voice: ResolvedVoice | None = None,
+    tts: ResolvedTTS | None = None,
 ) -> None:
     """Shared turn body for the text/image and voice entry points.
 
@@ -1533,9 +1559,9 @@ async def _run_turn(
         llm: A resolution the caller already performed (the image path needs
             the model for its vision gate). ``None`` — the ordinary case —
             resolves here, so every turn resolves exactly once.
-        voice: The voice resolution of a voice-initiated turn, threaded so the
-            message resolves exactly once (ADR-0118 §4); ``None`` for text
-            turns.
+        tts: The text-to-speech half of a voice-initiated turn's resolution,
+            threaded so the message resolves exactly once (ADR-0118 §4);
+            ``None`` for text turns.
     """
     # Initial typing indicator. Failures are logged but do not abort the
     # turn — the user will simply not see the indicator.
@@ -1704,13 +1730,13 @@ async def _run_turn(
     # the web "prose-empty turn speaks nothing" rule. A TTS failure is logged
     # and skipped — the text reply has already gone out, so it must not break
     # the turn.
-    # The resolution is the handler's, threaded on: ``voice is None`` with
+    # The resolution is the handler's, threaded on: ``tts is None`` with
     # ``is_voice=True`` cannot occur through :func:`_handle_voice_message`, so
     # the guard is defensive and free.
-    if is_voice and accumulated_text.strip() and voice is not None:
+    if is_voice and accumulated_text.strip() and tts is not None:
         audio_bytes: bytes | None = None
         try:
-            provider = build_provider(voice)
+            provider = build_tts(tts)
             audio_bytes, _mime = await provider.synthesize(accumulated_text, fmt="opus")
         except VoiceError:
             logger.warning(
@@ -1829,10 +1855,10 @@ async def _handle_voice_message(
     or the deprecated whitelist on the environment dispatcher). The order is
     gate, download, resolve, transcribe: the ``voice.enabled`` chain answers
     per tenant (ADR-0118 §5), then the OGG/Opus bytes are fetched, then this
-    message's :class:`~services.voice.ResolvedVoice` is resolved **once**
-    (ADR-0118 §4) and used by both legs — the STT provider built here and the
-    TTS provider built in :func:`_run_turn`, which the resolution is threaded
-    onto. Converges on the shared :func:`_run_turn` with ``is_voice=True``.
+    message's voice resolution — a :class:`~services.voice.ResolvedSTT` and a
+    :class:`~services.voice.ResolvedTTS` — is resolved **once** (ADR-0118 §4)
+    and used by both legs — the STT provider built here and the TTS provider
+    built in :func:`_run_turn`, which the TTS half is threaded onto. Converges on the shared :func:`_run_turn` with ``is_voice=True``.
 
     The disabled-service, unconfigured-credential, undecryptable-vault,
     empty-transcript and STT-failure cases each reply with a clear English
@@ -1899,7 +1925,7 @@ async def _handle_voice_message(
     # keys the STT leg heard with. Nothing is cached between messages: a key
     # written in Providers & Credentials is live on the very next voice note.
     try:
-        voice = await _resolve_bot_voice(binding)
+        resolution = await _resolve_bot_voice(binding)
     except (CredentialUnavailableError, _BotVoiceUnconfiguredError) as exc:
         logger.error(
             "Telegram bot [%s]: no voice credential resolved for user_id=%s: %s",
@@ -1932,7 +1958,7 @@ async def _handle_voice_message(
 
     # Transcribe (no silent fallback).
     try:
-        provider = build_provider(voice)
+        provider = build_stt(resolution.stt)
         transcript = (await provider.transcribe(audio_data, mime)).strip()
     except EmptyTranscriptError:
         try:
@@ -1970,7 +1996,7 @@ async def _handle_voice_message(
         incoming_text=transcript,
         attachment=None,
         is_voice=True,
-        voice=voice,
+        tts=resolution.tts,
     )
 
 
@@ -2189,7 +2215,7 @@ async def _resolve_bot_voice_enabled(binding: _BotBinding) -> bool:
     return value is not None and value.strip().lower() == "true"
 
 
-async def _resolve_bot_voice(binding: _BotBinding) -> ResolvedVoice:
+async def _resolve_bot_voice(binding: _BotBinding) -> _BotVoiceResolution:
     """Resolve this message's voice endpoints, credentials and models (ADR-0118 §4).
 
     The voice twin of :func:`_resolve_bot_llm`, with the same engine-present /
@@ -2201,7 +2227,8 @@ async def _resolve_bot_voice(binding: _BotBinding) -> ResolvedVoice:
         binding: The dispatcher's identity, supplying the tenant.
 
     Returns:
-        The message's :class:`~services.voice.ResolvedVoice`.
+        Both halves for this message — a :class:`~services.voice.ResolvedSTT`
+        and a :class:`~services.voice.ResolvedTTS`.
 
     Raises:
         _BotVoiceUnconfiguredError: If either half's credential resolves to
@@ -2224,7 +2251,7 @@ async def _resolve_bot_voice_through(
     resolver: CredentialResolver,
     *,
     tenant_id: UUID | None,
-) -> ResolvedVoice:
+) -> _BotVoiceResolution:
     """Walk the voice chains on ``resolver`` and assemble the resolution.
 
     Both halves resolve on every call, whichever leg will use the result: an
@@ -2239,26 +2266,32 @@ async def _resolve_bot_voice_through(
     stt_api_key = await _resolve_bot_voice_key(resolver, "voice_stt", tenant_id=tenant_id)
     tts_api_key = await _resolve_bot_voice_key(resolver, "voice_tts", tenant_id=tenant_id)
 
-    stt_model = await resolver.resolve_config("voice_stt", "model") or DEFAULT_STT_MODEL
-    stt_base_url = await resolver.resolve_config("voice_stt", "base_url") or DEFAULT_STT_BASE_URL
-    tts_model = await resolver.resolve_config("voice_tts", "model") or DEFAULT_TTS_MODEL
-    tts_voice = await resolver.resolve_config("voice_tts", "voice") or DEFAULT_TTS_VOICE
+    stt_model = await resolver.resolve_config("voice_stt", "model") or _LEGACY_STT_MODEL
+    stt_base_url = await resolver.resolve_config("voice_stt", "base_url") or _LEGACY_STT_BASE_URL
+    tts_model = await resolver.resolve_config("voice_tts", "model") or _LEGACY_TTS_MODEL
+    tts_voice = await resolver.resolve_config("voice_tts", "voice") or _LEGACY_TTS_VOICE
 
     # The two provider keys are env-only by design: the taxonomy deliberately
     # does not declare them until a second adapter's ADR does (ADR-0118 §1),
-    # so there is no per-tenant chain here for the façade to walk.
+    # so there is no per-tenant chain here for the façade to walk. Read at
+    # call time, so each resolution sees the current environment.
     stt_provider = env_stt_provider()
     tts_provider = env_tts_provider()
 
-    return ResolvedVoice(
-        stt_provider=stt_provider,
-        stt_model=stt_model,
-        stt_api_key=stt_api_key,
-        stt_base_url=stt_base_url,
-        tts_provider=tts_provider,
-        tts_model=tts_model,
-        tts_voice=tts_voice,
-        tts_api_key=tts_api_key,
+    return _BotVoiceResolution(
+        stt=ResolvedSTT(
+            provider=stt_provider,
+            model=stt_model,
+            api_key=stt_api_key,
+            base_url=stt_base_url,
+        ),
+        tts=ResolvedTTS(
+            provider=tts_provider,
+            model=tts_model,
+            voice=tts_voice,
+            api_key=tts_api_key,
+            base_url=_LEGACY_TTS_BASE_URL,
+        ),
     )
 
 

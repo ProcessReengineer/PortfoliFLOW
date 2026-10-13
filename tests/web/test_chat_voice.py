@@ -23,10 +23,11 @@ seed a sentinel-tenant owner and the chat route is wired to a scripted
 
 Voice reaches the route the way it does in production since ADR-0118 §4:
 enablement walks the ``voice.enabled`` chain (here its ``VOICE_ENABLED``
-tail) and the provider is **built per request** from a resolved
-:class:`~services.voice.ResolvedVoice`. So the double moved one seam down —
-``web.routes.chat.build_provider`` is replaced by a recorder that returns
-the scripted ``_FakeVoiceProvider`` — and an autouse fixture pins every
+tail) and each half's adapter is **built per request** from a resolved
+:class:`~services.voice.ResolvedSTT` or :class:`~services.voice.ResolvedTTS`.
+So the double moved one seam down — ``web.routes.chat.build_stt`` and
+``web.routes.chat.build_tts`` are replaced by a recorder that returns the
+scripted ``_FakeVoiceProvider`` — and an autouse fixture pins every
 ``VOICE_*`` variable, because this module loads the developer's ``.env``
 and an enabled deployment there would otherwise decide the gating tests.
 
@@ -59,7 +60,8 @@ from services.ai_service_core import StreamEvent
 from services.password_hashing import hash_password
 from services.voice import (
     EmptyTranscriptError,
-    ResolvedVoice,
+    ResolvedSTT,
+    ResolvedTTS,
     UnsupportedAudioFormatError,
     VoiceSynthesisError,
     VoiceTranscriptionError,
@@ -113,7 +115,7 @@ def _require_db() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fakes — AIServiceCore (CONNECTED, scripted) and VoiceProvider.
+# Fakes — AIServiceCore (CONNECTED, scripted) and the two speech ports.
 # ---------------------------------------------------------------------------
 
 
@@ -146,7 +148,11 @@ class _FakeCore:
 
 
 class _FakeVoiceProvider:
-    """Scripted :class:`VoiceProvider` honouring the Block-1 contract."""
+    """Scripted adapter satisfying :class:`SpeechToText` and :class:`TextToSpeech`.
+
+    Honours the ports' contract: it raises the scripted error, never returns
+    empty results.
+    """
 
     def __init__(
         self,
@@ -172,22 +178,29 @@ class _FakeVoiceProvider:
 
 
 class _ProviderRecorder:
-    """Stands in for :func:`build_provider`: records, then returns the fake.
+    """Stands in for :func:`build_stt` and :func:`build_tts`: records, then returns the fake.
 
-    One seam below where the double used to sit. The route builds its
-    provider from the turn's :class:`ResolvedVoice` (ADR-0118 §4), so the
-    factory is the only place a test can both intercept the construction and
-    read what was resolved.
+    One seam below where the double used to sit. The route builds each
+    half's adapter from the turn's :class:`ResolvedSTT` / :class:`ResolvedTTS`
+    (ADR-0118 §4, ADR-0136 §1), so the two builders are the only place a test
+    can both intercept the construction and read what was resolved.
     """
 
     def __init__(self) -> None:
         self.provider = _FakeVoiceProvider()
-        self.resolved: ResolvedVoice | None = None
-        self.calls = 0
+        self.stt: ResolvedSTT | None = None
+        self.tts: ResolvedTTS | None = None
+        self.stt_calls = 0
+        self.tts_calls = 0
 
-    def __call__(self, resolved: ResolvedVoice) -> _FakeVoiceProvider:
-        self.resolved = resolved
-        self.calls += 1
+    def build_stt(self, resolved: ResolvedSTT) -> _FakeVoiceProvider:
+        self.stt = resolved
+        self.stt_calls += 1
+        return self.provider
+
+    def build_tts(self, resolved: ResolvedTTS) -> _FakeVoiceProvider:
+        self.tts = resolved
+        self.tts_calls += 1
         return self.provider
 
 
@@ -200,9 +213,10 @@ def pinned_voice_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def voice_build(monkeypatch: pytest.MonkeyPatch) -> _ProviderRecorder:
-    """Replace ``web.routes.chat.build_provider`` with the recorder."""
+    """Replace ``web.routes.chat.build_stt`` / ``build_tts`` with the recorder."""
     recorder = _ProviderRecorder()
-    monkeypatch.setattr(chat_routes, "build_provider", recorder)
+    monkeypatch.setattr(chat_routes, "build_stt", recorder.build_stt)
+    monkeypatch.setattr(chat_routes, "build_tts", recorder.build_tts)
     return recorder
 
 
@@ -282,7 +296,7 @@ async def web_client_factory(
 
     Passing ``voice_provider`` enables voice the way a deployment does — the
     ``VOICE_ENABLED`` and key variables the chains end at — and hands the
-    scripted fake to the ``build_provider`` recorder. Omitting it leaves
+    scripted fake to the ``build_stt`` / ``build_tts`` recorder. Omitting it leaves
     ``VOICE_ENABLED`` unset, which is the off state (ADR-0118 §5).
 
     The app is returned alongside the client so a test can inspect the

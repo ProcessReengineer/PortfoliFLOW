@@ -13,7 +13,7 @@ never changes shape for it.
 
 The Protocol is :func:`~typing.runtime_checkable` so callers and tests can
 assert ``isinstance(adapter, MarketDataProvider)``, mirroring
-``services.voice.provider.VoiceProvider``.
+``services.voice.provider.SpeechToText``.
 
 The port-level error hierarchy lives here too. Adapters map every
 provider-raw failure (an httpx error, a vendor error payload) onto one of

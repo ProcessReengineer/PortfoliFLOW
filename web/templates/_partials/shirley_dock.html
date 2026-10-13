@@ -22,10 +22,14 @@
 
    Required context (set by ``get_chat_dock`` in ``web/routes/chat.py``):
      csrf_token    — session-bound CSRF token.
-     voice_enabled — True when voice is switched on **per tenant**
-                     (ADR-0076; ADR-0118 §5 made it a per-tenant answer).
+     voice_stt_enabled — True when speech-to-text is active **per tenant**
+                     (ADR-0136 §4: voice on and an STT provider chosen).
                      Gates the voice toggle and the record/stop/cancel
                      panel; chat.js drives them via fetch to /chat/voice.
+     voice_tts_enabled — True when text-to-speech is active per tenant.
+                     Passed for a future read-aloud affordance and read by
+                     no markup yet; whether a reply is spoken travels on the
+                     turn's ``data-pf-voice`` marker instead.
      brief_banner  — the active consultation context (ADR-0107 C6;
                      ADR-0133 §6), else ``None``: {kind: "case", badge,
                      title, href} renders "Consulting for CASE-NNNN",
@@ -138,7 +142,7 @@
                         data-pf-attach-trigger
                         aria-label="Attach image"
                         title="Attach image">{{ pf_icon("attach") }}</button>
-                {% if voice_enabled %}
+                {% if voice_stt_enabled %}
                 {# Voice-mode toggle (ADR-0076). type="button" keeps it out of
                    the hx-post submit path; chat.js reveals the panel below. #}
                 <button type="button"
@@ -153,7 +157,7 @@
                 </button>
             </div>
             <p class="chat-composer__files" data-pf-attach-names hidden></p>
-            {% if voice_enabled %}
+            {% if voice_stt_enabled %}
             {# Voice capture panel — record / stop / cancel. Driven by chat.js
                via MediaRecorder + fetch to /chat/voice; all type="button" so
                nothing here submits the form. Hidden until the toggle reveals

@@ -61,10 +61,11 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -116,11 +117,12 @@ from services.voice import (
     ResolvedSTT,
     ResolvedTTS,
     UnsupportedAudioFormatError,
+    VoiceConfigurationError,
     VoiceError,
+    assemble_stt,
+    assemble_tts,
     build_stt,
     build_tts,
-    env_stt_provider,
-    env_tts_provider,
 )
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
@@ -1516,85 +1518,47 @@ async def _require_connected_core(
 
 
 # ---------------------------------------------------------------------------
-# Per-turn voice resolution and gating (ADR-0118 §4, §5)
+# Per-turn voice resolution and gating (ADR-0118 §4, ADR-0136 §4, §5)
 # ---------------------------------------------------------------------------
 #
 # The voice twin of the block above, and for the same reason: a tenant that
-# writes its speech keys in Admin → Providers & Credentials is served on its
-# very next recording, with no restart, and one worker serves many tenants
-# without their keys ever meeting. There is no process-global voice provider
-# left for this surface to consult.
+# writes its speech settings in Admin → Providers & Credentials is served on
+# its very next recording, with no restart, and one worker serves many
+# tenants without their keys ever meeting. There is no process-global voice
+# provider left for this surface to consult.
 #
 # The chains, scope-major per ADR-0112 §1. Every voice field is tenant-scope,
-# so none of them carries a user axis:
+# so none of them carries a user axis; each field chains individually along
+# vault tenant → env:
 #
-# * enabled     — vault tenant → env ``VOICE_ENABLED`` → off (ADR-0118 §5);
-# * credential  — vault tenant → env ``VOICE_STT_API_KEY`` /
-#   ``VOICE_TTS_API_KEY``, chained **per half** so a Groq-STT + OpenAI-TTS
-#   deployment can hold the two keys in different scopes;
-# * models, STT endpoint, persona voice — vault tenant → env → the
-#   ``_LEGACY_*`` literals below, each field chained individually; the TTS
-#   endpoint is the ``_LEGACY_TTS_BASE_URL`` literal alone;
-# * STT / TTS provider — the environment alone (ADR-0118 §1), read by
-#   ``env_stt_provider`` / ``env_tts_provider`` in the service layer,
-#   defaulting to ``"openai"``.
+# * enabled  — ``VOICE_ENABLED``; unset is off (ADR-0118 §5);
+# * provider — ``VOICE_STT_PROVIDER`` / ``VOICE_TTS_PROVIDER``, **per half**;
+#   unset is that half inactive (ADR-0136 §4);
+# * model, endpoint, persona voice, API key — the remaining ``VOICE_STT_*`` /
+#   ``VOICE_TTS_*`` links; the adapter declaration fills what an operator
+#   left empty.
 #
-# Nothing is cached and nothing is stashed: the ``ResolvedSTT`` /
-# ``ResolvedTTS`` pair lives for exactly one call, so a tenant's key can never
-# be held where another tenant's turn could reach it.
+# Availability is three config reads and never a credential probe. The rules
+# — defaults, keyless adapters, the misconfiguration message — live once in
+# the pure assembly (``assemble_stt`` / ``assemble_tts``); this surface does
+# the I/O and resolves only the half an endpoint needs (ADR-0136 §5).
+#
+# Nothing is cached and nothing is stashed: a ``ResolvedSTT`` / ``ResolvedTTS``
+# lives for exactly one call, so a tenant's key can never be held where
+# another tenant's turn could reach it.
 
-# The former code defaults of ``services/voice/config.py`` (ADR-0076; the
-# chain tails of ADR-0118 §4), carried here verbatim for exactly one step of the
-# ADR-0136 build. The adapter declarations and the pure assembly of ADR-0136
-# §2/§5 replace them; nothing else may read these names. The Telegram bot carries its own copy on
-# purpose: it must not import from ``web/``.
-_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
-_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
-_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
-_LEGACY_TTS_VOICE = "nova"
-_LEGACY_TTS_BASE_URL = "https://api.openai.com/v1"
-
-#: One user-facing message for every "voice is on but has no credential"
-#: outcome. Points at both scopes an operator can fix it in, and deliberately
-#: says nothing about restarting: tenant rows apply on the next voice message.
-_NO_VOICE_MESSAGE = (
-    "Voice is enabled but no voice credential is configured for this "
-    "tenant. Set the speech-to-text and text-to-speech API keys in "
-    "Admin → Providers & Credentials (they apply on your next voice "
-    "message), or set VOICE_STT_API_KEY and VOICE_TTS_API_KEY in .env "
-    "for the whole application."
-)
-
-
-class _VoiceResolution(NamedTuple):
-    """Both halves of one turn's voice resolution.
-
-    One step only: ADR-0136 §5 makes the resolution per half, which retires
-    this carrier.
-
-    Attributes:
-        stt: The speech-to-text half.
-        tts: The text-to-speech half.
-    """
-
-    stt: ResolvedSTT
-    tts: ResolvedTTS
+#: The voice chain: every voice field is tenant-scope with an env link.
+_VOICE_SCOPES: tuple[str, ...] = ("tenant", "env")
 
 
 class _VoiceUnconfiguredError(Exception):
-    """This turn's voice credential resolved to nothing (either half).
+    """This turn's voice half is active but its configuration is incomplete.
 
     The voice twin of :class:`_LLMUnconfiguredError`, and translated the same
     way — both voice endpoints answer 503 — because "configure me" is the
-    same semantic. It wraps
-    :class:`~services.investments.credential_resolver.CredentialUnavailableError`
-    raised for **either** half of the credential.
-
-    Enabled voice requires **both** halves: a tenant holding one key of two
-    is a configuration error that surfaces loudly at first use. That is what
-    ADR-0076's start-up validation enforced, relocated to the turn by
-    ADR-0118 §2 — which is why both endpoints resolve both halves even though
-    each uses only one of them (ADR-0136 §5 ends this in the next step).
+    same semantic. It wraps :class:`~services.voice.VoiceConfigurationError`
+    raised by the assembly, whose message names the missing field and both
+    scopes an operator can fix it in (ADR-0136 §4).
 
     A :class:`~services.credential_vault.VaultDecryptError` is deliberately
     **not** wrapped: a vault that will not decrypt is an operator emergency,
@@ -1602,137 +1566,151 @@ class _VoiceUnconfiguredError(Exception):
     """
 
 
-async def _resolve_voice_enabled(request: Request, session: SessionDTO) -> bool:
-    """Report whether voice is enabled for this session's tenant (ADR-0118 §5).
+@asynccontextmanager
+async def _voice_resolver(
+    request: Request, session: SessionDTO
+) -> AsyncIterator[CredentialResolver]:
+    """Yield a resolver for this session's tenant voice chains.
 
-    Walks the ``voice.enabled`` chain and nothing else — never a credential
-    probe. Whether the affordance is offered and whether a key can be found
-    are separate questions, and conflating them would hide a misconfiguration
-    behind a silently absent button instead of surfacing it at first use.
-
-    Runs inside the session's ``tenant_context`` so the vault source sees
-    exactly the rows RLS allows this tenant. Without a database engine (a
-    DB-less test rig, a contributor laptop) the resolver is built without a
-    session and the environment is the only source — the same graceful
-    degradation :func:`_resolve_llm` takes.
+    Inside the session's ``tenant_context`` so the vault source sees exactly
+    the rows RLS allows this tenant. Without a database engine (a DB-less test
+    rig, a contributor laptop) the resolver is built without a session and the
+    environment is the only source — the same graceful degradation
+    :func:`_resolve_llm` takes.
 
     Args:
         request: The active request (carries ``app.state``).
         session: The authenticated session, supplying the tenant.
 
-    Returns:
-        ``True`` when the chain yields ``"true"`` (case-insensitive) — the
-        ``VOICE_ENABLED`` convention; ``False`` otherwise, including when the
-        field is set nowhere.
+    Yields:
+        The :class:`CredentialResolver` every voice read of one call goes
+        through.
     """
     engine = getattr(request.app.state, "engine", None)
     if engine is None:
-        value = await CredentialResolver().resolve_config(
-            "voice", "enabled", scopes=("tenant", "env")
-        )
-    else:
-        async with tenant_context(engine, session.tenant_id) as db:
-            value = await CredentialResolver(session=db).resolve_config(
-                "voice", "enabled", scopes=("tenant", "env")
-            )
+        yield CredentialResolver()
+        return
+    async with tenant_context(engine, session.tenant_id) as db:
+        yield CredentialResolver(session=db)
+
+
+async def _voice_switch(resolver: CredentialResolver) -> bool:
+    """Read ``voice.enabled``: ``"true"`` (case-insensitive) is on, anything else off."""
+    value = await resolver.resolve_config("voice", "enabled", scopes=_VOICE_SCOPES)
     return value is not None and value.strip().lower() == "true"
 
 
-async def _resolve_voice(request: Request, session: SessionDTO) -> _VoiceResolution:
-    """Resolve this turn's voice endpoints, credentials and models (ADR-0118 §4).
+async def _voice_api_key(
+    resolver: CredentialResolver, provider: str, *, tenant_id: UUID
+) -> str | None:
+    """Resolve one half's API key, or ``None`` when no source holds one.
 
-    The voice twin of :func:`_resolve_llm`, with the same engine-present /
-    engine-less split and the same one-call lifetime for the plain keys.
+    Both halves are optional credentials (ADR-0136 §3), so an absent key is a
+    :class:`~services.investments.credential_resolver.NoCredential`, not an
+    error; whether the adapter needs one is the assembly's question.
+    """
+    credential = await resolver.resolve(provider, tenant_id=tenant_id)
+    if isinstance(credential, ProviderCredential):
+        return credential.payload["api_key"]
+    return None
+
+
+async def _resolve_voice_flags(request: Request, session: SessionDTO) -> tuple[bool, bool]:
+    """Report which voice halves are active for this session's tenant (ADR-0136 §4).
+
+    A half is active iff ``voice.enabled`` resolves true **and** that half's
+    ``provider`` resolves non-empty. Three config reads — and one when voice
+    is off — never a credential probe: whether the affordance is offered and
+    whether the half is complete are separate questions, and completeness
+    fails loudly at first use.
 
     Args:
         request: The active request (carries ``app.state``).
         session: The authenticated session, supplying the tenant.
 
     Returns:
-        Both halves for this turn — a :class:`~services.voice.ResolvedSTT`
-        and a :class:`~services.voice.ResolvedTTS`.
+        ``(stt_active, tts_active)``.
+    """
+    async with _voice_resolver(request, session) as resolver:
+        if not await _voice_switch(resolver):
+            return False, False
+        stt_provider = await resolver.resolve_config("voice_stt", "provider", scopes=_VOICE_SCOPES)
+        tts_provider = await resolver.resolve_config("voice_tts", "provider", scopes=_VOICE_SCOPES)
+    return bool((stt_provider or "").strip()), bool((tts_provider or "").strip())
+
+
+async def _resolve_stt(request: Request, session: SessionDTO) -> ResolvedSTT:
+    """Resolve this call's speech-to-text half (ADR-0136 §5).
+
+    Reads the raw values along the voice chains and hands them to
+    :func:`~services.voice.assemble_stt`. The key is read only when the half
+    is active.
+
+    Args:
+        request: The active request (carries ``app.state``).
+        session: The authenticated session, supplying the tenant.
+
+    Returns:
+        The :class:`~services.voice.ResolvedSTT` for this call.
 
     Raises:
-        _VoiceUnconfiguredError: If either half's credential resolves to
-            nothing.
+        HTTPException: 404 when the half is inactive — the race-safe twin of
+            the gate the endpoint ran a moment earlier.
+        _VoiceUnconfiguredError: If the half is active but incomplete.
         VaultDecryptError: Propagated untouched — a wrong or rotated master
             key must never look like an absent credential.
     """
-    engine = getattr(request.app.state, "engine", None)
-    if engine is None:
-        return await _resolve_voice_through(CredentialResolver(), tenant_id=None)
-    async with tenant_context(engine, session.tenant_id) as db:
-        return await _resolve_voice_through(
-            CredentialResolver(session=db), tenant_id=session.tenant_id
-        )
-
-
-async def _resolve_voice_through(
-    resolver: CredentialResolver,
-    *,
-    tenant_id: UUID | None,
-) -> _VoiceResolution:
-    """Walk the voice chains on ``resolver`` and assemble the resolution.
-
-    Split from :func:`_resolve_voice` so the chains read in one place,
-    independent of whether a vault-backed session was available. Both halves
-    resolve on every call, whichever endpoint asked: an enabled tenant
-    holding one key of two is misconfigured, and which endpoint it notices
-    on must not decide whether it hears about it (ADR-0118 §2).
-    """
-    stt_api_key = await _resolve_voice_key(resolver, "voice_stt", tenant_id=tenant_id)
-    tts_api_key = await _resolve_voice_key(resolver, "voice_tts", tenant_id=tenant_id)
-
-    stt_model = await resolver.resolve_config("voice_stt", "model") or _LEGACY_STT_MODEL
-    stt_base_url = await resolver.resolve_config("voice_stt", "base_url") or _LEGACY_STT_BASE_URL
-    tts_model = await resolver.resolve_config("voice_tts", "model") or _LEGACY_TTS_MODEL
-    tts_voice = await resolver.resolve_config("voice_tts", "voice") or _LEGACY_TTS_VOICE
-
-    # The two provider keys are env-only by design: the taxonomy deliberately
-    # does not declare them until a second adapter's ADR does (ADR-0118 §1),
-    # so there is no per-tenant chain here for the façade to walk. Read at
-    # call time, so each resolution sees the current environment.
-    stt_provider = env_stt_provider()
-    tts_provider = env_tts_provider()
-
-    return _VoiceResolution(
-        stt=ResolvedSTT(
-            provider=stt_provider,
-            model=stt_model,
-            api_key=stt_api_key,
-            base_url=stt_base_url,
-        ),
-        tts=ResolvedTTS(
-            provider=tts_provider,
-            model=tts_model,
-            voice=tts_voice,
-            api_key=tts_api_key,
-            base_url=_LEGACY_TTS_BASE_URL,
-        ),
-    )
-
-
-async def _resolve_voice_key(
-    resolver: CredentialResolver,
-    provider: str,
-    *,
-    tenant_id: UUID | None,
-) -> str:
-    """Resolve one half's API key, or raise the one voice-unconfigured error.
-
-    ``voice_stt`` and ``voice_tts`` are separate providers precisely so the
-    two keys chain independently (ADR-0118 §1); either one missing is the
-    same outcome for the caller.
-    """
+    async with _voice_resolver(request, session) as resolver:
+        enabled = await _voice_switch(resolver)
+        provider = await resolver.resolve_config("voice_stt", "provider", scopes=_VOICE_SCOPES)
+        model = await resolver.resolve_config("voice_stt", "model", scopes=_VOICE_SCOPES)
+        base_url = await resolver.resolve_config("voice_stt", "base_url", scopes=_VOICE_SCOPES)
+        api_key = None
+        if enabled and (provider or "").strip():
+            api_key = await _voice_api_key(resolver, "voice_stt", tenant_id=session.tenant_id)
     try:
-        credential = await resolver.resolve(provider, tenant_id=tenant_id)
-    except CredentialUnavailableError as exc:
-        raise _VoiceUnconfiguredError(_NO_VOICE_MESSAGE) from exc
-    if not isinstance(credential, ProviderCredential):
-        # Both halves declare a secret field and neither is optional, so the
-        # resolver raises rather than returning NoCredential. Defensive.
-        raise _VoiceUnconfiguredError(_NO_VOICE_MESSAGE)
-    return credential.payload["api_key"]
+        stt = assemble_stt(enabled, provider, model, base_url, api_key)
+    except VoiceConfigurationError as exc:
+        raise _VoiceUnconfiguredError(str(exc)) from exc
+    if stt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice is not enabled.")
+    return stt
+
+
+async def _resolve_tts(request: Request, session: SessionDTO) -> ResolvedTTS:
+    """Resolve this call's text-to-speech half (ADR-0136 §5).
+
+    The twin of :func:`_resolve_stt`, through
+    :func:`~services.voice.assemble_tts`.
+
+    Args:
+        request: The active request (carries ``app.state``).
+        session: The authenticated session, supplying the tenant.
+
+    Returns:
+        The :class:`~services.voice.ResolvedTTS` for this call.
+
+    Raises:
+        HTTPException: 404 when the half is inactive.
+        _VoiceUnconfiguredError: If the half is active but incomplete.
+        VaultDecryptError: Propagated untouched.
+    """
+    async with _voice_resolver(request, session) as resolver:
+        enabled = await _voice_switch(resolver)
+        provider = await resolver.resolve_config("voice_tts", "provider", scopes=_VOICE_SCOPES)
+        model = await resolver.resolve_config("voice_tts", "model", scopes=_VOICE_SCOPES)
+        base_url = await resolver.resolve_config("voice_tts", "base_url", scopes=_VOICE_SCOPES)
+        voice = await resolver.resolve_config("voice_tts", "voice", scopes=_VOICE_SCOPES)
+        api_key = None
+        if enabled and (provider or "").strip():
+            api_key = await _voice_api_key(resolver, "voice_tts", tenant_id=session.tenant_id)
+    try:
+        tts = assemble_tts(enabled, provider, model, base_url, voice, api_key)
+    except VoiceConfigurationError as exc:
+        raise _VoiceUnconfiguredError(str(exc)) from exc
+    if tts is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice is not enabled.")
+    return tts
 
 
 # ---------------------------------------------------------------------------
@@ -1873,8 +1851,9 @@ async def _begin_turn(
         model_id: The model this turn resolved (ADR-0112 §4b), recorded in
             the stash as turn metadata. The **model** only — the credential
             is never stashed (binding decision D3).
-        is_voice: Whether this turn began as a voice recording. Threaded
-            into the SSE-bootstrap element as ``data-pf-voice``.
+        is_voice: Whether the reply is to be spoken — a voice-initiated
+            turn with text-to-speech active (ADR-0136 §4). Threaded into the
+            SSE-bootstrap element as ``data-pf-voice``.
 
     Returns:
         The rendered ``_partials/turn_started.html`` fragment, or an empty
@@ -2021,14 +2000,17 @@ async def post_voice(
 
     Mirrors :func:`post_message` but the user text comes from STT over the
     uploaded audio. Optional images ride along for mixed mode (ADR-0075).
-    The returned fragment carries ``data-pf-voice=1`` so the client speaks
-    the reply after the SSE turn finishes. STT failures return the inline
-    ``chat_error`` fragment (no silent fallback). When voice is disabled
-    **for this tenant** the endpoint 404s so the surface degrades to
-    text-only; enabled with no resolvable credential is a 503 naming both
-    scopes an operator can fix it in (ADR-0118 §2, §5).
+    The returned fragment carries ``data-pf-voice=1`` when text-to-speech
+    is active, so the client speaks the reply after the SSE turn finishes;
+    with speech-to-text alone the question is spoken and the answer arrives
+    in text (``data-pf-voice=0``). STT failures return the inline
+    ``chat_error`` fragment (no silent fallback). When speech-to-text is
+    inactive **for this tenant** the endpoint 404s so the surface degrades to
+    text-only; active but incomplete is a 503 naming the missing field and
+    both scopes an operator can fix it in (ADR-0136 §4).
     """
-    if not await _resolve_voice_enabled(request, session):
+    stt_active, tts_active = await _resolve_voice_flags(request, session)
+    if not stt_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Voice is not enabled.",
@@ -2036,13 +2018,13 @@ async def post_voice(
     # Refuse before STT: do not pay for a transcription we cannot answer.
     _core, llm = await _require_connected_core(request, session)
     try:
-        resolution = await _resolve_voice(request, session)
+        stt = await _resolve_stt(request, session)
     except _VoiceUnconfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
-    provider = build_stt(resolution.stt)
+    provider = build_stt(stt)
     audio_bytes = await audio.read()
     mime = (audio.content_type or "").lower()
     try:
@@ -2060,7 +2042,7 @@ async def post_voice(
     if error is not None:
         return error
     return await _begin_turn(
-        request, session, transcript, attachments, model_id=llm.model, is_voice=True
+        request, session, transcript, attachments, model_id=llm.model, is_voice=tts_active
     )
 
 
@@ -2078,11 +2060,12 @@ async def post_tts(
 
     Returns 204 for empty text (a chart-only turn speaks nothing), audio
     bytes on success, or 502 if synthesis fails — the text answer is
-    already rendered, so a TTS failure must not break the turn. When voice
-    is disabled **for this tenant** the endpoint 404s; enabled with no
-    resolvable credential is a 503, exactly as on ``/chat/voice``.
+    already rendered, so a TTS failure must not break the turn. When
+    text-to-speech is inactive **for this tenant** the endpoint 404s; active
+    but incomplete is a 503, exactly as on ``/chat/voice``.
     """
-    if not await _resolve_voice_enabled(request, session):
+    _stt_active, tts_active = await _resolve_voice_flags(request, session)
+    if not tts_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Voice is not enabled.",
@@ -2091,13 +2074,13 @@ async def post_tts(
     if not clean:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     try:
-        resolution = await _resolve_voice(request, session)
+        tts = await _resolve_tts(request, session)
     except _VoiceUnconfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
-    provider = build_tts(resolution.tts)
+    provider = build_tts(tts)
     try:
         audio_bytes, out_mime = await provider.synthesize(clean, fmt="mp3")
     except VoiceError:
@@ -2495,6 +2478,7 @@ async def get_chat_dock(
         ``<html>`` wrapper.
     """
     templates = _templates(request)
+    stt_active, tts_active = await _resolve_voice_flags(request, session)
     return cast(
         HTMLResponse,
         templates.TemplateResponse(
@@ -2502,7 +2486,8 @@ async def get_chat_dock(
             "_partials/shirley_dock.html",
             {
                 "csrf_token": session.csrf_token,
-                "voice_enabled": await _resolve_voice_enabled(request, session),
+                "voice_stt_enabled": stt_active,
+                "voice_tts_enabled": tts_active,
                 "brief_banner": await resolve_active_brief_banner(request, session, None),
             },
         ),

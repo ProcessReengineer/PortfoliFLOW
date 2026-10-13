@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Per-turn voice resolution and per-tenant gating on the web surface (ADR-0118).
+"""Per-turn voice resolution and per-tenant gating on the web surface (ADR-0118, ADR-0136).
 
 The voice twin of ``test_chat_llm_resolution.py``, and built the same way:
 live Postgres, the real login flow, real vault rows written through
@@ -21,13 +21,15 @@ What is pinned here:
 * **Env-only degradation.** With no vault rows the resolution is exactly the
   ``VOICE_*`` environment, which is what the retired process-global singleton
   was built from: single-tenant deployments did not change.
-* **Gating is a per-tenant answer.** A ``voice.enabled`` tenant row turns the
-  endpoints and the Assistants affordances on with the environment silent,
-  and their absence turns them off (ADR-0118 §5).
-* **Enabled-but-keyless is loud.** Voice on with no credential anywhere
-  answers 503 on both endpoints, naming Providers & Credentials *and*
-  ``.env`` — the start-up validation ADR-0076 had, relocated to first use
-  (ADR-0118 §2).
+* **Gating is a per-tenant answer, per half.** A ``voice.enabled`` tenant row
+  turns the endpoints and the Assistants affordances on with the environment
+  silent, and a half's ``provider`` row activates that half alone
+  (ADR-0118 §5, ADR-0136 §4).
+* **Incomplete is loud, per half.** An active half whose adapter needs a key,
+  a model or an endpoint it cannot resolve answers 503 on that half's
+  endpoint, naming the field, Providers & Credentials *and* ``.env``; an
+  unknown provider key is named the same way. A keyless adapter resolves
+  without a key (ADR-0136 §4, §5).
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ from services.ai_models import ConnectionStatus
 from services.ai_service_core import StreamEvent
 from services.credential_vault import MASTER_KEY_ENV_VAR, VaultCipher
 from services.password_hashing import hash_password
-from services.voice import ResolvedSTT, ResolvedTTS
+from services.voice import ADAPTER_DECLARATIONS, ResolvedSTT, ResolvedTTS
 from web.main import create_app
 from web.routes import chat as chat_routes
 from web.settings import WebSettings
@@ -66,13 +68,9 @@ DATABASE_URL_SUPERUSER = os.getenv("DATABASE_URL_SUPERUSER")
 
 _MASTER_KEY = Fernet.generate_key().decode()
 
-# The retired code defaults, pinned as values (ADR-0136 §2 moves them into the
-# adapter declarations).
-_LEGACY_PROVIDER = "openai"
-_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
-_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
-_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
-_LEGACY_TTS_VOICE = "nova"
+#: The ``openai`` declaration — today's defaults, kept until OpenAI's sunset
+#: (ADR-0136 §2). Compared against rather than restated as literals.
+_OPENAI = ADAPTER_DECLARATIONS["openai"]
 
 _AUDIO_BYTES = b"OggS" + b"\x00" * 32
 
@@ -90,6 +88,7 @@ _VOICE_ENV_VARS = (
     "VOICE_TTS_MODEL",
     "VOICE_TTS_VOICE",
     "VOICE_TTS_API_KEY",
+    "VOICE_TTS_BASE_URL",
 )
 
 #: The application scope, as a deployment's ``.env`` would provide it. Every
@@ -105,6 +104,7 @@ _ENV_VOICE: dict[str, str] = {
     "VOICE_TTS_MODEL": "env/tts-model",
     "VOICE_TTS_VOICE": "env-voice",
     "VOICE_TTS_API_KEY": "sk-env-tts",
+    "VOICE_TTS_BASE_URL": "https://env.example/tts/v1",
 }
 
 # A vision-capable model id, so the mixed-mode gate in ``post_voice`` is a
@@ -209,9 +209,15 @@ def env_voice(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def env_enabled_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Voice switched on in the environment, with no keys and no settings."""
+def env_enabled_with_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Voice on and both providers ``openai`` in the environment; nothing else.
+
+    Today's ``.env.example`` deployment minus its keys and settings — the
+    fixture for "tenant rows supply the rest".
+    """
     monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "openai")
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai")
 
 
 @pytest.fixture
@@ -390,12 +396,12 @@ async def test_tenant_rows_drive_the_request_without_a_restart(
     seeded_user: Any,
     voice_build: _ProviderRecorder,
     vault_key: VaultCipher,
-    env_enabled_only: None,
+    env_enabled_with_providers: None,
 ) -> None:
     """Vault rows written after startup reach the very next recording.
 
-    The unset config fields fall through to the retired code defaults —
-    the tails of the chains (ADR-0118 §4).
+    The unset config fields fall through to the ``openai`` declaration's
+    defaults (ADR-0136 §2).
     """
     client, app = app_client
     _uid, email, password = seeded_user
@@ -430,12 +436,11 @@ async def test_tenant_rows_drive_the_request_without_a_restart(
     assert tts.api_key == "sk-tenant-tts"
     assert stt.model == "tenant/stt-model"
     assert tts.voice == "tenant-voice"
-    # Unset everywhere: the code defaults are the tails of these two chains.
-    assert stt.base_url == _LEGACY_STT_BASE_URL
-    assert tts.model == _LEGACY_TTS_MODEL
-    # Undeclared by design (ADR-0118 §1) — env-only, defaulted here.
-    assert stt.provider == _LEGACY_PROVIDER
-    assert tts.provider == _LEGACY_PROVIDER
+    # Unset everywhere: the declaration fills them.
+    assert stt.base_url == _OPENAI.base_url
+    assert tts.model == _OPENAI.tts_model
+    assert stt.provider == "openai"
+    assert tts.provider == "openai"
 
 
 async def test_tenant_rows_outrank_the_environment(
@@ -497,9 +502,10 @@ async def test_env_only_resolution_is_the_whole_configuration(
 ) -> None:
     """No vault, no rows: the request runs on exactly the ``VOICE_*`` env.
 
-    The pre-V3 lifespan built one process-global provider from these eight
-    values. A request now resolves its own — and it must come out identical,
-    or every existing single-tenant deployment changed behaviour.
+    The pre-V3 lifespan built one process-global provider from these values.
+    A request now resolves its own — and it must come out identical, or every
+    existing single-tenant deployment changed behaviour. ``VOICE_TTS_BASE_URL``
+    joined the chain with ADR-0136 §3 and is observed end to end here.
     """
     client, _app = app_client
     _uid, email, password = seeded_user
@@ -519,19 +525,23 @@ async def test_env_only_resolution_is_the_whole_configuration(
         model=_ENV_VOICE["VOICE_TTS_MODEL"],
         voice=_ENV_VOICE["VOICE_TTS_VOICE"],
         api_key=_ENV_VOICE["VOICE_TTS_API_KEY"],
-        base_url="https://api.openai.com/v1",
+        base_url=_ENV_VOICE.get("VOICE_TTS_BASE_URL") or "https://api.openai.com/v1",
     )
 
 
-async def test_the_defaults_are_the_tails_of_every_config_chain(
+async def test_the_legacy_openai_declaration_supplies_todays_defaults(
     app_client: Any,
     seeded_user: Any,
     voice_build: _ProviderRecorder,
     no_vault: None,
-    env_enabled_only: None,
+    env_enabled_with_providers: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Keys alone, nothing else: all four settings fall to the code defaults."""
+    """Providers and keys alone: every setting falls to the ``openai`` declaration.
+
+    The values ADR-0076 wrote as code defaults, now read from the declaration
+    that keeps them until OpenAI's sunset (ADR-0136 §2).
+    """
     monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
     monkeypatch.setenv("VOICE_TTS_API_KEY", "sk-env-tts")
 
@@ -544,10 +554,11 @@ async def test_the_defaults_are_the_tails_of_every_config_chain(
 
     stt, tts = voice_build.stt, voice_build.tts
     assert stt is not None and tts is not None
-    assert stt.model == _LEGACY_STT_MODEL
-    assert stt.base_url == _LEGACY_STT_BASE_URL
-    assert tts.model == _LEGACY_TTS_MODEL
-    assert tts.voice == _LEGACY_TTS_VOICE
+    assert stt.model == _OPENAI.stt_model
+    assert stt.base_url == _OPENAI.base_url
+    assert tts.model == _OPENAI.tts_model
+    assert tts.voice == _OPENAI.tts_voice
+    assert tts.base_url == _OPENAI.base_url
 
 
 # ---------------------------------------------------------------------------
@@ -565,9 +576,12 @@ async def test_a_tenant_row_enables_voice_with_the_environment_silent(
     """``voice.enabled`` on the tenant turns the endpoints and controls on.
 
     ``VOICE_ENABLED`` is unset throughout, so nothing but the row can be
-    answering. The keys still come from the environment — enablement and
-    credential are separate chains, and this test is about the first.
+    answering. The providers and keys still come from the environment —
+    enablement and the rest are separate chains, and this test is about the
+    first.
     """
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "openai")
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai")
     monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
     monkeypatch.setenv("VOICE_TTS_API_KEY", "sk-env-tts")
 
@@ -593,7 +607,7 @@ async def test_a_tenant_row_enables_voice_with_the_environment_silent(
 
 
 # ---------------------------------------------------------------------------
-# Enabled but keyless is loud (ADR-0118 §2)
+# Incomplete is loud, per half (ADR-0136 §4)
 # ---------------------------------------------------------------------------
 
 
@@ -603,15 +617,14 @@ async def test_enabled_without_a_credential_answers_503_naming_both_scopes(
     seeded_user: Any,
     voice_build: _ProviderRecorder,
     no_vault: None,
-    env_enabled_only: None,
+    env_enabled_with_providers: None,
     endpoint: str,
 ) -> None:
-    """Voice on, no key anywhere → 503 on both endpoints, and no provider.
+    """An active ``openai`` half with no key anywhere → 503 on that half's endpoint.
 
-    This is the start-up validation ADR-0076 had,
-    relocated to first use: a tenant that switched voice on and stopped
-    there learns so from a 503 that says where to fix it, not from a
-    provider quietly failing upstream.
+    The start-up validation ADR-0076 had, relocated to first use and judged
+    per half: each endpoint names its own half's variable, and where to fix
+    it, rather than a provider quietly failing upstream.
     """
     client, _app = app_client
     _uid, email, password = seeded_user
@@ -623,7 +636,8 @@ async def test_enabled_without_a_credential_answers_503_naming_both_scopes(
     assert response.status_code == 503
     body = response.text
     assert "Providers" in body and "Credentials" in body
-    assert "VOICE_STT_API_KEY" in body
+    variable = "VOICE_STT_API_KEY" if endpoint == "voice" else "VOICE_TTS_API_KEY"
+    assert variable in body
     assert ".env" in body
     # Tenant rows apply on the next voice message — never a restart.
     assert "restart" not in body.lower()
@@ -631,19 +645,18 @@ async def test_enabled_without_a_credential_answers_503_naming_both_scopes(
     assert voice_build.tts_calls == 0
 
 
-async def test_one_half_of_the_credential_is_still_unconfigured(
+async def test_each_half_is_judged_on_its_own(
     app_client: Any,
     seeded_user: Any,
     voice_build: _ProviderRecorder,
     no_vault: None,
-    env_enabled_only: None,
+    env_enabled_with_providers: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """STT keyed, TTS not → 503, even on the endpoint that needs only STT.
+    """STT keyed, TTS not → ``/chat/voice`` works and only ``/chat/tts`` is 503.
 
-    Both halves resolve on every request precisely so a half-configured
-    tenant cannot be told it is fine by whichever endpoint it happened to
-    hit first (ADR-0118 §2).
+    Each endpoint resolves only the half it needs (ADR-0136 §5): one half
+    complete and the other incomplete is loud on the incomplete half alone.
     """
     monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
 
@@ -651,6 +664,110 @@ async def test_one_half_of_the_credential_is_still_unconfigured(
     _uid, email, password = seeded_user
     csrf = await _login(client, email, password)
 
-    assert (await _post_voice(client, csrf)).status_code == 503
-    assert voice_build.stt_calls == 0
+    assert (await _post_voice(client, csrf)).status_code == 200
+    tts = await _post_tts(client, csrf)
+    assert tts.status_code == 503
+    assert "VOICE_TTS_API_KEY" in tts.text
+    assert voice_build.stt_calls == 1
     assert voice_build.tts_calls == 0
+
+
+async def test_a_tenant_provider_row_activates_a_half_with_the_environment_silent(
+    app_client: Any,
+    seeded_user: Any,
+    voice_build: _ProviderRecorder,
+    no_vault: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``voice.enabled`` and ``voice_stt.provider`` as tenant rows → STT alone is active.
+
+    No ``VOICE_*_PROVIDER`` in the environment: the rows are the only choice
+    made, and the half without one stays inactive (404), not misconfigured.
+    """
+    monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
+
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    await _write_setting(app.state.engine, provider="voice", key="enabled", value="true")
+    await _write_setting(app.state.engine, provider="voice_stt", key="provider", value="openai")
+
+    assert (await _post_voice(client, csrf)).status_code == 200
+    assert (await _post_tts(client, csrf)).status_code == 404
+    assert voice_build.stt is not None
+    assert voice_build.stt.provider == "openai"
+
+
+async def test_openai_compatible_resolves_keyless(
+    app_client: Any,
+    seeded_user: Any,
+    voice_build: _ProviderRecorder,
+    no_vault: None,
+) -> None:
+    """A keyless adapter with its model and endpoint set resolves with no key anywhere."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    engine = app.state.engine
+    await _write_setting(engine, provider="voice", key="enabled", value="true")
+    await _write_setting(engine, provider="voice_stt", key="provider", value="openai_compatible")
+    await _write_setting(engine, provider="voice_stt", key="model", value="local/whisper")
+    await _write_setting(
+        engine, provider="voice_stt", key="base_url", value="http://localhost:8000/v1"
+    )
+
+    assert (await _post_voice(client, csrf)).status_code == 200
+    assert voice_build.stt == ResolvedSTT(
+        provider="openai_compatible",
+        model="local/whisper",
+        api_key="",
+        base_url="http://localhost:8000/v1",
+    )
+
+
+async def test_openai_compatible_without_a_model_is_503(
+    app_client: Any,
+    seeded_user: Any,
+    voice_build: _ProviderRecorder,
+    no_vault: None,
+) -> None:
+    """The wire-compatible adapter defaults nothing: a missing model is named."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    engine = app.state.engine
+    await _write_setting(engine, provider="voice", key="enabled", value="true")
+    await _write_setting(engine, provider="voice_stt", key="provider", value="openai_compatible")
+    await _write_setting(
+        engine, provider="voice_stt", key="base_url", value="http://localhost:8000/v1"
+    )
+
+    response = await _post_voice(client, csrf)
+    assert response.status_code == 503
+    assert "VOICE_STT_MODEL" in response.text
+    assert voice_build.stt_calls == 0
+
+
+async def test_a_provider_outside_the_vocabulary_is_503(
+    app_client: Any,
+    seeded_user: Any,
+    voice_build: _ProviderRecorder,
+    no_vault: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An env typo is not a silent fallback: 503 naming the variable and the legal keys."""
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "deepgram")
+
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    response = await _post_voice(client, csrf)
+    assert response.status_code == 503
+    assert "VOICE_STT_PROVIDER" in response.text
+    assert "openai, openai_compatible" in response.text
+    assert voice_build.stt_calls == 0

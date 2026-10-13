@@ -19,7 +19,8 @@ three outcomes (ADR-0136 §4):
   fix it in.
 
 The functions read no environment, no database and no clock. Every voice
-configuration message lives in this module.
+configuration message lives in this module, and so does the Admin card's
+one-line state (:func:`describe_voice_state`).
 
 This module imports only the standard library and its own package
 (ADR-0136 §8).
@@ -188,4 +189,49 @@ def assemble_tts(
     )
 
 
-__all__ = ["assemble_stt", "assemble_tts"]
+def _half_state(provider: str | None) -> str:
+    """Describe one half from its provider key alone — no completeness check."""
+    provider_key = _norm(provider)
+    if not provider_key:
+        return "inactive, no provider selected"
+    if provider_key not in ADAPTER_DECLARATIONS:
+        return f"misconfigured — provider {provider_key!r} is not supported"
+    return f"active ({provider_key})"
+
+
+def describe_voice_state(enabled: bool, stt_provider: str | None, tts_provider: str | None) -> str:
+    """Return the Admin card's one-line voice state (ADR-0136 §4).
+
+    Computed from the three config reads the surfaces gate on — the switch
+    and the two provider keys — so it judges the provider key only: an
+    unknown key reads as misconfigured, while an incomplete model, endpoint,
+    voice or key stays loud at first use, where resolution raises. No
+    credential is read to compute it.
+
+    Args:
+        enabled: The resolved ``voice.enabled`` switch.
+        stt_provider: The resolved ``voice_stt.provider``.
+        tts_provider: The resolved ``voice_tts.provider``.
+
+    Returns:
+        ``"off"`` when voice is off; otherwise ``"on — speech-to-text: … ·
+        text-to-speech: …"``, each half ``inactive, no provider selected``,
+        ``active (<key>)`` or ``misconfigured — provider '<key>' is not
+        supported``. When text-to-speech is active and speech-to-text is not,
+        the text-to-speech part adds that it is unreachable, because replies
+        are spoken only to spoken questions.
+    """
+    if not enabled:
+        return "off"
+    stt = _half_state(stt_provider)
+    tts = _half_state(tts_provider)
+    stt_key = _norm(stt_provider)
+    tts_key = _norm(tts_provider)
+    stt_active = bool(stt_key) and stt_key in ADAPTER_DECLARATIONS
+    tts_active = bool(tts_key) and tts_key in ADAPTER_DECLARATIONS
+    if tts_active and not stt_active:
+        tts += " — unreachable without speech-to-text (replies are spoken only to spoken questions)"
+    return f"on — speech-to-text: {stt} · text-to-speech: {tts}"
+
+
+__all__ = ["assemble_stt", "assemble_tts", "describe_voice_state"]

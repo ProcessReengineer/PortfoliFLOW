@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for Shirley voice messages via the Telegram bot (ADR-0076, ADR-0118).
+"""Tests for Shirley voice messages via the Telegram bot (ADR-0076, ADR-0118, ADR-0136).
 
 These drive :func:`bot.telegram_bot._handle_voice_message` directly with faked
 aiogram ``Message`` / ``Bot`` objects (the same scaffolding style as
@@ -9,13 +9,14 @@ aiogram ``Message`` / ``Bot`` objects (the same scaffolding style as
 :class:`~services.voice.provider.SpeechToText` and
 :class:`~services.voice.provider.TextToSpeech`.
 
-Since ADR-0118 §4 the handler resolves one voice resolution per inbound
-message — a :class:`~services.voice.ResolvedSTT` and a
-:class:`~services.voice.ResolvedTTS` — and builds each leg from its half, so
-the injection seam is the factory rather than a singleton: the fake adapter is
-installed by monkeypatching ``tb.build_stt`` and ``tb.build_tts`` with a recorder,
-and gating runs the **real** ``voice.enabled`` chain over the environment
-(``_bot_engine`` is ``None`` here, so there are no vault sources). No real
+Since ADR-0136 §5 the handler resolves each half for the leg that needs it —
+a :class:`~services.voice.ResolvedSTT` inbound, a
+:class:`~services.voice.ResolvedTTS` for the reply — and builds each leg from
+its half, so the injection seam is the factory rather than a singleton: the
+fake adapter is installed by monkeypatching ``tb.build_stt`` and
+``tb.build_tts`` with a recorder, and gating runs the **real** ``voice.enabled``
+and provider chains over the environment (``_bot_engine`` is ``None`` here, so
+there are no vault sources). No real
 STT/TTS call is made, and every ``VOICE_*`` variable is cleared by the reset
 fixture so a developer's ``.env`` cannot decide an outcome. What the resolution
 itself yields is pinned in ``tests/bot/test_bot_voice_resolution.py``; this
@@ -36,13 +37,16 @@ Test catalogue:
           the same bytes; the turn does not crash.
     V-04: An empty transcript replies clearly and does NOT drive a turn.
     V-05: An STT failure replies clearly and does NOT drive a turn.
-    V-06: Voice disabled for the tenant replies clearly; no download, no
-          resolution, no turn.
+    V-06: Voice disabled for the tenant — or enabled with no STT provider —
+          replies clearly; no download, no resolution, no turn.
     V-07: A non-whitelisted sender is dropped silently — no reply, no turn.
     V-08: A chart-only turn sends the PNG photo and NO voice note.
     V-09: A TTS failure still sends the text reply; no voice note; no crash.
     V-10: A plain text message still routes through ``_handle_text_message`` and
           never calls ``send_voice`` (additivity regression).
+    V-11: STT only (no TTS provider) answers in text; no voice note.
+    V-12: A misconfigured TTS half warns once, then answers in text.
+    V-13: A misconfigured STT half replies with the message; no turn.
 """
 
 from __future__ import annotations
@@ -87,6 +91,7 @@ _BOT_ENV_VARS = (
     "VOICE_TTS_MODEL",
     "VOICE_TTS_VOICE",
     "VOICE_TTS_API_KEY",
+    "VOICE_TTS_BASE_URL",
 )
 
 _CHAT_ID = 999
@@ -298,9 +303,10 @@ def _install_voice(
     """Set the environment the resolution reads and patch the provider factory.
 
     Gating and resolution are the real ones (env-only, since ``_bot_engine``
-    is ``None``): ``VOICE_ENABLED`` decides the gate and the two API keys are
-    what an enabled tenant needs. The models, base URL and persona voice stay
-    unset on purpose — the retired code defaults serve as the chains' tails.
+    is ``None``): ``VOICE_ENABLED`` and the two ``VOICE_*_PROVIDER=openai``
+    decide the gate — today's ``.env.example`` deployment — and the two API
+    keys are what the ``openai`` declaration requires. The models, base URLs
+    and persona voice stay unset on purpose — the declaration fills them.
 
     Returns:
         The recorder installed over ``tb.build_stt`` / ``tb.build_tts``, so a
@@ -308,6 +314,8 @@ def _install_voice(
     """
     if enabled:
         monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "openai")
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai")
     monkeypatch.setenv("VOICE_STT_API_KEY", "sk-env-stt")
     monkeypatch.setenv("VOICE_TTS_API_KEY", "sk-env-tts")
 
@@ -465,7 +473,11 @@ async def test_v05_stt_failure_replies_and_skips_turn(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("flag", [None, "false"])
+@pytest.mark.parametrize(
+    "flag",
+    [None, "false", "true"],
+    ids=["unset", "false", "enabled-no-stt-provider"],
+)
 @pytest.mark.asyncio
 async def test_v06_disabled_service_replies_not_enabled(
     vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch, flag: str | None
@@ -475,7 +487,9 @@ async def test_v06_disabled_service_replies_not_enabled(
     The gate is the ``voice.enabled`` chain (ADR-0118 §5), so an absent
     ``VOICE_ENABLED`` and an explicit ``"false"`` are the same answer — and
     neither is allowed to reach the credential chain: whether voice is offered
-    and whether a key exists are separate questions.
+    and whether a key exists are separate questions. Voice on with no STT
+    provider chosen is the same answer: the inbound half is inactive
+    (ADR-0136 §4).
     """
     import bot.telegram_bot as tb
 
@@ -483,6 +497,8 @@ async def test_v06_disabled_service_replies_not_enabled(
     recorder = _install_voice(monkeypatch, tb, fake, enabled=False)
     if flag is not None:
         monkeypatch.setenv("VOICE_ENABLED", flag)
+    if flag == "true":
+        monkeypatch.delenv("VOICE_STT_PROVIDER")
 
     stream = _make_recording_stream()
     with patch.object(AIServiceCore, "stream_response", stream):
@@ -599,3 +615,93 @@ async def test_v10_text_message_never_speaks(vision_bot_config, aiobot_mock) -> 
     aiobot_mock.send_message.assert_awaited()
     aiobot_mock.send_voice.assert_not_awaited()
     aiobot_mock.send_audio.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# V-11: speech-to-text only answers in text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v11_stt_only_answers_in_text(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No TTS provider: the question is heard and answered in text only (ADR-0136 §4)."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider()
+    recorder = _install_voice(monkeypatch, tb, fake)
+    monkeypatch.delenv("VOICE_TTS_PROVIDER")
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    assert len(stream.calls) == 1
+    sent = [c.kwargs.get("text", "") for c in aiobot_mock.send_message.await_args_list]
+    assert any("reply-1" in t for t in sent), sent
+    aiobot_mock.send_voice.assert_not_awaited()
+    aiobot_mock.send_audio.assert_not_awaited()
+    assert recorder.stt_calls == 1
+    assert recorder.tts_calls == 0
+    assert fake.synthesize_calls == []
+
+
+# ---------------------------------------------------------------------------
+# V-12: a misconfigured TTS half warns once, then answers in text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v12_misconfigured_tts_warns_once_then_answers_in_text(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TTS ``openai_compatible`` without a model: one warning, then the text answer."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider()
+    recorder = _install_voice(monkeypatch, tb, fake)
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai_compatible")
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    sent = [c.kwargs.get("text", "") for c in aiobot_mock.send_message.await_args_list]
+    warnings = [t for t in sent if t.startswith("⚠️")]
+    assert len(warnings) == 1, sent
+    assert "VOICE_TTS_MODEL" in warnings[0]
+    # The warning goes out before the answer, and the answer still goes out.
+    assert sent.index(warnings[0]) < next(i for i, t in enumerate(sent) if "reply-1" in t)
+    assert len(stream.calls) == 1
+    aiobot_mock.send_voice.assert_not_awaited()
+    aiobot_mock.send_audio.assert_not_awaited()
+    assert recorder.tts_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# V-13: a misconfigured STT half replies with the message
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v13_misconfigured_stt_replies_with_the_message_and_never_streams(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """STT ``openai`` without a key: the assembly's message, no transcription, no turn."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider()
+    recorder = _install_voice(monkeypatch, tb, fake)
+    monkeypatch.delenv("VOICE_STT_API_KEY")
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    assert len(stream.calls) == 0
+    assert recorder.stt_calls == 0
+    sent = [c.kwargs.get("text", "") for c in aiobot_mock.send_message.await_args_list]
+    assert len(sent) == 1, sent
+    assert sent[0].startswith("⚠️ ")
+    assert "VOICE_STT_API_KEY" in sent[0]

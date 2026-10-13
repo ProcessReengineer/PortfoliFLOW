@@ -131,6 +131,7 @@ from services.investments.credential_resolver import (
 from services.market_data.provider import UnsupportedCapabilityError
 from services.openrouter_catalog import CatalogFetchError, CatalogModel, fetch_models
 from services.telegram_pairing import IssuedCode
+from services.voice import ADAPTER_DECLARATIONS, describe_voice_state
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import get_authenticated_user, require_role
@@ -232,6 +233,7 @@ _FIELD_LABELS: dict[str, str] = {
     "enabled": "Enabled",
     "irene_model": "Watch Desk model",
     "model": "Model",
+    "provider": "Provider",
     "research_model": "Web research model",
     "scraper_model": "Report Scraper model",
     "voice": "Voice",
@@ -266,12 +268,57 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
     ("telegram", "bot_token"): "The bot token from @BotFather for this tenant's bot.",
     ("voice", "enabled"): "Turns voice on for this tenant. Applies on the next message.",
     ("voice_stt", "api_key"): "Used for every transcription in this tenant.",
-    ("voice_stt", "model"): "The transcription model.",
-    ("voice_stt", "base_url"): "OpenAI-compatible endpoint. Point at Groq for Groq STT.",
     ("voice_tts", "api_key"): "Used for every spoken reply in this tenant.",
-    ("voice_tts", "model"): "The speech-synthesis model.",
-    ("voice_tts", "voice"): "The voice Shirley speaks with.",
 }
+
+
+def _voice_hints() -> dict[tuple[str, str], str]:
+    """Build the voice field hints from the adapter declarations (ADR-0136 §2).
+
+    The defaults and the sunset dates are read from
+    :data:`~services.voice.ADAPTER_DECLARATIONS`, so no model name or date is
+    typed twice and the card changes with the declaration.
+
+    Returns:
+        ``(provider, key)`` → hint, for the voice provider, model, endpoint
+        and persona-voice fields.
+    """
+    oa = ADAPTER_DECLARATIONS["openai"]
+    return {
+        ("voice_stt", "provider"): (
+            "Which service transcribes: openai_compatible is any OpenAI-wire server "
+            "(yours or a vendor's; needs Model and Base URL, no key required); openai is "
+            "OpenAI itself until its transcription models retire on "
+            f"{oa.stt_sunset:%Y-%m-%d}."
+        ),
+        ("voice_stt", "model"): (
+            "The transcription model. Required for openai_compatible; openai defaults "
+            f"to {oa.stt_model}."
+        ),
+        ("voice_stt", "base_url"): (
+            "The endpoint. Required for openai_compatible (for example "
+            f"http://localhost:8000/v1); openai defaults to {oa.base_url}."
+        ),
+        ("voice_tts", "provider"): (
+            "Which service speaks: openai_compatible is any OpenAI-wire server (needs "
+            "Model, Voice and Base URL, no key required); openai is OpenAI itself until "
+            f"its text-to-speech models retire on {oa.tts_sunset:%Y-%m-%d}."
+        ),
+        ("voice_tts", "model"): (
+            "The speech-synthesis model. Required for openai_compatible; openai defaults "
+            f"to {oa.tts_model}."
+        ),
+        ("voice_tts", "voice"): (
+            "The voice Shirley speaks with. Required for openai_compatible; openai "
+            f"defaults to {oa.tts_voice}."
+        ),
+        ("voice_tts", "base_url"): (
+            f"The endpoint. Required for openai_compatible; openai defaults to {oa.base_url}."
+        ),
+    }
+
+
+_FIELD_HINTS.update(_voice_hints())
 
 #: Panel-specific label overrides, where the same field reads differently
 #: depending on whose row it is.
@@ -447,7 +494,8 @@ async def _apply_write(
         stored value alone" — so the caller can skip the audit log line.
 
     Raises:
-        _WriteRejected: On an empty config value, a secret write with no
+        _WriteRejected: On an empty config value, a config value outside the
+            field's ``choices``, a secret write with no
             vault configured, or an enable/disable/delete naming a row
             that does not exist.
     """
@@ -502,6 +550,10 @@ async def _apply_write(
         raise _WriteRejected(
             f"{provider}.{key} needs a value. Use Remove to unset it.",
         )
+    if field.choices is not None and value not in field.choices:
+        raise _WriteRejected(
+            f"{provider}.{key} must be one of: {', '.join(sorted(field.choices))}."
+        )
     await repository.upsert(
         scope=scope,
         provider=provider,
@@ -542,6 +594,7 @@ def _field_view(
         "label": _field_label(provider, field.name, scope=scope),
         "hint": _FIELD_HINTS.get((provider, field.name), ""),
         "is_secret": field.is_secret,
+        "choices": sorted(field.choices) if field.choices is not None else None,
         "is_set": row is not None,
         "secret_hint": row.secret_hint if row is not None else None,
         "value": (row.value_plain or "") if (row is not None and not field.is_secret) else "",
@@ -549,8 +602,19 @@ def _field_view(
     }
 
 
-def _tenant_panel(rows: list[ScopedSettingDTO]) -> list[dict[str, Any]]:
-    """Build one card per provider from the taxonomy's tenant-scope fields."""
+def _tenant_panel(
+    rows: list[ScopedSettingDTO], *, voice_state: str | None = None
+) -> list[dict[str, Any]]:
+    """Build one card per provider from the taxonomy's tenant-scope fields.
+
+    Args:
+        rows: The tenant-scope rows, as read for the panel.
+        voice_state: The computed voice state line (ADR-0136 §4), set on the
+            ``voice`` card only; every other card carries ``None``.
+
+    Returns:
+        One card dict per provider that declares a tenant-scope field.
+    """
     index = _row_index(rows)
     cards: list[dict[str, Any]] = []
     for provider, declaration in PROVIDER_TAXONOMY.items():
@@ -572,6 +636,7 @@ def _tenant_panel(rows: list[ScopedSettingDTO]) -> list[dict[str, Any]]:
                 "label": _provider_label(provider),
                 "description": _PROVIDER_DESCRIPTIONS.get(provider, ""),
                 "consumer_status": _CONSUMER_STATUS.get(provider, "not consumed yet"),
+                "state_line": voice_state if provider == "voice" else None,
                 "fields": fields,
             }
         )
@@ -633,6 +698,29 @@ def _pairing_view(
     }
 
 
+async def _voice_state(resolver: CredentialResolver) -> str:
+    """Compute the ``Voice`` card's state line from the chains the surfaces gate on.
+
+    Three config reads along tenant → env — the switch and the two provider
+    keys — and never a credential probe (ADR-0118 §5, ADR-0136 §4), so the
+    line judges the provider key only; an incomplete half stays loud at first
+    use.
+
+    Args:
+        resolver: A resolver bound to the owner's tenant context.
+
+    Returns:
+        The line :func:`~services.voice.describe_voice_state` renders.
+    """
+    scopes = ("tenant", "env")
+    enabled = await resolver.resolve_config("voice", "enabled", scopes=scopes)
+    stt_provider = await resolver.resolve_config("voice_stt", "provider", scopes=scopes)
+    tts_provider = await resolver.resolve_config("voice_tts", "provider", scopes=scopes)
+    return describe_voice_state(
+        enabled is not None and enabled.strip().lower() == "true", stt_provider, tts_provider
+    )
+
+
 async def _render_section(
     request: Request,
     *,
@@ -671,6 +759,9 @@ async def _render_section(
         repository = ScopedSettingRepository(db_session)
         tenant_rows = await repository.list_for_tenant() if is_owner else []
         user_rows = await repository.list_for_user(session.user_id)
+        voice_state = (
+            await _voice_state(CredentialResolver(session=db_session)) if is_owner else None
+        )
 
     context: dict[str, Any] = {
         "csrf_token": session.csrf_token,
@@ -678,7 +769,7 @@ async def _render_section(
         "is_owner": is_owner,
         "tenant_endpoint": _TENANT_ENDPOINT,
         "user_endpoint": _USER_ENDPOINT,
-        "tenant_cards": _tenant_panel(tenant_rows) if is_owner else [],
+        "tenant_cards": _tenant_panel(tenant_rows, voice_state=voice_state) if is_owner else [],
         "user_fields": _user_panel(user_rows),
         "telegram_pairing": _pairing_view(user_rows, issued=issued_code),
         # The deployment-wide half of the two-level switch (ADR-0112 §5):

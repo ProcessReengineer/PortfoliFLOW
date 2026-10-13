@@ -1,33 +1,33 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Per-message voice resolution and gating in the Telegram handler (ADR-0118).
+"""Per-message voice resolution and gating in the Telegram handler (ADR-0118, ADR-0136).
 
 The voice twin of ``test_bot_llm_resolution.py``, and built the same way: the
 handler is driven directly with a **resolver double** installed over
 ``tb.CredentialResolver``, so the assertions are on the chains the handler
 walks and on what reaches the two builders — no database, no network.
 
-Where the LLM twin resolves once per *turn*, this resolves once per inbound
-*voice message*: the STT leg and the TTS reply leg build from the two halves —
-:class:`~services.voice.ResolvedSTT` and :class:`~services.voice.ResolvedTTS` —
-of one resolution, so a key rotated between two messages applies to the next
-one whole, and never half-and-half within one.
+Where the LLM twin resolves once per *turn*, this resolves each half once per
+inbound *voice message*, for the leg that needs it (ADR-0136 §5): the STT leg
+builds from a :class:`~services.voice.ResolvedSTT`, the TTS reply leg from a
+:class:`~services.voice.ResolvedTTS`.
 
 What is pinned here:
 
-* **The tenant's rows drive the message.** Both halves' keys and their model /
-  base-URL / persona-voice rows reach the recorded resolution; fields no scope
-  holds land on the retired code defaults (ADR-0118 §4).
-* **One resolution per message.** Each half's credential is resolved exactly
-  once, and each leg builds exactly once from its half.
-* **Enabled-but-keyless is loud.** Either half missing answers with the one
-  actionable message naming Providers & Credentials *and* ``.env``, drives no
-  turn, and does not crash the dispatcher — the start-up validation ADR-0076
-  had, relocated to first use (ADR-0118 §2).
+* **The tenant's rows drive the message.** Both halves' providers, keys and
+  their model / base-URL / persona-voice rows reach the recorded resolution;
+  fields no scope holds land on the ``openai`` declaration's defaults
+  (ADR-0136 §2).
+* **Each half resolves once per message.** Each half's credential is resolved
+  exactly once, and each leg builds exactly once from its half.
+* **Incomplete is loud, per half.** A missing STT key answers with the
+  assembly's message naming Providers & Credentials *and* ``.env`` and drives
+  no turn; a missing TTS key warns once and the answer still goes out in
+  text. Neither crashes the dispatcher (ADR-0136 §4).
 * **Gating is a per-tenant answer.** The gate walks ``voice.enabled`` over
-  ``tenant → env`` and nothing else: voice off never probes a credential
-  (ADR-0118 §5).
+  ``tenant → env`` first; voice off reads nothing else and never probes a
+  credential (ADR-0118 §5).
 * **An undecryptable vault never reads as a missing key.** It answers
   generically and stays out of the dispatcher — the bot's one deliberate
   divergence from the web surface, which propagates it to a 500.
@@ -46,19 +46,12 @@ import pytest
 from services.ai_models import Message, MessageRole
 from services.ai_service_core import AIServiceCore, StreamEvent
 from services.credential_vault import VaultDecryptError
-from services.investments.credential_resolver import (
-    CredentialUnavailableError,
-    ProviderCredential,
-)
-from services.voice import ResolvedSTT, ResolvedTTS
+from services.investments.credential_resolver import NoCredential, ProviderCredential
+from services.voice import ADAPTER_DECLARATIONS, ResolvedSTT, ResolvedTTS
 
-# The retired code defaults, pinned as values (ADR-0136 §2 moves them into the
-# adapter declarations).
-_LEGACY_PROVIDER = "openai"
-_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
-_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
-_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
-_LEGACY_TTS_VOICE = "nova"
+#: The ``openai`` declaration — today's defaults (ADR-0136 §2), compared
+#: against rather than restated as literals.
+_OPENAI = ADAPTER_DECLARATIONS["openai"]
 
 _BOT_ENV_VARS = (
     "TELEGRAM_BOT_ENABLED",
@@ -80,6 +73,7 @@ _BOT_ENV_VARS = (
     "VOICE_TTS_MODEL",
     "VOICE_TTS_VOICE",
     "VOICE_TTS_API_KEY",
+    "VOICE_TTS_BASE_URL",
 )
 
 _CHAT_ID = 999
@@ -92,6 +86,8 @@ _OPUS_REPLY = b"OggS-reply-bytes"
 #: through to the constant".
 _TENANT_VOICE_CONFIG: dict[tuple[str, str], str] = {
     ("voice", "enabled"): "true",
+    ("voice_stt", "provider"): "openai",
+    ("voice_tts", "provider"): "openai",
     ("voice_stt", "model"): "tenant/stt-model",
     ("voice_stt", "base_url"): "https://tenant.example/stt/v1",
     ("voice_tts", "model"): "tenant/tts-model",
@@ -179,7 +175,9 @@ class _FakeResolver:
     too, because the turn behind a voice message still has to resolve.
 
     A scripted credential value may be an exception instance, which is raised
-    instead of returned — the vault-refuses case.
+    instead of returned — the vault-refuses case. An unscripted credential is
+    a :class:`NoCredential`, as the real resolver answers for the two
+    optional voice halves (ADR-0136 §3).
     """
 
     def __init__(
@@ -199,7 +197,7 @@ class _FakeResolver:
         if isinstance(value, BaseException):
             raise value
         if value is None:
-            raise CredentialUnavailableError(f"no credential for {provider!r} (test)")
+            return NoCredential(provider)
         return ProviderCredential(provider=provider, payload={"api_key": value})
 
     async def resolve_config(
@@ -317,18 +315,22 @@ async def test_tenant_rows_drive_the_message(
     assert {call["tenant_id"] for call in voice_resolves} == {tb._bot_tenant_id}
 
 
-async def test_unscripted_config_fields_fall_to_the_constants(
+async def test_unscripted_config_fields_fall_to_the_legacy_declaration(
     bot_config: Any, aiobot_mock: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fields no scope holds land on the retired code defaults, not on ``None``.
+    """Fields no scope holds land on the ``openai`` declaration, not on ``None``.
 
-    The resolver returns ``None`` for "configured nowhere" and the caller owns
-    the default (ADR-0112 §4b), so the tails belong here rather than in
-    ``services/voice/``. The two provider keys have no chain at all — the
-    taxonomy does not declare them (ADR-0118 §1) — so they read the
-    environment, which this module clears.
+    The resolver returns ``None`` for "configured nowhere"; the adapter
+    declaration, applied by the pure assembly, owns the default (ADR-0136 §2).
     """
-    resolver = _FakeResolver(config={("voice", "enabled"): "true", ("openrouter", "model"): "m/1"})
+    resolver = _FakeResolver(
+        config={
+            ("voice", "enabled"): "true",
+            ("voice_stt", "provider"): "openai",
+            ("voice_tts", "provider"): "openai",
+            ("openrouter", "model"): "m/1",
+        }
+    )
     tb, recorder = _install(monkeypatch, resolver)
     tb._bot_tenant_id = uuid4()
 
@@ -337,23 +339,24 @@ async def test_unscripted_config_fields_fall_to_the_constants(
 
     stt, tts = recorder.stt, recorder.tts
     assert stt is not None and tts is not None
-    assert stt.model == _LEGACY_STT_MODEL
-    assert stt.base_url == _LEGACY_STT_BASE_URL
-    assert tts.model == _LEGACY_TTS_MODEL
-    assert tts.voice == _LEGACY_TTS_VOICE
-    assert stt.provider == _LEGACY_PROVIDER
-    assert tts.provider == _LEGACY_PROVIDER
+    assert stt.model == _OPENAI.stt_model
+    assert stt.base_url == _OPENAI.base_url
+    assert tts.model == _OPENAI.tts_model
+    assert tts.voice == _OPENAI.tts_voice
+    assert tts.base_url == _OPENAI.base_url
+    assert stt.provider == _OPENAI.key
+    assert tts.provider == _OPENAI.key
 
 
 # ---------------------------------------------------------------------------
-# One resolution per message
+# Each half resolves once per message
 # ---------------------------------------------------------------------------
 
 
-async def test_one_resolution_serves_both_legs(
+async def test_each_half_resolves_once_per_message(
     bot_config: Any, aiobot_mock: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each half resolves once, and each leg builds exactly once from its half."""
+    """``voice_stt`` resolves once inbound, ``voice_tts`` once outbound; each leg builds once."""
     resolver = _FakeResolver()
     tb, recorder = _install(monkeypatch, resolver)
     tb._bot_tenant_id = uuid4()
@@ -367,25 +370,24 @@ async def test_one_resolution_serves_both_legs(
 
     # Both legs ran (a text reply and a spoken one went out) …
     aiobot_mock.send_voice.assert_awaited_once()
-    # … and each built its adapter once, from its half of the one resolution.
+    # … and each built its adapter once, from its own half.
     assert recorder.stt_calls == 1 and recorder.tts_calls == 1
 
 
 # ---------------------------------------------------------------------------
-# Enabled but keyless → the one actionable reply
+# Incomplete is loud, per half
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("missing", ["voice_stt", "voice_tts"])
-async def test_a_missing_half_answers_politely_and_never_streams(
-    bot_config: Any, aiobot_mock: MagicMock, monkeypatch: pytest.MonkeyPatch, missing: str
+async def test_a_missing_stt_key_answers_politely_and_never_streams(
+    bot_config: Any, aiobot_mock: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One key of two is a misconfiguration, whichever half it is.
+    """An active ``openai`` STT half without a key: the assembly's message, no turn.
 
-    Voice enabled requires both halves (ADR-0118 §2), and which leg would have
-    noticed first must not decide whether the operator hears about it.
+    Nothing was heard, so there is nothing to answer — and the operator learns
+    where to fix it (ADR-0136 §4).
     """
-    keys = {key: value for key, value in _TENANT_KEYS.items() if key != missing}
+    keys = {key: value for key, value in _TENANT_KEYS.items() if key != "voice_stt"}
     resolver = _FakeResolver(keys=keys)
     tb, recorder = _install(monkeypatch, resolver)
     tb._bot_tenant_id = uuid4()
@@ -406,6 +408,36 @@ async def test_a_missing_half_answers_politely_and_never_streams(
     # The one warning sign is the send site's, prefixed exactly once.
     assert sent[0].startswith("⚠️ ")
     assert sent[0].count("⚠️") == 1
+
+
+async def test_a_missing_tts_key_warns_and_still_answers_in_text(
+    bot_config: Any, aiobot_mock: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An active ``openai`` TTS half without a key warns once; the answer goes out in text.
+
+    The question was heard, so it is answered: the misconfiguration is loud,
+    but it does not cost the user the reply.
+    """
+    keys = {key: value for key, value in _TENANT_KEYS.items() if key != "voice_tts"}
+    resolver = _FakeResolver(keys=keys)
+    tb, recorder = _install(monkeypatch, resolver)
+    tb._bot_tenant_id = uuid4()
+
+    stream = _recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), bot_config)
+
+    assert len(stream.calls) == 1
+    assert recorder.stt_calls == 1
+    assert recorder.tts_calls == 0
+    aiobot_mock.send_voice.assert_not_awaited()
+    aiobot_mock.send_audio.assert_not_awaited()
+
+    sent = [c.kwargs["text"] for c in aiobot_mock.send_message.call_args_list]
+    warnings = [text for text in sent if text.startswith("⚠️ ")]
+    assert len(warnings) == 1, sent
+    assert "VOICE_TTS_API_KEY" in warnings[0]
+    assert any("reply" in text for text in sent if not text.startswith("⚠️")), sent
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +486,10 @@ async def test_voice_off_never_probes_a_credential(
     assert recorder.stt_calls == 0
     assert recorder.tts_calls == 0
     assert resolver.resolve_calls == []
+    # The gate reads the switch first and stops there: an off tenant pays one
+    # config read, never the providers.
+    voice_reads = [call for call in resolver.config_calls if call[0].startswith("voice")]
+    assert voice_reads == [("voice", "enabled", ("tenant", "env"))]
     aiobot_mock.download.assert_not_awaited()
     sent = [c.kwargs["text"] for c in aiobot_mock.send_message.call_args_list]
     assert any("not enabled" in text for text in sent), sent
@@ -489,4 +525,4 @@ async def test_an_undecryptable_vault_is_not_a_missing_key(
     sent = [c.kwargs["text"] for c in aiobot_mock.send_message.call_args_list]
     assert len(sent) == 1, sent
     assert "temporarily unavailable" in sent[0]
-    assert tb._NO_VOICE_MESSAGE not in sent[0]
+    assert "VOICE_STT_API_KEY" not in sent[0]

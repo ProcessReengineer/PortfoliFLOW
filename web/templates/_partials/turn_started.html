@@ -14,8 +14,9 @@
        timestamp            — ISO timestamp of the user message.
        thumbnails           — optional list of {src, alt} image data URIs
                               attached to this turn (ADR-0075).
-       is_voice             — True when this turn began as a voice
-                              recording; emitted as ``data-pf-voice`` so
+       is_voice             — True when the reply is to be spoken: a voice
+                              recording with text-to-speech active
+                              (ADR-0136 §4); emitted as ``data-pf-voice`` so
                               chat.js speaks the reply on ``done`` (ADR-0076).
                               Defaults to 0 for text turns and rehydration.
 #}

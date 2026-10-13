@@ -7,8 +7,8 @@ The web surface takes its configuration from :class:`web.settings.WebSettings`,
 built once by the app factory and read through ``request.app.state.settings``,
 or from the services it calls. A direct ``os.getenv`` or ``os.environ`` read
 in ``web/`` bypasses that one typed, validated surface: the voice provider
-keys therefore have their one reader in ``services/voice/config.py``, and the
-upload size limit and the build SHA are ``WebSettings`` fields.
+keys therefore resolve through the credential resolver like every other config
+field, and the upload size limit and the build SHA are ``WebSettings`` fields.
 
 The scan walks the syntax tree, so a docstring or comment that *mentions* the
 environment does not trip it. ``web/settings.py`` reads the environment

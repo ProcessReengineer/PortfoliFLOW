@@ -7,7 +7,8 @@ Three outcomes per half: ``None`` (inactive — voice off or no provider
 chosen), a value object (active, with the adapter's defaults filled in) or
 :class:`VoiceConfigurationError` (misconfigured, with a message naming the
 field and both scopes). Where a rule is symmetric the two halves are
-parametrised; the TTS-only ``voice`` rule has a case of its own.
+parametrised; the TTS-only ``voice`` rule has a case of its own. The Admin
+card's state line (:func:`describe_voice_state`) closes the module.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from collections.abc import Callable
 
 import pytest
 
-from services.voice.assembly import assemble_stt, assemble_tts
+from services.voice.assembly import assemble_stt, assemble_tts, describe_voice_state
 from services.voice.errors import VoiceConfigurationError
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
@@ -200,3 +201,52 @@ def test_assembly_is_pure_of_imports() -> None:
     import services.voice.assembly as m
 
     assert not hasattr(m, "os")
+
+
+# ---------------------------------------------------------------------------
+# The Admin card's state line
+# ---------------------------------------------------------------------------
+
+_INACTIVE = "inactive, no provider selected"
+_UNREACHABLE = " — unreachable without speech-to-text (replies are spoken only to spoken questions)"
+
+
+def test_state_off() -> None:
+    assert describe_voice_state(False, "openai", "openai") == "off"
+
+
+def test_state_both_inactive() -> None:
+    assert describe_voice_state(True, None, "") == (
+        f"on — speech-to-text: {_INACTIVE} · text-to-speech: {_INACTIVE}"
+    )
+
+
+def test_state_stt_only() -> None:
+    assert describe_voice_state(True, "openai_compatible", None) == (
+        f"on — speech-to-text: active (openai_compatible) · text-to-speech: {_INACTIVE}"
+    )
+
+
+def test_state_tts_only_says_unreachable() -> None:
+    assert describe_voice_state(True, None, "openai") == (
+        f"on — speech-to-text: {_INACTIVE} · text-to-speech: active (openai){_UNREACHABLE}"
+    )
+
+
+def test_state_both_active() -> None:
+    assert describe_voice_state(True, "openai", "openai_compatible") == (
+        "on — speech-to-text: active (openai) · text-to-speech: active (openai_compatible)"
+    )
+
+
+def test_state_unknown_key_is_misconfigured() -> None:
+    assert describe_voice_state(True, "deepgram", "openai") == (
+        "on — speech-to-text: misconfigured — provider 'deepgram' is not supported"
+        f" · text-to-speech: active (openai){_UNREACHABLE}"
+    )
+
+
+def test_state_strips_whitespace() -> None:
+    assert describe_voice_state(True, " openai ", "   ") == (
+        f"on — speech-to-text: active (openai) · text-to-speech: {_INACTIVE}"
+    )

@@ -8,7 +8,7 @@ live Postgres, real login flow, ``AsyncClient`` over ``ASGITransport`` —
 but asserts against persisted ``scoped_settings`` rows rather than a
 mutated in-process singleton.
 
-Ten groups:
+Eleven groups:
 
 * **Authz matrix** — owner sees and writes both panels; member and
   auditor see their own panel only and are 403 on the tenant endpoint;
@@ -38,6 +38,10 @@ Ten groups:
   re-issuing invalidates the previous code, the code binds the *session's*
   tenant and user, revoking deletes the row and voids pending codes, and
   both endpoints demand a session and a CSRF token.
+* **Choices and the Voice card** (ADR-0136 §3, §4) — a field with
+  ``choices`` renders as a ``<select>`` and a forged value outside them is
+  refused inline; the voice hints read their defaults and sunsets from the
+  adapter declarations; the ``Voice`` card states its computed state.
 * **Model catalog** — the OpenRouter ``/models`` datalist: it renders for
   the field that asked and no other, a failed fetch says so inline at
   HTTP 200 rather than swapping in an empty list, the tenant scope carries
@@ -77,6 +81,7 @@ from services import telegram_pairing
 from services.credential_vault import MASTER_KEY_ENV_VAR, VaultCipher
 from services.openrouter_catalog import CatalogFetchError, CatalogModel
 from services.password_hashing import hash_password
+from services.voice import ADAPTER_DECLARATIONS
 from web.main import create_app
 from web.routes import provider_credentials
 from web.settings import WebSettings
@@ -554,7 +559,7 @@ async def test_cards_carry_purpose_copy_and_disambiguate_the_three_model_rows(
     # The TTS card's persona-voice row reads "Voice" — the same word as the
     # card family, so the hint carries the distinction.
     assert '<span class="pf-credentials__label">Voice</span>' in body
-    assert 'id="tenant-voice_tts-voice-hint">The voice Shirley speaks with.</span>' in body
+    assert 'id="tenant-voice_tts-voice-hint">The voice Shirley speaks with.' in body
 
     # The wire value keeps the taxonomy key; nothing an operator reads does.
     assert 'value="irene_model"' in body
@@ -866,6 +871,211 @@ async def test_empty_config_save_is_a_validation_error(
     assert response.status_code == 400
     assert "needs a value" in response.text
     assert await _read_row(app_engine, scope="tenant", provider="openrouter", key="model") is None
+
+
+# ---------------------------------------------------------------------------
+# Choices and the Voice card (ADR-0136 §3, §4)
+# ---------------------------------------------------------------------------
+
+#: Every environment variable the voice chains read; pinned by the state-line
+#: test so the repository ``.env`` this module loads cannot decide its outcome.
+_VOICE_ENV_VARS = (
+    "VOICE_ENABLED",
+    "VOICE_STT_PROVIDER",
+    "VOICE_STT_MODEL",
+    "VOICE_STT_API_KEY",
+    "VOICE_STT_BASE_URL",
+    "VOICE_TTS_PROVIDER",
+    "VOICE_TTS_MODEL",
+    "VOICE_TTS_VOICE",
+    "VOICE_TTS_API_KEY",
+    "VOICE_TTS_BASE_URL",
+)
+
+
+def _select_options(html: str, select_id: str) -> list[tuple[str, bool, bool]]:
+    """Return ``(value, disabled, selected)`` for each option of one ``<select>``."""
+    match = re.search(rf'<select id="{select_id}"[^>]*>(.*?)</select>', html, re.DOTALL)
+    assert match is not None, f"no <select id={select_id!r}>"
+    return [
+        (value, "disabled" in attrs, "selected" in attrs)
+        for value, attrs in re.findall(r'<option value="([^"]*)"([^>]*)>', match.group(1))
+    ]
+
+
+def _card_html(html: str, title: str) -> str:
+    """Return one tenant card's markup, from its title to the next card."""
+    start = html.index(f'<h4 class="pf-credentials__card-title">{title}</h4>')
+    end = html.find("<article", start)
+    return html[start:] if end == -1 else html[start:end]
+
+
+async def _write_tenant_config(engine: AsyncEngine, provider: str, key: str, value: str) -> None:
+    """Write one tenant-scope config row exactly as the surface would."""
+    async with tenant_context(engine, SENTINEL_TENANT_ID) as session:
+        await ScopedSettingRepository(session).upsert(
+            scope="tenant",
+            provider=provider,
+            key=key,
+            is_secret=False,
+            value_plain=value,
+        )
+
+
+async def test_a_choices_field_renders_as_a_select_with_the_vocabulary(
+    client_factory: Any,
+    vault_key: str,
+) -> None:
+    """Both provider fields are a ``<select>``; an ordinary config field stays a text input."""
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+
+    for select_id in ("tenant-voice_stt-provider", "tenant-voice_tts-provider"):
+        assert f'<select id="{select_id}"' in body
+        assert _select_options(body, select_id) == [
+            ("", True, True),
+            ("openai", False, False),
+            ("openai_compatible", False, False),
+        ]
+    assert re.search(r'<input type="text"\s+id="tenant-voice_stt-model"', body)
+    assert "Not set</option>" in body
+
+
+async def test_a_forged_value_outside_choices_is_rejected_inline(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """A value the ``<select>`` never offered is refused before the repository."""
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+
+    response = await client.post(
+        _TENANT_URL,
+        data={
+            "csrf_token": csrf,
+            "provider": "voice_stt",
+            "key": "provider",
+            "value": "deepgram",
+            "action": "save",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "must be one of: openai, openai_compatible" in response.text
+    assert await _read_row(app_engine, scope="tenant", provider="voice_stt", key="provider") is None
+
+
+async def test_a_value_inside_choices_saves_and_the_select_shows_it_selected(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """A legal choice is an ordinary config row, and the re-render selects it."""
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+
+    response = await client.post(
+        _TENANT_URL,
+        data={
+            "csrf_token": csrf,
+            "provider": "voice_tts",
+            "key": "provider",
+            "value": "openai_compatible",
+            "action": "save",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    row = await _read_row(app_engine, scope="tenant", provider="voice_tts", key="provider")
+    assert row is not None
+    assert row.value_plain == "openai_compatible"
+    assert _select_options(response.text, "tenant-voice_tts-provider") == [
+        ("", True, False),
+        ("openai", False, False),
+        ("openai_compatible", False, True),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("env", "tenant_rows", "expected"),
+    [
+        ({}, [], "off"),
+        (
+            {"VOICE_ENABLED": "true"},
+            [],
+            "on — speech-to-text: inactive, no provider selected · "
+            "text-to-speech: inactive, no provider selected",
+        ),
+        (
+            {"VOICE_ENABLED": "true", "VOICE_STT_PROVIDER": "openai"},
+            [],
+            "speech-to-text: active (openai)",
+        ),
+        (
+            {"VOICE_ENABLED": "true"},
+            [("voice_tts", "provider", "openai")],
+            "unreachable without speech-to-text",
+        ),
+    ],
+    ids=["env-silent", "enabled-only", "stt-from-env", "tts-only-from-tenant-row"],
+)
+async def test_the_voice_card_states_its_computed_state(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, str],
+    tenant_rows: list[tuple[str, str, str]],
+    expected: str,
+) -> None:
+    """The ``Voice`` card carries the state line; the two half cards carry none."""
+    for var in _VOICE_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    for var, value in env.items():
+        monkeypatch.setenv(var, value)
+    for provider, key, value in tenant_rows:
+        await _write_tenant_config(app_engine, provider, key, value)
+
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+
+    voice_card = _card_html(body, "Voice")
+    notes = re.findall(r'<p class="pf-credentials__note">([^<]*)</p>', voice_card)
+    assert len(notes) == 1, notes
+    assert expected in notes[0]
+    if expected == "off":
+        assert notes[0] == "off"
+    for half in ("Voice — speech-to-text", "Voice — text-to-speech"):
+        assert "pf-credentials__note" not in _card_html(body, half)
+
+
+async def test_voice_hints_carry_the_declared_defaults_and_sunsets(
+    client_factory: Any,
+    vault_key: str,
+) -> None:
+    """The defaults and sunset dates on the card are the declaration's, not a copy."""
+    declaration = ADAPTER_DECLARATIONS["openai"]
+    assert declaration.stt_sunset is not None and declaration.tts_sunset is not None
+
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    copy = _card_copy(response.text)
+
+    for value in (
+        declaration.stt_model,
+        declaration.tts_model,
+        declaration.tts_voice,
+        declaration.stt_sunset.isoformat(),
+        declaration.tts_sunset.isoformat(),
+    ):
+        assert value is not None
+        assert value in copy, value
 
 
 # ---------------------------------------------------------------------------

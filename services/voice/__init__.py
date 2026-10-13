@@ -22,10 +22,6 @@ assembly — :func:`assemble_stt` / :func:`assemble_tts` — applies a declarati
 to the raw values a surface resolved and returns inactive (``None``), active
 (a value object) or raises :class:`VoiceConfigurationError` (ADR-0136 §5).
 
-The two environment-only provider readers in :mod:`services.voice.config`
-survive until the surfaces read the provider keys the taxonomy now declares
-(ADR-0136 §3) and hand them to the assembly.
-
 Pure Python: this package imports only the standard library, ``openai`` and
 ``httpx`` (ADR-0136 §8). It must not import from ``web/``, ``bot/``, ``core/``,
 ``modules/``, or PyQt6 (ADR-0038). The web surface and the Telegram bot import
@@ -34,8 +30,7 @@ Pure Python: this package imports only the standard library, ``openai`` and
 
 from __future__ import annotations
 
-from services.voice.assembly import assemble_stt, assemble_tts
-from services.voice.config import env_stt_provider, env_tts_provider
+from services.voice.assembly import assemble_stt, assemble_tts, describe_voice_state
 from services.voice.declarations import (
     ADAPTER_DECLARATIONS,
     PROVIDER_KEYS,
@@ -69,9 +64,7 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "PROVIDER_KEYS",
     "assemble_stt",
     "assemble_tts",
-    # Configuration — retired by the taxonomy chain of ADR-0136 §3
-    "env_stt_provider",
-    "env_tts_provider",
+    "describe_voice_state",
     # Errors
     "VoiceError",
     "VoiceConfigurationError",

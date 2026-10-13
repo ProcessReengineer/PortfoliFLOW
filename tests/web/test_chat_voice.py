@@ -14,8 +14,12 @@ These exercise ``POST /chat/voice`` (STT in) and ``POST /chat/tts``
   the inline ``chat_error`` fragment without appending a user message;
 * ``/chat/tts`` returns MP3 bytes, 204 for empty text, or 502 on a
   synthesis failure;
-* when voice is disabled the endpoints 404 and the composer hides the
-  voice toggle; the text path is wholly unaffected (``data-pf-voice="0"``).
+* when voice is disabled — or enabled with no provider chosen — the
+  endpoints 404 and the composer hides the voice toggle; the text path is
+  wholly unaffected (``data-pf-voice="0"``);
+* availability is per half (ADR-0136 §4): speech-to-text alone renders the
+  microphone and answers in text (``data-pf-voice="0"``), text-to-speech
+  alone renders no microphone.
 
 The scaffolding mirrors ``test_chat_image_upload.py``: live-DB fixtures
 seed a sentinel-tenant owner and the chat route is wired to a scripted
@@ -295,7 +299,8 @@ async def web_client_factory(
     """Factory yielding ``(client, app)`` wired to a scripted ``_FakeCore``.
 
     Passing ``voice_provider`` enables voice the way a deployment does — the
-    ``VOICE_ENABLED`` and key variables the chains end at — and hands the
+    ``VOICE_ENABLED``, both ``VOICE_*_PROVIDER=openai`` and the key variables
+    the chains end at — and hands the
     scripted fake to the ``build_stt`` / ``build_tts`` recorder. Omitting it leaves
     ``VOICE_ENABLED`` unset, which is the off state (ADR-0118 §5).
 
@@ -335,6 +340,8 @@ async def web_client_factory(
         if voice_provider is not None:
             voice_build.provider = voice_provider
             monkeypatch.setenv("VOICE_ENABLED", "true")
+            monkeypatch.setenv("VOICE_STT_PROVIDER", "openai")
+            monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai")
             monkeypatch.setenv("VOICE_STT_API_KEY", _STT_KEY)
             monkeypatch.setenv("VOICE_TTS_API_KEY", _TTS_KEY)
         transport = ASGITransport(app=app)
@@ -587,22 +594,24 @@ async def test_tts_synthesis_failure_returns_502(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("flag", [None, "false"])
+@pytest.mark.parametrize("flag", [None, "false", "true"])
 async def test_disabled_service_404s_and_hides_controls(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
     monkeypatch: pytest.MonkeyPatch,
     flag: str | None,
 ) -> None:
-    """Voice disabled → 404 on both endpoints; the toggle is not rendered.
+    """Voice inactive → 404 on both endpoints; the toggle is not rendered.
 
     Both off states are pinned: the variable unset (the default the chain
-    ends at) and set to ``"false"`` — only ``"true"`` enables.
+    ends at) and set to ``"false"`` — only ``"true"`` enables. The third case
+    is ``"true"`` with no provider chosen anywhere: both halves are inactive,
+    a deliberate quiet state rather than a misconfiguration (ADR-0136 §4).
     """
     _id, email, password = seeded_user
     if flag is not None:
         monkeypatch.setenv("VOICE_ENABLED", flag)
-    client, _app = await web_client_factory([])  # voice disabled (no provider)
+    client, _app = await web_client_factory([])  # no provider for either half
     csrf = await _login_and_get_csrf(client, email, password)
 
     voice = await client.post(
@@ -641,6 +650,83 @@ async def test_enabled_service_renders_controls(
 
     page = await client.get("/chat/dock", follow_redirects=False)
     assert "data-pf-voice-toggle" in page.text
+
+
+async def test_stt_only_renders_the_microphone_and_answers_in_text(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    voice_build: _ProviderRecorder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Speech-to-text alone: the microphone renders, the reply is not spoken.
+
+    A spoken question answered in text is a supported outcome (ADR-0136 §4),
+    so the turn's voice marker stays ``0`` and ``/chat/tts`` is inactive.
+    """
+    _id, email, password = seeded_user
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.setenv("VOICE_STT_PROVIDER", "openai")
+    monkeypatch.setenv("VOICE_STT_API_KEY", _STT_KEY)
+    client, _app = await web_client_factory([])
+    csrf = await _login_and_get_csrf(client, email, password)
+
+    page = await client.get("/chat/dock", follow_redirects=False)
+    assert "data-pf-voice-toggle" in page.text
+
+    voice = await client.post(
+        "/chat/voice",
+        data={"csrf_token": csrf},
+        files={"audio": ("voice.webm", _AUDIO_BYTES, "audio/webm")},
+        follow_redirects=False,
+    )
+    assert voice.status_code == 200
+    assert 'data-pf-voice="0"' in voice.text
+
+    tts = await client.post(
+        "/chat/tts",
+        data={"text": "anything", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert tts.status_code == 404
+    assert voice_build.stt_calls == 1
+    assert voice_build.tts_calls == 0
+
+
+async def test_tts_only_is_unreachable(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Text-to-speech alone: no microphone and no ``/chat/voice``.
+
+    The ADR's "unreachable" is about the UI path — replies are spoken only to
+    spoken questions. The endpoint itself still works, and this pins that it
+    does not pretend otherwise.
+    """
+    _id, email, password = seeded_user
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "openai")
+    monkeypatch.setenv("VOICE_TTS_API_KEY", _TTS_KEY)
+    client, _app = await web_client_factory([])
+    csrf = await _login_and_get_csrf(client, email, password)
+
+    page = await client.get("/chat/dock", follow_redirects=False)
+    assert "data-pf-voice-toggle" not in page.text
+
+    voice = await client.post(
+        "/chat/voice",
+        data={"csrf_token": csrf},
+        files={"audio": ("voice.webm", _AUDIO_BYTES, "audio/webm")},
+        follow_redirects=False,
+    )
+    assert voice.status_code == 404
+
+    tts = await client.post(
+        "/chat/tts",
+        data={"text": "Speak this.", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert tts.status_code == 200
 
 
 async def test_text_path_is_voice_zero_regression(

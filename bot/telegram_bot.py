@@ -108,9 +108,9 @@ import base64
 import contextlib
 import logging
 import threading
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -150,11 +150,12 @@ from services.voice import (
     ResolvedSTT,
     ResolvedTTS,
     UnsupportedAudioFormatError,
+    VoiceConfigurationError,
     VoiceError,
+    assemble_stt,
+    assemble_tts,
     build_stt,
     build_tts,
-    env_stt_provider,
-    env_tts_provider,
 )
 
 if TYPE_CHECKING:  # pragma: no cover — type-check-only imports
@@ -281,62 +282,16 @@ class _BotLLMUnconfiguredError(Exception):
     """
 
 
-# The former code defaults of ``services/voice/config.py`` (ADR-0076; the
-# chain tails of ADR-0118 §4), carried here verbatim for exactly one step of the
-# ADR-0136 build. The adapter declarations and the pure assembly of ADR-0136
-# §2/§5 replace them; nothing else may read these names. The web surface carries its own copy: the
-# duplication is deliberate, because the bot must not import from ``web/``
-# (ADR-0030).
-_LEGACY_STT_MODEL = "gpt-4o-mini-transcribe"
-_LEGACY_STT_BASE_URL = "https://api.openai.com/v1"
-_LEGACY_TTS_MODEL = "gpt-4o-mini-tts"
-_LEGACY_TTS_VOICE = "nova"
-_LEGACY_TTS_BASE_URL = "https://api.openai.com/v1"
-
-#: One user-facing message for every "voice is on but no credential
-#: resolved" outcome, either half. Mirrors :data:`_NO_LLM_MESSAGE`: names both
-#: fixable scopes, never says "restart", and carries no leading emoji — the
-#: send sites prefix one.
-_NO_VOICE_MESSAGE = (
-    "Voice is enabled but no voice credential is configured for this "
-    "tenant. Please set the speech-to-text and text-to-speech API keys "
-    "under Admin → Providers & Credentials (or VOICE_STT_API_KEY and "
-    "VOICE_TTS_API_KEY in .env)."
-)
-
-
-class _BotVoiceResolution(NamedTuple):
-    """Both halves of one message's voice resolution.
-
-    The bot-local twin of the web surface's ``_VoiceResolution``. One step
-    only: ADR-0136 §5 makes the resolution per half, which retires this
-    carrier.
-
-    Attributes:
-        stt: The speech-to-text half, used by the inbound leg.
-        tts: The text-to-speech half, threaded onto the reply leg.
-    """
-
-    stt: ResolvedSTT
-    tts: ResolvedTTS
-
-
 class _BotVoiceUnconfiguredError(Exception):
-    """This message's voice credential resolved to nothing (either half).
+    """This message's voice half is active but its configuration is incomplete.
 
     The voice twin of :class:`_BotLLMUnconfiguredError`, and the bot-local
     twin of the web surface's ``_VoiceUnconfiguredError`` — the bot must not
-    import from ``web/``, so the message and the error type are duplicated
-    deliberately, exactly as :data:`_NO_LLM_MESSAGE` already is. It wraps
-    :class:`~services.investments.credential_resolver.CredentialUnavailableError`
-    raised for **either** half of the credential.
-
-    Enabled voice requires **both** halves: a tenant holding one key of two is
-    a configuration error that surfaces loudly at first use. That is what
-    ADR-0076's start-up validation enforced, relocated to the message by
-    ADR-0118 §2 — which is why an inbound voice message resolves both halves
-    even though each leg uses only one of them (ADR-0136 §5 ends this in the
-    next step).
+    import from ``web/``, so the error type is duplicated deliberately. It
+    wraps :class:`~services.voice.VoiceConfigurationError` raised by the
+    assembly; its message names the missing field and both scopes an
+    operator can fix it in, and carries no leading emoji — the send sites
+    prefix one (ADR-0136 §4).
 
     A :class:`~services.credential_vault.VaultDecryptError` is deliberately
     **not** translated into this: a vault that will not decrypt is an operator
@@ -1559,9 +1514,10 @@ async def _run_turn(
         llm: A resolution the caller already performed (the image path needs
             the model for its vision gate). ``None`` — the ordinary case —
             resolves here, so every turn resolves exactly once.
-        tts: The text-to-speech half of a voice-initiated turn's resolution,
-            threaded so the message resolves exactly once (ADR-0118 §4);
-            ``None`` for text turns.
+        tts: The text-to-speech half a voice-initiated turn resolved for
+            its reply leg (ADR-0136 §5); ``None`` for text turns and when the
+            half is inactive or misconfigured, in which case the reply is
+            text only.
     """
     # Initial typing indicator. Failures are logged but do not abort the
     # turn — the user will simply not see the indicator.
@@ -1853,18 +1809,20 @@ async def _handle_voice_message(
 
     Authorised exactly like the text handler (:func:`_authorise` — pairing,
     or the deprecated whitelist on the environment dispatcher). The order is
-    gate, download, resolve, transcribe: the ``voice.enabled`` chain answers
-    per tenant (ADR-0118 §5), then the OGG/Opus bytes are fetched, then this
-    message's voice resolution — a :class:`~services.voice.ResolvedSTT` and a
-    :class:`~services.voice.ResolvedTTS` — is resolved **once** (ADR-0118 §4)
-    and used by both legs — the STT provider built here and the TTS provider
-    built in :func:`_run_turn`, which the TTS half is threaded onto. Converges on the shared :func:`_run_turn` with ``is_voice=True``.
+    gate, download, resolve STT, transcribe, resolve TTS: the gate answers per
+    tenant whether speech-to-text is active (ADR-0136 §4), then the OGG/Opus
+    bytes are fetched, then the :class:`~services.voice.ResolvedSTT` half is
+    resolved and transcribes, then the :class:`~services.voice.ResolvedTTS`
+    half is resolved for the reply leg and threaded onto :func:`_run_turn`
+    (ADR-0136 §5). Converges on the shared :func:`_run_turn` with
+    ``is_voice=True``; the reply is spoken only when the TTS half is active.
 
-    The disabled-service, unconfigured-credential, undecryptable-vault,
+    The STT-inactive, STT-misconfigured, undecryptable-vault,
     empty-transcript and STT-failure cases each reply with a clear English
     message and do **not** drive a turn — "no silent fallback" (ADR-0076). A
-    voice turn carries no attachment: a Telegram voice message cannot also
-    carry a photo.
+    misconfigured TTS half is warned about once, before the answer, and the
+    answer goes out in text. A voice turn carries no attachment: a Telegram
+    voice message cannot also carry a photo.
 
     Args:
         aiobot: The aiogram :class:`Bot` instance.
@@ -1890,17 +1848,13 @@ async def _handle_voice_message(
     chat_id = message.chat.id
     user_id = user.id
 
-    # Voice gating (ADR-0118 §5): the ``voice.enabled`` chain answers per
-    # tenant, so one deployment's dispatchers can differ. A disabled tenant
-    # replies clearly, downloads nothing and resolves no credential.
-    if not await _resolve_bot_voice_enabled(binding):
-        try:
-            await aiobot.send_message(
-                chat_id=chat_id,
-                text="🎤 Voice messages are not enabled at the moment.",
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Telegram bot: failed to send voice-disabled reply.")
+    # Voice gating (ADR-0136 §4): ``voice.enabled`` and the STT provider answer
+    # per tenant, so one deployment's dispatchers can differ. A tenant without
+    # an active speech-to-text half replies clearly, downloads nothing and
+    # resolves no credential.
+    stt_active, _tts_active = await _resolve_bot_voice_flags(binding)
+    if not stt_active:
+        await _reply_voice_not_enabled(aiobot, chat_id)
         return
 
     # Download the OGG/Opus bytes (mirrors the image-download path).
@@ -1920,23 +1874,19 @@ async def _handle_voice_message(
 
     mime = (getattr(voice_note, "mime_type", None) or "audio/ogg").lower()
 
-    # This message's voice resolution (ADR-0118 §4), performed exactly once and
-    # threaded onto the turn so the TTS leg speaks with the same endpoints and
-    # keys the STT leg heard with. Nothing is cached between messages: a key
-    # written in Providers & Credentials is live on the very next voice note.
+    # The inbound leg resolves the speech-to-text half only (ADR-0136 §5).
+    # Nothing is cached between messages: a setting written in Providers &
+    # Credentials is live on the very next voice note.
     try:
-        resolution = await _resolve_bot_voice(binding)
-    except (CredentialUnavailableError, _BotVoiceUnconfiguredError) as exc:
+        stt = await _resolve_bot_stt(binding)
+    except _BotVoiceUnconfiguredError as exc:
         logger.error(
-            "Telegram bot [%s]: no voice credential resolved for user_id=%s: %s",
+            "Telegram bot [%s]: speech-to-text misconfigured for user_id=%s: %s",
             binding.label,
             user_id,
             exc,
         )
-        try:
-            await aiobot.send_message(chat_id=chat_id, text=f"⚠️ {_NO_VOICE_MESSAGE}")
-        except Exception:  # noqa: BLE001
-            logger.exception("Telegram bot: failed to send no-voice-credential reply.")
+        await _reply_voice_warning(aiobot, chat_id, str(exc))
         return
     except VaultDecryptError:
         # An operator emergency, not a configure-me nudge — and it must not
@@ -1947,18 +1897,16 @@ async def _handle_voice_message(
             "Telegram bot [%s]: voice credential vault refused to decrypt.",
             binding.label,
         )
-        try:
-            await aiobot.send_message(
-                chat_id=chat_id,
-                text="⚠️ Voice is temporarily unavailable. Please try again later.",
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Telegram bot: failed to send voice-unavailable reply.")
+        await _reply_voice_unavailable(aiobot, chat_id)
+        return
+    if stt is None:
+        # The gate ran a moment ago; a setting changed in between.
+        await _reply_voice_not_enabled(aiobot, chat_id)
         return
 
     # Transcribe (no silent fallback).
     try:
-        provider = build_stt(resolution.stt)
+        provider = build_stt(stt)
         transcript = (await provider.transcribe(audio_data, mime)).strip()
     except EmptyTranscriptError:
         try:
@@ -1986,6 +1934,29 @@ async def _handle_voice_message(
         user_id,
         transcript,
     )
+
+    # The outbound leg resolves the text-to-speech half only. The question was
+    # heard, so it is answered whatever happens here: an inactive half answers
+    # in text; a misconfigured one warns once, before the answer, then answers
+    # in text; a refusing vault is answered generically, then in text.
+    tts: ResolvedTTS | None = None
+    try:
+        tts = await _resolve_bot_tts(binding)
+    except _BotVoiceUnconfiguredError as exc:
+        logger.error(
+            "Telegram bot [%s]: text-to-speech misconfigured for user_id=%s: %s",
+            binding.label,
+            user_id,
+            exc,
+        )
+        await _reply_voice_warning(aiobot, chat_id, str(exc))
+    except VaultDecryptError:
+        logger.exception(
+            "Telegram bot [%s]: voice credential vault refused to decrypt.",
+            binding.label,
+        )
+        await _reply_voice_unavailable(aiobot, chat_id)
+
     await _run_turn(
         aiobot,
         config,
@@ -1996,8 +1967,38 @@ async def _handle_voice_message(
         incoming_text=transcript,
         attachment=None,
         is_voice=True,
-        tts=resolution.tts,
+        tts=tts,
     )
+
+
+async def _reply_voice_not_enabled(aiobot: Bot, chat_id: int) -> None:
+    """Send the "voice messages are not enabled" reply; never raise."""
+    try:
+        await aiobot.send_message(
+            chat_id=chat_id,
+            text="🎤 Voice messages are not enabled at the moment.",
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Telegram bot: failed to send voice-disabled reply.")
+
+
+async def _reply_voice_warning(aiobot: Bot, chat_id: int, message: str) -> None:
+    """Send an assembly message prefixed with the warning sign; never raise."""
+    try:
+        await aiobot.send_message(chat_id=chat_id, text=f"⚠️ {message}")
+    except Exception:  # noqa: BLE001
+        logger.exception("Telegram bot: failed to send voice-misconfigured reply.")
+
+
+async def _reply_voice_unavailable(aiobot: Bot, chat_id: int) -> None:
+    """Send the generic "voice is temporarily unavailable" reply; never raise."""
+    try:
+        await aiobot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Voice is temporarily unavailable. Please try again later.",
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Telegram bot: failed to send voice-unavailable reply.")
 
 
 # ---------------------------------------------------------------------------
@@ -2181,141 +2182,146 @@ async def _resolve_bot_llm_through(
     return ResolvedLLM(base_url=base_url, api_key=credential.payload["api_key"], model=model)
 
 
-async def _resolve_bot_voice_enabled(binding: _BotBinding) -> bool:
-    """Report whether voice is enabled for this dispatcher's tenant (ADR-0118 §5).
+#: The voice chain: every voice field is tenant-scope with an env link.
+_VOICE_SCOPES: tuple[str, ...] = ("tenant", "env")
 
-    Walks the ``voice.enabled`` chain and nothing else — never a credential
-    probe. Whether the bot accepts voice messages and whether a key can be
-    found are separate questions, and conflating them would hide a
-    misconfiguration behind a bland "not enabled" reply instead of surfacing
-    it at first use.
+
+@contextlib.asynccontextmanager
+async def _bot_voice_resolver(binding: _BotBinding) -> AsyncIterator[CredentialResolver]:
+    """Yield a resolver for this dispatcher's tenant voice chains.
 
     Engine/tenant branching is :func:`_resolve_bot_llm`'s: without an engine
-    or a tenant id the resolver is built without a
-    session and the environment is the only source.
+    or a tenant id the resolver is built without a session and the
+    environment is the only source. No user axis: every voice field is
+    declared tenant-scope only (ADR-0118 §1), so a paired chat resolves
+    exactly what an unpaired one does.
 
     Args:
         binding: The dispatcher's identity, supplying the tenant.
 
-    Returns:
-        ``True`` when the chain yields ``"true"`` (case-insensitive) — the
-        ``VOICE_ENABLED`` convention; ``False`` otherwise, including when the
-        field is set nowhere.
+    Yields:
+        The :class:`CredentialResolver` every voice read of one call goes
+        through.
     """
     engine = _bot_engine
     if engine is None or binding.tenant_id is None:
-        value = await CredentialResolver().resolve_config(
-            "voice", "enabled", scopes=("tenant", "env")
-        )
-    else:
-        async with tenant_context(engine, binding.tenant_id) as db:
-            value = await CredentialResolver(session=db).resolve_config(
-                "voice", "enabled", scopes=("tenant", "env")
-            )
+        yield CredentialResolver()
+        return
+    async with tenant_context(engine, binding.tenant_id) as db:
+        yield CredentialResolver(session=db)
+
+
+async def _bot_voice_switch(resolver: CredentialResolver) -> bool:
+    """Read ``voice.enabled``: ``"true"`` (case-insensitive) is on, anything else off."""
+    value = await resolver.resolve_config("voice", "enabled", scopes=_VOICE_SCOPES)
     return value is not None and value.strip().lower() == "true"
 
 
-async def _resolve_bot_voice(binding: _BotBinding) -> _BotVoiceResolution:
-    """Resolve this message's voice endpoints, credentials and models (ADR-0118 §4).
+async def _bot_voice_api_key(
+    resolver: CredentialResolver, provider: str, *, tenant_id: UUID | None
+) -> str | None:
+    """Resolve one half's API key, or ``None`` when no source holds one.
 
-    The voice twin of :func:`_resolve_bot_llm`, with the same engine-present /
-    engine-less split and the same one-call lifetime for the plain keys. No
-    user axis: every voice field is declared tenant-scope only (ADR-0118 §1),
-    so a paired chat resolves exactly what an unpaired one does.
+    Both halves are optional credentials (ADR-0136 §3), so an absent key is a
+    :class:`~services.investments.credential_resolver.NoCredential`, not an
+    error; whether the adapter needs one is the assembly's question.
+    """
+    credential = await resolver.resolve(provider, tenant_id=tenant_id)
+    if isinstance(credential, ProviderCredential):
+        return credential.payload["api_key"]
+    return None
+
+
+async def _resolve_bot_voice_flags(binding: _BotBinding) -> tuple[bool, bool]:
+    """Report which voice halves are active for this dispatcher's tenant (ADR-0136 §4).
+
+    A half is active iff ``voice.enabled`` resolves true **and** that half's
+    ``provider`` resolves non-empty. Config reads only — one when voice is
+    off — never a credential probe: whether the bot accepts voice messages and
+    whether a half is complete are separate questions, and completeness fails
+    loudly at first use.
 
     Args:
         binding: The dispatcher's identity, supplying the tenant.
 
     Returns:
-        Both halves for this message — a :class:`~services.voice.ResolvedSTT`
-        and a :class:`~services.voice.ResolvedTTS`.
+        ``(stt_active, tts_active)``.
+    """
+    async with _bot_voice_resolver(binding) as resolver:
+        if not await _bot_voice_switch(resolver):
+            return False, False
+        stt_provider = await resolver.resolve_config("voice_stt", "provider", scopes=_VOICE_SCOPES)
+        tts_provider = await resolver.resolve_config("voice_tts", "provider", scopes=_VOICE_SCOPES)
+    return bool((stt_provider or "").strip()), bool((tts_provider or "").strip())
+
+
+async def _resolve_bot_stt(binding: _BotBinding) -> ResolvedSTT | None:
+    """Resolve this message's speech-to-text half (ADR-0136 §5).
+
+    Reads the raw values along the voice chains and hands them to
+    :func:`~services.voice.assemble_stt`; the key is read only when the half
+    is active. The duplication with the web surface's ``_resolve_stt`` is
+    deliberate: each surface owns its I/O one layer above ``services/voice/``,
+    and the bot may not import from ``web/`` (ADR-0030).
+
+    Args:
+        binding: The dispatcher's identity, supplying the tenant.
+
+    Returns:
+        The :class:`~services.voice.ResolvedSTT`, or ``None`` when the half is
+        inactive.
 
     Raises:
-        _BotVoiceUnconfiguredError: If either half's credential resolves to
-            nothing.
+        _BotVoiceUnconfiguredError: If the half is active but incomplete.
         VaultDecryptError: Propagated untouched — a wrong or rotated master
             key must never look like an absent credential. The handler
             answers it generically rather than letting it reach the
             dispatcher.
     """
-    engine = _bot_engine
-    if engine is None or binding.tenant_id is None:
-        return await _resolve_bot_voice_through(CredentialResolver(), tenant_id=binding.tenant_id)
-    async with tenant_context(engine, binding.tenant_id) as db:
-        return await _resolve_bot_voice_through(
-            CredentialResolver(session=db), tenant_id=binding.tenant_id
-        )
-
-
-async def _resolve_bot_voice_through(
-    resolver: CredentialResolver,
-    *,
-    tenant_id: UUID | None,
-) -> _BotVoiceResolution:
-    """Walk the voice chains on ``resolver`` and assemble the resolution.
-
-    Both halves resolve on every call, whichever leg will use the result: an
-    enabled tenant holding one key of two is misconfigured, and which leg it
-    notices on must not decide whether it hears about it (ADR-0118 §2).
-
-    The duplication with the web surface's ``_resolve_voice_through`` is
-    deliberate: each surface owns its resolution one layer above
-    ``services/voice/``, exactly as the LLM twins do, and the bot may not
-    import from ``web/`` (ADR-0030).
-    """
-    stt_api_key = await _resolve_bot_voice_key(resolver, "voice_stt", tenant_id=tenant_id)
-    tts_api_key = await _resolve_bot_voice_key(resolver, "voice_tts", tenant_id=tenant_id)
-
-    stt_model = await resolver.resolve_config("voice_stt", "model") or _LEGACY_STT_MODEL
-    stt_base_url = await resolver.resolve_config("voice_stt", "base_url") or _LEGACY_STT_BASE_URL
-    tts_model = await resolver.resolve_config("voice_tts", "model") or _LEGACY_TTS_MODEL
-    tts_voice = await resolver.resolve_config("voice_tts", "voice") or _LEGACY_TTS_VOICE
-
-    # The two provider keys are env-only by design: the taxonomy deliberately
-    # does not declare them until a second adapter's ADR does (ADR-0118 §1),
-    # so there is no per-tenant chain here for the façade to walk. Read at
-    # call time, so each resolution sees the current environment.
-    stt_provider = env_stt_provider()
-    tts_provider = env_tts_provider()
-
-    return _BotVoiceResolution(
-        stt=ResolvedSTT(
-            provider=stt_provider,
-            model=stt_model,
-            api_key=stt_api_key,
-            base_url=stt_base_url,
-        ),
-        tts=ResolvedTTS(
-            provider=tts_provider,
-            model=tts_model,
-            voice=tts_voice,
-            api_key=tts_api_key,
-            base_url=_LEGACY_TTS_BASE_URL,
-        ),
-    )
-
-
-async def _resolve_bot_voice_key(
-    resolver: CredentialResolver,
-    provider: str,
-    *,
-    tenant_id: UUID | None,
-) -> str:
-    """Resolve one half's API key, or raise the one voice-unconfigured error.
-
-    ``voice_stt`` and ``voice_tts`` are separate providers precisely so the
-    two keys chain independently (ADR-0118 §1); either one missing is the
-    same outcome for the caller.
-    """
+    async with _bot_voice_resolver(binding) as resolver:
+        enabled = await _bot_voice_switch(resolver)
+        provider = await resolver.resolve_config("voice_stt", "provider", scopes=_VOICE_SCOPES)
+        model = await resolver.resolve_config("voice_stt", "model", scopes=_VOICE_SCOPES)
+        base_url = await resolver.resolve_config("voice_stt", "base_url", scopes=_VOICE_SCOPES)
+        api_key = None
+        if enabled and (provider or "").strip():
+            api_key = await _bot_voice_api_key(resolver, "voice_stt", tenant_id=binding.tenant_id)
     try:
-        credential = await resolver.resolve(provider, tenant_id=tenant_id)
-    except CredentialUnavailableError as exc:
-        raise _BotVoiceUnconfiguredError(_NO_VOICE_MESSAGE) from exc
-    if not isinstance(credential, ProviderCredential):
-        # Both halves declare a secret field and neither is optional, so the
-        # resolver raises rather than returning NoCredential. Defensive.
-        raise _BotVoiceUnconfiguredError(_NO_VOICE_MESSAGE)
-    return credential.payload["api_key"]
+        return assemble_stt(enabled, provider, model, base_url, api_key)
+    except VoiceConfigurationError as exc:
+        raise _BotVoiceUnconfiguredError(str(exc)) from exc
+
+
+async def _resolve_bot_tts(binding: _BotBinding) -> ResolvedTTS | None:
+    """Resolve this message's text-to-speech half (ADR-0136 §5).
+
+    The twin of :func:`_resolve_bot_stt`, through
+    :func:`~services.voice.assemble_tts`.
+
+    Args:
+        binding: The dispatcher's identity, supplying the tenant.
+
+    Returns:
+        The :class:`~services.voice.ResolvedTTS`, or ``None`` when the half is
+        inactive.
+
+    Raises:
+        _BotVoiceUnconfiguredError: If the half is active but incomplete.
+        VaultDecryptError: Propagated untouched.
+    """
+    async with _bot_voice_resolver(binding) as resolver:
+        enabled = await _bot_voice_switch(resolver)
+        provider = await resolver.resolve_config("voice_tts", "provider", scopes=_VOICE_SCOPES)
+        model = await resolver.resolve_config("voice_tts", "model", scopes=_VOICE_SCOPES)
+        base_url = await resolver.resolve_config("voice_tts", "base_url", scopes=_VOICE_SCOPES)
+        voice = await resolver.resolve_config("voice_tts", "voice", scopes=_VOICE_SCOPES)
+        api_key = None
+        if enabled and (provider or "").strip():
+            api_key = await _bot_voice_api_key(resolver, "voice_tts", tenant_id=binding.tenant_id)
+    try:
+        return assemble_tts(enabled, provider, model, base_url, voice, api_key)
+    except VoiceConfigurationError as exc:
+        raise _BotVoiceUnconfiguredError(str(exc)) from exc
 
 
 __all__ = ["BotStatus", "bot_status", "start_bot", "stop_bot"]

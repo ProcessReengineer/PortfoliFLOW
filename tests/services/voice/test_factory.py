@@ -6,7 +6,8 @@
 One builder per half: :func:`build_stt` takes a :class:`ResolvedSTT` and
 returns a :class:`SpeechToText`, :func:`build_tts` takes a :class:`ResolvedTTS`
 and returns a :class:`TextToSpeech`. Each refuses an unknown provider key, and
-each builds only the half it was asked for. The single-port names retire with
+each builds only the half it was asked for. Every declared adapter has a class
+and every class a declaration (ADR-0136 §2). The single-port names retire with
 no alias.
 """
 
@@ -15,6 +16,8 @@ from __future__ import annotations
 import pytest
 
 import services.voice
+from services.voice import factory
+from services.voice.declarations import PROVIDER_KEYS
 from services.voice.errors import UnsupportedVoiceProviderError, VoiceConfigurationError
 from services.voice.factory import build_stt, build_tts
 from services.voice.openai_provider import OpenAIVoiceProvider
@@ -58,6 +61,27 @@ def test_build_tts_openai_returns_adapter() -> None:
 
     assert isinstance(adapter, OpenAIVoiceProvider)
     assert isinstance(adapter, TextToSpeech)
+
+
+def test_build_stt_openai_compatible_returns_the_wire_adapter() -> None:
+    """``"openai_compatible"`` is served by the OpenAI-wire adapter class (ADR-0136 §2)."""
+    adapter = build_stt(_stt("openai_compatible"))
+
+    assert isinstance(adapter, OpenAIVoiceProvider)
+    assert isinstance(adapter, SpeechToText)
+
+
+def test_build_tts_openai_compatible_returns_the_wire_adapter() -> None:
+    """The TTS twin: ``"openai_compatible"`` yields the OpenAI-wire adapter."""
+    adapter = build_tts(_tts("openai_compatible"))
+
+    assert isinstance(adapter, OpenAIVoiceProvider)
+    assert isinstance(adapter, TextToSpeech)
+
+
+def test_every_declared_adapter_has_a_class_and_vice_versa() -> None:
+    """The factory's class map and the adapter declarations name the same keys."""
+    assert set(factory._ADAPTER_CLASSES) == PROVIDER_KEYS
 
 
 def test_build_stt_unknown_provider_raises() -> None:

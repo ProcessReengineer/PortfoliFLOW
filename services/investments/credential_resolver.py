@@ -159,10 +159,21 @@ _ENV_CONFIG_FIELDS: dict[str, dict[str, str]] = {
     # level switch — one chain gates STT and TTS together (tenant row →
     # VOICE_ENABLED → default off at the consumer). The per-half model /
     # endpoint / persona-voice settings chain individually, as every config
-    # field does.
+    # field does. The per-half provider keys were env-only under ADR-0118 §1
+    # "until a second adapter's ADR declares them"; ADR-0136 §3 is that ADR,
+    # and it adds the text-to-speech endpoint beside them.
     "voice": {"enabled": "VOICE_ENABLED"},
-    "voice_stt": {"model": "VOICE_STT_MODEL", "base_url": "VOICE_STT_BASE_URL"},
-    "voice_tts": {"model": "VOICE_TTS_MODEL", "voice": "VOICE_TTS_VOICE"},
+    "voice_stt": {
+        "provider": "VOICE_STT_PROVIDER",
+        "model": "VOICE_STT_MODEL",
+        "base_url": "VOICE_STT_BASE_URL",
+    },
+    "voice_tts": {
+        "provider": "VOICE_TTS_PROVIDER",
+        "model": "VOICE_TTS_MODEL",
+        "voice": "VOICE_TTS_VOICE",
+        "base_url": "VOICE_TTS_BASE_URL",
+    },
 }
 
 #: The config chain's source labels, in resolution order. ``resolve_config``'s

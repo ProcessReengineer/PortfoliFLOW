@@ -49,6 +49,9 @@ opt-in switch for the provider channel. ADR-0132 is the fourth, and of the
 same smallest kind as ADR-0123 — one more ``openrouter`` config field,
 ``research_model``, so the web research LLM is chosen where every other model
 is chosen, and the news path stops reading the application scope alone.
+ADR-0136 is the fifth: three voice config fields (a ``provider`` choice per
+voice half and the text-to-speech ``base_url``) and one new field attribute,
+:attr:`ProviderField.choices`.
 """
 
 from __future__ import annotations
@@ -87,17 +90,25 @@ class ProviderField:
             never satisfy the §1 completeness rule for that provider, so
             the resolver's source for that scope declines before it
             queries.
+        choices: The closed set of legal values, or ``None`` for free
+            text. The taxonomy-driven Admin card renders a field with
+            ``choices`` as a ``<select>`` and its write path rejects any
+            value outside the set (ADR-0136 §3) — a generic attribute, not
+            a voice special case.
 
     Raises:
         ValueError: If ``scopes`` is empty, names a scope outside
             :data:`SCOPES`, or lets a secret field live at application
             scope — application secrets live in the environment (§1),
-            never in ``scoped_settings``.
+            never in ``scoped_settings``; or if a secret field carries
+            ``choices`` (a credential is never an enumeration), or
+            ``choices`` is given but empty.
     """
 
     name: str
     is_secret: bool
     scopes: frozenset[str]
+    choices: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if not self.scopes:
@@ -114,6 +125,16 @@ class ProviderField:
                 "scope — application-scope secrets live in the environment "
                 "(ADR-0112 §1), not in scoped_settings."
             )
+        if self.choices is not None:
+            if self.is_secret:
+                raise ValueError(
+                    f"Secret field {self.name!r} may not declare choices — a "
+                    "credential is never an enumeration (ADR-0136 §3)."
+                )
+            if not self.choices:
+                raise ValueError(
+                    f"Field {self.name!r} declares an empty choices set; use None for free text."
+                )
 
 
 @dataclass(frozen=True)
@@ -179,6 +200,15 @@ class ProviderDeclaration:
         return None
 
 
+#: The voice provider vocabulary (ADR-0136 §3) — a **mirror** of the adapter
+#: declarations in ``services/voice/declarations.py``, which own it. The
+#: taxonomy cannot import the voice package (that would pull ``openai`` and
+#: ``httpx`` into the vault's import graph) and the voice package cannot
+#: import the taxonomy (ADR-0038), so the set is written twice and
+#: ``tests/services/credential_vault/test_taxonomy.py`` (TX-07) pins the two
+#: equal. A new adapter is a new declaration **and** a new entry here.
+VOICE_PROVIDER_CHOICES: frozenset[str] = frozenset({"openai_compatible", "openai"})
+
 #: The ADR-0112 §3 v1 table. Adding a provider or changing a field's scopes
 #: is an annex amendment (ADR-0112 §1), never an ad-hoc code decision.
 _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
@@ -240,36 +270,55 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
     # different owners stays possible), and the service-level switch lives on
     # a third, config-only declaration — a credential with an empty secret
     # set is legal, and one switch on one card cannot diverge or lie about
-    # what it gates. ``stt_provider`` / ``tts_provider`` stay env-only until
-    # a second adapter's ADR declares them.
+    # what it gates. ADR-0136 (the fifth annex amendment to ADR-0112 §3)
+    # adds the provider choice per half — the "second adapter's ADR" that
+    # ADR-0118 §1 kept ``stt_provider`` / ``tts_provider`` env-only for — and
+    # the text-to-speech endpoint, and turns ``optional`` on: "a key is
+    # required when the adapter says so" cannot be a static flag, so that
+    # requirement moves into the voice assembly (ADR-0136 §3, §5). Field
+    # order is presentational: key, then the provider choice, then what the
+    # choice needs.
     ProviderDeclaration(
         provider="voice",
         fields=(ProviderField(name="enabled", is_secret=False, scopes=_TENANT),),
         managed_by_matrix=False,
         env_fallback=True,
-        optional=False,
+        optional=True,
     ),
     ProviderDeclaration(
         provider="voice_stt",
         fields=(
             ProviderField(name="api_key", is_secret=True, scopes=_TENANT),
+            ProviderField(
+                name="provider",
+                is_secret=False,
+                scopes=_TENANT,
+                choices=VOICE_PROVIDER_CHOICES,
+            ),
             ProviderField(name="model", is_secret=False, scopes=_TENANT),
             ProviderField(name="base_url", is_secret=False, scopes=_TENANT),
         ),
         managed_by_matrix=False,
         env_fallback=True,
-        optional=False,
+        optional=True,
     ),
     ProviderDeclaration(
         provider="voice_tts",
         fields=(
             ProviderField(name="api_key", is_secret=True, scopes=_TENANT),
+            ProviderField(
+                name="provider",
+                is_secret=False,
+                scopes=_TENANT,
+                choices=VOICE_PROVIDER_CHOICES,
+            ),
             ProviderField(name="model", is_secret=False, scopes=_TENANT),
             ProviderField(name="voice", is_secret=False, scopes=_TENANT),
+            ProviderField(name="base_url", is_secret=False, scopes=_TENANT),
         ),
         managed_by_matrix=False,
         env_fallback=True,
-        optional=False,
+        optional=True,
     ),
     # Provider channel (ADR-0131, annex amendment to ADR-0112 §3; ADR-0129
     # §6 and the Stage B record B-D-21). One config-only declaration, one
@@ -367,6 +416,7 @@ def secret_fields(
 __all__ = [
     "PROVIDER_TAXONOMY",
     "SCOPES",
+    "VOICE_PROVIDER_CHOICES",
     "ProviderDeclaration",
     "ProviderField",
     "declaration_for",

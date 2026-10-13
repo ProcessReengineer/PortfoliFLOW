@@ -12,20 +12,33 @@ There is **no silent fallback**: an unknown provider key raises
 :class:`UnsupportedVoiceProviderError`. Callers construct per request from their
 own resolution rather than from a process-wide cache (ADR-0118 §6).
 
-Groq STT is reached **without** a separate adapter: keep the ``openai`` key and
-point the STT ``base_url`` at Groq, which is OpenAI-wire-compatible. A future
-ElevenLabs/Deepgram adapter is a new branch here, not a change to any caller.
+Every key of :data:`~services.voice.declarations.PROVIDER_KEYS` has a class here
+and every class here has a declaration (ADR-0136 §2). ``openai_compatible`` and
+the legacy ``openai`` key share the OpenAI-wire adapter class; they differ only
+in their declarations. Groq STT, Mistral transcription and local servers are
+reached **without** a separate adapter, as ``openai_compatible`` with their
+``base_url``. A further adapter is a new declaration, a new entry here and a
+vocabulary entry, not a change to any caller.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+from types import MappingProxyType
 
 from services.voice.errors import UnsupportedVoiceProviderError
 from services.voice.openai_provider import OpenAIVoiceProvider
 from services.voice.provider import SpeechToText, TextToSpeech
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
-#: Provider keys with an adapter in Round 1.
-_SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"openai"})
+#: Provider key → adapter class (ADR-0136 §2).
+_ADAPTER_CLASSES: Mapping[str, type[OpenAIVoiceProvider]] = MappingProxyType(
+    {
+        "openai_compatible": OpenAIVoiceProvider,
+        # Legacy declaration: same wire, OpenAI's defaults (ADR-0136 §2).
+        "openai": OpenAIVoiceProvider,
+    }
+)
 
 
 def build_stt(resolved: ResolvedSTT) -> SpeechToText:
@@ -40,12 +53,13 @@ def build_stt(resolved: ResolvedSTT) -> SpeechToText:
     Raises:
         UnsupportedVoiceProviderError: If ``resolved.provider`` has no adapter.
     """
-    if resolved.provider not in _SUPPORTED_PROVIDERS:
-        supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+    adapter_class = _ADAPTER_CLASSES.get(resolved.provider)
+    if adapter_class is None:
+        supported = ", ".join(sorted(_ADAPTER_CLASSES))
         raise UnsupportedVoiceProviderError(
             f"Unsupported STT provider {resolved.provider!r}. Supported providers: {supported}."
         )
-    return OpenAIVoiceProvider(stt=resolved)
+    return adapter_class(stt=resolved)
 
 
 def build_tts(resolved: ResolvedTTS) -> TextToSpeech:
@@ -60,9 +74,10 @@ def build_tts(resolved: ResolvedTTS) -> TextToSpeech:
     Raises:
         UnsupportedVoiceProviderError: If ``resolved.provider`` has no adapter.
     """
-    if resolved.provider not in _SUPPORTED_PROVIDERS:
-        supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+    adapter_class = _ADAPTER_CLASSES.get(resolved.provider)
+    if adapter_class is None:
+        supported = ", ".join(sorted(_ADAPTER_CLASSES))
         raise UnsupportedVoiceProviderError(
             f"Unsupported TTS provider {resolved.provider!r}. Supported providers: {supported}."
         )
-    return OpenAIVoiceProvider(tts=resolved)
+    return adapter_class(tts=resolved)

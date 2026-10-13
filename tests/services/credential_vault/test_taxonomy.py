@@ -26,6 +26,10 @@ these tests are the machine check that keeps them from drifting:
   ``_ENV_CONFIG_FIELDS`` entry names a declared, non-secret field of a
   declared provider, so no secret is ever reachable through the config
   chain and no env link dangles.
+* TX-07: the ``choices`` field attribute (ADR-0136 §3) — free text by
+  default, the voice vocabulary on the two voice ``provider`` fields, and
+  the contract test that pins the taxonomy's vocabulary literal to the voice
+  package's adapter declarations.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from core.repositories.scoped_setting_repository import _VALID_SCOPES
 from services.credential_vault.taxonomy import (
     PROVIDER_TAXONOMY,
     SCOPES,
+    VOICE_PROVIDER_CHOICES,
     ProviderDeclaration,
     ProviderField,
     declaration_for,
@@ -48,6 +53,7 @@ from services.investments.credential_resolver import (
 )
 from services.market_data.factory import get_capability_matrix
 from services.market_data.provider import UnsupportedCapabilityError
+from services.voice import PROVIDER_KEYS
 
 
 def _matrix_providers() -> frozenset[str]:
@@ -203,15 +209,17 @@ def test_tx04_telegram_is_declared_for_f5_with_no_f2_consumer() -> None:
     assert chat_id.scopes == frozenset({"user"})
 
 
-def test_tx04_voice_declarations_match_adr_0118() -> None:
-    # The field sets are deliberately *not* symmetric (ADR-0118 §1, correcting
-    # ADR-0112 §3's aspirational sketch): TTS has no ``base_url`` knob (it is
-    # OpenAI-specific by design, ADR-0076) and ``voice`` is meaningless for
-    # STT. Pinned field by field so a "tidying" symmetry edit fails here.
+def test_tx04_voice_declarations_match_adr_0136() -> None:
+    # The field sets are deliberately *not* symmetric: ``voice`` is
+    # meaningless for STT, so only TTS declares it. ``base_url`` is now on
+    # both halves — ADR-0136 §3 retires ADR-0076's "no TTS base_url", because
+    # local servers reproduce the OpenAI speech endpoint — and each half
+    # carries its own ``provider`` choice. Pinned field by field, in the
+    # Admin card's render order, so a "tidying" edit fails here.
     expected: dict[str, tuple[list[str], list[str]]] = {
         "voice": ([], ["enabled"]),
-        "voice_stt": (["api_key"], ["model", "base_url"]),
-        "voice_tts": (["api_key"], ["model", "voice"]),
+        "voice_stt": (["api_key"], ["provider", "model", "base_url"]),
+        "voice_tts": (["api_key"], ["provider", "model", "voice", "base_url"]),
     }
     for provider, (expected_secrets, expected_configs) in expected.items():
         declaration = declaration_for(provider)
@@ -220,10 +228,11 @@ def test_tx04_voice_declarations_match_adr_0118() -> None:
         for field in declaration.fields:
             assert field.scopes == frozenset({"tenant"}), f"{provider}.{field.name}"
         # ADR-0118 §2: env_fallback keeps the single-tenant .env deployment
-        # working; optional=False keeps an enabled-but-keyless tenant loud
-        # rather than silently voiceless.
+        # working. ADR-0136 §3: optional=True, because "a key is required when
+        # the adapter says so" cannot be a static flag — the voice assembly
+        # keeps an enabled-but-keyless half loud, driven by the adapter.
         assert declaration.env_fallback is True, provider
-        assert declaration.optional is False, provider
+        assert declaration.optional is True, provider
 
 
 def test_tx04_provider_channel_declaration_matches_adr_0131() -> None:
@@ -339,10 +348,54 @@ def test_tx06_voice_config_env_links_are_exact() -> None:
     # what pins that: an un-linked field would leave a single-tenant .env
     # deployment unable to configure it at all.
     assert set(_ENV_CONFIG_FIELDS["voice"]) == {"enabled"}
-    assert set(_ENV_CONFIG_FIELDS["voice_stt"]) == {"model", "base_url"}
-    assert set(_ENV_CONFIG_FIELDS["voice_tts"]) == {"model", "voice"}
+    assert set(_ENV_CONFIG_FIELDS["voice_stt"]) == {"provider", "model", "base_url"}
+    assert set(_ENV_CONFIG_FIELDS["voice_tts"]) == {"provider", "model", "voice", "base_url"}
 
 
 def test_tx06_provider_channel_has_no_config_env_link() -> None:
     """ADR-0131 §3: the switch resolves from the tenant row only — no env variable."""
     assert "provider_channel" not in _ENV_CONFIG_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# TX-07: the choices field attribute (ADR-0136 §3)
+# ---------------------------------------------------------------------------
+
+_VOICE_PROVIDER_FIELDS = {("voice_stt", "provider"), ("voice_tts", "provider")}
+
+
+def test_tx07_choices_defaults_to_none() -> None:
+    for name, declaration in PROVIDER_TAXONOMY.items():
+        for field in declaration.fields:
+            if (name, field.name) in _VOICE_PROVIDER_FIELDS:
+                continue
+            assert field.choices is None, f"{name}.{field.name}"
+
+
+def test_tx07_voice_provider_fields_carry_the_vocabulary() -> None:
+    for provider, name in sorted(_VOICE_PROVIDER_FIELDS):
+        field = declaration_for(provider).field(name)
+        assert field is not None, provider
+        assert field.is_secret is False, provider
+        assert field.choices == VOICE_PROVIDER_CHOICES, provider
+
+
+def test_tx07_secret_field_may_not_carry_choices() -> None:
+    with pytest.raises(ValueError, match="choices"):
+        ProviderField(
+            name="k", is_secret=True, scopes=frozenset({"tenant"}), choices=frozenset({"a"})
+        )
+
+
+def test_tx07_empty_choices_is_rejected() -> None:
+    with pytest.raises(ValueError, match="empty choices"):
+        ProviderField(name="k", is_secret=False, scopes=frozenset({"tenant"}), choices=frozenset())
+
+
+def test_tx07_vocabulary_mirrors_the_adapter_declarations() -> None:
+    # The contract test, and the one place the two packages meet. The voice
+    # package owns the vocabulary (its adapter declarations); the taxonomy
+    # mirrors it as a literal because neither package may import the other.
+    # This fails whenever one side adds or retires an adapter without the
+    # other.
+    assert VOICE_PROVIDER_CHOICES == PROVIDER_KEYS

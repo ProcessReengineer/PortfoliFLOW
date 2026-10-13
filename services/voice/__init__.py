@@ -15,8 +15,16 @@ strict "no silent fallback" — a misconfigured provider, an unsupported audio
 format, an empty transcript, or an SDK failure raises a clear error rather than
 returning empty data.
 
+Each adapter declares in code whether it needs an API key and which defaults
+it fills (:data:`ADAPTER_DECLARATIONS`, ADR-0136 §2); the keys of those
+declarations are the provider vocabulary (:data:`PROVIDER_KEYS`). The pure
+assembly — :func:`assemble_stt` / :func:`assemble_tts` — applies a declaration
+to the raw values a surface resolved and returns inactive (``None``), active
+(a value object) or raises :class:`VoiceConfigurationError` (ADR-0136 §5).
+
 The two environment-only provider readers in :mod:`services.voice.config`
-survive until the taxonomy declares the provider keys (ADR-0136 §3).
+survive until the surfaces read the provider keys the taxonomy now declares
+(ADR-0136 §3) and hand them to the assembly.
 
 Pure Python: this package imports only the standard library, ``openai`` and
 ``httpx`` (ADR-0136 §8). It must not import from ``web/``, ``bot/``, ``core/``,
@@ -26,7 +34,13 @@ Pure Python: this package imports only the standard library, ``openai`` and
 
 from __future__ import annotations
 
+from services.voice.assembly import assemble_stt, assemble_tts
 from services.voice.config import env_stt_provider, env_tts_provider
+from services.voice.declarations import (
+    ADAPTER_DECLARATIONS,
+    PROVIDER_KEYS,
+    AdapterDeclaration,
+)
 from services.voice.errors import (
     EmptyTranscriptError,
     UnsupportedAudioFormatError,
@@ -49,6 +63,12 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     # Resolution
     "ResolvedSTT",
     "ResolvedTTS",
+    # Declarations and assembly
+    "AdapterDeclaration",
+    "ADAPTER_DECLARATIONS",
+    "PROVIDER_KEYS",
+    "assemble_stt",
+    "assemble_tts",
     # Configuration — retired by the taxonomy chain of ADR-0136 §3
     "env_stt_provider",
     "env_tts_provider",

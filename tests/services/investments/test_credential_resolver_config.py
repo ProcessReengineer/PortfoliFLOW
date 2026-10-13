@@ -110,6 +110,22 @@ class TestEnvSource:
             == "anthropic/claude-haiku-4-5"
         )
 
+    async def test_voice_provider_and_tts_endpoint_read_their_own_variables(self) -> None:
+        # ADR-0136 §3's three new links — the voice twin of the two tests
+        # above, named explicitly so a removed entry fails here rather than
+        # leaving a .env deployment unable to choose a voice provider.
+        resolver = CredentialResolver(
+            matrix=_matrix(),
+            environ={
+                "VOICE_STT_PROVIDER": "a",
+                "VOICE_TTS_PROVIDER": "b",
+                "VOICE_TTS_BASE_URL": "https://c/v1",
+            },
+        )
+        assert await resolver.resolve_config("voice_stt", "provider") == "a"
+        assert await resolver.resolve_config("voice_tts", "provider") == "b"
+        assert await resolver.resolve_config("voice_tts", "base_url") == "https://c/v1"
+
 
 class TestScopeRestriction:
     async def test_env_only_restriction_skips_the_vault(self) -> None:

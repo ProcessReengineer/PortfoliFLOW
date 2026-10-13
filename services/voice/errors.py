@@ -24,10 +24,12 @@ class VoiceError(Exception):
 
 
 class VoiceConfigurationError(VoiceError):
-    """Voice is enabled but its resolved configuration is missing or invalid.
+    """A voice half is active but its resolved configuration is incomplete or invalid.
 
-    An inactive or disabled voice service is a valid, quiet state and never
-    raises.
+    A required model, endpoint or voice is empty, the adapter requires an API
+    key and none resolves, or the provider key is unknown. Raised by the
+    assembly (ADR-0136 §5), never at import or start-up; an inactive half is a
+    valid, quiet state and never raises.
     """
 
 

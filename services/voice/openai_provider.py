@@ -43,27 +43,10 @@ from services.voice.errors import (
     VoiceSynthesisError,
     VoiceTranscriptionError,
 )
+from services.voice.formats import extension_for
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
 logger = logging.getLogger(__name__)
-
-# Input MIME (normalised, parameters stripped) -> filename extension the
-# /v1/audio/transcriptions endpoint recognises. The endpoint infers the
-# decoder from the filename extension, so an in-memory upload needs a
-# correct extension.
-_MIME_TO_EXT: dict[str, str] = {
-    "audio/webm": "webm",
-    "audio/ogg": "ogg",
-    "audio/opus": "ogg",
-    "audio/mp4": "mp4",
-    "audio/m4a": "m4a",
-    "audio/x-m4a": "m4a",
-    "audio/mpeg": "mp3",
-    "audio/mp3": "mp3",
-    "audio/wav": "wav",
-    "audio/x-wav": "wav",
-    "audio/flac": "flac",
-}
 
 # Output fmt -> (OpenAI response_format, output MIME type).
 _FMT_TO_RESPONSE: dict[str, tuple[str, str]] = {
@@ -124,14 +107,7 @@ class OpenAIVoiceProvider:
                 "OpenAIVoiceProvider was built without a speech-to-text resolution."
             )
 
-        base = mime_type.split(";", 1)[0].strip().lower()
-        ext = _MIME_TO_EXT.get(base)
-        if ext is None:
-            supported = ", ".join(sorted(_MIME_TO_EXT))
-            raise UnsupportedAudioFormatError(
-                f"Unsupported audio MIME type {mime_type!r} for transcription. "
-                f"Supported types: {supported}."
-            )
+        ext, base = extension_for(mime_type)
 
         client = openai.AsyncOpenAI(base_url=self._stt.base_url, api_key=self._stt.api_key)
         try:

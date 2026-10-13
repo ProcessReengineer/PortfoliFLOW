@@ -22,7 +22,7 @@ from services.voice.errors import VoiceConfigurationError
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
 _ADMIN = "Admin → Providers & Credentials"
-_VOCABULARY = "openai, openai_compatible"
+_VOCABULARY = "elevenlabs, openai, openai_compatible"
 
 Assemble = Callable[..., ResolvedSTT | ResolvedTTS | None]
 
@@ -85,9 +85,9 @@ def test_no_provider_is_inactive(provider: str | None) -> None:
 @pytest.mark.parametrize(("assemble", "prefix", "title"), _HALVES)
 def test_unknown_provider_is_loud(assemble: Assemble, prefix: str, title: str) -> None:
     with pytest.raises(VoiceConfigurationError) as excinfo:
-        assemble(provider="elevenlabs")
+        assemble(provider="deepgram")
     message = str(excinfo.value)
-    assert message.startswith(f"{title} provider 'elevenlabs' is not supported.")
+    assert message.startswith(f"{title} provider 'deepgram' is not supported.")
     assert f"Choose one of {_VOCABULARY}" in message
     assert _ADMIN in message
     assert f"{prefix}_PROVIDER in .env" in message
@@ -119,6 +119,30 @@ def test_legacy_openai_without_a_key_is_loud(
     message = str(excinfo.value)
     assert message.startswith(f"{title} is active (openai) but its API key is not configured.")
     assert f"Set API key in {_ADMIN}" in message
+    assert f"{prefix}_API_KEY in .env" in message
+
+
+def test_elevenlabs_fills_the_vendor_defaults_and_requires_a_voice() -> None:
+    assert _stt(provider="elevenlabs", api_key="xi") == ResolvedSTT(
+        "elevenlabs", "scribe_v2", "xi", "https://api.elevenlabs.io"
+    )
+    assert _tts(provider="elevenlabs", voice="JBFq", api_key="xi") == ResolvedTTS(
+        "elevenlabs", "eleven_multilingual_v2", "JBFq", "xi", "https://api.elevenlabs.io"
+    )
+    with pytest.raises(VoiceConfigurationError) as excinfo:
+        _tts(provider="elevenlabs", api_key="xi")
+    assert str(excinfo.value).startswith(
+        "Text-to-speech is active (elevenlabs) but the voice is not configured."
+    )
+
+
+@pytest.mark.parametrize(("assemble", "prefix", "title"), _HALVES)
+def test_elevenlabs_without_a_key_is_loud(assemble: Assemble, prefix: str, title: str) -> None:
+    # The voice is given so that the key is the first empty required value.
+    with pytest.raises(VoiceConfigurationError) as excinfo:
+        assemble(provider="elevenlabs", voice="JBFq", api_key=None)
+    message = str(excinfo.value)
+    assert message.startswith(f"{title} is active (elevenlabs) but its API key is not configured.")
     assert f"{prefix}_API_KEY in .env" in message
 
 

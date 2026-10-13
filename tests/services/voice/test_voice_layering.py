@@ -34,6 +34,8 @@ def test_voice_import_stays_layering_clean() -> None:
         "import services.voice.assembly  # noqa: F401\n"
         "import services.voice.declarations  # noqa: F401\n"
         "import services.voice.transcode  # noqa: F401\n"
+        "import services.voice.elevenlabs_provider  # noqa: F401\n"
+        "import services.voice.formats  # noqa: F401\n"
         "from services.voice import (\n"
         "    PROVIDER_KEYS, ResolvedSTT, ResolvedTTS, assemble_stt, assemble_tts,\n"
         "    build_stt, build_tts,\n"

@@ -207,7 +207,7 @@ class ProviderDeclaration:
 #: import the taxonomy (ADR-0038), so the set is written twice and
 #: ``tests/services/credential_vault/test_taxonomy.py`` (TX-07) pins the two
 #: equal. A new adapter is a new declaration **and** a new entry here.
-VOICE_PROVIDER_CHOICES: frozenset[str] = frozenset({"openai_compatible", "openai"})
+VOICE_PROVIDER_CHOICES: frozenset[str] = frozenset({"openai_compatible", "elevenlabs", "openai"})
 
 #: The ADR-0112 §3 v1 table. Adding a provider or changing a field's scopes
 #: is an annex amendment (ADR-0112 §1), never an ad-hoc code decision.

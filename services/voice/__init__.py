@@ -17,7 +17,9 @@ returning empty data.
 
 Each adapter declares in code whether it needs an API key and which defaults
 it fills (:data:`ADAPTER_DECLARATIONS`, ADR-0136 §2); the keys of those
-declarations are the provider vocabulary (:data:`PROVIDER_KEYS`). The pure
+declarations are the provider vocabulary (:data:`PROVIDER_KEYS`). There are
+two adapter classes: the OpenAI-wire one (also serving the legacy ``openai``
+key) and the native ElevenLabs one (ADR-0136 §9). The pure
 assembly — :func:`assemble_stt` / :func:`assemble_tts` — applies a declaration
 to the raw values a surface resolved and returns inactive (``None``), active
 (a value object) or raises :class:`VoiceConfigurationError` (ADR-0136 §5).

@@ -15,7 +15,7 @@ own resolution rather than from a process-wide cache (ADR-0118 §6).
 Every key of :data:`~services.voice.declarations.PROVIDER_KEYS` has a class here
 and every class here has a declaration (ADR-0136 §2). ``openai_compatible`` and
 the legacy ``openai`` key share the OpenAI-wire adapter class; they differ only
-in their declarations. Groq STT, Mistral transcription and local servers are
+in their declarations; ``elevenlabs`` is the native adapter of ADR-0136 §9. Groq STT, Mistral transcription and local servers are
 reached **without** a separate adapter, as ``openai_compatible`` with their
 ``base_url``. A further adapter is a new declaration, a new entry here and a
 vocabulary entry, not a change to any caller.
@@ -26,15 +26,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
+from services.voice.elevenlabs_provider import ElevenLabsVoiceProvider
 from services.voice.errors import UnsupportedVoiceProviderError
 from services.voice.openai_provider import OpenAIVoiceProvider
 from services.voice.provider import SpeechToText, TextToSpeech
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
 
+# Any adapter class the factory may build; both take ``stt=`` / ``tts=``.
+_AdapterClass = type[OpenAIVoiceProvider] | type[ElevenLabsVoiceProvider]
+
 #: Provider key → adapter class (ADR-0136 §2).
-_ADAPTER_CLASSES: Mapping[str, type[OpenAIVoiceProvider]] = MappingProxyType(
+_ADAPTER_CLASSES: Mapping[str, _AdapterClass] = MappingProxyType(
     {
         "openai_compatible": OpenAIVoiceProvider,
+        # Native adapter (ADR-0136 §9).
+        "elevenlabs": ElevenLabsVoiceProvider,
         # Legacy declaration: same wire, OpenAI's defaults (ADR-0136 §2).
         "openai": OpenAIVoiceProvider,
     }

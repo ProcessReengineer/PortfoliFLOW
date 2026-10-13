@@ -14,7 +14,8 @@ Two kinds of adapter sit side by side. A **wire-compatible** adapter
 behind the URL, so it defaults nothing — model, endpoint and voice are the
 operator's to set, and it needs no key because local servers usually run
 unauthenticated. A **vendor** adapter knows its vendor's current models and
-endpoint and requires that vendor's key.
+endpoint and requires that vendor's key; ``elevenlabs`` is the native one,
+speaking ElevenLabs' own API (ADR-0136 §9).
 
 The ``openai`` key is a declaration, not a code branch: the adapter class is
 the OpenAI-compatible one, the defaults are exactly OpenAI's as written under
@@ -94,6 +95,14 @@ ADAPTER_DECLARATIONS: Mapping[str, AdapterDeclaration] = MappingProxyType(
             tts_model=None,
             tts_voice=None,
             base_url=None,
+        ),
+        "elevenlabs": AdapterDeclaration(
+            key="elevenlabs",
+            requires_api_key=True,
+            stt_model="scribe_v2",
+            tts_model="eleven_multilingual_v2",
+            tts_voice=None,  # the ElevenLabs voice ID — a value in code would be a guess (ADR-0136 §9)
+            base_url="https://api.elevenlabs.io",
         ),
         "openai": AdapterDeclaration(
             key="openai",

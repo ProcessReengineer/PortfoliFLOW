@@ -936,6 +936,7 @@ async def test_a_choices_field_renders_as_a_select_with_the_vocabulary(
         assert f'<select id="{select_id}"' in body
         assert _select_options(body, select_id) == [
             ("", True, True),
+            ("elevenlabs", False, False),
             ("openai", False, False),
             ("openai_compatible", False, False),
         ]
@@ -964,7 +965,7 @@ async def test_a_forged_value_outside_choices_is_rejected_inline(
         follow_redirects=False,
     )
     assert response.status_code == 400
-    assert "must be one of: openai, openai_compatible" in response.text
+    assert "must be one of: elevenlabs, openai, openai_compatible" in response.text
     assert await _read_row(app_engine, scope="tenant", provider="voice_stt", key="provider") is None
 
 
@@ -994,6 +995,7 @@ async def test_a_value_inside_choices_saves_and_the_select_shows_it_selected(
     assert row.value_plain == "openai_compatible"
     assert _select_options(response.text, "tenant-voice_tts-provider") == [
         ("", True, False),
+        ("elevenlabs", False, False),
         ("openai", False, False),
         ("openai_compatible", False, True),
     ]
@@ -1076,6 +1078,24 @@ async def test_voice_hints_carry_the_declared_defaults_and_sunsets(
     ):
         assert value is not None
         assert value in copy, value
+
+
+async def test_voice_hints_carry_the_elevenlabs_defaults_and_the_voice_id_note(
+    client_factory: Any,
+    vault_key: str,
+) -> None:
+    """The ElevenLabs defaults on the card are the declaration's; the voice is an ID."""
+    declaration = ADAPTER_DECLARATIONS["elevenlabs"]
+
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    copy = _card_copy(response.text)
+
+    for value in (declaration.stt_model, declaration.tts_model, declaration.base_url):
+        assert value is not None
+        assert value in copy, value
+    assert "for elevenlabs the voice ID, not a name" in copy
 
 
 # ---------------------------------------------------------------------------

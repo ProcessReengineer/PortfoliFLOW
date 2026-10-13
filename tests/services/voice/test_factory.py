@@ -18,6 +18,7 @@ import pytest
 import services.voice
 from services.voice import factory
 from services.voice.declarations import PROVIDER_KEYS
+from services.voice.elevenlabs_provider import ElevenLabsVoiceProvider
 from services.voice.errors import UnsupportedVoiceProviderError, VoiceConfigurationError
 from services.voice.factory import build_stt, build_tts
 from services.voice.openai_provider import OpenAIVoiceProvider
@@ -79,6 +80,22 @@ def test_build_tts_openai_compatible_returns_the_wire_adapter() -> None:
     assert isinstance(adapter, TextToSpeech)
 
 
+def test_build_stt_elevenlabs_returns_the_native_adapter() -> None:
+    """``"elevenlabs"`` yields the native adapter of ADR-0136 §9 on the STT port."""
+    adapter = build_stt(_stt("elevenlabs"))
+
+    assert isinstance(adapter, ElevenLabsVoiceProvider)
+    assert isinstance(adapter, SpeechToText)
+
+
+def test_build_tts_elevenlabs_returns_the_native_adapter() -> None:
+    """The TTS twin: ``"elevenlabs"`` yields the native adapter."""
+    adapter = build_tts(_tts("elevenlabs"))
+
+    assert isinstance(adapter, ElevenLabsVoiceProvider)
+    assert isinstance(adapter, TextToSpeech)
+
+
 def test_every_declared_adapter_has_a_class_and_vice_versa() -> None:
     """The factory's class map and the adapter declarations name the same keys."""
     assert set(factory._ADAPTER_CLASSES) == PROVIDER_KEYS
@@ -86,8 +103,8 @@ def test_every_declared_adapter_has_a_class_and_vice_versa() -> None:
 
 def test_build_stt_unknown_provider_raises() -> None:
     """An unknown STT provider raises rather than silently falling back."""
-    with pytest.raises(UnsupportedVoiceProviderError, match="elevenlabs"):
-        build_stt(_stt("elevenlabs"))
+    with pytest.raises(UnsupportedVoiceProviderError, match="azure"):
+        build_stt(_stt("azure"))
 
 
 def test_build_tts_unknown_provider_raises() -> None:

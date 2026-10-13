@@ -769,5 +769,5 @@ async def test_a_provider_outside_the_vocabulary_is_503(
     response = await _post_voice(client, csrf)
     assert response.status_code == 503
     assert "VOICE_STT_PROVIDER" in response.text
-    assert "openai, openai_compatible" in response.text
+    assert "elevenlabs, openai, openai_compatible" in response.text
     assert voice_build.stt_calls == 0

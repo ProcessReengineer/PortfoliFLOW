@@ -23,11 +23,11 @@ from services.voice.declarations import (
 )
 
 
-def test_vocabulary_is_openai_compatible_and_openai_for_now() -> None:
-    # The ElevenLabs adapter's prompt adds ``elevenlabs`` here and in the
-    # taxonomy's vocabulary literal in one commit, together with its factory
-    # entry — so the Admin card never offers a key no adapter serves.
-    assert frozenset({"openai_compatible", "openai"}) == PROVIDER_KEYS
+def test_vocabulary_is_the_three_declared_adapters() -> None:
+    # The ElevenLabs adapter has landed. A further adapter adds itself here,
+    # in the factory and in the taxonomy's vocabulary literal in one commit —
+    # so the Admin card never offers a key no adapter serves.
+    assert frozenset({"openai_compatible", "elevenlabs", "openai"}) == PROVIDER_KEYS
 
 
 def test_openai_compatible_is_keyless_and_defaults_nothing() -> None:
@@ -52,6 +52,19 @@ def test_openai_legacy_declaration_carries_todays_defaults_and_sunsets() -> None
     assert declaration.base_url == "https://api.openai.com/v1"
     assert declaration.stt_sunset == date(2027, 2, 26)
     assert declaration.tts_sunset == date(2027, 1, 6)
+
+
+def test_elevenlabs_declaration_carries_the_vendor_defaults_and_no_voice() -> None:
+    # The voice is the ElevenLabs voice ID; shipping one would be a guess (ADR-0136 §9).
+    declaration = ADAPTER_DECLARATIONS["elevenlabs"]
+
+    assert declaration.requires_api_key is True
+    assert declaration.stt_model == "scribe_v2"
+    assert declaration.tts_model == "eleven_multilingual_v2"
+    assert declaration.tts_voice is None
+    assert declaration.base_url == "https://api.elevenlabs.io"
+    assert declaration.stt_sunset is None
+    assert declaration.tts_sunset is None
 
 
 def test_declaration_key_matches_its_mapping_key() -> None:

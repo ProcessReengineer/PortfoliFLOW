@@ -275,7 +275,7 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
 def _voice_hints() -> dict[tuple[str, str], str]:
     """Build the voice field hints from the adapter declarations (ADR-0136 §2).
 
-    The defaults and the sunset dates are read from
+    The defaults and the sunset dates and endpoints are read from
     :data:`~services.voice.ADAPTER_DECLARATIONS`, so no model name or date is
     typed twice and the card changes with the declaration.
 
@@ -284,36 +284,41 @@ def _voice_hints() -> dict[tuple[str, str], str]:
         and persona-voice fields.
     """
     oa = ADAPTER_DECLARATIONS["openai"]
+    el = ADAPTER_DECLARATIONS["elevenlabs"]
     return {
         ("voice_stt", "provider"): (
             "Which service transcribes: openai_compatible is any OpenAI-wire server "
-            "(yours or a vendor's; needs Model and Base URL, no key required); openai is "
-            "OpenAI itself until its transcription models retire on "
-            f"{oa.stt_sunset:%Y-%m-%d}."
+            "(yours or a vendor's; needs Model and Base URL, no key required); elevenlabs "
+            "is ElevenLabs natively (needs its API key); openai is OpenAI itself until its "
+            f"transcription models retire on {oa.stt_sunset:%Y-%m-%d}."
         ),
         ("voice_stt", "model"): (
-            "The transcription model. Required for openai_compatible; openai defaults "
-            f"to {oa.stt_model}."
+            "The transcription model. Required for openai_compatible; elevenlabs defaults "
+            f"to {el.stt_model}, openai to {oa.stt_model}."
         ),
         ("voice_stt", "base_url"): (
             "The endpoint. Required for openai_compatible (for example "
-            f"http://localhost:8000/v1); openai defaults to {oa.base_url}."
+            f"http://localhost:8000/v1); elevenlabs defaults to {el.base_url}, openai to "
+            f"{oa.base_url}."
         ),
         ("voice_tts", "provider"): (
             "Which service speaks: openai_compatible is any OpenAI-wire server (needs "
-            "Model, Voice and Base URL, no key required); openai is OpenAI itself until "
-            f"its text-to-speech models retire on {oa.tts_sunset:%Y-%m-%d}."
+            "Model, Voice and Base URL, no key required); elevenlabs is ElevenLabs natively "
+            "(needs its API key and a Voice); openai is OpenAI itself until its "
+            f"text-to-speech models retire on {oa.tts_sunset:%Y-%m-%d}."
         ),
         ("voice_tts", "model"): (
-            "The speech-synthesis model. Required for openai_compatible; openai defaults "
-            f"to {oa.tts_model}."
+            "The speech-synthesis model. Required for openai_compatible; elevenlabs defaults "
+            f"to {el.tts_model}, openai to {oa.tts_model}."
         ),
         ("voice_tts", "voice"): (
-            "The voice Shirley speaks with. Required for openai_compatible; openai "
-            f"defaults to {oa.tts_voice}."
+            "The voice Shirley speaks with. Required for openai_compatible and elevenlabs — "
+            "for elevenlabs the voice ID, not a name; openai defaults to "
+            f"{oa.tts_voice}."
         ),
         ("voice_tts", "base_url"): (
-            f"The endpoint. Required for openai_compatible; openai defaults to {oa.base_url}."
+            "The endpoint. Required for openai_compatible; elevenlabs defaults to "
+            f"{el.base_url}, openai to {oa.base_url}."
         ),
     }
 

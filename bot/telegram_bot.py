@@ -156,6 +156,9 @@ from services.voice import (
     assemble_tts,
     build_stt,
     build_tts,
+    ffmpeg_available,
+    is_ogg,
+    to_ogg_opus,
 )
 
 if TYPE_CHECKING:  # pragma: no cover — type-check-only imports
@@ -1686,14 +1689,16 @@ async def _run_turn(
     # the web "prose-empty turn speaks nothing" rule. A TTS failure is logged
     # and skipped — the text reply has already gone out, so it must not break
     # the turn.
-    # The resolution is the handler's, threaded on: ``tts is None`` with
-    # ``is_voice=True`` cannot occur through :func:`_handle_voice_message`, so
-    # the guard is defensive and free.
+    # ``tts`` is ``None`` for an STT-only tenant, a misconfigured TTS half and
+    # a refusing vault on the TTS leg — the handler decides, this block only
+    # speaks when it was handed a resolution. The ``is_voice`` flag alone never
+    # speaks.
     if is_voice and accumulated_text.strip() and tts is not None:
         audio_bytes: bytes | None = None
+        out_mime = ""
         try:
             provider = build_tts(tts)
-            audio_bytes, _mime = await provider.synthesize(accumulated_text, fmt="opus")
+            audio_bytes, out_mime = await provider.synthesize(accumulated_text, fmt="opus")
         except VoiceError:
             logger.warning(
                 "Telegram bot: TTS synthesis failed; voice note skipped (text reply already sent).",
@@ -1705,27 +1710,46 @@ async def _run_turn(
             except ImportError:
                 logger.error("Telegram bot: aiogram unavailable; cannot send voice note.")
             else:
-                # ``send_voice`` renders a playable voice note only for an
-                # OGG/Opus container; OpenAI ``response_format="opus"`` returns
-                # exactly that. The ``.ogg`` filename is a container hint for
-                # Telegram/aiogram. If Telegram still refuses to render it as a
-                # voice note, fall back to ``send_audio`` (a file/audio player)
-                # so the audio still reaches the user — dependency-free, no
-                # ffmpeg transmux (a documented Round-1 follow-up).
-                try:
-                    await aiobot.send_voice(
-                        chat_id=chat_id,
-                        voice=BufferedInputFile(audio_bytes, filename="reply.ogg"),
-                    )
-                except Exception:  # noqa: BLE001 — container Telegram won't render as a voice note
-                    logger.warning(
-                        "Telegram bot: send_voice failed; falling back to send_audio.",
-                        exc_info=True,
-                    )
+                # ``send_voice`` renders a voice note only for an Ogg/Opus
+                # container, and ``fmt="opus"`` promises Opus in whatever
+                # container the adapter delivers. Three steps (ADR-0136 §7):
+                # 1. bytes that start with ``OggS`` go to ``send_voice`` as-is;
+                # 2. otherwise the host's optional ffmpeg transcodes them to
+                #    Ogg/Opus over pipes, and the result goes to ``send_voice``;
+                # 3. without ffmpeg, or when it fails, the bytes as delivered go
+                #    to ``send_audio`` as a file named after their MIME type.
+                # A ``send_voice`` that Telegram still refuses also ends in
+                # step 3.
+                voice_bytes: bytes | None = None
+                if is_ogg(audio_bytes):
+                    voice_bytes = audio_bytes
+                elif ffmpeg_available():
+                    try:
+                        voice_bytes = await to_ogg_opus(audio_bytes)
+                    except VoiceError:
+                        logger.warning(
+                            "Telegram bot: transcoding to Ogg/Opus failed; sending as audio file.",
+                            exc_info=True,
+                        )
+                if voice_bytes is not None:
+                    try:
+                        await aiobot.send_voice(
+                            chat_id=chat_id,
+                            voice=BufferedInputFile(voice_bytes, filename="reply.ogg"),
+                        )
+                    except Exception:  # noqa: BLE001 — container Telegram won't render as a voice note
+                        logger.warning(
+                            "Telegram bot: send_voice failed; falling back to send_audio.",
+                            exc_info=True,
+                        )
+                        voice_bytes = None
+                if voice_bytes is None:
                     try:
                         await aiobot.send_audio(
                             chat_id=chat_id,
-                            audio=BufferedInputFile(audio_bytes, filename="reply.ogg"),
+                            audio=BufferedInputFile(
+                                audio_bytes, filename=_reply_filename(out_mime)
+                            ),
                         )
                     except Exception:  # noqa: BLE001
                         logger.exception(
@@ -2004,6 +2028,26 @@ async def _reply_voice_unavailable(aiobot: Bot, chat_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_REPLY_FILENAMES: dict[str, str] = {
+    "audio/ogg": "reply.ogg",
+    "audio/mpeg": "reply.mp3",
+    "audio/opus": "reply.opus",
+}
+
+
+def _reply_filename(mime: str) -> str:
+    """Name the ``send_audio`` fallback file after the container actually delivered.
+
+    Args:
+        mime: The MIME type the TTS adapter returned with the audio bytes.
+
+    Returns:
+        ``reply.ogg``, ``reply.mp3`` or ``reply.opus`` for the known types,
+        else ``reply.audio``.
+    """
+    return _REPLY_FILENAMES.get(mime, "reply.audio")
 
 
 def _split_text_for_telegram(text: str, limit: int = _TELEGRAM_TEXT_LIMIT) -> list[str]:

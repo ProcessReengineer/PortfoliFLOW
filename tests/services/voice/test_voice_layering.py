@@ -8,7 +8,8 @@ The voice service imports only the standard library, ``openai`` and ``httpx``
 the dependency arrow points one way only. This guard imports ``services.voice``
 — runs the pure assembly on both halves and constructs every declared adapter
 of both halves via ``build_stt`` / ``build_tts`` from literal ``ResolvedSTT`` /
-``ResolvedTTS`` values, so it reads no environment at all — in a *fresh
+``ResolvedTTS`` values, so it reads no environment at all, and runs the Ogg
+check of ``services.voice.transcode`` without spawning ``ffmpeg`` — in a *fresh
 subprocess*, so the assertion is
 independent of whatever the parent pytest process happened to import first,
 then asserts that no module whose name implicates ``PyQt6``, ``PySide``,
@@ -32,6 +33,7 @@ def test_voice_import_stays_layering_clean() -> None:
         "import services.voice  # noqa: F401\n"
         "import services.voice.assembly  # noqa: F401\n"
         "import services.voice.declarations  # noqa: F401\n"
+        "import services.voice.transcode  # noqa: F401\n"
         "from services.voice import (\n"
         "    PROVIDER_KEYS, ResolvedSTT, ResolvedTTS, assemble_stt, assemble_tts,\n"
         "    build_stt, build_tts,\n"
@@ -46,6 +48,8 @@ def test_voice_import_stays_layering_clean() -> None:
         "                              base_url='https://example.invalid/v1'))\n"
         "    _ = build_tts(ResolvedTTS(provider=key, model='m', voice='v', api_key='k',\n"
         "                              base_url='https://example.invalid/v1'))\n"
+        "# The Ogg check, without spawning ffmpeg.\n"
+        "assert services.voice.transcode.is_ogg(b'OggS')\n"
         "forbidden = ('PyQt6', 'PySide', 'web.', 'bot.', 'gui.', 'modules.')\n"
         "leaked = [\n"
         "    m for m in sys.modules\n"

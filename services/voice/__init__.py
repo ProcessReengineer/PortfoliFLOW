@@ -22,6 +22,11 @@ assembly — :func:`assemble_stt` / :func:`assemble_tts` — applies a declarati
 to the raw values a surface resolved and returns inactive (``None``), active
 (a value object) or raises :class:`VoiceConfigurationError` (ADR-0136 §5).
 
+Telegram renders a voice note only for an Ogg/Opus container, so the reply
+path checks the first bytes with :func:`is_ogg` and, when they are not Ogg,
+transcodes them with the host's optional ``ffmpeg`` over pipes through
+:func:`to_ogg_opus` (ADR-0136 §7). That module uses the standard library only.
+
 Pure Python: this package imports only the standard library, ``openai`` and
 ``httpx`` (ADR-0136 §8). It must not import from ``web/``, ``bot/``, ``core/``,
 ``modules/``, or PyQt6 (ADR-0038). The web surface and the Telegram bot import
@@ -48,6 +53,7 @@ from services.voice.errors import (
 from services.voice.factory import build_stt, build_tts
 from services.voice.provider import SpeechToText, TextToSpeech
 from services.voice.resolved import ResolvedSTT, ResolvedTTS
+from services.voice.transcode import OGG_MAGIC, ffmpeg_available, is_ogg, to_ogg_opus
 
 __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group comments
     # Ports and builders
@@ -65,6 +71,11 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "assemble_stt",
     "assemble_tts",
     "describe_voice_state",
+    # Transcoding
+    "OGG_MAGIC",
+    "is_ogg",
+    "ffmpeg_available",
+    "to_ogg_opus",
     # Errors
     "VoiceError",
     "VoiceConfigurationError",

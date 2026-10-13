@@ -47,12 +47,21 @@ Test catalogue:
     V-11: STT only (no TTS provider) answers in text; no voice note.
     V-12: A misconfigured TTS half warns once, then answers in text.
     V-13: A misconfigured STT half replies with the message; no turn.
+    V-14: Non-Ogg bytes with ``ffmpeg`` present are transcoded and go to
+          ``send_voice``; ``send_audio`` is not used.
+    V-15: Non-Ogg bytes without ``ffmpeg`` go to ``send_audio`` as delivered,
+          named after their MIME type; no transcode, no ``send_voice``.
+    V-16: A failed transcode falls back to ``send_audio`` with the original
+          bytes and logs a warning.
+    V-17: ``audio/opus`` without an Ogg container and without ``ffmpeg`` is
+          sent as ``reply.opus``.
 """
 
 from __future__ import annotations
 
 import base64
 import io
+import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -181,8 +190,9 @@ class _FakeVoiceProvider:
         synth: bytes = _OPUS_REPLY,
         stt_exc: Exception | None = None,
         tts_exc: Exception | None = None,
+        synth_mime: str = "audio/ogg",
     ) -> None:
-        self._transcript, self._synth = transcript, synth
+        self._transcript, self._synth, self._synth_mime = transcript, synth, synth_mime
         self._stt_exc, self._tts_exc = stt_exc, tts_exc
         self.transcribe_calls: list[tuple[bytes, str]] = []
         self.synthesize_calls: list[tuple[str, str]] = []
@@ -197,7 +207,7 @@ class _FakeVoiceProvider:
         self.synthesize_calls.append((text, fmt))
         if self._tts_exc:
             raise self._tts_exc
-        return self._synth, "audio/ogg"
+        return self._synth, self._synth_mime
 
 
 def _voice_message(
@@ -297,6 +307,20 @@ class _ProviderRecorder:
         return self._fake
 
 
+class _TranscodeRecorder:
+    """Stands in for ``tb.to_ogg_opus``: records each input, returns or raises."""
+
+    def __init__(self, result: bytes = b"OggS-transcoded", exc: Exception | None = None) -> None:
+        self._result, self._exc = result, exc
+        self.calls: list[bytes] = []
+
+    async def __call__(self, audio: bytes, *, ffmpeg: str | None = None) -> bytes:
+        self.calls.append(audio)
+        if self._exc:
+            raise self._exc
+        return self._result
+
+
 def _install_voice(
     monkeypatch: pytest.MonkeyPatch, tb, fake, *, enabled: bool = True
 ) -> _ProviderRecorder:
@@ -375,6 +399,8 @@ async def test_v02_voice_note_is_ogg_opus_container(
 
     fake = _FakeVoiceProvider()
     _install_voice(monkeypatch, tb, fake)
+    transcode = _TranscodeRecorder()
+    monkeypatch.setattr(tb, "to_ogg_opus", transcode)
 
     stream = _make_recording_stream()
     with patch.object(AIServiceCore, "stream_response", stream):
@@ -387,6 +413,8 @@ async def test_v02_voice_note_is_ogg_opus_container(
     voice_arg = aiobot_mock.send_voice.await_args.kwargs["voice"]
     assert voice_arg.filename.endswith(".ogg")
     assert voice_arg.data == _OPUS_REPLY
+    # Ogg bytes go straight to send_voice — no transcode.
+    assert transcode.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +441,7 @@ async def test_v03_send_voice_falls_back_to_send_audio(
     aiobot_mock.send_audio.assert_awaited_once()
     audio_arg = aiobot_mock.send_audio.await_args.kwargs["audio"]
     assert audio_arg.data == _OPUS_REPLY
-    assert audio_arg.filename.endswith(".ogg")
+    assert audio_arg.filename == "reply.ogg"
     # The text reply still went out — the turn did not crash.
     aiobot_mock.send_message.assert_awaited()
 
@@ -705,3 +733,119 @@ async def test_v13_misconfigured_stt_replies_with_the_message_and_never_streams(
     assert len(sent) == 1, sent
     assert sent[0].startswith("⚠️ ")
     assert "VOICE_STT_API_KEY" in sent[0]
+
+
+# ---------------------------------------------------------------------------
+# V-14 – V-17: the Ogg check, ffmpeg transcoding and the audio-file fallback
+# ---------------------------------------------------------------------------
+
+_MP3_REPLY = b"\xff\xfb\x90\x64mp3-reply-bytes"
+
+
+@pytest.mark.asyncio
+async def test_v14_non_ogg_bytes_are_transcoded_when_ffmpeg_is_present(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MP3 bytes with ffmpeg on the host → transcoded, sent as a voice note (ADR-0136 §7)."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider(synth=_MP3_REPLY, synth_mime="audio/mpeg")
+    _install_voice(monkeypatch, tb, fake)
+    transcode = _TranscodeRecorder(result=b"OggS-transcoded")
+    monkeypatch.setattr(tb, "ffmpeg_available", lambda: True)
+    monkeypatch.setattr(tb, "to_ogg_opus", transcode)
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    assert transcode.calls == [_MP3_REPLY]
+    aiobot_mock.send_voice.assert_awaited_once()
+    voice_arg = aiobot_mock.send_voice.await_args.kwargs["voice"]
+    assert voice_arg.data == b"OggS-transcoded"
+    assert voice_arg.filename == "reply.ogg"
+    aiobot_mock.send_audio.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_v15_non_ogg_bytes_without_ffmpeg_go_as_audio_file(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MP3 bytes without ffmpeg → ``send_audio`` with the bytes as delivered, ``reply.mp3``."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider(synth=_MP3_REPLY, synth_mime="audio/mpeg")
+    _install_voice(monkeypatch, tb, fake)
+    transcode = _TranscodeRecorder()
+    monkeypatch.setattr(tb, "ffmpeg_available", lambda: False)
+    monkeypatch.setattr(tb, "to_ogg_opus", transcode)
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    aiobot_mock.send_voice.assert_not_awaited()
+    assert transcode.calls == []
+    aiobot_mock.send_audio.assert_awaited_once()
+    audio_arg = aiobot_mock.send_audio.await_args.kwargs["audio"]
+    assert audio_arg.data == _MP3_REPLY
+    assert audio_arg.filename == "reply.mp3"
+    # The text reply still went out.
+    aiobot_mock.send_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_v16_transcode_failure_falls_back_to_audio_file(
+    vision_bot_config,
+    aiobot_mock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed transcode → ``send_audio`` with the original bytes; a warning is logged."""
+    import bot.telegram_bot as tb
+
+    fake = _FakeVoiceProvider(synth=_MP3_REPLY, synth_mime="audio/mpeg")
+    _install_voice(monkeypatch, tb, fake)
+    transcode = _TranscodeRecorder(exc=VoiceSynthesisError("ffmpeg exited 1: b'boom'"))
+    monkeypatch.setattr(tb, "ffmpeg_available", lambda: True)
+    monkeypatch.setattr(tb, "to_ogg_opus", transcode)
+
+    stream = _make_recording_stream()
+    with (
+        caplog.at_level(logging.WARNING, logger="bot.telegram_bot"),
+        patch.object(AIServiceCore, "stream_response", stream),
+    ):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    assert transcode.calls == [_MP3_REPLY]
+    aiobot_mock.send_voice.assert_not_awaited()
+    aiobot_mock.send_audio.assert_awaited_once()
+    audio_arg = aiobot_mock.send_audio.await_args.kwargs["audio"]
+    assert audio_arg.data == _MP3_REPLY
+    assert audio_arg.filename == "reply.mp3"
+    assert any(
+        r.levelno == logging.WARNING and "transcoding to Ogg/Opus failed" in r.getMessage()
+        for r in caplog.records
+    ), caplog.records
+
+
+@pytest.mark.asyncio
+async def test_v17_opus_mime_without_ogg_container_names_the_file_opus(
+    vision_bot_config, aiobot_mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``audio/opus`` bytes that are not Ogg, without ffmpeg → ``reply.opus``."""
+    import bot.telegram_bot as tb
+
+    raw_opus = b"OpusHead-raw-bytes"
+    fake = _FakeVoiceProvider(synth=raw_opus, synth_mime="audio/opus")
+    _install_voice(monkeypatch, tb, fake)
+    monkeypatch.setattr(tb, "ffmpeg_available", lambda: False)
+
+    stream = _make_recording_stream()
+    with patch.object(AIServiceCore, "stream_response", stream):
+        await tb._handle_voice_message(aiobot_mock, _voice_message(), vision_bot_config)
+
+    aiobot_mock.send_voice.assert_not_awaited()
+    audio_arg = aiobot_mock.send_audio.await_args.kwargs["audio"]
+    assert audio_arg.data == raw_opus
+    assert audio_arg.filename == "reply.opus"

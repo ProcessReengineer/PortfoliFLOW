@@ -368,7 +368,7 @@ detect_pkg_manager() {
     PKG_MGR="none"
 }
 
-# install_hint <git|curl|python|podman|docker> — prints one copy-paste line.
+# install_hint <git|curl|python|ffmpeg|podman|docker> — prints one copy-paste line.
 install_hint() {
     case "$1" in
         git)
@@ -394,6 +394,14 @@ install_hint() {
                 pacman)  printf 'sudo pacman -S python' ;;
                 brew)    printf 'brew install python@3.12' ;;
                 *)       printf 'install Python 3.11+ — https://www.python.org/downloads/' ;;
+            esac ;;
+        ffmpeg)
+            case "$PKG_MGR" in
+                apt-get) printf 'sudo apt-get install -y ffmpeg' ;;
+                dnf)     printf 'sudo dnf install -y ffmpeg' ;;
+                pacman)  printf 'sudo pacman -S ffmpeg' ;;
+                brew)    printf 'brew install ffmpeg' ;;
+                *)       printf 'install ffmpeg — https://ffmpeg.org/download.html' ;;
             esac ;;
         podman)
             case "$PKG_MGR" in
@@ -785,6 +793,15 @@ pf_check_tools() {
                    "  $(install_hint "$tool")"
         fi
     done
+    # ffmpeg is optional (ADR-0136 §7): without it, Telegram voice replies that
+    # arrive from the speech provider in a non-Ogg container are sent as audio
+    # files instead of voice notes. Reported, never failed.
+    if have ffmpeg; then
+        log_ok "ffmpeg: $(command -v ffmpeg) (optional)"
+    else
+        log_info "ffmpeg: optional, not found — Telegram voice replies may arrive as audio files"
+        log_info "        $(install_hint ffmpeg)"
+    fi
 }
 
 pf_check_python() {

@@ -51,7 +51,9 @@ same smallest kind as ADR-0123 — one more ``openrouter`` config field,
 is chosen, and the news path stops reading the application scope alone.
 ADR-0136 is the fifth: three voice config fields (a ``provider`` choice per
 voice half and the text-to-speech ``base_url``) and one new field attribute,
-:attr:`ProviderField.choices`.
+:attr:`ProviderField.choices`. ADR-0137 is the sixth: a new tenant-scoped
+provider, ``voice_call``, with its own key, the tenant's opt-in switch for the
+voice call and its conversation-layer settings — no environment link.
 """
 
 from __future__ import annotations
@@ -349,6 +351,33 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
         provider="provider_channel",
         fields=(
             ProviderField(name="enabled", is_secret=False, scopes=_TENANT, choices=BOOLEAN_CHOICES),
+        ),
+        managed_by_matrix=False,
+        env_fallback=False,
+        optional=True,
+    ),
+    # Voice call (ADR-0137 §7, annex amendment to ADR-0112 §3). The tenant's
+    # opt-in for the spoken conversation with Shirley in the browser: its own
+    # vendor key (the call needs the Agents write permission, which the
+    # text-to-speech key need not carry, and keys rotate independently), the
+    # switch, the vendor agent id PortfoliFLOW writes when it provisions,
+    # and the conversation-layer settings. ``env_fallback=False`` on purpose,
+    # as for ``provider_channel``: a feature that ships audio and transcripts
+    # to a vendor must never be switched on deployment-wide by an environment
+    # variable — enabling is a per-tenant owner action in the vault, nowhere
+    # else, so this provider has no entry in either environment table.
+    # ``optional=True``: nothing configured means the call is inactive and
+    # the program starts; completeness is judged when a call is started.
+    ProviderDeclaration(
+        provider="voice_call",
+        fields=(
+            ProviderField(name="api_key", is_secret=True, scopes=_TENANT),
+            ProviderField(name="enabled", is_secret=False, scopes=_TENANT, choices=BOOLEAN_CHOICES),
+            ProviderField(name="agent_id", is_secret=False, scopes=_TENANT),
+            ProviderField(name="model", is_secret=False, scopes=_TENANT),
+            ProviderField(name="voice", is_secret=False, scopes=_TENANT),
+            ProviderField(name="language", is_secret=False, scopes=_TENANT),
+            ProviderField(name="base_url", is_secret=False, scopes=_TENANT),
         ),
         managed_by_matrix=False,
         env_fallback=False,

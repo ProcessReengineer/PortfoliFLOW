@@ -1162,6 +1162,83 @@ async def test_the_voice_card_states_its_computed_state(
         assert "pf-credentials__note" not in _card_html(body, half)
 
 
+async def test_the_voice_call_card_carries_its_copy_and_fields(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """The ``Voice call`` card: label, compliance description, live pill, seven fields, hints."""
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    card = _card_html(response.text, "Voice call")
+
+    assert "Audio and transcript go to the voice vendor; see the handbook." in card
+    assert '<span class="pf-section__pill">live — saves apply instantly</span>' in card
+    # Field rows in the declaration's order — judge by the input ids.
+    ids = list(dict.fromkeys(re.findall(r'id="tenant-voice_call-([a-z_]+)"', card)))
+    assert ids == ["api_key", "enabled", "agent_id", "model", "voice", "language", "base_url"]
+    assert "A key with the Agents write permission." in card
+    assert "Leave empty to use the text-to-speech voice" in card
+    assert "Leave empty for German (de)." in card
+    # The switch renders as a switch, off by default.
+    assert _switch_input(card, "tenant-voice_call-enabled")
+    assert '<span class="pf-credentials__switch-state">off</span>' in card
+
+
+@pytest.mark.parametrize(
+    ("tenant_rows", "store_key", "expected"),
+    [
+        ([], False, "inactive — switch off"),
+        ([("voice_call", "enabled", "true")], False, "inactive — no key"),
+        ([("voice_call", "enabled", "true")], True, "active, agent not yet provisioned"),
+        (
+            [("voice_call", "enabled", "true"), ("voice_call", "agent_id", "agent_abc123")],
+            True,
+            "active (agent agent_abc123)",
+        ),
+    ],
+    ids=["switch-off", "no-key", "not-provisioned", "provisioned"],
+)
+async def test_the_voice_call_card_states_its_computed_state(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tenant_rows: list[tuple[str, str, str]],
+    store_key: bool,
+    expected: str,
+) -> None:
+    """ADR-0137 §7: four states from the rows; an environment variable changes nothing."""
+    # There is no such link; setting it proves the line reads the rows only.
+    monkeypatch.setenv("VOICE_CALL_ENABLED", "true")
+    monkeypatch.setenv("VOICE_CALL_API_KEY", "sk-env-must-be-ignored")
+    for provider, key, value in tenant_rows:
+        await _write_tenant_config(app_engine, provider, key, value)
+
+    client = await client_factory("owner")
+    if store_key:
+        csrf = await _section_csrf(client)
+        saved = await client.post(
+            _TENANT_URL,
+            data={
+                "csrf_token": csrf,
+                "provider": "voice_call",
+                "key": "api_key",
+                "value": "sk-test-agents-write",
+                "action": "save",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 200
+
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    card = _card_html(response.text, "Voice call")
+    notes = re.findall(r'<p class="pf-credentials__note">([^<]*)</p>', card)
+    assert notes == [expected]
+
+
 async def test_voice_hints_carry_the_declared_defaults_and_sunsets(
     client_factory: Any,
     vault_key: str,

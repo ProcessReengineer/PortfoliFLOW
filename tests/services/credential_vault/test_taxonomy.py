@@ -249,6 +249,38 @@ def test_tx04_provider_channel_declaration_matches_adr_0131() -> None:
     assert declaration.optional is True
 
 
+def test_tx04_voice_call_declaration_matches_adr_0137() -> None:
+    """ADR-0137 §7: own key, a switch, five settings; tenant scope; no env fallback; optional."""
+    declaration = declaration_for("voice_call")
+    assert [field.name for field in declaration.secret_fields] == ["api_key"]
+    assert [field.name for field in declaration.config_fields] == [
+        "enabled",
+        "agent_id",
+        "model",
+        "voice",
+        "language",
+        "base_url",
+    ]
+    # Pinned in the card's render order, like the voice halves.
+    assert [field.name for field in declaration.fields] == [
+        "api_key",
+        "enabled",
+        "agent_id",
+        "model",
+        "voice",
+        "language",
+        "base_url",
+    ]
+    for field in declaration.fields:
+        assert field.scopes == frozenset({"tenant"}), field.name
+    assert declaration.fields[1].choices == BOOLEAN_CHOICES
+    assert declaration.managed_by_matrix is False
+    # ADR-0137 §7, the ADR-0131 shape: a feature that ships audio to a vendor
+    # is never switched on deployment-wide; nothing configured means inactive.
+    assert declaration.env_fallback is False
+    assert declaration.optional is True
+
+
 # ---------------------------------------------------------------------------
 # TX-05: the declarations validate themselves
 # ---------------------------------------------------------------------------
@@ -358,6 +390,12 @@ def test_tx06_provider_channel_has_no_config_env_link() -> None:
     assert "provider_channel" not in _ENV_CONFIG_FIELDS
 
 
+def test_tx06_voice_call_has_no_env_link_in_either_table() -> None:
+    """ADR-0137 §7: no environment link at all — neither the key nor any setting."""
+    assert "voice_call" not in _ENV_CREDENTIAL_FIELDS
+    assert "voice_call" not in _ENV_CONFIG_FIELDS
+
+
 # ---------------------------------------------------------------------------
 # TX-07: the choices field attribute (ADR-0136 §3)
 # ---------------------------------------------------------------------------
@@ -406,7 +444,12 @@ def test_tx07_vocabulary_mirrors_the_adapter_declarations() -> None:
 # TX-08: boolean config fields are switches (ADR-0136 §3)
 # ---------------------------------------------------------------------------
 
-_SWITCH_FIELDS = {("telegram", "enabled"), ("voice", "enabled"), ("provider_channel", "enabled")}
+_SWITCH_FIELDS = {
+    ("telegram", "enabled"),
+    ("voice", "enabled"),
+    ("provider_channel", "enabled"),
+    ("voice_call", "enabled"),
+}
 
 
 def test_tx08_enabled_fields_are_switches() -> None:

@@ -30,6 +30,9 @@
                      Passed for a future read-aloud affordance and read by
                      no markup yet; whether a reply is spoken travels on the
                      turn's ``data-pf-voice`` marker instead.
+     voice_call_enabled — True when the voice call is switched on per tenant
+                     (ADR-0137 §4: the switch alone, no key probe). Read by
+                     no markup yet; the call button lands with the panel.
      brief_banner  — the active consultation context (ADR-0107 C6;
                      ADR-0133 §6), else ``None``: {kind: "case", badge,
                      title, href} renders "Consulting for CASE-NNNN",

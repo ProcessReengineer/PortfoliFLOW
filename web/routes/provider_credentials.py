@@ -190,6 +190,7 @@ _CONSUMER_STATUS: dict[str, str] = {
     "voice": "live — saves apply instantly",
     "voice_stt": "live — saves apply instantly",
     "voice_tts": "live — saves apply instantly",
+    "voice_call": "live — saves apply instantly",
 }
 
 #: One-line purpose per provider, rendered under the card title. Presentational
@@ -208,6 +209,10 @@ _PROVIDER_DESCRIPTIONS: dict[str, str] = {
     "voice": "Voice input and spoken replies for Shirley — the on/off switch for this tenant.",
     "voice_stt": "Transcribes recorded questions, on the web chat and in Telegram voice messages.",
     "voice_tts": "The voice Shirley answers with, as browser audio and Telegram voice notes.",
+    "voice_call": (
+        "A spoken conversation with Shirley in the browser — the on/off switch for this "
+        "tenant. Audio and transcript go to the voice vendor; see the handbook."
+    ),
 }
 
 #: Presentational only — the taxonomy key stays the wire value.
@@ -219,6 +224,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "voice": "Voice",
     "voice_stt": "Voice — speech-to-text",
     "voice_tts": "Voice — text-to-speech",
+    "voice_call": "Voice call",
 }
 
 #: Presentational only. ``irene_model`` reads as "Watch Desk model" so the
@@ -226,12 +232,14 @@ _PROVIDER_LABELS: dict[str, str] = {
 #: agent name never reaches a user-facing string (ADR-0115). The taxonomy key
 #: itself is wire format and stays as declared.
 _FIELD_LABELS: dict[str, str] = {
+    "agent_id": "Agent id",
     "api_key": "API key",
     "base_url": "Base URL",
     "bot_token": "Bot token",
     "chat_id": "Chat id",
     "enabled": "Enabled",
     "irene_model": "Watch Desk model",
+    "language": "Language",
     "model": "Model",
     "provider": "Provider",
     "research_model": "Web research model",
@@ -273,6 +281,33 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
     ("voice", "enabled"): "Turns voice on for this tenant. Applies on the next message.",
     ("voice_stt", "api_key"): "Used for every transcription in this tenant.",
     ("voice_tts", "api_key"): "Used for every spoken reply in this tenant.",
+    ("voice_call", "api_key"): (
+        "A key with the Agents write permission. It may be the same key as for "
+        "text-to-speech if that key carries both permissions."
+    ),
+    ("voice_call", "enabled"): (
+        "Turns the voice call on for this tenant. The call button appears when the "
+        "conversation is next opened; a missing key is reported when a call is started."
+    ),
+    ("voice_call", "agent_id"): (
+        "The vendor agent PortfoliFLOW provisions on the first call and keeps up to date. "
+        "Written here by PortfoliFLOW — leave it empty to let it provision; clear it to "
+        "provision a fresh agent."
+    ),
+    ("voice_call", "model"): (
+        "The conversation-layer model id from the vendor's list. Leave empty for the "
+        "built-in default; a wrong value fails at the next call with the vendor's message."
+    ),
+    ("voice_call", "voice"): (
+        "The vendor voice id for the call. Leave empty to use the text-to-speech voice "
+        "when one is set."
+    ),
+    ("voice_call", "language"): (
+        "The call language as a vendor language code. Leave empty for German (de)."
+    ),
+    ("voice_call", "base_url"): (
+        "The vendor API endpoint. Leave empty for https://api.elevenlabs.io."
+    ),
 }
 
 
@@ -619,6 +654,55 @@ def _field_view(
     }
 
 
+def describe_call_state(enabled: bool, has_key: bool, agent_id: str | None) -> str:
+    """Return the ``Voice call`` card's one-line state (ADR-0137 §7).
+
+    Four states, judged from the tenant's rows alone: the switch, whether a
+    key is stored (stored, not decrypted — the line never reads a secret),
+    and whether PortfoliFLOW has written an agent id. Completeness beyond
+    that — a key the vendor refuses, a model it does not know — stays loud
+    where a call is started.
+
+    Args:
+        enabled: The ``voice_call.enabled`` switch, as the consumers judge it.
+        has_key: Whether an enabled ``voice_call.api_key`` row is stored.
+        agent_id: The stored ``voice_call.agent_id``, or ``None``.
+
+    Returns:
+        ``inactive — switch off``, ``inactive — no key``, ``active, agent not
+        yet provisioned`` or ``active (agent <id>)``.
+    """
+    if not enabled:
+        return "inactive — switch off"
+    if not has_key:
+        return "inactive — no key"
+    agent = (agent_id or "").strip()
+    if not agent:
+        return "active, agent not yet provisioned"
+    return f"active (agent {agent})"
+
+
+def _call_state(index: dict[tuple[str, str], ScopedSettingDTO]) -> str:
+    """Compute the ``Voice call`` state line from the tenant rows.
+
+    The declaration has no environment link (ADR-0137 §7), so the tenant
+    rows are the whole chain and no resolver is needed — unlike the
+    ``Voice`` line, whose switch and provider keys may come from ``.env``.
+    A disabled row counts as absent, exactly as the resolver treats it.
+    """
+    enabled_row = index.get(("voice_call", "enabled"))
+    enabled = (
+        enabled_row is not None
+        and enabled_row.enabled
+        and (enabled_row.value_plain or "").strip().lower() == "true"
+    )
+    key_row = index.get(("voice_call", "api_key"))
+    has_key = key_row is not None and key_row.enabled and key_row.value_ciphertext is not None
+    agent_row = index.get(("voice_call", "agent_id"))
+    agent_id = agent_row.value_plain if agent_row is not None and agent_row.enabled else None
+    return describe_call_state(enabled, has_key, agent_id)
+
+
 def _tenant_panel(
     rows: list[ScopedSettingDTO], *, voice_state: str | None = None
 ) -> list[dict[str, Any]]:
@@ -627,12 +711,15 @@ def _tenant_panel(
     Args:
         rows: The tenant-scope rows, as read for the panel.
         voice_state: The computed voice state line (ADR-0136 §4), set on the
-            ``voice`` card only; every other card carries ``None``.
+            ``voice`` card only. The ``voice_call`` card carries its own
+            computed line, read from the rows (ADR-0137 §7); every other
+            card carries ``None``.
 
     Returns:
         One card dict per provider that declares a tenant-scope field.
     """
     index = _row_index(rows)
+    call_state = _call_state(index)
     cards: list[dict[str, Any]] = []
     for provider, declaration in PROVIDER_TAXONOMY.items():
         fields = [
@@ -653,7 +740,13 @@ def _tenant_panel(
                 "label": _provider_label(provider),
                 "description": _PROVIDER_DESCRIPTIONS.get(provider, ""),
                 "consumer_status": _CONSUMER_STATUS.get(provider, "not consumed yet"),
-                "state_line": voice_state if provider == "voice" else None,
+                "state_line": (
+                    voice_state
+                    if provider == "voice"
+                    else call_state
+                    if provider == "voice_call"
+                    else None
+                ),
                 "fields": fields,
             }
         )

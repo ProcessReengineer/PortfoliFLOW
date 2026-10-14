@@ -1600,6 +1600,39 @@ async def _voice_switch(resolver: CredentialResolver) -> bool:
     return value is not None and value.strip().lower() == "true"
 
 
+_CALL_SCOPES: tuple[str, ...] = ("tenant",)
+
+
+async def _call_switch(resolver: CredentialResolver) -> bool:
+    """Read ``voice_call.enabled``: ``"true"`` (case-insensitive) is on, anything else off.
+
+    Tenant scope only: the declaration has no environment link (ADR-0137
+    §7), so the chain ends at the tenant row and an environment variable
+    cannot switch the call on.
+    """
+    value = await resolver.resolve_config("voice_call", "enabled", scopes=_CALL_SCOPES)
+    return value is not None and value.strip().lower() == "true"
+
+
+async def _resolve_call_enabled(request: Request, session: SessionDTO) -> bool:
+    """Report whether the voice call is offered to this session's tenant (ADR-0137 §4).
+
+    One config read, never a credential probe — the switch alone offers the
+    call button, as ``voice.enabled`` and a provider choice offer the voice
+    controls (ADR-0118 §5). Whether the key is there is judged when a call
+    is started, where a missing one is reported with the card's name.
+
+    Args:
+        request: The active request (carries ``app.state``).
+        session: The authenticated session, supplying the tenant.
+
+    Returns:
+        ``True`` iff ``voice_call.enabled`` resolves to ``"true"`` on the tenant.
+    """
+    async with _voice_resolver(request, session) as resolver:
+        return await _call_switch(resolver)
+
+
 async def _voice_api_key(
     resolver: CredentialResolver, provider: str, *, tenant_id: UUID
 ) -> str | None:
@@ -2460,8 +2493,9 @@ async def get_chat_dock(
     then *moves* that one subtree between the dock and the stage.
 
     Loading it lazily rather than inlining it in ``base.html`` is what
-    keeps every area render as DB-free as it was: the two reads below —
-    the per-tenant voice chain and the case-brief validation — are paid
+    keeps every area render as DB-free as it was: the three reads below —
+    the per-tenant voice chain, the voice-call switch and the case-brief
+    validation — are paid
     once, when the reader actually opens the conversation, not on each of
     the nine Areas. The history inside the fragment stays lazy too: the
     ``#chat-history`` div carries its own ``hx-get="/chat/history"`` on
@@ -2479,6 +2513,7 @@ async def get_chat_dock(
     """
     templates = _templates(request)
     stt_active, tts_active = await _resolve_voice_flags(request, session)
+    call_active = await _resolve_call_enabled(request, session)
     return cast(
         HTMLResponse,
         templates.TemplateResponse(
@@ -2488,6 +2523,7 @@ async def get_chat_dock(
                 "csrf_token": session.csrf_token,
                 "voice_stt_enabled": stt_active,
                 "voice_tts_enabled": tts_active,
+                "voice_call_enabled": call_active,
                 "brief_banner": await resolve_active_brief_banner(request, session, None),
             },
         ),

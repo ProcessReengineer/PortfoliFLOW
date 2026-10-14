@@ -515,55 +515,91 @@ rather than by a commit.
 
 ---
 
-## 8. Optional: Voice I/O for Shirley (ADR-0076, ADR-0118)
+## 8. Optional: Voice I/O for Shirley (ADR-0076, ADR-0118, ADR-0136)
 
 Shirley can take a spoken question and answer in voice, on both the web chat and via
 Telegram **voice messages**. Voice is **additive**: when it is off (the default), every
 text and image path behaves exactly as before, and the voice affordances are hidden.
 
+Speech-to-text and text-to-speech are **two halves, configured independently**, each
+with its own provider. Each half is active when the **Voice** card's switch is on *and*
+that half's provider is chosen; there is no provider default. The three providers are
+the same for both halves:
+
+| Provider | What it is | Key | Model / endpoint / voice |
+|---|---|---|---|
+| `openai_compatible` | Any server speaking the OpenAI audio wire — a local engine on your own hardware ([`docs/deploy/voice-local-engines.md`](deploy/voice-local-engines.md)) or a vendor such as Groq or Mistral | none required | **Model** and **Base URL** required; **Voice** required for text-to-speech |
+| `elevenlabs` | ElevenLabs, natively | required | defaults `scribe_v2` (speech-to-text), `eleven_multilingual_v2` (text-to-speech), `https://api.elevenlabs.io`; **Voice** is the ElevenLabs *voice ID*, not a name, and is required |
+| `openai` | OpenAI itself, exactly as before ADR-0136 | required | defaults `gpt-4o-mini-transcribe`, `gpt-4o-mini-tts`, `nova`, `https://api.openai.com/v1` |
+
+**OpenAI's speech models retire** — text-to-speech on **2027-01-06**, transcription on
+**2027-02-26**. A tenant on `openai` keeps working until then and fails loudly at first
+use afterwards; switch each half to `elevenlabs` or to a local engine before those dates.
+
 **Enable it per tenant** under Admin → Providers & Credentials: the **Voice** card's
-`enabled` toggle, plus the **Voice — speech-to-text** and **Voice — text-to-speech** cards
-for the credentials and models. Or **application-wide** by setting the `VOICE_*` keys in
-`.env` (authoritative reference and full comments live in `.env.example`):
-
-```
-VOICE_ENABLED=true
-VOICE_STT_API_KEY=…          # OpenAI key for transcription
-VOICE_TTS_API_KEY=…          # OpenAI key for synthesis (may equal the STT key)
-```
-
+`Enabled` switch, then the **Voice — speech-to-text** and **Voice — text-to-speech**
+cards — choose the **Provider** from the list, and fill in what the hint beside each
+field says that provider needs. Or **application-wide** by setting the `VOICE_*` keys in
+`.env` (authoritative reference, both a cloud and a local example, in `.env.example`).
 A tenant row outranks the environment value for the same field; `.env` is the
-application-scope fallback beneath it.
+application-scope fallback beneath it. Both surfaces resolve the configuration **per voice
+interaction** — per web turn and per Telegram voice message — so a change at either scope
+applies on the next message, with no restart.
 
-The model/voice/base-URL defaults (`gpt-4o-mini-transcribe`, `gpt-4o-mini-tts`, `nova`,
-`https://api.openai.com/v1`) are sensible out of the box; override them per tenant or in
-`.env` if needed. Both surfaces resolve the configuration **per voice interaction** — per
-web turn and per Telegram voice message — so a change at either scope applies on the next
-message, with no restart.
+**The Voice card tells you the state.** Beneath its description it shows, per half, one
+of three states: *inactive, no provider selected* · *active (provider)* ·
+*misconfigured — provider 'x' is not supported*. A chosen provider with a missing model,
+endpoint, voice or key is reported at first use — on the web as a clear error, on Telegram
+as a reply — never silently. The web microphone and the recording controls appear only
+when speech-to-text is active; a spoken question is answered in voice only when
+text-to-speech is active too, otherwise in text. **Text-to-speech alone is unreachable**
+on both surfaces, because replies are spoken only to spoken questions; the card says so.
+
+**Upgrading an existing deployment.** A deployment whose `.env` or tenant rows name
+`openai` as provider behaves exactly as before. A deployment that had **deleted**
+`VOICE_STT_PROVIDER` / `VOICE_TTS_PROVIDER` and relied on the former code default finds
+that half *inactive* after the upgrade — the Voice card shows *no provider selected*;
+choosing `openai` (or any provider) restores it.
+
+**ElevenLabs notes.** One key serves both halves (store it on both cards). The voice is a
+voice ID from the ElevenLabs voice library. Enterprise workspaces with EU data residency
+have their own host and key: set that host as the **Base URL** of each half; nothing else
+changes.
+
+**`ffmpeg` (optional).** Telegram renders a voice note only for an Ogg/Opus container.
+When a provider delivers Opus in another container, the bot transcodes it on the host with
+`ffmpeg` — in memory, over pipes — and sends a voice note; without `ffmpeg` the reply
+still arrives, as an audio file. The installer reports `ffmpeg` in its preflight and in
+`--doctor` as present or *optional, not found*, never as a failure. Install it with
+`sudo apt-get install ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS); on Fedora
+`dnf install ffmpeg` needs the RPM Fusion repository enabled first.
 
 Operational notes:
 
 - **Separate credentials.** Audio does **not** route through OpenRouter (it does not proxy
   audio endpoints). The voice credentials — tenant rows or the `VOICE_*` keys — are
   independent of the OpenRouter key.
-- **No silent fallback.** A missing/invalid key, an empty transcript, an unsupported audio
-  format, or a synthesis failure surfaces a clear message; it never fails silently. Voice
-  left off for a tenant simply hides the affordances; voice switched on with no resolvable
-  credential answers with an error naming both scopes you can fix it in. Neither ever
-  blocks web or bot startup.
+- **No silent fallback.** A missing/invalid key, an unknown provider, an empty transcript,
+  an unsupported audio format, or a synthesis failure surfaces a clear message naming both
+  scopes you can fix it in; it never fails silently and never blocks web or bot startup.
+  Voice left off, or a half with no provider chosen, simply hides the affordances.
 - **Audio is not persisted.** Recordings and synthesised replies are processed in memory for
   one turn only; the transcript becomes the chat history, mirroring the image-input contract.
 - **Web** needs HTTPS for the microphone (`getUserMedia`); Caddy provides TLS in deployment,
   and `localhost` is exempt for local development.
-- **Telegram** uses voice **messages**, not calls. A spoken reply is sent as an OGG/Opus
-  voice note; if a client rejects the container it falls back to an audio file.
+- **Telegram** uses voice **messages**, not calls. A spoken reply is sent as an Ogg/Opus
+  voice note (see `ffmpeg` above); if Telegram still rejects it, it falls back to an audio
+  file.
+- **Local engines** keep the audio on your own server; the licences of the open models
+  differ, and several are non-commercial — see the deployment document.
 
-**Smoke test** (with voice enabled for the tenant, at either scope):
+**Smoke test** (with voice enabled for the tenant and both providers chosen):
 1. Web: open `/assistants#shirley`, toggle voice, record a question — confirm the transcript
    appears as your line, the answer streams, and the spoken reply plays.
 2. Telegram (with `TELEGRAM_BOT_ENABLED=true`): send a voice message — confirm the reply
    arrives both as text and as a **playable voice note**.
 3. Confirm a normal text message still works unchanged on both surfaces.
+4. Switch text-to-speech to *Not set* and repeat 1: the spoken question is answered in text.
 
 ---
 
@@ -602,6 +638,10 @@ Two further operator docs cover surfaces that are not ticks:
 - [`docs/deploy/credential-vault.md`](deploy/credential-vault.md) —
   credential-vault operations (ADR-0112 §2): master-key custody,
   rotation, and what happens when the key is missing.
+- [`docs/deploy/voice-local-engines.md`](deploy/voice-local-engines.md) —
+  running speech-to-text and text-to-speech on your own server behind the
+  `openai_compatible` voice provider (ADR-0136 §11): engines, licences,
+  example configurations.
 
 ---
 

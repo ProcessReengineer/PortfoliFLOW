@@ -58,8 +58,8 @@ four resulting states a tenant is in:
    before that release the serve command configured none, so the lines
    above existed but never reached the terminal.
 
-To switch a tenant's bot off without deleting the token, set the Telegram
-**Enabled** field to `false` (or disable the `bot_token` row). Discovery
+To switch a tenant's bot off without deleting the token, turn the Telegram
+**Enabled** switch off (or disable the `bot_token` row). Discovery
 skips it with an INFO line. An absent `Enabled` row means enabled — it is
 an opt-out, not an opt-in.
 

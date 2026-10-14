@@ -171,7 +171,7 @@ SHIRLEY_MODEL=anthropic/claude-sonnet-4.5     # any model id your endpoint serve
 
 Then restart. Alternatively — and preferably in a multi-user setup — store keys per tenant or per user under **Admin → Providers & Credentials** in the running application; those apply on the next chat turn without a restart and are encrypted at rest (this is what `CREDENTIAL_VAULT_MASTER_KEY` is for). Without any key the server starts normally; only the AI surfaces answer with a pointer back to configuration.
 
-Two notes: the Report Scraper needs a PDF-capable model (Anthropic models are the shipped default); voice input/output for Shirley needs a separate OpenAI (or compatible STT/TTS) key, because OpenRouter does not proxy audio.
+Two notes: the Report Scraper needs a PDF-capable model (Anthropic models are the shipped default); voice input/output for Shirley needs its own speech provider — ElevenLabs, OpenAI, or any OpenAI-wire server such as a local engine — because OpenRouter does not proxy audio.
 
 ---
 

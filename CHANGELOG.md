@@ -7,6 +7,30 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ## [Unreleased]
 
+### Added
+
+- Shirley's voice messages no longer depend on one vendor (ADR-0136, roadmap
+  #076). Speech-to-text and text-to-speech are chosen per tenant and per half
+  on the Voice cards: any server speaking the OpenAI audio wire —
+  including a local engine on the tenant's own hardware, keyless — ElevenLabs
+  natively, or OpenAI until its speech models retire (text-to-speech
+  2027-01-06, transcription 2027-02-26). Speech-to-text alone is a supported
+  setup; the Voice card shows the state of each half. Telegram voice replies
+  are transcoded to Ogg/Opus with the host's `ffmpeg` when a provider delivers
+  another container; `ffmpeg` is optional and reported by the installer.
+  `docs/deploy/voice-local-engines.md` lists local engines and their licences.
+- On/off settings on the Providers & Credentials cards (Voice, Telegram,
+  Provider channel) are switches; anything other than `true` / `false` is
+  refused on save.
+
+### Changed
+
+- There is no voice provider default any more. A deployment whose `.env` or
+  tenant rows name `openai` as provider behaves as before; one that had
+  deleted `VOICE_STT_PROVIDER` / `VOICE_TTS_PROVIDER` and relied on the former
+  code default finds that half inactive after the upgrade until a provider is
+  chosen on the Voice cards or in `.env`. `VOICE_TTS_BASE_URL` is new.
+
 ## [2026.10.0] — 2026-10-12
 
 ### Added

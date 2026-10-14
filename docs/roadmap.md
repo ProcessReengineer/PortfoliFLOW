@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-14
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -72,10 +72,17 @@ against, and what has shipped. It records no history — that lives in git and i
   shutdown. No provider default — with nothing chosen the half is inactive and
   the Admin card says so; the program always starts. Telegram voice replies
   are transcoded to Ogg/Opus with the host `ffmpeg` when needed.
-- **Shipped so far:** nothing yet.
-- **Remaining:** the implementation strand — port split, taxonomy and
-  availability, OpenAI-wire adapter and transcoding, ElevenLabs adapter,
-  documentation; the legacy `openai` declaration is removed after 2027-02-26.
+- **Shipped so far:** the implementation strand (ADR-0136): the two speech
+  ports with one adapter per half; provider selection per half on the Voice
+  cards with no provider default and a computed state line; the keyless
+  `openai_compatible` adapter, the native ElevenLabs adapter and the legacy
+  `openai` declaration; Ogg check and `ffmpeg` transcoding for Telegram voice
+  notes; boolean settings on the Admin cards as switches; operator
+  documentation and the local-engines deployment guide.
+- **Remaining:** the implementation walk on a real ElevenLabs key and a local
+  engine (deferred to the voice-call strand, which needs the same credential
+  session) and whether ElevenLabs' `opus_48000_64` arrives Ogg-containered
+  (ADR-0136 §9); the legacy `openai` declaration is removed after 2027-02-26.
 - **ADR:** ADR-0136.
 - **Depends on:** none. Must ship before 2027-01-06.
 

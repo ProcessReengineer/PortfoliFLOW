@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#077`.**
+  bucket and is never reused. **Next free ID: `#078`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -80,11 +80,35 @@ against, and what has shipped. It records no history — that lives in git and i
   notes; boolean settings on the Admin cards as switches; operator
   documentation and the local-engines deployment guide.
 - **Remaining:** the implementation walk on a real ElevenLabs key and a local
-  engine (deferred to the voice-call strand, which needs the same credential
-  session) and whether ElevenLabs' `opus_48000_64` arrives Ogg-containered
-  (ADR-0136 §9); the legacy `openai` declaration is removed after 2027-02-26.
+  engine (deferred to the voice-call strand #077, which needs the same
+  credential session); the legacy `openai` declaration is removed after
+  2027-02-26. ElevenLabs' `opus_48000_64` was observed Ogg-containered on a
+  real account on 2026-10-14 — the adapter declares `audio/ogg` and Telegram
+  needs no transcode for it; the observation ADR-0136 §9 left open is closed.
 - **ADR:** ADR-0136.
 - **Depends on:** none. Must ship before 2027-01-06.
+
+### #077 — Shirley voice call
+
+- **Purpose:** the phone mode the website announces — a fluid spoken
+  conversation with Shirley in the browser, interruption included. A
+  vendor-hosted conversational agent (ElevenLabs Agents in v1, behind a call
+  port) carries Shirley's persona and knows nothing about the book; one
+  read-only client tool, `ask_shirley`, runs an ordinary Shirley turn through
+  the user's session and relays the answer, and the call's transcript lands
+  in the chat history. Per-tenant opt-in with its own key and no
+  deployment-wide switch; the vendor agent is provisioned from a definition
+  in the repository. Voice messages stay as they are; Telegram keeps voice
+  messages only.
+- **Shipped so far:** nothing — concept and ADR.
+- **Remaining:** the implementation strand (taxonomy and Admin card, the call
+  package and the Soul addendum, the `ask_shirley` job with its tool
+  allowlist, session endpoint and browser panel, documentation), then the
+  combined voice walk (voice messages and the call) on a real account and
+  the tuning days.
+- **ADR:** ADR-0137.
+- **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
+  user's turn waits visibly; #071 removes the wait.
 
 ---
 
@@ -325,11 +349,6 @@ happens to existing findings and cases.
 
 **#068 — Tenant-local provider entries.** Tenant-maintained provider lists with
 no directory involved; changes the provider channel's trust model. ADR-0129 §1.
-
-**Shirley phone mode ("4L", low-latency loop layer).** A fluid spoken
-conversation with Shirley: a low-latency conversation model carries the dialogue
-and hands substantive questions to Shirley, who answers with her tools. Announced
-on the website, concept stage, no build decision.
 
 **Scenario regimes (from #034).** Timing beyond an immediate shock (ramp, lag,
 decay), rate and duration shifts, spreads, default and recovery; named scenario

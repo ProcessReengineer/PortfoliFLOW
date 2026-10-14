@@ -38,6 +38,7 @@ import pytest
 
 from core.repositories.scoped_setting_repository import _VALID_SCOPES
 from services.credential_vault.taxonomy import (
+    BOOLEAN_CHOICES,
     PROVIDER_TAXONOMY,
     SCOPES,
     VOICE_PROVIDER_CHOICES,
@@ -367,7 +368,7 @@ _VOICE_PROVIDER_FIELDS = {("voice_stt", "provider"), ("voice_tts", "provider")}
 def test_tx07_choices_defaults_to_none() -> None:
     for name, declaration in PROVIDER_TAXONOMY.items():
         for field in declaration.fields:
-            if (name, field.name) in _VOICE_PROVIDER_FIELDS:
+            if (name, field.name) in _VOICE_PROVIDER_FIELDS or field.is_switch:
                 continue
             assert field.choices is None, f"{name}.{field.name}"
 
@@ -399,3 +400,31 @@ def test_tx07_vocabulary_mirrors_the_adapter_declarations() -> None:
     # This fails whenever one side adds or retires an adapter without the
     # other.
     assert VOICE_PROVIDER_CHOICES == PROVIDER_KEYS
+
+
+# ---------------------------------------------------------------------------
+# TX-08: boolean config fields are switches (ADR-0136 §3)
+# ---------------------------------------------------------------------------
+
+_SWITCH_FIELDS = {("telegram", "enabled"), ("voice", "enabled"), ("provider_channel", "enabled")}
+
+
+def test_tx08_enabled_fields_are_switches() -> None:
+    assert frozenset({"true", "false"}) == BOOLEAN_CHOICES
+    for provider, name in sorted(_SWITCH_FIELDS):
+        field = declaration_for(provider).field(name)
+        assert field is not None, provider
+        assert field.choices == BOOLEAN_CHOICES, provider
+        assert field.is_switch is True, provider
+    for name, declaration in PROVIDER_TAXONOMY.items():
+        for field in declaration.fields:
+            if (name, field.name) in _SWITCH_FIELDS:
+                continue
+            assert field.is_switch is False, f"{name}.{field.name}"
+
+
+def test_tx08_a_switch_field_is_never_a_secret() -> None:
+    with pytest.raises(ValueError, match="choices"):
+        ProviderField(
+            name="k", is_secret=True, scopes=frozenset({"tenant"}), choices=BOOLEAN_CHOICES
+        )

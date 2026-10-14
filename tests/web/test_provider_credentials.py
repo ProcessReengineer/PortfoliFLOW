@@ -604,10 +604,18 @@ async def test_provider_channel_card_is_dormant_and_says_what_leaves_the_instanc
     # The wire value is the taxonomy key, as a hidden ``provider`` input.
     assert body.count('<input type="hidden" name="provider" value="provider_channel">') >= 1
 
-    # A config field, rendered exactly like the ``voice.enabled`` switch: a
-    # text input, never the write-only password control a secret gets.
-    for row_id in ("tenant-voice-enabled", "tenant-provider_channel-enabled"):
-        assert re.search(rf'<input type="text"\s+id="{row_id}"', body), row_id
+    # The three boolean ``enabled`` fields render as a switch: a checkbox
+    # inside a ``pf-switch`` label, never a free-text input and never the
+    # write-only password control a secret gets.
+    for row_id in (
+        "tenant-telegram-enabled",
+        "tenant-voice-enabled",
+        "tenant-provider_channel-enabled",
+    ):
+        assert re.search(
+            rf'<label class="pf-switch"><input type="checkbox"\s+id="{row_id}"', body
+        ), row_id
+        assert not re.search(rf'<input type="text"\s+id="{row_id}"', body), row_id
         assert not re.search(rf'<input type="password"\s+id="{row_id}"', body), row_id
 
 
@@ -999,6 +1007,104 @@ async def test_a_value_inside_choices_saves_and_the_select_shows_it_selected(
         ("openai", False, False),
         ("openai_compatible", False, True),
     ]
+
+
+def _switch_input(html: str, input_id: str) -> str:
+    """Return the opening tag of one switch's checkbox."""
+    match = re.search(rf'<input type="checkbox"\s+id="{input_id}"[^>]*>', html)
+    assert match is not None, f"no switch checkbox {input_id!r}"
+    return match.group(0)
+
+
+def _row_html(html: str, input_id: str) -> str:
+    """Return one field row's markup, from its row start to the next row."""
+    position = html.index(f'id="{input_id}"')
+    start = html.rindex('<div class="pf-credentials__row">', 0, position)
+    end = html.find('<div class="pf-credentials__row">', position)
+    return html[start:] if end == -1 else html[start:end]
+
+
+async def test_a_switch_field_saves_true_and_false_and_renders_its_state(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """Each flip stores the boolean pair and the re-render offers the opposite flip."""
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+
+    for value, other, state in (("true", "false", "on"), ("false", "true", "off")):
+        response = await client.post(
+            _TENANT_URL,
+            data={
+                "csrf_token": csrf,
+                "provider": "voice",
+                "key": "enabled",
+                "value": value,
+                "action": "save",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 200, value
+        row = await _read_row(app_engine, scope="tenant", provider="voice", key="enabled")
+        assert row is not None
+        assert row.value_plain == value
+
+        checkbox = _switch_input(response.text, "tenant-voice-enabled")
+        assert (re.search(r"\schecked\b", checkbox) is not None) is (value == "true"), value
+        assert f'hx-vals=\'{{"value": "{other}"}}\'' in checkbox, value
+        row_html = _row_html(response.text, "tenant-voice-enabled")
+        assert f'<span class="pf-credentials__switch-state">{state}</span>' in row_html, value
+
+
+@pytest.mark.parametrize("value", ["yes", "1", "on"])
+async def test_a_switch_field_rejects_anything_but_the_boolean_pair(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+    value: str,
+) -> None:
+    """A forged POST outside ``true`` / ``false`` is refused before the repository."""
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+
+    response = await client.post(
+        _TENANT_URL,
+        data={
+            "csrf_token": csrf,
+            "provider": "voice",
+            "key": "enabled",
+            "value": value,
+            "action": "save",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "voice.enabled must be one of: false, true." in response.text
+    assert await _read_row(app_engine, scope="tenant", provider="voice", key="enabled") is None
+
+
+async def test_a_switch_row_has_no_save_button_but_keeps_remove(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """The switch saves on change; a stored row is still removable."""
+    await _write_tenant_config(app_engine, "voice", "enabled", "true")
+    client = await client_factory("owner")
+    response = await client.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+
+    row_html = _row_html(response.text, "tenant-voice-enabled")
+    before_meta = row_html[: row_html.index('<div class="pf-credentials__meta">')]
+    assert ">Save</button>" not in before_meta
+    assert re.search(
+        r'<input type="hidden" name="provider" value="voice">\s*'
+        r'<input type="hidden" name="key" value="enabled">\s*'
+        r'<input type="hidden" name="action" value="delete">\s*'
+        r'<button type="submit" class="btn btn--ghost">Remove</button>',
+        row_html,
+    )
 
 
 @pytest.mark.parametrize(

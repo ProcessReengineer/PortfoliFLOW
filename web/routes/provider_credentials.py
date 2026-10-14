@@ -265,6 +265,10 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
         "tickets. Nothing about holdings, portfolios, users or analytics leaves the instance. "
         "When off, nothing is fetched and the Transactions area shows no provider gesture at all."
     ),
+    ("telegram", "enabled"): (
+        "Off keeps this tenant's bot from starting even while a token is stored; "
+        "not set counts as on."
+    ),
     ("telegram", "bot_token"): "The bot token from @BotFather for this tenant's bot.",
     ("voice", "enabled"): "Turns voice on for this tenant. Applies on the next message.",
     ("voice_stt", "api_key"): "Used for every transcription in this tenant.",
@@ -591,7 +595,9 @@ def _field_view(
     A secret field contributes **no** value to the view — only whether
     one is stored, its hint and its enabled flag. A config field
     contributes ``value_plain``, which is plain by design so it stays
-    greppable for support (ADR-0112 §2).
+    greppable for support (ADR-0112 §2). A switch field also contributes
+    whether it is on, judged from the stored row exactly as the consumers
+    judge it (``true``, case-insensitive); an absent row is off on the card.
     """
     return {
         "provider": provider,
@@ -600,6 +606,12 @@ def _field_view(
         "hint": _FIELD_HINTS.get((provider, field.name), ""),
         "is_secret": field.is_secret,
         "choices": sorted(field.choices) if field.choices is not None else None,
+        "switch": field.is_switch,
+        "switch_on": (
+            field.is_switch
+            and row is not None
+            and (row.value_plain or "").strip().lower() == "true"
+        ),
         "is_set": row is not None,
         "secret_hint": row.secret_hint if row is not None else None,
         "value": (row.value_plain or "") if (row is not None and not field.is_secret) else "",

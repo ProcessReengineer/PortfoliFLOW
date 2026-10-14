@@ -94,7 +94,8 @@ class ProviderField:
             text. The taxonomy-driven Admin card renders a field with
             ``choices`` as a ``<select>`` and its write path rejects any
             value outside the set (ADR-0136 §3) — a generic attribute, not
-            a voice special case.
+            a voice special case. A ``choices`` equal to
+            :data:`BOOLEAN_CHOICES` renders as a switch instead.
 
     Raises:
         ValueError: If ``scopes`` is empty, names a scope outside
@@ -135,6 +136,11 @@ class ProviderField:
                 raise ValueError(
                     f"Field {self.name!r} declares an empty choices set; use None for free text."
                 )
+
+    @property
+    def is_switch(self) -> bool:
+        """Whether this field is an on/off setting rendered as a switch."""
+        return self.choices == BOOLEAN_CHOICES
 
 
 @dataclass(frozen=True)
@@ -209,6 +215,13 @@ class ProviderDeclaration:
 #: equal. A new adapter is a new declaration **and** a new entry here.
 VOICE_PROVIDER_CHOICES: frozenset[str] = frozenset({"openai_compatible", "elevenlabs", "openai"})
 
+#: The boolean pair a switch field stores (ADR-0136 §3's ``choices`` applied
+#: to on/off settings). The Admin card renders a field whose ``choices`` is
+#: exactly this set as a switch rather than a ``<select>``; the write path
+#: rejects anything else, so ``yes``, ``1`` or ``on`` can no longer be stored.
+#: Consumers keep reading the string ``true`` as on.
+BOOLEAN_CHOICES: frozenset[str] = frozenset({"true", "false"})
+
 #: The ADR-0112 §3 v1 table. Adding a provider or changing a field's scopes
 #: is an annex amendment (ADR-0112 §1), never an ad-hoc code decision.
 _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
@@ -258,7 +271,7 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
         fields=(
             ProviderField(name="bot_token", is_secret=True, scopes=_TENANT),
             ProviderField(name="chat_id", is_secret=False, scopes=_USER),
-            ProviderField(name="enabled", is_secret=False, scopes=_TENANT),
+            ProviderField(name="enabled", is_secret=False, scopes=_TENANT, choices=BOOLEAN_CHOICES),
         ),
         managed_by_matrix=False,
         env_fallback=True,
@@ -280,7 +293,9 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
     # choice needs.
     ProviderDeclaration(
         provider="voice",
-        fields=(ProviderField(name="enabled", is_secret=False, scopes=_TENANT),),
+        fields=(
+            ProviderField(name="enabled", is_secret=False, scopes=_TENANT, choices=BOOLEAN_CHOICES),
+        ),
         managed_by_matrix=False,
         env_fallback=True,
         optional=True,
@@ -332,7 +347,9 @@ _V1_DECLARATIONS: tuple[ProviderDeclaration, ...] = (
     # ``optional=True`` because there is no credential to be missing.
     ProviderDeclaration(
         provider="provider_channel",
-        fields=(ProviderField(name="enabled", is_secret=False, scopes=_TENANT),),
+        fields=(
+            ProviderField(name="enabled", is_secret=False, scopes=_TENANT, choices=BOOLEAN_CHOICES),
+        ),
         managed_by_matrix=False,
         env_fallback=False,
         optional=True,
@@ -414,6 +431,7 @@ def secret_fields(
 
 
 __all__ = [
+    "BOOLEAN_CHOICES",
     "PROVIDER_TAXONOMY",
     "SCOPES",
     "VOICE_PROVIDER_CHOICES",

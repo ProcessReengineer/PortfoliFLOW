@@ -132,6 +132,7 @@ from services.market_data.provider import UnsupportedCapabilityError
 from services.openrouter_catalog import CatalogFetchError, CatalogModel, fetch_models
 from services.telegram_pairing import IssuedCode
 from services.voice import ADAPTER_DECLARATIONS, describe_voice_state
+from services.voice_call import DEFAULT_BASE_URL, DEFAULT_CONVERSATION_MODEL, DEFAULT_LANGUAGE
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import get_authenticated_user, require_role
@@ -294,19 +295,9 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
         "Written here by PortfoliFLOW — leave it empty to let it provision; clear it to "
         "provision a fresh agent."
     ),
-    ("voice_call", "model"): (
-        "The conversation-layer model id from the vendor's list. Leave empty for the "
-        "built-in default; a wrong value fails at the next call with the vendor's message."
-    ),
     ("voice_call", "voice"): (
         "The vendor voice id for the call. Leave empty to use the text-to-speech voice "
         "when one is set."
-    ),
-    ("voice_call", "language"): (
-        "The call language as a vendor language code. Leave empty for German (de)."
-    ),
-    ("voice_call", "base_url"): (
-        "The vendor API endpoint. Leave empty for https://api.elevenlabs.io."
     ),
 }
 
@@ -363,6 +354,24 @@ def _voice_hints() -> dict[tuple[str, str], str]:
 
 
 _FIELD_HINTS.update(_voice_hints())
+
+
+def _call_hints() -> dict[tuple[str, str], str]:
+    """Build the voice-call hints that name a default from the call package's constants."""
+    return {
+        ("voice_call", "model"): (
+            "The conversation-layer model id from the vendor's list. Leave empty for "
+            f"{DEFAULT_CONVERSATION_MODEL}; a wrong value fails at the next call with the "
+            "vendor's message."
+        ),
+        ("voice_call", "language"): (
+            f"The call language as a vendor language code. Leave empty for German ({DEFAULT_LANGUAGE})."
+        ),
+        ("voice_call", "base_url"): f"The vendor API endpoint. Leave empty for {DEFAULT_BASE_URL}.",
+    }
+
+
+_FIELD_HINTS.update(_call_hints())
 
 #: Panel-specific label overrides, where the same field reads differently
 #: depending on whose row it is.

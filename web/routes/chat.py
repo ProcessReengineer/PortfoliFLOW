@@ -124,6 +124,7 @@ from services.voice import (
     build_stt,
     build_tts,
 )
+from services.voice_call import CallConfigurationError, ResolvedCall, assemble_call
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import require_role
@@ -1563,6 +1564,10 @@ class _VoiceUnconfiguredError(Exception):
     A :class:`~services.credential_vault.VaultDecryptError` is deliberately
     **not** wrapped: a vault that will not decrypt is an operator emergency,
     not a "configure me" nudge, and it must not read as a missing key.
+
+    The voice call's resolution raises it too, wrapping
+    :class:`~services.voice_call.CallConfigurationError`, whose message names
+    the ``Voice call`` card only (ADR-0137 §7).
     """
 
 
@@ -1631,6 +1636,54 @@ async def _resolve_call_enabled(request: Request, session: SessionDTO) -> bool:
     """
     async with _voice_resolver(request, session) as resolver:
         return await _call_switch(resolver)
+
+
+async def _call_values(resolver: CredentialResolver, *, tenant_id: UUID) -> ResolvedCall | None:
+    """Read the call chain and assemble it (ADR-0137 §7).
+
+    Tenant scope for every ``voice_call`` field — the declaration has no
+    environment link — and the voice chains' scopes for the persona-voice
+    fallback ``voice_tts.voice``. The key is read only when the switch is
+    on, through the same credential read the voice halves use.
+
+    Returns:
+        ``None`` when the call is off, else the assembled :class:`ResolvedCall`.
+
+    Raises:
+        CallConfigurationError: If the call is on but incomplete.
+    """
+    enabled = await _call_switch(resolver)
+    if not enabled:
+        return None
+    api_key = await _voice_api_key(resolver, "voice_call", tenant_id=tenant_id)
+    agent_id = await resolver.resolve_config("voice_call", "agent_id", scopes=_CALL_SCOPES)
+    model = await resolver.resolve_config("voice_call", "model", scopes=_CALL_SCOPES)
+    voice = await resolver.resolve_config("voice_call", "voice", scopes=_CALL_SCOPES)
+    language = await resolver.resolve_config("voice_call", "language", scopes=_CALL_SCOPES)
+    base_url = await resolver.resolve_config("voice_call", "base_url", scopes=_CALL_SCOPES)
+    tts_voice = await resolver.resolve_config("voice_tts", "voice", scopes=_VOICE_SCOPES)
+    return assemble_call(True, api_key, agent_id, model, voice, language, base_url, tts_voice)
+
+
+async def _resolve_call(request: Request, session: SessionDTO) -> ResolvedCall:
+    """Resolve this session's voice call — the call twin of :func:`_resolve_stt`.
+
+    Raises:
+        HTTPException: 404 when the call is off.
+        _VoiceUnconfiguredError: If the call is on but incomplete — the
+            message names the field and the ``Voice call`` card.
+        VaultDecryptError: Propagated untouched.
+    """
+    async with _voice_resolver(request, session) as resolver:
+        try:
+            call = await _call_values(resolver, tenant_id=session.tenant_id)
+        except CallConfigurationError as exc:
+            raise _VoiceUnconfiguredError(str(exc)) from exc
+    if call is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Voice call is not enabled."
+        )
+    return call
 
 
 async def _voice_api_key(

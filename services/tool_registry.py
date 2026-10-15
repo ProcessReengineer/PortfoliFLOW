@@ -148,7 +148,8 @@ class ToolRegistryError(PortfoliFlowError):
     """Raised on ToolRegistry misconfiguration.
 
     Currently: registration of a tool without a declared
-    :class:`~services.tool_classes.ToolClass` (ADR-0022 fail-fast requirement).
+    :class:`~services.tool_classes.ToolClass` (ADR-0022 fail-fast requirement),
+    and a per-turn tool allowlist naming an unregistered tool (ADR-0137 §3.1).
     """
 
 
@@ -164,11 +165,15 @@ class ToolRegistry:
             turn. Populated by :meth:`execute_tool` when a
             :attr:`~services.tool_classes.ToolClass.READ_EXTERNAL_UNTRUSTED`
             tool runs; cleared by :meth:`begin_turn`.
+        _allowed_tools: The per-turn tool allowlist set by :meth:`begin_turn`
+            (ADR-0137 §3.1), or ``None`` when every registered tool may run.
+            Cleared by :meth:`end_turn`.
     """
 
     def __init__(self) -> None:
         self._tools: dict[str, dict[str, Any]] = {}
         self._locked_classes: set[ToolClass] = set()
+        self._allowed_tools: frozenset[str] | None = None
 
     def register_tool(
         self,
@@ -254,8 +259,12 @@ class ToolRegistry:
         logger.info("Unregistered tool '%s'.", name)
         return True
 
-    def get_tool_definitions(self) -> list[dict[str, Any]]:
-        """Return all registered tools in OpenAI function-calling format.
+    def get_tool_definitions(self, names: frozenset[str] | None = None) -> list[dict[str, Any]]:
+        """Return the registered tools in OpenAI function-calling format.
+
+        Args:
+            names: Return only the tools with these names, in registry order;
+                ``None`` returns every registered tool.
 
         Returns:
             List of tool definition dicts. Empty list if no tools registered.
@@ -270,6 +279,7 @@ class ToolRegistry:
                 },
             }
             for name, tool in self._tools.items()
+            if names is None or name in names
         ]
 
     def get_tool_class(self, name: str) -> ToolClass:
@@ -288,15 +298,36 @@ class ToolRegistry:
             raise KeyError(f"Tool '{name}' is not registered.")
         return self._tools[name]["tool_class"]
 
-    def begin_turn(self) -> None:
+    def begin_turn(self, allowed_tools: frozenset[str] | None = None) -> None:
         """Reset the per-turn gating state at the start of a user turn.
 
         Called at the start of every streaming turn by
         :meth:`services.ai_service_core.AIServiceCore.stream_response`
         (ADR-0022).
+
+        Args:
+            allowed_tools: The tool allowlist for this turn (ADR-0137 §3.1):
+                :meth:`execute_tool` refuses every other name until
+                :meth:`end_turn` clears it. ``None`` means every registered
+                tool may run.
+
+        Raises:
+            ToolRegistryError: If ``allowed_tools`` names a tool that is not
+                registered.
         """
+        if allowed_tools is not None:
+            unknown = allowed_tools - set(self._tools)
+            if unknown:
+                raise ToolRegistryError(f"Allowlist names unregistered tools: {sorted(unknown)}")
         self._locked_classes = set()
-        logger.debug("ToolRegistry.begin_turn: per-turn lock state cleared.")
+        self._allowed_tools = allowed_tools
+        if allowed_tools is None:
+            logger.debug("ToolRegistry.begin_turn: per-turn lock state cleared.")
+        else:
+            logger.debug(
+                "ToolRegistry.begin_turn: per-turn lock state cleared; allowlist of %d tools.",
+                len(allowed_tools),
+            )
 
     def end_turn(self) -> None:
         """Release the per-turn gating state at the end of a user turn.
@@ -307,29 +338,43 @@ class ToolRegistry:
         (ADR-0022).
         """
         self._locked_classes = set()
+        self._allowed_tools = None
         logger.debug("ToolRegistry.end_turn: per-turn lock state cleared.")
 
     def execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Execute a registered tool with the given arguments.
 
         Tool failures are caught and returned as error strings — they never
-        crash the tool-execution loop. If a tool's class is currently locked
-        by per-turn gating (ADR-0022), the call is refused and a gated-refusal
-        string is returned; the tool function is not invoked.
+        crash the tool-execution loop. If the turn runs under a tool allowlist
+        that does not name the tool (ADR-0137 §3.1), or the tool's class is
+        currently locked by per-turn gating (ADR-0022), the call is refused and
+        a refusal string is returned; the tool function is not invoked.
 
         Args:
             name: The tool name (must be registered).
             arguments: Dict of keyword arguments matching the tool's schema.
 
         Returns:
-            The tool's string result, a gated-refusal string if the tool's
-            class is locked for this turn, or an error description if the tool
-            is unknown or raises an exception.
+            The tool's string result, an allowlist-refusal string if the turn's
+            allowlist does not name the tool, a gated-refusal string if the
+            tool's class is locked for this turn, or an error description if the
+            tool is unknown or raises an exception.
         """
         if name not in self._tools:
             error_msg = f"Unknown tool '{name}'. Available: {sorted(self._tools.keys())}"
             logger.error(error_msg)
             return error_msg
+
+        if self._allowed_tools is not None and name not in self._allowed_tools:
+            refusal = (
+                f"Tool '{name}' is not offered on this turn: the turn runs under a "
+                "tool allowlist and the tool was not in it. It was not executed."
+            )
+            logger.warning(
+                "ToolRegistry.execute_tool: refused '%s' — not in this turn's allowlist.",
+                name,
+            )
+            return refusal
 
         tool = self._tools[name]
         tool_class: ToolClass = tool["tool_class"]

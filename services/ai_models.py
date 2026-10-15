@@ -99,6 +99,9 @@ class Message:
             so a ``tool`` message can be paired with the originating
             ``assistant``-with-``tool_calls`` entry.
         model: Model identifier that generated this message (assistant only).
+        channel: Which surface produced the message — ``None`` for a typed or
+            voice-message turn, ``"call"`` for everything a voice call
+            appended (ADR-0137 §5). Not serialised to the model.
     """
 
     role: MessageRole
@@ -109,6 +112,7 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
     model: str | None = None
+    channel: str | None = None
 
 
 @dataclass

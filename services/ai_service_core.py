@@ -573,6 +573,7 @@ class AIServiceCore:
         tool_context: ToolExecutionContext | None = None,
         *,
         llm: ResolvedLLM | None = None,
+        tool_names: frozenset[str] | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Drive one Shirley turn end-to-end, yielding :class:`StreamEvent`.
 
@@ -621,6 +622,11 @@ class AIServiceCore:
                 :meth:`set_model` / :meth:`set_status` remain the seam;
                 both streaming consumers always pass a resolution, so
                 ``None`` is reached only from tests.
+            tool_names: Offer only these registered tools on this turn and
+                refuse every other name in ``execute_tool`` (ADR-0137 §3.1).
+                ``None`` offers the whole registry. An unknown name raises
+                :class:`~services.tool_registry.ToolRegistryError` before the
+                turn lock is taken.
 
         Yields:
             :class:`StreamEvent` records describing the turn.
@@ -663,6 +669,13 @@ class AIServiceCore:
         # directly; the ``try/finally`` guarantees the lock is freed
         # even if ``_stream_response_locked`` raises or the generator
         # is closed mid-stream.
+        if tool_names is not None:
+            registry = tool_registry.get_tool_registry()
+            unknown = tool_names - set(registry.list_tools())
+            if unknown:
+                raise tool_registry.ToolRegistryError(
+                    f"tool_names names unregistered tools: {sorted(unknown)}"
+                )
         await asyncio.to_thread(_TURN_LOCK.acquire)
         try:
             async for event in self._stream_response_locked(
@@ -672,6 +685,7 @@ class AIServiceCore:
                 tool_registry.get_tool_registry(),
                 tool_context,
                 llm=llm,
+                tool_names=tool_names,
             ):
                 yield event
         finally:
@@ -686,6 +700,7 @@ class AIServiceCore:
         tool_context: ToolExecutionContext | None = None,
         *,
         llm: ResolvedLLM | None = None,
+        tool_names: frozenset[str] | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Body of :meth:`stream_response` assuming the turn lock is held.
 
@@ -706,15 +721,19 @@ class AIServiceCore:
         the client and the model, so nothing below reads ``_active_model``
         or the stored credentials. ``None`` falls back to the singleton's
         state, unchanged (reached only from tests).
+
+        ``tool_names`` is this turn's tool allowlist (ADR-0137 §3.1): only
+        those definitions are offered, and the registry refuses every other
+        name until ``end_turn``. ``None`` offers the whole registry.
         """
         if tool_context is not None:
             set_tool_context(tool_context)
         active_model = llm.model if llm is not None else self._active_model
         try:
-            tool_reg.begin_turn()
+            tool_reg.begin_turn(allowed_tools=tool_names)
             client = self._make_async_client(llm)
             try:
-                tool_defs = tool_reg.get_tool_definitions() or None
+                tool_defs = tool_reg.get_tool_definitions(names=tool_names) or None
                 messages: list[dict[str, Any]] = conversation.to_openai_messages()
                 if system_prompt:
                     messages = [{"role": "system", "content": system_prompt}, *messages]

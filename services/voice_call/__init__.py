@@ -20,6 +20,10 @@ which returns inactive (``None``), active, or raises
 :class:`CallConfigurationError` naming the field and the Admin card
 (ADR-0137 §7).
 
+The ``ask_shirley`` turn runs under :data:`CALL_TOOL_ALLOWLIST` (ADR-0137
+§3.1), and its written answer is rewritten for the ear through the forced
+``speak`` tool of :mod:`services.voice_call.speakable` (ADR-0137 §3).
+
 Pure Python: this package imports only the standard library and ``httpx``.
 It must not import from ``web/``, ``bot/``, ``core/``, ``modules/``,
 ``services.voice`` or the AI core; the web surface imports **from** it, and
@@ -36,6 +40,7 @@ from services.voice_call.agent_definition import (
     first_message_for,
     load_call_prompt,
 )
+from services.voice_call.allowlist import CALL_TOOL_ALLOWLIST
 from services.voice_call.defaults import (
     DEFAULT_BASE_URL,
     DEFAULT_CONVERSATION_MODEL,
@@ -47,6 +52,17 @@ from services.voice_call.elevenlabs_provider import ElevenLabsCallProvider
 from services.voice_call.errors import CallConfigurationError, CallProviderError, VoiceCallError
 from services.voice_call.port import AgentDefinition, CallProvider, SessionCredentials
 from services.voice_call.resolved import ResolvedCall, assemble_call
+from services.voice_call.speakable import (
+    SPEAK_TOOL,
+    SPEAK_TOOL_CHOICE,
+    SPEAK_TOOL_NAME,
+    SPEAKABLE_FALLBACKS,
+    SPEAKABLE_SYSTEM_PROMPT,
+    SPEAKABLE_TARGET_WORDS,
+    fallback_for,
+    speakable_from_tool_calls,
+    speakable_messages,
+)
 
 __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group comments
     # Port and provider
@@ -64,6 +80,17 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "compose_call_prompt",
     "load_call_prompt",
     "first_message_for",
+    # The ask_shirley turn
+    "CALL_TOOL_ALLOWLIST",
+    "SPEAK_TOOL",
+    "SPEAK_TOOL_CHOICE",
+    "SPEAK_TOOL_NAME",
+    "SPEAKABLE_SYSTEM_PROMPT",
+    "SPEAKABLE_TARGET_WORDS",
+    "SPEAKABLE_FALLBACKS",
+    "speakable_messages",
+    "speakable_from_tool_calls",
+    "fallback_for",
     # Defaults
     "DEFAULT_CONVERSATION_MODEL",
     "DEFAULT_TTS_MODEL_ID",

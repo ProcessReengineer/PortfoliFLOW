@@ -381,6 +381,78 @@ class TestPerTurnGating:
 
 
 # ---------------------------------------------------------------------------
+# Per-turn tool allowlist (ADR-0137 §3.1)
+# ---------------------------------------------------------------------------
+
+
+def _make_allowlist_registry(calls: list[str]) -> ToolRegistry:
+    """Build a registry with two tools, ``a`` and ``b``, that record their calls."""
+    reg = ToolRegistry()
+    for name in ("a", "b"):
+        reg.register_tool(
+            name=name,
+            function=lambda name=name: calls.append(name) or f"{name}-ok",
+            description=f"Tool {name}.",
+            parameters={"type": "object", "properties": {}, "required": []},
+            tool_class=ToolClass.READ_INTERNAL,
+        )
+    return reg
+
+
+class TestPerTurnAllowlist:
+    """The per-turn tool allowlist from ADR-0137 §3.1."""
+
+    def test_allowlist_refuses_unlisted_tool(self) -> None:
+        """A tool outside the turn's allowlist is refused and not invoked."""
+        calls: list[str] = []
+        reg = _make_allowlist_registry(calls)
+        reg.begin_turn(allowed_tools=frozenset({"a"}))
+        refusal = reg.execute_tool("b", {})
+        assert "not offered on this turn" in refusal
+        assert "'b'" in refusal
+        assert calls == []
+        assert reg.execute_tool("a", {}) == "a-ok"
+        assert calls == ["a"]
+
+    def test_end_turn_clears_allowlist(self) -> None:
+        """end_turn drops the allowlist, so a plain next turn runs every tool."""
+        calls: list[str] = []
+        reg = _make_allowlist_registry(calls)
+        reg.begin_turn(allowed_tools=frozenset({"a"}))
+        reg.end_turn()
+
+        reg.begin_turn()
+        assert reg.execute_tool("b", {}) == "b-ok"
+        assert calls == ["b"]
+
+    def test_allowlist_naming_unregistered_tool_raises(self) -> None:
+        """An allowlist naming an unregistered tool is a programming error."""
+        reg = _make_allowlist_registry([])
+        with pytest.raises(ToolRegistryError, match="nope"):
+            reg.begin_turn(allowed_tools=frozenset({"nope"}))
+
+    def test_get_tool_definitions_filters_by_names(self) -> None:
+        """names= narrows the definitions, in registry order; None returns all."""
+        reg = _make_allowlist_registry([])
+        only_b = reg.get_tool_definitions(names=frozenset({"b"}))
+        assert [d["function"]["name"] for d in only_b] == ["b"]
+        assert only_b == [d for d in reg.get_tool_definitions() if d["function"]["name"] == "b"]
+        everything = reg.get_tool_definitions(names=None)
+        assert [d["function"]["name"] for d in everything] == ["a", "b"]
+        assert reg.get_tool_definitions(names=frozenset()) == []
+
+    def test_allowlist_refusal_precedes_locked_class_refusal(self) -> None:
+        """A tool both class-locked and unlisted gets the allowlist refusal."""
+        reg = _make_gating_registry()
+        reg.begin_turn(allowed_tools=frozenset({"fetch_untrusted"}))
+        assert reg.execute_tool("fetch_untrusted", {}) == "fetched-content"
+        refusal = reg.execute_tool("write_internal", {})
+        assert "not offered on this turn" in refusal
+        assert "ADR-0022" not in refusal
+        reg.end_turn()
+
+
+# ---------------------------------------------------------------------------
 # wraps_result_as_untrusted (ADR-0022 trust delimiters)
 # ---------------------------------------------------------------------------
 

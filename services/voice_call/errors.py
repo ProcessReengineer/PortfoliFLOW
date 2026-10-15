@@ -36,3 +36,11 @@ class CallProviderError(VoiceCallError):
     The message carries the operation, the HTTP status and a body excerpt, or
     the transport failure — never the key.
     """
+
+
+class CallJobStateError(VoiceCallError):
+    """An ``ask_shirley`` job was asked for a transition its state does not allow.
+
+    Raised by :class:`~services.voice_call.jobs.CallJob`; cancelling a
+    terminal job is not an error and never raises.
+    """

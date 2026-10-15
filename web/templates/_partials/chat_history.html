@@ -18,15 +18,21 @@
    to the HTML parser. An artefact that was too large to archive carries
    no spec and renders the calm placeholder instead.
 
+   A voice call (ADR-0137 §5) leaves two marks: its bubbles carry a small
+   "Call" chip above the bubble, and its start and end lines render as
+   centred history furniture between the messages.
+
    Context:
        items         — render items in surface order:
-                       {kind: "message", role, content} and
-                       {kind: "chart", artifact_id, caption, spec, oversized}.
+                       {kind: "message", role, content, channel},
+                       {kind: "chart", artifact_id, caption, spec, oversized}
+                       and {kind: "call_line", content}.
        pin_chart_url — the chart pin dialog endpoint (ADR-0114).
 #}
 {% for item in items %}
 {% if item.kind == "message" %}
 <article class="chat-message chat-message--{{ item.role }}">
+    {% if item.channel == "call" %}<span class="pf-chip chat-chip--call">Call</span>{% endif %}
     <div class="chat-message__bubble"
          {% if item.role == "assistant" %}aria-live="polite"{% endif %}>{{ item.content }}</div>
 </article>
@@ -52,6 +58,8 @@
                 hx-swap="innerHTML">Pin to case…</button>
     {% endif %}
 </article>
+{% elif item.kind == "call_line" %}
+<div class="chat-call-line">{{ item.content }}</div>
 {% endif %}
 {% else %}
 {% include "_partials/chat_empty.html" %}

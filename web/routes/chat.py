@@ -19,6 +19,13 @@ shell consumes:
 * ``POST /chat/brief/watch-briefing/<id>`` — hand a written Watch Desk
   briefing to Shirley in place (ADR-0133 §6); ``GET /chat/brief/banner``
   re-renders the dock's consultation banner from the stash.
+* ``POST /chat/call/ask``        — start a voice call's ``ask_shirley`` job
+  (ADR-0137 §3); ``GET /chat/call/jobs/<job_id>`` polls it and
+  ``POST /chat/call/jobs/<job_id>/cancel`` cancels it.
+* ``POST /chat/call/events``     — relay a call's final transcript lines
+  into the history.
+* ``POST /chat/call/end``        — append the call's end line and re-render
+  the history.
 
 Two further per-session in-memory stores ride alongside the history
 (``app.state.chat_histories``, ADR-0050): the consultation-brief stash
@@ -26,7 +33,12 @@ Two further per-session in-memory stores ride alongside the history
 ``case`` or ``watch_briefing``, one active, each replacing the other) and
 the chart-artefact sidecar (``app.state.chat_chart_artifacts``, ADR-0114)
 that lets a chart survive a tab reload and be pinned to a case. Both share
-the history's lifecycle exactly — see their sections below.
+the history's lifecycle exactly — see their sections below. A voice call
+(ADR-0137) adds two more: the call-line sidecar
+(``app.state.chat_call_lines``), which holds the "Call started" / "Call
+ended" lines beside the history and shares its lifecycle like the chart
+sidecar, and the ``ask_shirley`` job records (``app.state.call_jobs``),
+bounded like the pending-turn store.
 
 A short-lived in-memory store (``app.state.pending_turns``) stashes the
 user message and the turn metadata between the POST and the SSE GET.
@@ -62,15 +74,22 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
 from core.exceptions import CaseClosedError, CaseStateInvalid
 from core.models.watchpoint import WATCHPOINT_FAMILIES
@@ -124,7 +143,21 @@ from services.voice import (
     build_stt,
     build_tts,
 )
-from services.voice_call import CallConfigurationError, ResolvedCall, assemble_call
+from services.voice_call import (
+    CALL_TOOL_ALLOWLIST,
+    DEFAULT_LANGUAGE,
+    SPEAK_TOOL,
+    SPEAK_TOOL_NAME,
+    SPEAKABLE_SYSTEM_PROMPT,
+    CallConfigurationError,
+    CallJob,
+    CallJobStore,
+    ResolvedCall,
+    assemble_call,
+    fallback_for,
+    speakable_from_tool_calls,
+    speakable_messages,
+)
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import require_role
@@ -288,9 +321,10 @@ def _get_or_create_history(request: Request, session_id: str) -> Conversation:
         return store[session_id]
     while len(store) >= _CHAT_HISTORIES_LIMIT:
         evicted_key, _ = store.popitem(last=False)
-        # The chart-artefact sidecar rides the same eviction (ADR-0114):
-        # one lifecycle, two stores.
+        # The chart-artefact sidecar (ADR-0114) and the call-line sidecar
+        # (ADR-0137 §5) ride the same eviction: one lifecycle, three stores.
         _chart_artifacts(request).pop(evicted_key, None)
+        _call_lines(request).pop(evicted_key, None)
         logger.warning(
             "chat: evicting chat history for session %s (LRU cap %d)",
             evicted_key,
@@ -304,9 +338,10 @@ def _get_or_create_history(request: Request, session_id: str) -> Conversation:
 def _drop_history(request: Request, session_id: str) -> None:
     """Remove the session's history. Safe on absent keys.
 
-    The chart-artefact sidecar (ADR-0114) is dropped in the same operation:
-    the two stores share one lifecycle, so "new chat" and logout never leave
-    archived specs behind a conversation that no longer exists.
+    The chart-artefact sidecar (ADR-0114) and the call-line sidecar
+    (ADR-0137 §5) are dropped in the same operation: the stores share one
+    lifecycle, so "new chat" and logout never leave archived specs or call
+    lines behind a conversation that no longer exists.
 
     Args:
         request: The FastAPI request whose store is mutated.
@@ -314,11 +349,13 @@ def _drop_history(request: Request, session_id: str) -> None:
     """
     _chat_histories(request).pop(session_id, None)
     _chart_artifacts(request).pop(session_id, None)
+    _call_lines(request).pop(session_id, None)
 
 
 def _trim_history(
     conversation: Conversation,
     artifacts: list[dict[str, Any]] | None = None,
+    call_lines: list[dict[str, Any]] | None = None,
 ) -> None:
     """Trim ``conversation`` to fit the per-history bounds.
 
@@ -342,6 +379,10 @@ def _trim_history(
             dropped in the *same* operation, so an archived spec never
             outlives the assistant message it belongs to and orphaned
             specs cannot accumulate. ``None`` trims the history alone.
+        call_lines: The session's call-line sidecar (ADR-0137 §5), when it
+            has one. A line anchored to an evicted message goes with its
+            turn-group, like that group's charts; a line anchored at ``""``
+            (before everything) survives. ``None`` leaves no lines to trim.
     """
 
     def _char_count() -> int:
@@ -381,6 +422,10 @@ def _trim_history(
         del conversation.messages[:boundary]
         if artifacts is not None:
             artifacts[:] = [a for a in artifacts if a["message_id"] not in evicted_ids]
+        if call_lines is not None:
+            call_lines[:] = [
+                line for line in call_lines if line["after_message_id"] not in evicted_ids
+            ]
 
 
 # ---------------------------------------------------------------------------
@@ -555,8 +600,9 @@ def _find_chart_artifact(
 def _history_items(
     conversation: Conversation,
     artifacts: list[dict[str, Any]],
+    call_lines: Sequence[dict[str, Any]] = (),
 ) -> list[dict[str, Any]]:
-    """Interleave prose bubbles and chart artefacts in message order.
+    """Interleave prose bubbles, chart artefacts and call lines in message order.
 
     The prose rule is ADR-0050's, unchanged: only ``user`` and final
     ``assistant`` messages with content and no tool calls become bubbles — the
@@ -565,20 +611,31 @@ def _history_items(
     empty prose body) still rehydrates its figure, and no empty bubble is
     invented above it.
 
+    The call lines (ADR-0137 §5) are history furniture, not conversation: the
+    ``""``-anchored ones come first, and every other one follows the message
+    it is anchored to, after that message's charts, in the order the lines
+    were appended. A message bubble carries its ``channel`` so a call's
+    bubbles wear the "Call" chip.
+
     Args:
         conversation: The session's history.
         artifacts: The session's sidecar records.
+        call_lines: The session's call-line records.
 
     Returns:
-        Render items — ``{"kind": "message", role, content}`` and
-        ``{"kind": "chart", artifact_id, caption, spec, oversized}`` — in the
-        order the surface shows them.
+        Render items — ``{"kind": "message", role, content, channel}``,
+        ``{"kind": "chart", artifact_id, caption, spec, oversized}`` and
+        ``{"kind": "call_line", content}`` — in the order the surface shows
+        them.
     """
     anchored: dict[str, list[dict[str, Any]]] = {}
     for record in artifacts:
         anchored.setdefault(record["message_id"], []).append(record)
+    lines_after: dict[str, list[dict[str, Any]]] = {}
+    for line in call_lines:
+        lines_after.setdefault(line["after_message_id"], []).append(line)
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, Any]] = [_call_line_item(line) for line in lines_after.get("", [])]
     for message in conversation.messages:
         if (
             message.role in (MessageRole.USER, MessageRole.ASSISTANT)
@@ -590,6 +647,7 @@ def _history_items(
                     "kind": "message",
                     "role": message.role.value,
                     "content": message.content,
+                    "channel": message.channel,
                 }
             )
         for record in anchored.get(message.id, []):
@@ -602,6 +660,7 @@ def _history_items(
                     "oversized": record["oversized"],
                 }
             )
+        items.extend(_call_line_item(line) for line in lines_after.get(message.id, []))
     return items
 
 
@@ -1961,7 +2020,11 @@ async def _begin_turn(
     # unbounded between the POST and the SSE GET (ADR-0050).
     history = _get_or_create_history(request, str(session.id))
     history.add_message(Message(role=MessageRole.USER, content=text, attachments=attachments))
-    _trim_history(history, _stored_chart_artifacts(request, str(session.id)))
+    _trim_history(
+        history,
+        _stored_chart_artifacts(request, str(session.id)),
+        _stored_call_lines(request, str(session.id)),
+    )
 
     _stash_turn(
         request,
@@ -2210,6 +2273,51 @@ def _html_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _tool_context_for(request: Request, session: SessionDTO) -> ToolExecutionContext | None:
+    """Build the per-turn tool-execution context for ``session``, or ``None``.
+
+    Shared by the typed turn (:func:`chat_stream`) and a voice call's
+    ``ask_shirley`` job (:func:`_run_call_job`), so both hand the core the
+    same context.
+
+    Args:
+        request: The active request (carries the settings).
+        session: The authenticated session, supplying tenant and user.
+
+    Returns:
+        The context, or ``None`` when ``DATABASE_URL`` is unset.
+    """
+    # Build the per-turn tool-execution context from the
+    # authenticated session and hand it to the core. The core
+    # sets it under ``_TURN_LOCK`` and clears it — together with
+    # the turn-scoped data cache — in a ``finally`` when the turn
+    # ends, so the web chat surface and the in-process Telegram
+    # bot can never race on the shared module-level context
+    # (ADR-0063). Two distinct seams: the tenant comes from the
+    # authenticated session's ``tenant_id`` (the chat route is
+    # the *producer* of the context), while the database URL is
+    # ordinary request-scoped plumbing from settings. The tools
+    # build their own loop-local engine from this URL; the shared
+    # ``app.state.engine`` must not cross the tool's thread/loop
+    # boundary (ADR-0047, amended). The URL is ``None`` when
+    # ``DATABASE_URL`` is unset — in that case the context is
+    # ``None`` and the tools degrade gracefully, telling the
+    # model the data is unavailable. The user axis rides along
+    # for the one tool that resolves its own credential per
+    # call — the web research tool walks the user scope of the
+    # chain before the tenant's (ADR-0132).
+    database_url = request.app.state.settings.database_url
+    return (
+        ToolExecutionContext(
+            tenant_id=session.tenant_id,
+            database_url=database_url,
+            user_id=session.user_id,
+        )
+        if database_url
+        else None
+    )
+
+
 @router.get("/chat/stream/{turn_id}")
 async def chat_stream(
     request: Request,
@@ -2264,36 +2372,7 @@ async def chat_stream(
             # generic handler below and reads as the operator emergency it
             # is, never as "configure me".
             llm = await _resolve_llm(request, session)
-
-            # Build the per-turn tool-execution context from the
-            # authenticated session and hand it to the core. The core
-            # sets it under ``_TURN_LOCK`` and clears it — together with
-            # the turn-scoped data cache — in a ``finally`` when the turn
-            # ends, so the web chat surface and the in-process Telegram
-            # bot can never race on the shared module-level context
-            # (ADR-0063). Two distinct seams: the tenant comes from the
-            # authenticated session's ``tenant_id`` (the chat route is
-            # the *producer* of the context), while the database URL is
-            # ordinary request-scoped plumbing from settings. The tools
-            # build their own loop-local engine from this URL; the shared
-            # ``app.state.engine`` must not cross the tool's thread/loop
-            # boundary (ADR-0047, amended). The URL is ``None`` when
-            # ``DATABASE_URL`` is unset — in that case the context is
-            # ``None`` and the tools degrade gracefully, telling the
-            # model the data is unavailable. The user axis rides along
-            # for the one tool that resolves its own credential per
-            # call — the web research tool walks the user scope of the
-            # chain before the tenant's (ADR-0132).
-            database_url = request.app.state.settings.database_url
-            tool_context = (
-                ToolExecutionContext(
-                    tenant_id=session.tenant_id,
-                    database_url=database_url,
-                    user_id=session.user_id,
-                )
-                if database_url
-                else None
-            )
+            tool_context = _tool_context_for(request, session)
             # Append the active case brief (if any) to Shirley's system prompt
             # for this turn only — no ``ai_service_core`` change, no persistence
             # (ADR-0107 C6, binding decision 1). A stale stash clears here.
@@ -2397,7 +2476,9 @@ async def chat_stream(
                     artifacts = _bind_chart_artifacts(
                         request, str(session.id), pending_charts, done_data
                     )
-                    _trim_history(conversation, artifacts)
+                    _trim_history(
+                        conversation, artifacts, _stored_call_lines(request, str(session.id))
+                    )
                     yield _format_sse("done", done_data)
                     return
                 elif et == "error":
@@ -2415,7 +2496,11 @@ async def chat_stream(
                     # The turn's charts are dropped with the assistant content
                     # they belong to: there is no message to anchor them to
                     # (ADR-0114, following ADR-0050's error-path rule).
-                    _trim_history(conversation, _stored_chart_artifacts(request, str(session.id)))
+                    _trim_history(
+                        conversation,
+                        _stored_chart_artifacts(request, str(session.id)),
+                        _stored_call_lines(request, str(session.id)),
+                    )
                     yield _format_sse("error", str(payload.get("message", "Unknown error.")))
                     yield _format_sse("done", "")
                     return
@@ -2446,6 +2531,553 @@ async def chat_stream(
             "Connection": "keep-alive",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Voice call — relay, the ask_shirley job and the call's history furniture
+# (ADR-0137 §3–§5)
+# ---------------------------------------------------------------------------
+#
+# A voice call talks to a vendor-hosted agent in the browser; this section is
+# its server side. The browser relays the call's final transcript lines into
+# the session's history (``POST /chat/call/events``), hands every question the
+# agent's ``ask_shirley`` tool asks to a job (``POST /chat/call/ask``, polled
+# at ``GET /chat/call/jobs/<job_id>``, cancelled on barge-in) and marks the
+# call's end (``POST /chat/call/end``).
+#
+# ``call_id`` is the handle one call carries on every request: the session
+# endpoint mints it (a 12-hex UUID slice) and returns it with the vendor
+# credential. Here it is opaque — it keys the relay cursor, and nothing else.
+#
+# A job runs one ordinary Shirley turn under the turn lock, with the tool
+# allowlist, through the typed turn's own machinery — the recorder, the chart
+# binding, the trim, the briefed system prompt, the per-turn LLM resolution
+# and the tool context — and then rewrites the written answer for the ear.
+# The job outlives the request that started it; the browser stops polling at
+# 75 s and the job runs to completion, so the answer still lands in the chat.
+#
+# Four stores ride on ``app.state``, all single-worker like the rest of this
+# surface (ADR-0050):
+#
+# * ``call_jobs``       — the job records, a bounded ``CallJobStore``;
+# * ``call_tasks``      — strong references to the running job tasks, keyed
+#   like the jobs and removed when a task ends;
+# * ``call_seq``        — the relay cursor per ``(session_id, call_id)``: the
+#   highest ``seq`` appended so far, bounded like the pending-turn store;
+# * ``chat_call_lines`` — the call-line sidecar.
+#
+# The "Call started HH:MM" / "Call ended HH:MM" lines are history furniture,
+# not conversation, so they never reach a model: they live **beside** the
+# history, as the chart artefacts do (ADR-0114), never in
+# ``Conversation.messages``. One record per line::
+#
+#     {"kind": "started" | "ended",
+#      "at": "HH:MM",
+#      "after_message_id": "" | "<Message.id>"}   # "" = before everything
+#
+# The sidecar is keyed like ``chat_histories`` and shares its lifecycle
+# verbatim: "new chat", logout and the session-level LRU drop it with the
+# history, and the turn-group trim drops the lines anchored to the messages it
+# evicts.
+
+_CALL_STORES_LIMIT = 100
+
+#: The failure a job reports when the turn ended without an answer.
+_CALL_NO_ANSWER_MESSAGE = "Shirley did not answer."
+
+#: The rewrite call's ceiling, seconds: a slow rewrite must not hold the
+#: answer back, and its failure only costs the fallback sentence.
+_SPEAKABLE_TIMEOUT_SECONDS = 30.0
+
+
+class _CallEvent(BaseModel):
+    """One final transcript line of a call, as the browser relays it."""
+
+    seq: int = Field(ge=0)
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=8_000)
+    at: str | None = None  # the browser's clock, informational
+
+
+class _CallEventsBody(BaseModel):
+    """The body of ``POST /chat/call/events``: a batch of one call's lines."""
+
+    call_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    events: list[_CallEvent] = Field(default_factory=list, max_length=200)
+
+
+class _CallAskBody(_CallEventsBody):
+    """The body of ``POST /chat/call/ask``: the question and the lines not yet relayed."""
+
+    question: str = Field(min_length=1, max_length=4_000)
+    language: str | None = Field(default=None, max_length=16)
+
+
+class _CallEndBody(BaseModel):
+    """The body of ``POST /chat/call/end``: the call and the browser's ``HH:MM``."""
+
+    call_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    at: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+def _call_jobs(request: Request) -> CallJobStore:
+    """Return (and lazily initialise) the per-app job store (``app.state.call_jobs``).
+
+    Keyed ``(session_id, job_id)``, so another session's job id never
+    resolves; bounded, the oldest record evicted with a warning.
+    """
+    store = getattr(request.app.state, "call_jobs", None)
+    if store is None:
+        store = CallJobStore(limit=_CALL_STORES_LIMIT)
+        request.app.state.call_jobs = store
+    return cast(CallJobStore, store)
+
+
+def _call_tasks(request: Request) -> dict[tuple[str, str], asyncio.Task[None]]:
+    """Return (and lazily initialise) the running job tasks, keyed like the jobs.
+
+    The event loop holds only weak references to its tasks; this store keeps
+    a running job alive until it ends, when its done-callback removes it.
+    """
+    store = getattr(request.app.state, "call_tasks", None)
+    if store is None:
+        store = {}
+        request.app.state.call_tasks = store
+    return cast("dict[tuple[str, str], asyncio.Task[None]]", store)
+
+
+def _call_seq(request: Request) -> OrderedDict[tuple[str, str], int]:
+    """Return (and lazily initialise) the relay cursors, keyed ``(session_id, call_id)``."""
+    store = getattr(request.app.state, "call_seq", None)
+    if store is None:
+        store = OrderedDict()
+        request.app.state.call_seq = store
+    return cast("OrderedDict[tuple[str, str], int]", store)
+
+
+def _advance_call_cursor(request: Request, key: tuple[str, str], seq: int) -> None:
+    """Set the relay cursor of ``key`` to ``seq``, evicting the oldest at the cap.
+
+    Re-inserting moves the entry to the most-recently-used end, so a live
+    call's cursor is never the one evicted.
+    """
+    store = _call_seq(request)
+    store.pop(key, None)
+    while len(store) >= _CALL_STORES_LIMIT:
+        evicted_key, _ = store.popitem(last=False)
+        logger.warning(
+            "chat: evicting call relay cursor %s (LRU cap %d)",
+            evicted_key,
+            _CALL_STORES_LIMIT,
+        )
+    store[key] = seq
+
+
+def _call_lines(request: Request) -> OrderedDict[str, list[dict[str, Any]]]:
+    """Return (and lazily initialise) the per-app call-line sidecar.
+
+    Keyed by the authenticated session UUID (string), like
+    :func:`_chart_artifacts`, and bounded the same way: by the history
+    store's eviction rather than a cap of its own.
+    """
+    store = getattr(request.app.state, "chat_call_lines", None)
+    if store is None:
+        store = OrderedDict()
+        request.app.state.chat_call_lines = store
+    return cast("OrderedDict[str, list[dict[str, Any]]]", store)
+
+
+def _stored_call_lines(request: Request, session_id: str) -> list[dict[str, Any]] | None:
+    """Return the session's call lines, or ``None`` when it has none.
+
+    A read never creates the entry: a session that never called carries no
+    sidecar at all.
+    """
+    return _call_lines(request).get(session_id)
+
+
+def _append_call_line(request: Request, session_id: str, kind: str, at: str | None) -> None:
+    """Append a "Call started" or "Call ended" line, anchored to the last message.
+
+    The history is touched first, so the line's session is in the history
+    store and the line shares its eviction.
+
+    Args:
+        request: The active request (owns the stores).
+        session_id: The owning session's UUID (string form).
+        kind: ``"started"`` or ``"ended"``.
+        at: The browser's ``HH:MM``; ``None`` stamps the server's UTC time,
+            as a typed turn's bubble is stamped.
+    """
+    conversation = _get_or_create_history(request, session_id)
+    anchor = conversation.messages[-1].id if conversation.messages else ""
+    _call_lines(request).setdefault(session_id, []).append(
+        {
+            "kind": kind,
+            "at": at or datetime.now(timezone.utc).strftime("%H:%M"),
+            "after_message_id": anchor,
+        }
+    )
+
+
+def _call_line_item(line: dict[str, Any]) -> dict[str, Any]:
+    """Project one call-line record into its render item."""
+    label = "Call started" if line["kind"] == "started" else "Call ended"
+    return {"kind": "call_line", "content": f"{label} {line['at']}"}
+
+
+def _apply_call_events(
+    request: Request,
+    session_id: str,
+    call_id: str,
+    events: Sequence[_CallEvent],
+) -> int:
+    """Append a call's final transcript lines to the history, each once, in order.
+
+    The batch is sorted by ``seq`` and every line at or below the call's
+    cursor is skipped, so a batch that arrives out of order or twice — the
+    browser retries — appends nothing twice. The lines are already shown on
+    the browser's side; nothing is rendered here.
+
+    Args:
+        request: The active request (owns the stores).
+        session_id: The owning session's UUID (string form).
+        call_id: The call's opaque handle.
+        events: The relayed lines.
+
+    Returns:
+        The number of lines appended.
+    """
+    key = (session_id, call_id)
+    cursor = _call_seq(request).get(key, -1)
+    conversation: Conversation | None = None
+    appended = 0
+    for event in sorted(events, key=lambda item: item.seq):
+        if event.seq <= cursor:
+            continue
+        if conversation is None:
+            conversation = _get_or_create_history(request, session_id)
+        role = MessageRole.USER if event.role == "user" else MessageRole.ASSISTANT
+        conversation.add_message(Message(role=role, content=event.text, channel="call"))
+        cursor = event.seq
+        appended += 1
+    if conversation is not None:
+        _advance_call_cursor(request, key, cursor)
+        _trim_history(
+            conversation,
+            _stored_chart_artifacts(request, session_id),
+            _stored_call_lines(request, session_id),
+        )
+    return appended
+
+
+async def _run_call_job(
+    request: Request,
+    session: SessionDTO,
+    job: CallJob,
+    *,
+    core: AIServiceCore,
+    llm: ResolvedLLM,
+    language: str,
+) -> None:
+    """Run one ``ask_shirley`` job to its end (ADR-0137 §3).
+
+    One ordinary Shirley turn on the session's history, under the turn lock
+    and with :data:`CALL_TOOL_ALLOWLIST`, consumed through the typed turn's
+    recorder, chart binding and trim; then a short non-streaming rewrite of
+    the written answer for the ear. The model is handed a transient copy of
+    the history that ends on the question — the agent's question is the
+    precise ask, and the user's own words may not have been relayed yet —
+    but the question is never stored: the history receives only what the
+    recorder collects, every message marked ``channel="call"``.
+
+    Cancellation is the job's flag and nothing else. This task is never
+    cancelled and its generator is never closed from another coroutine: the
+    turn may be parked in the thread that waits for the turn lock, or inside
+    a thread-bound tool, and cancelling that await would leave a thread that
+    takes the lock with nobody to release it — while ``aclose()`` on a
+    running generator raises. Instead the loop reads the flag at the next
+    event, ``aclosing()`` closes the generator at that yield, and the core's
+    ``finally`` chain (end of turn, client close, tool context cleared, lock
+    released) runs in order; a tool already running completes first. A
+    cancelled turn appends nothing. A cancel that arrives after the answer
+    was appended cannot take it back — the race ADR-0137 accepts — and
+    leaves the job cancelled.
+
+    The job is ``waiting_for_turn`` until the turn's first event, which
+    proves the lock is held; nothing peeks at the lock. There is no
+    server-side timeout. A failed rewrite never fails the job: the answer is
+    in the history, and the fallback sentence says so.
+
+    Any unexpected exception fails the job with a user-safe message and is
+    logged — a background task must never die silently.
+
+    Args:
+        request: The request that started the job (owns the stores).
+        session: The authenticated session.
+        job: The job's record, already stored.
+        core: The AI core.
+        llm: This turn's resolution (ADR-0112 §4b).
+        language: The call language, for the fallback sentence.
+    """
+    session_id = str(session.id)
+    try:
+        conversation = _get_or_create_history(request, session_id)
+        system_prompt = await _briefed_system_prompt(request, session, core.get_system_prompt())
+        tool_context = _tool_context_for(request, session)
+        model_conversation = Conversation(
+            messages=[
+                *conversation.messages,
+                Message(role=MessageRole.USER, content=job.question, channel="call"),
+            ]
+        )
+        recorder = _TurnRecorder()
+        pending_charts: list[dict[str, Any]] = []
+        error_message: str | None = None
+        finished = False
+        done_id = ""
+        prose = ""
+
+        async with aclosing(
+            core.stream_response(
+                model_conversation,
+                system_prompt=system_prompt,
+                tool_context=tool_context,
+                llm=llm,
+                tool_names=CALL_TOOL_ALLOWLIST,
+            )
+        ) as events:
+            async for event in events:
+                if job.cancel_requested:
+                    break  # aclosing() closes the generator; nothing is kept
+                if job.state == "waiting_for_turn":
+                    job.start()  # the first event proves the lock is ours
+                et = event.event_type
+                payload = event.payload
+                if et in ("tool_called", "tool_completed"):
+                    recorder.observe(et, payload)
+                elif et == "chart_artifact":
+                    # A PNG artefact is not archived, as on the typed turn.
+                    if str(payload.get("chart_format", "png")) == "plotly":
+                        pending_charts.append(
+                            _new_chart_record(
+                                payload.get("spec") or {}, str(payload.get("caption", ""))
+                            )
+                        )
+                elif et == "error":
+                    error_message = str(payload.get("message", "Unknown error."))
+                    break
+                elif et == "stream_finished":
+                    recorder.observe(et, payload)
+                    for collected in recorder.collected():
+                        # The final assistant message is the core's own
+                        # object; it is marked like every tool round.
+                        collected.channel = "call"
+                        conversation.messages.append(collected)
+                    final_message = payload.get("message")
+                    if isinstance(final_message, Message):
+                        done_id = final_message.id
+                        prose = final_message.content or ""
+                    artifacts = _bind_chart_artifacts(request, session_id, pending_charts, done_id)
+                    _trim_history(conversation, artifacts, _stored_call_lines(request, session_id))
+                    finished = True
+                    break
+
+        if job.cancel_requested:
+            return
+        if error_message is not None:
+            # ADR-0050's error-path rule: nothing of the turn is appended, and
+            # its charts go with it.
+            logger.info("chat-call: error path for job %s — nothing appended.", job.job_id)
+            _trim_history(
+                conversation,
+                _stored_chart_artifacts(request, session_id),
+                _stored_call_lines(request, session_id),
+            )
+            job.fail(error_message)
+            return
+        if not finished:
+            job.fail(_CALL_NO_ANSWER_MESSAGE)
+            return
+
+        charts = [
+            {
+                "artifact_id": record["artifact_id"],
+                "caption": record["caption"],
+                "spec": record["spec"],
+                "oversized": record["oversized"],
+            }
+            for record in _stored_chart_artifacts(request, session_id) or []
+            if done_id and record["message_id"] == done_id
+        ]
+        speakable: str | None = None
+        try:
+            result = await core.run_synthesis(
+                system_prompt=SPEAKABLE_SYSTEM_PROMPT,
+                context_messages=speakable_messages(prose, chart_count=len(charts)),
+                tool=dict(SPEAK_TOOL),
+                tool_choice={"type": "function", "function": {"name": SPEAK_TOOL_NAME}},
+                llm=llm,
+                timeout=_SPEAKABLE_TIMEOUT_SECONDS,
+            )
+            speakable = speakable_from_tool_calls(result.tool_calls)
+        except Exception as exc:  # noqa: BLE001 — a failed rewrite speaks the fallback
+            logger.warning(
+                "chat-call: speakable rewrite failed for job %s (%s) — the fallback is spoken.",
+                job.job_id,
+                type(exc).__name__,
+            )
+        if job.is_terminal:
+            return  # cancelled while the rewrite ran; the answer stays in the chat
+        job.complete(
+            speakable=speakable or fallback_for(language),
+            prose=prose,
+            charts=charts,
+            message_id=done_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — a background task must never die silently
+        logger.exception("chat-call: job %s failed unexpectedly", job.job_id)
+        if not job.is_terminal:
+            job.fail(user_safe_error(exc)[0])
+
+
+def _require_job(request: Request, session: SessionDTO, job_id: str) -> CallJob:
+    """Return the session's job with ``job_id``, or raise 404."""
+    job = _call_jobs(request).get(str(session.id), job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown job.")
+    return job
+
+
+async def _require_call_enabled(request: Request, session: SessionDTO) -> None:
+    """Raise 404 unless the voice call is switched on for the session's tenant.
+
+    The switch alone, never a key probe — the same answer the dock's call
+    button is offered on (ADR-0137 §4).
+    """
+    if not await _resolve_call_enabled(request, session):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Voice call is not enabled."
+        )
+
+
+@router.post(
+    "/chat/call/ask",
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_call_ask(
+    request: Request,
+    body: _CallAskBody,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> JSONResponse:
+    """Start an ``ask_shirley`` job and answer 202 ``{job_id}`` at once (ADR-0137 §3).
+
+    The lines the body carries are relayed first, so the history is in order
+    before the question is answered. Shirley's LLM is resolved here, before
+    any job exists: an unconfigured tenant gets the 503 a typed turn gets.
+    The job then runs in a task that outlives this request.
+    """
+    await _require_call_enabled(request, session)
+    core, llm = await _require_connected_core(request, session)
+    session_id = str(session.id)
+    _apply_call_events(request, session_id, body.call_id, body.events)
+
+    job = CallJob(job_id=uuid.uuid4().hex[:12], session_id=session_id, question=body.question)
+    _call_jobs(request).add(job)
+    key = (session_id, job.job_id)
+    tasks = _call_tasks(request)
+    task = asyncio.create_task(
+        _run_call_job(
+            request,
+            session,
+            job,
+            core=core,
+            llm=llm,
+            language=body.language or DEFAULT_LANGUAGE,
+        )
+    )
+    tasks[key] = task
+    task.add_done_callback(lambda _done: tasks.pop(key, None))
+    return JSONResponse({"job_id": job.job_id}, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.get(
+    "/chat/call/jobs/{job_id}",
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def get_call_job(
+    request: Request,
+    job_id: str,
+    session: SessionDTO = Depends(require_session),
+) -> JSONResponse:
+    """Report a job's state, and its answer once it is done (ADR-0137 §4)."""
+    return JSONResponse(_require_job(request, session, job_id).result())
+
+
+@router.post(
+    "/chat/call/jobs/{job_id}/cancel",
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def cancel_call_job(
+    request: Request,
+    job_id: str,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> JSONResponse:
+    """Cancel a job on barge-in and answer with its state (ADR-0137 §3 step 6).
+
+    Idempotent: a job that already ended keeps its state and says so. The
+    running turn notices the flag at its next event (see
+    :func:`_run_call_job`).
+    """
+    job = _require_job(request, session, job_id)
+    job.cancel()
+    return JSONResponse({"job_id": job.job_id, "state": job.state})
+
+
+@router.post(
+    "/chat/call/events",
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_call_events(
+    request: Request,
+    body: _CallEventsBody,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> JSONResponse:
+    """Relay a call's final transcript lines into the history (ADR-0137 §5).
+
+    Answers ``{"accepted": n}``, the number of lines appended; a line already
+    relayed counts nothing.
+    """
+    await _require_call_enabled(request, session)
+    accepted = _apply_call_events(request, str(session.id), body.call_id, body.events)
+    return JSONResponse({"accepted": accepted})
+
+
+@router.post(
+    "/chat/call/end",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_call_end(
+    request: Request,
+    body: _CallEndBody,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Mark the call ended and re-render the history (ADR-0137 §4, §10).
+
+    Appends the "Call ended HH:MM" line — the browser's clock when the body
+    carries it — forgets the call's relay cursor, and answers with the
+    history fragment ``GET /chat/history`` renders.
+    """
+    await _require_call_enabled(request, session)
+    session_id = str(session.id)
+    _append_call_line(request, session_id, "ended", body.at)
+    _call_seq(request).pop((session_id, body.call_id), None)
+    return _render_history(request, session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -2506,17 +3138,41 @@ async def get_chat_history(
     Plotly spec the browser re-plots. Nothing is recomputed — the
     restored figure is the artefact, not a fresh query. An artefact that
     was too large to archive renders a calm placeholder in its place.
+
+    A voice call's bubbles carry the "Call" chip and its start and end
+    lines are restored at their positions (ADR-0137 §5).
+    """
+    return _render_history(request, str(session.id))
+
+
+def _render_history(request: Request, session_id: str) -> HTMLResponse:
+    """Render the session's history fragment — shared by the reload and the call's end.
+
+    The empty-state placeholder is returned only when the session has
+    neither messages nor call lines.
+
+    Args:
+        request: The active request (carries the Jinja environment).
+        session_id: The owning session's UUID (string form).
+
+    Returns:
+        ``_partials/chat_history.html``, or ``_partials/chat_empty.html``.
     """
     templates = _templates(request)
-    session_id = str(session.id)
     conversation = _chat_histories(request).get(session_id)
-    if conversation is None or not conversation.messages:
+    messages = conversation.messages if conversation is not None else []
+    lines = _stored_call_lines(request, session_id) or []
+    if not messages and not lines:
         return cast(
             HTMLResponse,
             templates.TemplateResponse(request, "_partials/chat_empty.html", {}),
         )
 
-    items = _history_items(conversation, _stored_chart_artifacts(request, session_id) or [])
+    items = _history_items(
+        conversation or Conversation(),
+        _stored_chart_artifacts(request, session_id) or [],
+        lines,
+    )
     return cast(
         HTMLResponse,
         templates.TemplateResponse(

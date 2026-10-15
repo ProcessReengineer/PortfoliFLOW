@@ -23,33 +23,60 @@ What is pinned here:
   the empty fields, the persona voice ``voice_tts.voice`` stands in for an
   empty call voice, and an incomplete call fails naming the card, not
   ``.env`` (ADR-0137 §7).
+* **The ``ask_shirley`` job runs the typed turn's machinery** (ADR-0137 §3).
+  Through the real login flow and a scripted core: the job answers 202 at
+  once, waits for the turn, runs it with the tool allowlist, the turn's LLM
+  resolution and tool context, appends only what the turn produced — marked
+  ``channel="call"``, the question itself never stored — binds its charts,
+  rewrites the answer for the ear (falling back to the language's sentence
+  when the rewrite fails) and outlives the poll. A cancel discards the turn
+  and closes its generator; a cancel after the end changes nothing; an error
+  event fails the job with nothing appended.
+* **The relay and the end line** (ADR-0137 §5). Transcript lines land in
+  ``seq`` order, each once, however often and in whatever order the
+  browser sends them; the end line renders in the history fragment and
+  forgets the call's cursor. With the switch off the call's write
+  endpoints answer 404.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
-from collections.abc import AsyncGenerator
+import re
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import AsyncExitStack
 from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from core.repositories import ScopedSettingRepository, tenant_context
 from core.tenant_constants import SENTINEL_TENANT_ID
+from services.ai_models import ConnectionStatus, Conversation, Message, MessageRole
+from services.ai_service_core import StreamEvent, SynthesisResult
 from services.credential_vault import MASTER_KEY_ENV_VAR, VaultCipher
 from services.investments.credential_resolver import CredentialResolver
+from services.password_hashing import hash_password
 from services.voice_call import (
+    CALL_TOOL_ALLOWLIST,
     DEFAULT_BASE_URL,
     DEFAULT_CONVERSATION_MODEL,
     DEFAULT_LANGUAGE,
     CallConfigurationError,
     ResolvedCall,
+    fallback_for,
 )
+from web.main import create_app
 from web.routes import chat as chat_routes
+from web.settings import WebSettings
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -314,3 +341,539 @@ async def test_call_values_read_the_tenant_rows(
 
     assert call is not None
     assert (call.agent_id, call.model, call.base_url) == ("agent_x", "m-x", "https://eu.invalid")
+
+
+# ---------------------------------------------------------------------------
+# The ask_shirley job, the relay and the end line (ADR-0137 §3–§5)
+# ---------------------------------------------------------------------------
+
+_LLM_MODEL = "anthropic/claude-sonnet-4.5"
+_SPOKEN = "Das Buch steht gut."
+
+
+class _FakeCallCore:
+    """A scripted :class:`AIServiceCore` for the job: a turn and a rewrite.
+
+    ``stream_response`` yields ``events`` in order and, before the event at
+    an index in ``gates``, waits for that gate — so a test can hold the turn
+    before its first event (still waiting for the lock) or mid-stream. It
+    records what each turn was handed and whether the turn's generator was
+    closed early. ``run_synthesis`` returns ``synthesis`` or raises it.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[StreamEvent] = []
+        self.gates: dict[int, asyncio.Event] = {}
+        self.turns: list[dict[str, Any]] = []
+        self.closed = False
+        self.synthesis: SynthesisResult | Exception = SynthesisResult(
+            tool_calls=[{"name": "speak", "arguments": {"text": _SPOKEN}, "id": "c1"}],
+            raw_text="",
+        )
+        self.synthesis_calls: list[dict[str, Any]] = []
+
+    def get_status(self) -> ConnectionStatus:
+        return ConnectionStatus.CONNECTED
+
+    def get_model(self) -> str:
+        return _LLM_MODEL
+
+    def get_system_prompt(self, prompt_name: str = "shirley") -> str:
+        return ""
+
+    async def stream_response(
+        self,
+        conversation: Conversation,
+        system_prompt: str = "",
+        temperature: float = 0.7,
+        tool_context: object = None,
+        *,
+        llm: object = None,
+        tool_names: frozenset[str] | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.turns.append(
+            {
+                "messages": list(conversation.messages),
+                "tool_names": tool_names,
+                "llm": llm,
+                "tool_context": tool_context,
+            }
+        )
+        try:
+            for index, event in enumerate(self.events):
+                gate = self.gates.get(index)
+                if gate is not None:
+                    await gate.wait()
+                yield event
+        except GeneratorExit:
+            self.closed = True
+            raise
+
+    async def run_synthesis(self, **kwargs: Any) -> SynthesisResult:
+        self.synthesis_calls.append(kwargs)
+        if isinstance(self.synthesis, Exception):
+            raise self.synthesis
+        return self.synthesis
+
+
+@pytest.fixture
+def llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin Shirley's LLM chain, so a job is never refused for want of one."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env-openrouter")
+    monkeypatch.setenv("SHIRLEY_MODEL", _LLM_MODEL)
+
+
+@pytest.fixture
+def fake_core() -> _FakeCallCore:
+    return _FakeCallCore()
+
+
+@pytest_asyncio.fixture
+async def seeded_user(
+    fresh_superuser_engine: AsyncEngine,
+    reset_schema: None,
+) -> tuple[UUID, str, str]:
+    plaintext = "correct-horse-battery-staple"
+    user_id = uuid4()
+    email = "voice-call@example.com"
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO tenants (id, name, subdomain) "
+                "VALUES (:id, :name, 'minathena-capital') "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            {"id": str(SENTINEL_TENANT_ID), "name": "Sentinel Tenant"},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO users
+                    (id, tenant_id, email, password_hash, roles, is_active)
+                VALUES
+                    (:id, :tid, :email, :hash, ARRAY['owner']::text[], TRUE)
+                """
+            ),
+            {
+                "id": str(user_id),
+                "tid": str(SENTINEL_TENANT_ID),
+                "email": email,
+                "hash": hash_password(plaintext),
+            },
+        )
+    return user_id, email, plaintext
+
+
+@pytest_asyncio.fixture
+async def app_client(
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    llm_env: None,
+) -> AsyncGenerator[Any, None]:
+    """Yield ``(client, app)`` for a fully wired app with the scripted core."""
+    settings = WebSettings(
+        web_host="127.0.0.1",
+        web_port=8000,
+        session_cookie_name="portfoliflow_session",
+        csrf_cookie_name="portfoliflow_csrf_pre_session",
+        database_url=DATABASE_URL,
+        database_url_superuser=DATABASE_URL_SUPERUSER,
+        session_cookie_secure=False,
+    )
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        app = create_app(settings)
+        await stack.enter_async_context(app.router.lifespan_context(app))
+        app.state.ai_core = fake_core
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://testserver")
+        await stack.enter_async_context(client)
+        yield client, app
+    finally:
+        await stack.aclose()
+
+
+@pytest_asyncio.fixture
+async def call_on(app_client: Any) -> None:
+    """Switch the call on as a tenant row — no key: the switch alone offers the call."""
+    _client, app = app_client
+    await _write_setting(app.state.engine, provider="voice_call", key="enabled", value="true")
+
+
+async def _login(client: AsyncClient, email: str, password: str) -> str:
+    """Log in and return the session CSRF token from the dock's composer form."""
+    pre = await client.get("/login")
+    csrf = pre.cookies.get("portfoliflow_csrf_pre_session")
+    assert csrf is not None
+    await client.post(
+        "/login",
+        data={"email": email, "password": password, "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    page = await client.get("/chat/dock", follow_redirects=False)
+    assert page.status_code == 200
+    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
+    assert match is not None
+    return match.group(1)
+
+
+async def _ask(
+    client: AsyncClient,
+    csrf: str,
+    question: str = "Wie steht das Buch?",
+    *,
+    events: list[dict[str, Any]] | None = None,
+    language: str | None = None,
+) -> Any:
+    body: dict[str, Any] = {"call_id": "call1", "question": question, "events": events or []}
+    if language is not None:
+        body["language"] = language
+    return await client.post("/chat/call/ask", json=body, headers={"X-CSRF-Token": csrf})
+
+
+async def _relay(client: AsyncClient, csrf: str, seqs: list[int], call_id: str = "call1") -> Any:
+    events = [{"seq": seq, "role": "user", "text": f"line {seq}"} for seq in seqs]
+    return await client.post(
+        "/chat/call/events",
+        json={"call_id": call_id, "events": events},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+
+async def _job_state(client: AsyncClient, job_id: str) -> dict[str, Any]:
+    response = await client.get(f"/chat/call/jobs/{job_id}")
+    assert response.status_code == 200
+    return response.json()
+
+
+async def _poll_until(client: AsyncClient, job_id: str, state: str) -> dict[str, Any]:
+    """Poll the job until it reports ``state``; bounded, never a fixed sleep."""
+    result: dict[str, Any] = {}
+    for _ in range(50):
+        result = await _job_state(client, job_id)
+        if result["state"] == state:
+            return result
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"job {job_id} never reached {state}: {result}")
+
+
+async def _finish(app: Any, job_id: str) -> None:
+    """Await the job's task, if it is still running."""
+    for (_session_id, running_id), task in list(app.state.call_tasks.items()):
+        if running_id == job_id:
+            await asyncio.wait_for(task, timeout=5)
+
+
+def _history(app: Any) -> Conversation:
+    store = app.state.chat_histories
+    assert len(store) == 1, store
+    return next(iter(store.values()))
+
+
+def _finished(message: Message) -> StreamEvent:
+    return StreamEvent("stream_finished", {"message": message, "iterations": 1})
+
+
+async def test_call_endpoints_answer_404_when_the_switch_is_off(
+    app_client: Any, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """No tenant row: ``ask``, ``events`` and ``end`` are not there."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    headers = {"X-CSRF-Token": csrf}
+
+    ask = await _ask(client, csrf)
+    events = await _relay(client, csrf, [1])
+    end = await client.post("/chat/call/end", json={"call_id": "call1"}, headers=headers)
+
+    assert [ask.status_code, events.status_code, end.status_code] == [404, 404, 404]
+
+
+async def test_a_job_completes_with_the_typed_turns_machinery(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """202, then ``done``; the answer is stored, the question is not."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    answer = Message(role=MessageRole.ASSISTANT, content="Das Buch steht bei 3,5 Mrd. EUR.")
+    fake_core.events = [StreamEvent("chunk", {"text": "Das"}), _finished(answer)]
+
+    response = await _ask(client, csrf, "Wie steht das Buch?")
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    result = await _poll_until(client, job_id, "done")
+
+    assert result["speakable"] == _SPOKEN
+    assert result["prose"] == answer.content
+    assert result["message_id"] == answer.id
+    history = _history(app)
+    assert [m.id for m in history.messages] == [answer.id]
+    assert history.messages[0].channel == "call"
+    assert all(m.content != "Wie steht das Buch?" for m in history.messages)
+    turn = fake_core.turns[0]
+    asked = turn["messages"][-1]
+    assert (asked.role, asked.content, asked.channel) == (
+        MessageRole.USER,
+        "Wie steht das Buch?",
+        "call",
+    )
+    assert turn["tool_names"] == CALL_TOOL_ALLOWLIST
+    assert turn["llm"].model == _LLM_MODEL
+    assert turn["tool_context"].tenant_id == SENTINEL_TENANT_ID
+
+
+async def test_events_in_the_ask_body_land_first_in_seq_order(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """The lines ride the ask body and are in the history before the answer."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    answer = Message(role=MessageRole.ASSISTANT, content="Gut.")
+    fake_core.events = [_finished(answer)]
+    events = [
+        {"seq": 1, "role": "assistant", "text": "Moment, ich schaue nach."},
+        {"seq": 0, "role": "user", "text": "Wie steht das Buch?"},
+    ]
+
+    job_id = (await _ask(client, csrf, events=events)).json()["job_id"]
+    await _poll_until(client, job_id, "done")
+
+    messages = _history(app).messages
+    assert [(m.role, m.content) for m in messages] == [
+        (MessageRole.USER, "Wie steht das Buch?"),
+        (MessageRole.ASSISTANT, "Moment, ich schaue nach."),
+        (MessageRole.ASSISTANT, "Gut."),
+    ]
+    assert [m.channel for m in messages[:2]] == ["call", "call"]
+    assert [m.content for m in fake_core.turns[0]["messages"][:2]] == [
+        "Wie steht das Buch?",
+        "Moment, ich schaue nach.",
+    ]
+
+
+async def test_the_relay_appends_each_line_once_in_order(
+    app_client: Any, seeded_user: tuple[UUID, str, str], call_on: None
+) -> None:
+    """A repeated batch appends nothing; a late, out-of-order line lands in its place."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    first = await _relay(client, csrf, [1, 2])
+    again = await _relay(client, csrf, [1, 2])
+    late = await _relay(client, csrf, [3, 2])
+
+    assert [r.json()["accepted"] for r in (first, again, late)] == [2, 0, 1]
+    assert [m.content for m in _history(app).messages] == ["line 1", "line 2", "line 3"]
+    assert all(m.channel == "call" for m in _history(app).messages)
+
+
+async def test_a_job_waits_for_the_turn_until_its_first_event(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """``waiting_for_turn`` until the first event, ``running`` after it, then ``done``."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    before_first, before_finish = asyncio.Event(), asyncio.Event()
+    fake_core.gates = {0: before_first, 1: before_finish}
+    fake_core.events = [
+        StreamEvent("chunk", {"text": "Gut"}),
+        _finished(Message(role=MessageRole.ASSISTANT, content="Gut.")),
+    ]
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    await asyncio.sleep(0)
+    assert (await _job_state(client, job_id))["state"] == "waiting_for_turn"
+
+    before_first.set()
+    await _poll_until(client, job_id, "running")
+
+    before_finish.set()
+    await _poll_until(client, job_id, "done")
+
+
+async def test_a_cancel_discards_the_turn_and_closes_its_generator(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """Barge-in mid-stream: cancelled, nothing in the history, the generator closed."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    held = asyncio.Event()
+    fake_core.gates = {1: held}
+    fake_core.events = [
+        StreamEvent("chunk", {"text": "Gut"}),
+        _finished(Message(role=MessageRole.ASSISTANT, content="Gut.")),
+    ]
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    await _poll_until(client, job_id, "running")
+    response = await client.post(f"/chat/call/jobs/{job_id}/cancel", headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 200
+    assert response.json() == {"job_id": job_id, "state": "cancelled"}
+
+    held.set()
+    await _finish(app, job_id)
+
+    assert _history(app).messages == []
+    assert fake_core.closed is True
+    assert (await _job_state(client, job_id))["state"] == "cancelled"
+
+
+async def test_a_cancel_after_the_end_changes_nothing_and_unknown_jobs_are_404(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """A late cancel answers the ``done`` state; a stranger's id resolves to nothing."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    fake_core.events = [_finished(Message(role=MessageRole.ASSISTANT, content="Gut."))]
+    headers = {"X-CSRF-Token": csrf}
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    await _poll_until(client, job_id, "done")
+    late = await client.post(f"/chat/call/jobs/{job_id}/cancel", headers=headers)
+    unknown_get = await client.get("/chat/call/jobs/000000000000")
+    unknown_cancel = await client.post("/chat/call/jobs/000000000000/cancel", headers=headers)
+
+    assert late.status_code == 200
+    assert late.json() == {"job_id": job_id, "state": "done"}
+    assert [unknown_get.status_code, unknown_cancel.status_code] == [404, 404]
+
+
+async def test_an_error_event_fails_the_job_with_nothing_appended(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """ADR-0050's error-path rule: the message is reported, the history untouched."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    fake_core.events = [
+        StreamEvent("chunk", {"text": "partial"}),
+        StreamEvent("error", {"message": "The model refused."}),
+    ]
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    result = await _poll_until(client, job_id, "failed")
+
+    assert result["error"] == "The model refused."
+    assert _history(app).messages == []
+
+
+async def test_the_turns_charts_are_bound_and_reported(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """A Plotly artefact is archived against the answer and rides the ``done`` result."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    answer = Message(role=MessageRole.ASSISTANT, content="Hier ist der Verlauf.")
+    spec = {"data": [{"type": "scatter", "x": [1], "y": [2]}], "layout": {}}
+    fake_core.events = [
+        StreamEvent(
+            "chart_artifact",
+            {"chart_format": "plotly", "image_base64": "", "spec": spec, "caption": "NAV"},
+        ),
+        _finished(answer),
+    ]
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    result = await _poll_until(client, job_id, "done")
+
+    (records,) = app.state.chat_chart_artifacts.values()
+    assert [r["message_id"] for r in records] == [answer.id]
+    assert [(c["artifact_id"], c["spec"]) for c in result["charts"]] == [
+        (records[0]["artifact_id"], spec)
+    ]
+    context = fake_core.synthesis_calls[0]["context_messages"]
+    assert "One chart accompanies" in context[0]["content"]
+
+
+async def test_a_failed_rewrite_speaks_the_fallback_sentence(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """The job is still ``done``; the sentence follows the ask's language, else the default."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    fake_core.synthesis = RuntimeError("rewrite down")
+    spoken: list[str] = []
+    for language in ("de", "en", None):
+        fake_core.events = [_finished(Message(role=MessageRole.ASSISTANT, content="Gut."))]
+        job_id = (await _ask(client, csrf, language=language)).json()["job_id"]
+        spoken.append((await _poll_until(client, job_id, "done"))["speakable"])
+
+    assert spoken == [fallback_for("de"), fallback_for("en"), fallback_for(DEFAULT_LANGUAGE)]
+
+
+async def test_the_job_outlives_the_poll(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    fake_core: _FakeCallCore,
+    call_on: None,
+) -> None:
+    """Nobody polls; the answer still lands in the history and a late poll says ``done``.
+
+    The browser's 75-second fallback promises exactly this.
+    """
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    answer = Message(role=MessageRole.ASSISTANT, content="Spät, aber da.")
+    fake_core.events = [_finished(answer)]
+
+    job_id = (await _ask(client, csrf)).json()["job_id"]
+    await _finish(app, job_id)
+
+    assert [m.id for m in _history(app).messages] == [answer.id]
+    assert (await _job_state(client, job_id))["state"] == "done"
+
+
+async def test_end_appends_the_line_and_forgets_the_cursor(
+    app_client: Any, seeded_user: tuple[UUID, str, str], call_on: None
+) -> None:
+    """The fragment carries the end line; the call's relay starts afresh."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+    assert (await _relay(client, csrf, [1])).json()["accepted"] == 1
+
+    response = await client.post(
+        "/chat/call/end",
+        json={"call_id": "call1", "at": "12:11"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert "chat-call-line" in response.text
+    assert "Call ended 12:11" in response.text
+    assert (await _relay(client, csrf, [1])).json()["accepted"] == 1

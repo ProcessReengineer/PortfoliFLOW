@@ -183,6 +183,21 @@
     border-color: var(--ui-semantic-success);
 }
 
+/* Voice call (ADR-0137 §5): the "Call" chip on a call's bubbles sits above
+ * the bubble on its side (the article's ``align-items`` places it), and the
+ * start and end lines are quiet, centred history furniture. */
+.chat-chip--call {
+    font-size: var(--ui-font-scale-xs);
+    margin-bottom: var(--ui-space-1);
+}
+
+.chat-call-line {
+    align-self: center;
+    margin: var(--ui-space-2) 0;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-sm);
+}
+
 .chat-chart {
     margin-top: 8px;
     width: 100%;

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the per-session chat-history surface (ADR-0050, ADR-0114).
+"""Tests for the per-session chat-history surface (ADR-0050, ADR-0114, ADR-0137).
 
-Four groups:
+Five groups:
 
 * Unit tests for ``_trim_history`` exercising the role-safe FIFO
   eviction policy without involving the HTTP surface.
@@ -18,6 +18,9 @@ Four groups:
   lifecycle with the history (new chat, logout, session LRU), the
   turn-group trim coupling, and chart rehydration through
   ``/chat/history`` including the over-the-cap placeholder.
+* The voice call's history furniture (ADR-0137 §5) — the call-line
+  sidecar's placement and its turn-group trim coupling, and the "Call"
+  chip and call line through ``/chat/history``.
 
 The route-level tests reuse the live-DB fixture pattern from
 ``test_chat_sse.py``; the conftest seeds the sentinel tenant + a
@@ -1190,3 +1193,93 @@ async def test_new_chat_and_logout_drop_the_sidecar_with_the_history(
     )
     assert response.status_code == 303
     assert _sidecar_for_only_session(app) == []
+
+
+# ---------------------------------------------------------------------------
+# Voice-call history furniture (ADR-0137 §5)
+# ---------------------------------------------------------------------------
+
+
+def _call_line(kind: str, at: str, after_message_id: str) -> dict[str, Any]:
+    """One call-line record in the shape the call endpoints write."""
+    return {"kind": kind, "at": at, "after_message_id": after_message_id}
+
+
+def test_history_items_place_call_lines_and_mark_call_bubbles() -> None:
+    """A ``""``-anchored line comes first; an anchored one follows its message's charts.
+
+    Call bubbles carry their channel, which the partial turns into the chip.
+    """
+    conv = Conversation()
+    typed = Message(role=MessageRole.USER, content="typed question")
+    spoken = Message(role=MessageRole.USER, content="spoken question", channel="call")
+    answer = Message(role=MessageRole.ASSISTANT, content="The answer.", channel="call")
+    conv.messages.extend([typed, spoken, answer])
+
+    items = _history_items(
+        conv,
+        [_artifact(answer.id, "aaaaaaaaaaaa")],
+        [
+            _call_line("started", "12:03", ""),
+            _call_line("ended", "12:11", answer.id),
+        ],
+    )
+
+    assert [i["kind"] for i in items] == [
+        "call_line",
+        "message",
+        "message",
+        "message",
+        "chart",
+        "call_line",
+    ]
+    assert items[0]["content"] == "Call started 12:03"
+    assert [i["channel"] for i in items[1:4]] == [None, "call", "call"]
+    assert items[5]["content"] == "Call ended 12:11"
+
+
+def test_trim_history_drops_the_call_lines_of_the_evicted_turn_group() -> None:
+    """An evicted turn-group takes its lines; ``""`` and surviving anchors stay."""
+    conv = Conversation()
+    for i in range(11):
+        conv.messages.append(Message(role=MessageRole.USER, content=f"u{i}"))
+        conv.messages.append(Message(role=MessageRole.ASSISTANT, content=f"a{i}"))
+    oldest_assistant = conv.messages[1].id
+    newest_assistant = conv.messages[-1].id
+    lines = [
+        _call_line("started", "09:00", ""),
+        _call_line("ended", "09:05", oldest_assistant),
+        _call_line("started", "12:03", newest_assistant),
+    ]
+
+    _trim_history(conv, None, lines)
+
+    assert oldest_assistant not in {m.id for m in conv.messages}
+    assert [line["at"] for line in lines] == ["09:00", "12:03"]
+
+
+async def test_chat_history_renders_the_call_chip_and_the_call_line(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """One call bubble and one end line render one chip and one line."""
+    _id, email, password = seeded_user
+    final_msg = Message(role=MessageRole.ASSISTANT, content="Spoken reply.")
+    events = [StreamEvent("stream_finished", {"message": final_msg, "iterations": 1})]
+    client, app, _fake = await web_client_factory(events)
+    csrf = await _login_and_get_csrf(client, email, password)
+    turn_id = await _open_turn(client, csrf, "typed question")
+    await client.get(f"/chat/stream/{turn_id}")
+
+    history = _get_history_for_only_session(app)
+    assert history is not None
+    session_id = next(iter(app.state.chat_histories))
+    history.messages[-1].channel = "call"
+    app.state.chat_call_lines[session_id] = [_call_line("ended", "12:11", final_msg.id)]
+
+    body = (await client.get("/chat/history")).text
+
+    assert body.count("chat-chip--call") == 1
+    assert body.count("chat-call-line") == 1
+    assert "Call ended 12:11" in body
+    assert body.index("Spoken reply.") < body.index("Call ended 12:11")

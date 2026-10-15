@@ -22,7 +22,9 @@ which returns inactive (``None``), active, or raises
 
 The ``ask_shirley`` turn runs under :data:`CALL_TOOL_ALLOWLIST` (ADR-0137
 §3.1), and its written answer is rewritten for the ear through the forced
-``speak`` tool of :mod:`services.voice_call.speakable` (ADR-0137 §3).
+``speak`` tool of :mod:`services.voice_call.speakable` (ADR-0137 §3). Each
+turn is a job the browser polls; its record is a :class:`CallJob`, held in a
+bounded :class:`CallJobStore` (ADR-0137 §3, §4).
 
 Pure Python: this package imports only the standard library and ``httpx``.
 It must not import from ``web/``, ``bot/``, ``core/``, ``modules/``,
@@ -49,7 +51,13 @@ from services.voice_call.defaults import (
     MAX_DURATION_SECONDS,
 )
 from services.voice_call.elevenlabs_provider import ElevenLabsCallProvider
-from services.voice_call.errors import CallConfigurationError, CallProviderError, VoiceCallError
+from services.voice_call.errors import (
+    CallConfigurationError,
+    CallJobStateError,
+    CallProviderError,
+    VoiceCallError,
+)
+from services.voice_call.jobs import CallJob, CallJobStore
 from services.voice_call.port import AgentDefinition, CallProvider, SessionCredentials
 from services.voice_call.resolved import ResolvedCall, assemble_call
 from services.voice_call.speakable import (
@@ -91,6 +99,10 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "speakable_messages",
     "speakable_from_tool_calls",
     "fallback_for",
+    # The ask_shirley job
+    "CallJob",
+    "CallJobStore",
+    "CallJobStateError",
     # Defaults
     "DEFAULT_CONVERSATION_MODEL",
     "DEFAULT_TTS_MODEL_ID",

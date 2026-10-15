@@ -8,7 +8,8 @@ adapter's tests do, and assert the outgoing requests: their order, the
 ``xi-api-key`` header and the JSON envelopes of the tool and the agent. The
 provisioning paths — create, unchanged, update, vanished agent, agent without
 a tool — and the session token are each pinned, and so is the error
-rendering: ``HTTP <status>`` plus at most 200 body characters.
+rendering: ``HTTP <status>`` plus at most 200 body characters, the request's
+key replaced by ``<key>``.
 
 Async tests need no decorator (``asyncio_mode = "auto"``).
 """
@@ -217,11 +218,29 @@ async def test_a_refusal_carries_the_status_and_the_body_excerpt(httpx_mock) -> 
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, status_code=401, text=body)
 
     with pytest.raises(CallProviderError) as excinfo:
-        await _provider(api_key="sk-secret").ensure_agent(_definition(), None)
+        await _provider().ensure_agent(_definition(), None)
 
     message = str(excinfo.value)
     assert "HTTP 401" in message
     assert body in message
+
+
+async def test_a_body_quoting_the_key_is_scrubbed(httpx_mock) -> None:
+    """HTTP 401 quoting the request's own key: ``<key>`` stands in its place, twice over."""
+    body = f'{{"detail": "invalid api key {_KEY}"}}'
+    httpx_mock.add_response(method="POST", url=_TOOLS_URL, status_code=401, text=body)
+    httpx_mock.add_response(method="GET", url=_AGENT_URL, status_code=401, text=body)
+
+    with pytest.raises(CallProviderError) as created:
+        await _provider().ensure_agent(_definition(), None)
+    with pytest.raises(CallProviderError) as looked_up:
+        await _provider().ensure_agent(_definition(), "agent_1")
+
+    for excinfo in (created, looked_up):
+        message = str(excinfo.value)
+        assert "HTTP 401" in message
+        assert "<key>" in message
+        assert _KEY not in message
 
 
 async def test_a_long_error_body_is_cut_at_200_characters(httpx_mock) -> None:

@@ -26,7 +26,8 @@ The conventions of the voice adapter are mirrored, not imported: a fresh
 ``httpx.AsyncClient`` per call (a client is bound to the loop it was created
 on), a 60-second timeout, and a non-2xx rendered as ``HTTP <status>`` plus at
 most 200 body characters. The key is sent as a header only and never appears
-in an error message.
+in an error message: a body or a transport failure that quotes it has every
+occurrence replaced by ``<key>``.
 
 The module imports only the standard library, ``httpx`` and its own package.
 """
@@ -51,6 +52,8 @@ _AGENT_PATH = "/v1/convai/agents/{agent_id}"
 _TOKEN_PATH = "/v1/convai/conversation/token"
 # How much of an error body goes into the raised message.
 _BODY_EXCERPT_CHARS = 200
+# What an error message shows in place of the request's key.
+_KEY_PLACEHOLDER = "<key>"
 # The definition hash at the end of the agent name (``… · def 1a2b3c4d``).
 _NAME_HASH = re.compile(r"def ([0-9a-f]{8})$")
 
@@ -60,9 +63,14 @@ def _url(base_url: str, path: str) -> str:
     return base_url.rstrip("/") + path
 
 
-def _status_detail(response: httpx.Response) -> str:
-    """Render a non-2xx response as ``HTTP <status>`` plus a body excerpt."""
-    excerpt = response.text[:_BODY_EXCERPT_CHARS].strip()
+def _status_detail(response: httpx.Response, *, secret: str = "") -> str:
+    """Render a non-2xx response as ``HTTP <status>`` plus a body excerpt.
+
+    A non-empty ``secret`` is replaced by ``<key>`` before the body is cut, so
+    a key straddling the cut cannot leave a prefix of itself in the excerpt.
+    """
+    body = response.text.replace(secret, _KEY_PLACEHOLDER) if secret else response.text
+    excerpt = body[:_BODY_EXCERPT_CHARS].strip()
     return f"HTTP {response.status_code}: {excerpt}" if excerpt else f"HTTP {response.status_code}"
 
 
@@ -168,7 +176,20 @@ class ElevenLabsCallProvider:
                     params=params,
                 )
         except httpx.HTTPError as exc:
-            raise CallProviderError(f"{operation} failed: {exc}") from exc
+            raise CallProviderError(f"{operation} failed: {self._scrub(str(exc))}") from exc
+
+    def _scrub(self, text: str) -> str:
+        """Replace every occurrence of the key in ``text`` with ``<key>``."""
+        return text.replace(self._api_key, _KEY_PLACEHOLDER) if self._api_key else text
+
+    def _detail(self, response: httpx.Response) -> str:
+        """Render a non-2xx response as :func:`_status_detail` does, the key scrubbed.
+
+        A vendor that quotes the request's key in its error body must not put
+        it into the raised message, and from there into a log line or a 502
+        body; every occurrence becomes ``<key>``.
+        """
+        return _status_detail(response, secret=self._api_key)
 
     async def _call(
         self,
@@ -182,7 +203,7 @@ class ElevenLabsCallProvider:
         """Send one request and return its JSON object; raise on any failure."""
         response = await self._request(operation, method, path, json=json, params=params)
         if not response.is_success:
-            raise CallProviderError(f"{operation} failed: {_status_detail(response)}")
+            raise CallProviderError(f"{operation} failed: {self._detail(response)}")
         return _json_object(operation, response)
 
     async def _create_tool(self, definition: AgentDefinition) -> str:
@@ -223,7 +244,7 @@ class ElevenLabsCallProvider:
         if response.status_code == httpx.codes.NOT_FOUND:
             return await self._create(definition)
         if not response.is_success:
-            raise CallProviderError(f"Agent lookup failed: {_status_detail(response)}")
+            raise CallProviderError(f"Agent lookup failed: {self._detail(response)}")
         current = _json_object("Agent lookup", response)
 
         if _hash_from_name(str(current.get("name") or "")) == definition.definition_hash:

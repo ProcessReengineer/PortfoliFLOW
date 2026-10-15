@@ -37,6 +37,13 @@ What is pinned here:
   browser sends them; the end line renders in the history fragment and
   forgets the call's cursor. With the switch off the call's write
   endpoints answer 404.
+* **The session start** (ADR-0137 §4, §8, §10). With the vendor answered by
+  ``pytest-httpx``: off is 404 and incomplete is 503 naming the card, both
+  without a vendor request; a fresh tenant's agent is created and its id
+  written back; a known agent is read once per process and definition and
+  PATCHed only on a changed hash; a vanished one is re-created; a credential
+  is minted on every start; a refusal is a 502 that never quotes the key and
+  leaves no row, no memo entry and no line behind.
 """
 
 from __future__ import annotations
@@ -70,8 +77,10 @@ from services.voice_call import (
     DEFAULT_BASE_URL,
     DEFAULT_CONVERSATION_MODEL,
     DEFAULT_LANGUAGE,
+    AgentDefinition,
     CallConfigurationError,
     ResolvedCall,
+    build_agent_definition,
     fallback_for,
 )
 from web.main import create_app
@@ -877,3 +886,244 @@ async def test_end_appends_the_line_and_forgets_the_cursor(
     assert "chat-call-line" in response.text
     assert "Call ended 12:11" in response.text
     assert (await _relay(client, csrf, [1])).json()["accepted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# The session start (ADR-0137 §4, §8, §10)
+# ---------------------------------------------------------------------------
+
+_VENDOR = "https://vendor.invalid"
+_TOOLS_URL = f"{_VENDOR}/v1/convai/tools"
+_CREATE_URL = f"{_VENDOR}/v1/convai/agents/create"
+_TOOL_URL = f"{_VENDOR}/v1/convai/tools/tool_1"
+
+
+def _agent_url(agent_id: str) -> str:
+    return f"{_VENDOR}/v1/convai/agents/{agent_id}"
+
+
+def _token_url(agent_id: str) -> str:
+    return f"{_VENDOR}/v1/convai/conversation/token?agent_id={agent_id}"
+
+
+def _expected_definition(voice: str) -> AgentDefinition:
+    """The definition the endpoint builds for this module's tenant rows."""
+    return build_agent_definition(
+        ResolvedCall(
+            api_key=_CALL_KEY,
+            agent_id=None,
+            model=DEFAULT_CONVERSATION_MODEL,
+            voice=voice,
+            language=DEFAULT_LANGUAGE,
+            base_url=_VENDOR,
+        )
+    )
+
+
+@pytest_asyncio.fixture
+async def call_configured(app_client: Any, vault_key: VaultCipher) -> None:
+    """On, a key, the vendor host pinned to ``vendor.invalid`` and a call voice."""
+    _client, app = app_client
+    engine = app.state.engine
+    await _enable_with_key(engine, vault_key)
+    await _write_setting(engine, provider="voice_call", key="base_url", value=_VENDOR)
+    await _write_setting(engine, provider="voice_call", key="voice", value="v_call")
+
+
+async def _start(client: AsyncClient, csrf: str, at: str | None = None) -> Any:
+    body = {"at": at} if at is not None else None
+    return await client.post("/chat/call/session", json=body, headers={"X-CSRF-Token": csrf})
+
+
+async def _agent_row(engine: AsyncEngine) -> str | None:
+    """Read the tenant's ``voice_call.agent_id`` row, as the Admin card does."""
+    async with tenant_context(engine, SENTINEL_TENANT_ID) as db:
+        return await CredentialResolver(session=db).resolve_config(
+            "voice_call", "agent_id", scopes=("tenant",)
+        )
+
+
+def _token_reply(token: str) -> dict[str, str]:
+    return {"token": token, "conversation_id": "conv_1"}
+
+
+async def test_session_answers_404_when_the_call_is_off(
+    app_client: Any, seeded_user: tuple[UUID, str, str], httpx_mock: Any
+) -> None:
+    """No tenant row: 404, and the vendor is never asked."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf)
+
+    assert response.status_code == 404
+    assert httpx_mock.get_requests() == []
+
+
+async def test_session_answers_503_naming_the_card_when_incomplete(
+    app_client: Any, seeded_user: tuple[UUID, str, str], call_on: None, httpx_mock: Any
+) -> None:
+    """On without a key: 503 naming the card; no vendor request, no history line."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf)
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "Voice call" in detail
+    assert "Admin → Providers & Credentials" in detail
+    assert httpx_mock.get_requests() == []
+    assert not getattr(app.state, "chat_call_lines", None)
+
+
+async def test_the_first_call_provisions_the_agent_and_writes_its_id_back(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    vault_key: VaultCipher,
+    httpx_mock: Any,
+) -> None:
+    """Fresh tenant: tool, agent, token; the id lands in the row and the memo."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    engine = app.state.engine
+    await _enable_with_key(engine, vault_key)
+    await _write_setting(engine, provider="voice_call", key="base_url", value=_VENDOR)
+    await _write_setting(engine, provider="voice_tts", key="voice", value="v_tts")
+    httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
+    httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
+    httpx_mock.add_response(method="GET", url=_token_url("agent_new"), json=_token_reply("tok-1"))
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf, at="12:03")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["vendor"] == "elevenlabs"
+    assert payload["token"] == "tok-1"
+    assert payload["conversation_id"] == "conv_1"
+    assert re.fullmatch(r"[0-9a-f]{12}", payload["call_id"])
+    assert payload["max_duration_seconds"] == 1200
+    assert payload["language"] == "de"
+    assert await _agent_row(engine) == "agent_new"
+    definition = _expected_definition("v_tts")
+    assert app.state.call_agent_memo == {
+        SENTINEL_TENANT_ID: ("agent_new", definition.definition_hash)
+    }
+    history = await client.get("/chat/history")
+    assert history.text.count('class="chat-call-line"') == 1
+    assert "Call started 12:03" in history.text
+
+
+async def test_a_known_agent_is_read_once_and_the_credential_minted_per_start(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    httpx_mock: Any,
+) -> None:
+    """Fresh process: one GET, one token; then a memo hit: a token alone, a new one."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    await _write_setting(app.state.engine, provider="voice_call", key="agent_id", value="agent_1")
+    definition = _expected_definition("v_call")
+    agent = {"agent_id": "agent_1", "name": definition.name}
+    httpx_mock.add_response(method="GET", url=_agent_url("agent_1"), json=agent)
+    httpx_mock.add_response(method="GET", url=_token_url("agent_1"), json=_token_reply("tok-a"))
+    httpx_mock.add_response(method="GET", url=_token_url("agent_1"), json=_token_reply("tok-b"))
+    csrf = await _login(client, email, password)
+
+    second = await _start(client, csrf)
+    third = await _start(client, csrf)
+
+    assert [second.status_code, third.status_code] == [200, 200]
+    assert [second.json()["token"], third.json()["token"]] == ["tok-a", "tok-b"]
+    assert [(r.method, str(r.url)) for r in httpx_mock.get_requests()] == [
+        ("GET", _agent_url("agent_1")),
+        ("GET", _token_url("agent_1")),
+        ("GET", _token_url("agent_1")),
+    ]
+
+
+async def test_a_changed_definition_patches_the_agent(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    httpx_mock: Any,
+) -> None:
+    """Another hash at the vendor: PATCH tool, PATCH agent, token; the row stays."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    engine = app.state.engine
+    await _write_setting(engine, provider="voice_call", key="agent_id", value="agent_1")
+    stale = {
+        "agent_id": "agent_1",
+        "name": "PortfoliFLOW Shirley call · def 00000000",
+        "conversation_config": {"agent": {"prompt": {"tool_ids": ["tool_1"]}}},
+    }
+    httpx_mock.add_response(method="GET", url=_agent_url("agent_1"), json=stale)
+    httpx_mock.add_response(method="PATCH", url=_TOOL_URL, json={"id": "tool_1"})
+    httpx_mock.add_response(method="PATCH", url=_agent_url("agent_1"), json={"agent_id": "agent_1"})
+    httpx_mock.add_response(method="GET", url=_token_url("agent_1"), json=_token_reply("tok-1"))
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf)
+
+    assert response.status_code == 200
+    assert await _agent_row(engine) == "agent_1"
+    definition = _expected_definition("v_call")
+    assert app.state.call_agent_memo == {
+        SENTINEL_TENANT_ID: ("agent_1", definition.definition_hash)
+    }
+
+
+async def test_a_vanished_agent_is_recreated_and_the_row_rewritten(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    httpx_mock: Any,
+) -> None:
+    """The vendor answers 404 for the stored id: created afresh, the new id stored."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    engine = app.state.engine
+    await _write_setting(engine, provider="voice_call", key="agent_id", value="agent_gone")
+    httpx_mock.add_response(method="GET", url=_agent_url("agent_gone"), status_code=404)
+    httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
+    httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
+    httpx_mock.add_response(method="GET", url=_token_url("agent_new"), json=_token_reply("tok-1"))
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf)
+
+    assert response.status_code == 200
+    assert await _agent_row(engine) == "agent_new"
+
+
+async def test_a_vendor_refusal_is_a_502_that_never_quotes_the_key(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    httpx_mock: Any,
+) -> None:
+    """401 quoting the key: 502 with ``<key>`` in its place; no row, no memo, no line."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    httpx_mock.add_response(
+        method="POST",
+        url=_TOOLS_URL,
+        status_code=401,
+        text=f'{{"detail": "invalid api key {_CALL_KEY}"}}',
+    )
+    csrf = await _login(client, email, password)
+
+    response = await _start(client, csrf)
+
+    assert response.status_code == 502
+    assert "HTTP 401" in response.text
+    assert "<key>" in response.text
+    assert _CALL_KEY not in response.text
+    assert await _agent_row(app.state.engine) is None
+    assert not getattr(app.state, "call_agent_memo", None)
+    assert not getattr(app.state, "chat_call_lines", None)

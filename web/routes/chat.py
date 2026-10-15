@@ -19,6 +19,9 @@ shell consumes:
 * ``POST /chat/brief/watch-briefing/<id>`` — hand a written Watch Desk
   briefing to Shirley in place (ADR-0133 §6); ``GET /chat/brief/banner``
   re-renders the dock's consultation banner from the stash.
+* ``POST /chat/call/session``    — start a voice call: provision the
+  tenant's vendor agent lazily and mint the browser's session credential
+  (ADR-0137 §4, §8).
 * ``POST /chat/call/ask``        — start a voice call's ``ask_shirley`` job
   (ADR-0137 §3); ``GET /chat/call/jobs/<job_id>`` polls it and
   ``POST /chat/call/jobs/<job_id>/cancel`` cancels it.
@@ -93,6 +96,7 @@ from pydantic import BaseModel, Field
 
 from core.exceptions import CaseClosedError, CaseStateInvalid
 from core.models.watchpoint import WATCHPOINT_FAMILIES
+from core.repositories import ScopedSettingRepository
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.irene_briefing_repository import (
@@ -146,14 +150,19 @@ from services.voice import (
 from services.voice_call import (
     CALL_TOOL_ALLOWLIST,
     DEFAULT_LANGUAGE,
+    MAX_DURATION_SECONDS,
     SPEAK_TOOL,
     SPEAK_TOOL_NAME,
     SPEAKABLE_SYSTEM_PROMPT,
     CallConfigurationError,
     CallJob,
     CallJobStore,
+    CallProvider,
+    CallProviderError,
+    ElevenLabsCallProvider,
     ResolvedCall,
     assemble_call,
+    build_agent_definition,
     fallback_for,
     speakable_from_tool_calls,
     speakable_messages,
@@ -2534,12 +2543,14 @@ async def chat_stream(
 
 
 # ---------------------------------------------------------------------------
-# Voice call — relay, the ask_shirley job and the call's history furniture
-# (ADR-0137 §3–§5)
+# Voice call — the session start, the relay, the ask_shirley job and the
+# call's history furniture (ADR-0137 §3–§5, §8)
 # ---------------------------------------------------------------------------
 #
 # A voice call talks to a vendor-hosted agent in the browser; this section is
-# its server side. The browser relays the call's final transcript lines into
+# its server side. The browser starts a call with ``POST /chat/call/session``,
+# which provisions the tenant's agent and mints the session credential. It
+# relays the call's final transcript lines into
 # the session's history (``POST /chat/call/events``), hands every question the
 # agent's ``ask_shirley`` tool asks to a job (``POST /chat/call/ask``, polled
 # at ``GET /chat/call/jobs/<job_id>``, cancelled on barge-in) and marks the
@@ -2556,9 +2567,10 @@ async def chat_stream(
 # The job outlives the request that started it; the browser stops polling at
 # 75 s and the job runs to completion, so the answer still lands in the chat.
 #
-# Four stores ride on ``app.state``, all single-worker like the rest of this
+# Five stores ride on ``app.state``, all single-worker like the rest of this
 # surface (ADR-0050):
 #
+# * ``call_agent_memo`` — the agent memo per tenant (below);
 # * ``call_jobs``       — the job records, a bounded ``CallJobStore``;
 # * ``call_tasks``      — strong references to the running job tasks, keyed
 #   like the jobs and removed when a task ends;
@@ -2579,6 +2591,20 @@ async def chat_stream(
 # verbatim: "new chat", logout and the session-level LRU drop it with the
 # history, and the turn-group trim drops the lines anchored to the messages it
 # evicts.
+#
+# The agent memo (ADR-0137 §8) maps a tenant id to the ``(agent_id,
+# definition_hash)`` pair this process last verified at the vendor, so the
+# vendor's agent read happens once per process and definition rather than on
+# every call start. It is invalidated by what it keys on: an operator who
+# clears or edits ``voice_call.agent_id`` in Admin changes the resolved id,
+# and a release that changes the definition changes the hash — either way the
+# pair no longer matches and the agent is checked again. A restart empties it.
+#
+# The agent id is the one ``voice_call`` field PortfoliFLOW writes (ADR-0137
+# §8): provisioning is lazy, so the chat route that creates the agent is the
+# one place that knows its id, and the row is what the Admin card's state line
+# reads. The write reuses the Admin surface's repository call and its audit
+# line rather than adding a hook to the Admin write path.
 
 _CALL_STORES_LIMIT = 100
 
@@ -2588,6 +2614,12 @@ _CALL_NO_ANSWER_MESSAGE = "Shirley did not answer."
 #: The rewrite call's ceiling, seconds: a slow rewrite must not hold the
 #: answer back, and its failure only costs the fallback sentence.
 _SPEAKABLE_TIMEOUT_SECONDS = 30.0
+
+
+class _CallSessionBody(BaseModel):
+    """The body of ``POST /chat/call/session``: the browser's ``HH:MM``, optional."""
+
+    at: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
 
 
 class _CallEvent(BaseModel):
@@ -2959,6 +2991,142 @@ async def _require_call_enabled(request: Request, session: SessionDTO) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Voice call is not enabled."
         )
+
+
+def _call_agent_memo(request: Request) -> dict[UUID, tuple[str, str]]:
+    """Return (and lazily initialise) the agent memo (``app.state.call_agent_memo``).
+
+    Tenant id → ``(agent_id, definition_hash)``, the pair verified at the
+    vendor by this process. One entry per tenant, so it needs no cap.
+    """
+    store = getattr(request.app.state, "call_agent_memo", None)
+    if store is None:
+        store = {}
+        request.app.state.call_agent_memo = store
+    return cast("dict[UUID, tuple[str, str]]", store)
+
+
+def _call_provider(resolved: ResolvedCall) -> CallProvider:
+    """Build the vendor adapter for one call start (ADR-0137 §2).
+
+    The one construction site, and the seam a test or a second vendor
+    replaces.
+
+    Args:
+        resolved: The tenant's call resolution, supplying the key and host.
+
+    Returns:
+        The :class:`~services.voice_call.CallProvider` for this request.
+    """
+    return ElevenLabsCallProvider(api_key=resolved.api_key, base_url=resolved.base_url)
+
+
+async def _store_call_agent_id(request: Request, session: SessionDTO, agent_id: str) -> None:
+    """Write a newly provisioned agent id to the tenant's ``voice_call.agent_id`` row.
+
+    The Admin surface's repository call and audit line: ``scoped_settings``
+    carries no audit trigger, so the line is the trail — never a value.
+
+    Raises:
+        HTTPException: 503 when no database engine is configured.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        await ScopedSettingRepository(db).upsert(
+            scope="tenant",
+            provider="voice_call",
+            key="agent_id",
+            is_secret=False,
+            value_plain=agent_id,
+        )
+    logger.info(
+        "scoped-setting mutation: scope=%s provider=%s key=%s action=%s actor=%s",
+        "tenant",
+        "voice_call",
+        "agent_id",
+        "provision",
+        session.user_id,
+    )
+
+
+@router.post(
+    "/chat/call/session",
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_call_session(
+    request: Request,
+    body: _CallSessionBody | None = None,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> JSONResponse:
+    """Start a voice call: ensure the agent, mint the credential (ADR-0137 §4, §8).
+
+    Provisioning is lazy: the tenant's agent is created at its first call
+    start, not at startup or on an Admin save, and its id is written to
+    ``voice_call.agent_id``. The definition's hash is carried in the agent's
+    name, so a changed definition is a changed hash. At the vendor the agent
+    is read back and its hash compared — tool and agent are PATCHed only when
+    they differ, and a vanished agent is created afresh. A memo per tenant
+    and process remembers the verified pair, so that read happens once per
+    process and definition.
+
+    Of the call itself nothing but the chat history is persisted (ADR-0137
+    §10): the session credential is minted on every start and goes to the
+    browser alone. The response carries ``vendor``, ``token``,
+    ``conversation_id``, ``call_id``, ``max_duration_seconds`` and
+    ``language``; the "Call started" line is appended to the history.
+
+    Raises:
+        HTTPException: 404 when the call is off; 503 when it is on but
+            incomplete (the message names the field and the ``Voice call``
+            card) or no database engine is configured; 502 when the vendor
+            refuses or fails.
+    """
+    try:
+        resolved = await _resolve_call(request, session)
+    except _VoiceUnconfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    provider = _call_provider(resolved)
+    definition = build_agent_definition(resolved)
+    memo = _call_agent_memo(request)
+    try:
+        verified = memo.get(session.tenant_id)
+        if resolved.agent_id is not None and verified == (
+            resolved.agent_id,
+            definition.definition_hash,
+        ):
+            agent_id = resolved.agent_id
+        else:
+            agent_id = await provider.ensure_agent(definition, resolved.agent_id)
+            if agent_id != resolved.agent_id:
+                await _store_call_agent_id(request, session, agent_id)
+            memo[session.tenant_id] = (agent_id, definition.definition_hash)
+        credentials = await provider.session_credentials(agent_id)
+    except CallProviderError as exc:
+        # The message carries the operation, the status and a scrubbed
+        # excerpt — user-safe by the provider's contract.
+        logger.warning("chat-call: call start failed for tenant %s: %s", session.tenant_id, exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    logger.info(
+        "chat-call: session credential minted for tenant %s (vendor %s)",
+        session.tenant_id,
+        credentials.vendor,
+    )
+
+    call_id = uuid.uuid4().hex[:12]
+    _append_call_line(request, str(session.id), "started", body.at if body else None)
+    return JSONResponse(
+        {
+            "vendor": credentials.vendor,
+            "token": credentials.token,
+            "conversation_id": credentials.conversation_id,
+            "call_id": call_id,
+            "max_duration_seconds": MAX_DURATION_SECONDS,
+            "language": resolved.language,
+        }
+    )
 
 
 @router.post(

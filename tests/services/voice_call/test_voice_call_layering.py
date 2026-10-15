@@ -13,6 +13,9 @@ asserts that no module implicating a forbidden layer leaked into
 ``core``, the LLM and database clients, FastAPI, the voice-message package
 and the AI core with its tool registry.
 
+A token matches a module and its submodules by prefix, never as a
+substring, so ``core.`` catches ``core.models`` but not ``httpcore._async``.
+
 The twin of ``tests/services/voice/test_voice_layering.py``. If this goes
 red, the most likely cause is a new transitive import that drags a
 forbidden layer into the call package's import graph.
@@ -55,9 +58,13 @@ def test_voice_call_import_stays_layering_clean() -> None:
         "    'fastapi', 'core.', 'services.voice.', 'services.ai_service_core',\n"
         "    'services.tool_registry',\n"
         ")\n"
+        "def _forbidden(m, token):\n"
+        "    if token.endswith('.'):\n"
+        "        return m == token.rstrip('.') or m.startswith(token)\n"
+        "    return m == token or m.startswith(token + '.')\n"
         "leaked = [\n"
         "    m for m in sys.modules\n"
-        "    if any(token in m for token in forbidden)\n"
+        "    if any(_forbidden(m, token) for token in forbidden)\n"
         "]\n"
         "assert not leaked, (\n"
         "    'Forbidden layers leaked into services.voice_call import graph: '\n"

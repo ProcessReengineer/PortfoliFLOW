@@ -603,4 +603,8 @@
         attachSseListeners(document);
         initVoiceControls(document);
     });
+
+    // call_panel.js reuses these three for its live transcript bubbles and
+    // its inline errors — lifted from here, not copied there.
+    window.pfChat = { escapeHtml, renderInlineError, scrollHistoryToBottom };
 })();

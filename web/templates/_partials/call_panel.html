@@ -1,0 +1,26 @@
+{# The voice call panel (ADR-0137 §10). Hidden until a call starts;
+   then it replaces .chat-composer for the call's duration and the history
+   above keeps receiving the transcript. call_panel.js owns every state —
+   the markup here is the skeleton it fills. The <template> carries the
+   server-rendered "Call" chip so a bubble the panel appends live reads
+   exactly like the rehydrated one. #}
+<div class="chat-call" data-pf-call-panel data-pf-call-state="idle" role="status" aria-live="polite" hidden>
+    <div class="chat-call__row">
+        <span class="chat-call__dot" data-pf-call-dot aria-hidden="true"></span>
+        <div class="chat-call__state">
+            <span class="chat-call__title" data-pf-call-title></span>
+            <span class="chat-call__sub" data-pf-call-sub hidden></span>
+        </div>
+        <span class="chat-call__level" data-pf-call-level aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="chat-call__timer" data-pf-call-timer hidden></span>
+        <div class="chat-call__actions">
+            <button type="button" class="pf-btn pf-btn--icon" data-pf-call-mute aria-pressed="false"
+                    aria-label="Mute" title="Mute">{{ pf_icon("voice") }}</button>
+            <button type="button" class="pf-btn pf-btn--primary pf-btn--icon" data-pf-call-end
+                    aria-label="End call" title="End call">{{ pf_icon("call-end") }}</button>
+        </div>
+    </div>
+</div>
+<template data-pf-call-chip><span class="pf-chip chat-chip--call">{{ pf_icon("call") }}Call</span></template>
+<template data-pf-call-mute-icon>{{ pf_icon("mute") }}</template>
+<template data-pf-call-mic-icon>{{ pf_icon("voice") }}</template>

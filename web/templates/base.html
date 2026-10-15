@@ -67,7 +67,10 @@
        vendored under /static/vendor/ (ADR-0037 §9, local bundle). Versions
        are pinned by directory name. When vendored, the two HTMX files
        matched the SRI hashes that had locked the CDN bytes; Plotly and
-       Tabulator were matched by their version banners. #}
+       Tabulator were matched by their version banners. The ElevenLabs
+       client SDK is vendored the same way, but no tag here loads it: the
+       call adapter (call_elevenlabs.js) imports it lazily on the first
+       call start (ADR-0137 §2). #}
     <script src="/static/vendor/htmx-1.9.12/htmx.min.js"></script>
     <script src="/static/vendor/htmx-1.9.12/ext/sse.js"></script>
     <script src="/static/vendor/plotly-2.35.2/plotly.min.js" charset="utf-8"></script>
@@ -161,6 +164,12 @@
        before section_nav.js, which owns the keyboard and binds Ctrl J
        to ``window.pfShirley.toggle``. #}
     <script src="/static/js/shirley.js" defer></script>
+    {# The voice call (ADR-0137 §2): the panel, then the vendor adapter. The
+       adapter is an ES module, so it runs deferred, in document order. The
+       panel looks the adapter up on click, never at load, so the order of
+       the two is not load-bearing. #}
+    <script src="/static/js/call_panel.js" defer></script>
+    <script type="module" src="/static/js/call_elevenlabs.js"></script>
     <script src="/static/js/section_nav.js" defer></script>
     {# One section per view (P-UX-A0b): shows the fragment's section and
        hides the rest. Deferred, so it runs before HTMX processes the

@@ -31,8 +31,9 @@
                      no markup yet; whether a reply is spoken travels on the
                      turn's ``data-pf-voice`` marker instead.
      voice_call_enabled — True when the voice call is switched on per tenant
-                     (ADR-0137 §4: the switch alone, no key probe). Read by
-                     no markup yet; the call button lands with the panel.
+                     (ADR-0137 §4: the switch alone, no key probe). Gates
+                     the call button in the composer row and the call panel
+                     after the composer; call_panel.js drives both.
      brief_banner  — the active consultation context (ADR-0107 C6;
                      ADR-0133 §6), else ``None``: {kind: "case", badge,
                      title, href} renders "Consulting for CASE-NNNN",
@@ -154,6 +155,16 @@
                         aria-label="Toggle voice mode"
                         title="Voice mode">{{ pf_icon("voice") }}</button>
                 {% endif %}
+                {% if voice_call_enabled %}
+                {# The call button (ADR-0137 §10): present on the tenant's switch alone; a
+                   missing key is reported when the call is started. type="button" keeps it
+                   out of the hx-post submit path; call_panel.js drives it. #}
+                <button type="button"
+                        class="pf-btn pf-btn--quiet pf-btn--icon"
+                        data-pf-call-start
+                        aria-label="Call Shirley"
+                        title="Call Shirley">{{ pf_icon("call") }}</button>
+                {% endif %}
                 <button type="submit" id="chat-send"
                         class="btn btn--primary">
                     Send
@@ -178,4 +189,5 @@
             <p class="chat-composer__hint">Enter to send · Shift+Enter for newline · attach a photo to ask about it</p>
         </form>
     </div>
+    {% if voice_call_enabled %}{% include "_partials/call_panel.html" %}{% endif %}
 </section>

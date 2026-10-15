@@ -127,3 +127,10 @@ def test_pf_icon_renders_through_jinja() -> None:
     rendered = env.from_string('{{ pf_icon("search") }}').render()
     assert rendered.startswith("<svg")
     assert "&lt;svg" not in rendered
+
+
+def test_the_voice_call_icons_are_registered() -> None:
+    """The call button, the end button and the muted state (ADR-0137 §8) resolve by name."""
+    assert (ICONS["call"], ICONS["call-end"], ICONS["mute"]) == ("phone", "phone-off", "mic-off")
+    for name in ("call", "call-end", "mute"):
+        assert str(pf_icon(name)).startswith("<svg"), name

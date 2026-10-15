@@ -44,6 +44,12 @@ What is pinned here:
   PATCHed only on a changed hash; a vanished one is re-created; a credential
   is minted on every start; a refusal is a 502 that never quotes the key and
   leaves no row, no memo entry and no line behind.
+* **The call in the browser** (ADR-0137 §2, §10). The dock offers the call
+  button and the panel on the switch alone, the button between the attach
+  trigger and Send; the panel script, the adapter module, the vendored SDK
+  and its worklets are served; the shell loads both scripts once; the
+  call's files name no persona but Shirley (UI-023). The browser's
+  behaviour itself is proven on the operator's walk.
 """
 
 from __future__ import annotations
@@ -1127,3 +1133,86 @@ async def test_a_vendor_refusal_is_a_502_that_never_quotes_the_key(
     assert await _agent_row(app.state.engine) is None
     assert not getattr(app.state, "call_agent_memo", None)
     assert not getattr(app.state, "chat_call_lines", None)
+
+
+# ---------------------------------------------------------------------------
+# The call in the browser (ADR-0137 §2, §10)
+# ---------------------------------------------------------------------------
+
+_REPO = Path(__file__).resolve().parents[2]
+_VENDOR_SDK = "/static/vendor/elevenlabs-client-1.28.0"
+
+
+async def test_the_dock_gates_the_call_furniture_on_the_switch(
+    app_client: Any, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """Off: no button, panel or chip template; on (no key): each once, in its place."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    await _login(client, email, password)
+    markers = ("data-pf-call-start", "data-pf-call-panel", "data-pf-call-chip")
+
+    off = (await client.get("/chat/dock")).text
+    await _write_setting(app.state.engine, provider="voice_call", key="enabled", value="true")
+    on = (await client.get("/chat/dock")).text
+
+    assert [off.count(marker) for marker in markers] == [0, 0, 0]
+    assert [on.count(marker) for marker in markers] == [1, 1, 1]
+    button = on.index("data-pf-call-start")
+    assert on.index('id="chat-attach"') < button < on.index('id="chat-send"')
+    assert re.search(r'data-pf-call-start\s+aria-label="Call Shirley"\s+title="Call Shirley"', on)
+    panel = re.search(r'<div class="chat-call" data-pf-call-panel[^>]*>', on)
+    assert panel is not None
+    assert panel.group(0).endswith(" hidden>")
+
+
+async def test_the_call_assets_are_served(
+    app_client: Any, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """The panel, the adapter, the SDK bundle and its two worklets answer 200."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    await _login(client, email, password)
+    paths = (
+        "/static/js/call_panel.js",
+        "/static/js/call_elevenlabs.js",
+        f"{_VENDOR_SDK}/elevenlabs-client.esm.js",
+        f"{_VENDOR_SDK}/rawAudioProcessor.js",
+        f"{_VENDOR_SDK}/audioConcatProcessor.js",
+    )
+
+    responses = {path: await client.get(path) for path in paths}
+
+    assert [r.status_code for r in responses.values()] == [200] * len(paths)
+    adapter = responses["/static/js/call_elevenlabs.js"].text
+    assert "elevenlabs-client-1.28.0/elevenlabs-client.esm.js" in adapter
+    assert 'connectionType: "webrtc"' in adapter
+    panel = responses["/static/js/call_panel.js"].text
+    for endpoint in (
+        "/chat/call/session",
+        "/chat/call/ask",
+        "/chat/call/jobs/",
+        "/chat/call/events",
+        "/chat/call/end",
+    ):
+        assert endpoint in panel, endpoint
+
+
+async def test_the_shell_loads_the_call_scripts_and_names_only_shirley(
+    app_client: Any, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """Both scripts once each; the call's files name no persona but Shirley (UI-023)."""
+    client, _app = app_client
+    _uid, email, password = seeded_user
+    await _login(client, email, password)
+
+    page = (await client.get("/assistants")).text
+
+    assert page.count('<script src="/static/js/call_panel.js" defer></script>') == 1
+    assert page.count('<script type="module" src="/static/js/call_elevenlabs.js"></script>') == 1
+    for relative in (
+        "web/templates/_partials/call_panel.html",
+        "web/static/js/call_panel.js",
+        "web/static/js/call_elevenlabs.js",
+    ):
+        assert "Irene" not in (_REPO / relative).read_text(encoding="utf-8"), relative

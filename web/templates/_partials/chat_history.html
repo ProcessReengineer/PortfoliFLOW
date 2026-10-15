@@ -7,7 +7,8 @@
    ``bubble_id`` is empty because the SSE stream for these turns is
    long over and the messages are not subsequent SSE swap targets.
    Timestamps are not surfaced on rehydration — Message.timestamp is
-   ephemeral and the meta line is omitted.
+   ephemeral and no timestamp is rendered (a call bubble's meta line
+   carries the chip alone).
 
    A chart item renders the same figure anatomy the live SSE path builds
    in chat.js — plot container, caption, pin affordance — with the frozen
@@ -19,8 +20,10 @@
    no spec and renders the calm placeholder instead.
 
    A voice call (ADR-0137 §5) leaves two marks: its bubbles carry a small
-   "Call" chip above the bubble, and its start and end lines render as
-   centred history furniture between the messages.
+   "Call" chip in the meta line under the bubble, and its start and end
+   lines render as centred history furniture between the messages. The
+   call panel's live bubbles (call_panel.js) use the same anatomy, from
+   the chip template in _partials/call_panel.html.
 
    Context:
        items         — render items in surface order:
@@ -32,9 +35,11 @@
 {% for item in items %}
 {% if item.kind == "message" %}
 <article class="chat-message chat-message--{{ item.role }}">
-    {% if item.channel == "call" %}<span class="pf-chip chat-chip--call">Call</span>{% endif %}
     <div class="chat-message__bubble"
          {% if item.role == "assistant" %}aria-live="polite"{% endif %}>{{ item.content }}</div>
+    {% if item.channel == "call" %}
+    <div class="chat-message__meta"><span class="pf-chip chat-chip--call">{{ pf_icon("call") }}Call</span></div>
+    {% endif %}
 </article>
 {% elif item.kind == "chart" %}
 <article class="chat-message chat-message--assistant">

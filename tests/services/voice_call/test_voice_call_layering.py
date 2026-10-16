@@ -4,7 +4,7 @@
 """Regression guard: ``services.voice_call`` must stay layering-clean (ADR-0137 §2).
 
 The call package imports only the standard library and ``httpx``. This guard
-imports the package and each of its ten modules, runs the pure assembly,
+imports the package and each of its eleven modules, runs the pure assembly,
 builds an agent definition from a literal ``ResolvedCall`` and constructs the
 ElevenLabs provider (no request) — in a *fresh subprocess*, so the assertion
 is independent of whatever the parent pytest process imported first — then
@@ -34,6 +34,7 @@ def test_voice_call_import_stays_layering_clean() -> None:
         "import services.voice_call  # noqa: F401\n"
         "import services.voice_call.agent_definition  # noqa: F401\n"
         "import services.voice_call.allowlist  # noqa: F401\n"
+        "import services.voice_call.capabilities  # noqa: F401\n"
         "import services.voice_call.defaults  # noqa: F401\n"
         "import services.voice_call.elevenlabs_provider  # noqa: F401\n"
         "import services.voice_call.errors  # noqa: F401\n"

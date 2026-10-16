@@ -3,9 +3,9 @@
 
 """Tests for :mod:`services.voice_call.agent_definition` (ADR-0137 §3, §8, §9).
 
-The call prompt is the Soul's first fenced block, a blank line and the
-addendum's first fenced block — nothing else. The ``ask_shirley`` spec and the
-client events carry the ADR's literal values. The definition hash covers
+The call prompt is the Soul's first fenced block, the addendum's first fenced
+block and the capability block, joined by blank lines — nothing else. The
+``ask_shirley`` spec and the client events carry their literal values. The definition hash covers
 every field that reaches the vendor and nothing that does not (the key, the
 agent id, the base URL), and is carried in the agent's name.
 """
@@ -26,6 +26,7 @@ from services.voice_call import (
     compose_call_prompt,
     first_message_for,
     load_call_prompt,
+    render_call_capabilities,
 )
 from services.voice_call.agent_definition import (
     ADDENDUM_FILE,
@@ -56,14 +57,14 @@ def test_first_fenced_block_takes_the_first_fence_and_raises_on_an_unclosed_one(
         first_fenced_block("no fence at all")
 
 
-def test_compose_call_prompt_is_fence_blank_line_fence() -> None:
-    """Soul block · blank line · addendum block — no grounding, no inventory."""
+def test_compose_call_prompt_is_soul_addendum_capabilities() -> None:
+    """Soul block · addendum block · capability block — no grounding, no inventory."""
     soul = "# Soul\n\n## System Prompt\n\n```\nSOUL BODY\n```\n\n```\nLATER\n```\n"
     addendum = "# Addendum\n\n```\nCALL RULES\n```\n"
 
     composed = compose_call_prompt(soul, addendum)
 
-    assert composed == "SOUL BODY\n\nCALL RULES"
+    assert composed == "SOUL BODY\n\nCALL RULES\n\n" + render_call_capabilities()
     assert "## Your currently available tools" not in composed
     assert "LATER" not in composed
 
@@ -81,9 +82,9 @@ def test_ask_shirley_tool_carries_the_adr_values() -> None:
     """The tool contract of ADR-0137 §3, literal for literal."""
     assert ASK_SHIRLEY_TOOL["name"] == "ask_shirley"
     assert ASK_SHIRLEY_TOOL["description"] == (
-        "Ask Shirley, who has the portfolio data. Use it for every question about numbers, "
-        "names, dates, positions, limits or charts. Relay her answer; never answer such a "
-        "question yourself."
+        "Ask Shirley. She has the portfolio and its data, analyses, limits and charts, and "
+        "she can search current news and press coverage. Use it for every question that "
+        "needs a fact; relay her answer and never answer such a question yourself."
     )
     assert ASK_SHIRLEY_TOOL["expects_response"] is True
     assert ASK_SHIRLEY_TOOL["response_timeout_secs"] == 90

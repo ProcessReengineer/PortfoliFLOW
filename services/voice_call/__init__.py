@@ -11,8 +11,9 @@ program function; every fact comes from Shirley through one client tool,
 The vendor sits behind the :class:`CallProvider` port (ADR-0137 §2), with
 :class:`ElevenLabsCallProvider` as the v1 implementation. The agent
 definition lives in the repository (:func:`build_agent_definition`): the
-call prompt composed from Shirley's Soul and the call addendum
-(:func:`load_call_prompt`), the tool, the voice, the models and the client
+call prompt composed from Shirley's Soul, the call addendum and the
+capability block of :data:`CALL_CAPABILITIES` (:func:`load_call_prompt`), the
+tool, the voice, the models and the client
 events, hashed into the agent's name so a changed definition is detected at
 the vendor (ADR-0137 §8). The tenant-facing configuration is resolved per
 session into a :class:`ResolvedCall` by the pure :func:`assemble_call`,
@@ -43,6 +44,11 @@ from services.voice_call.agent_definition import (
     load_call_prompt,
 )
 from services.voice_call.allowlist import CALL_TOOL_ALLOWLIST
+from services.voice_call.capabilities import (
+    CALL_CAPABILITIES,
+    CallCapability,
+    render_call_capabilities,
+)
 from services.voice_call.defaults import (
     DEFAULT_BASE_URL,
     DEFAULT_CONVERSATION_MODEL,
@@ -88,6 +94,9 @@ __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group c
     "compose_call_prompt",
     "load_call_prompt",
     "first_message_for",
+    "CALL_CAPABILITIES",
+    "CallCapability",
+    "render_call_capabilities",
     # The ask_shirley turn
     "CALL_TOOL_ALLOWLIST",
     "SPEAK_TOOL",

@@ -10,9 +10,9 @@ block under ``## Briefing Prompt`` — neither carries Shirley's tool
 inventory or context files.
 
 The voice-call agent's prompt (ADR-0137 §9) is Shirley's System Prompt
-block plus the block of ``Soul_Shirley_call.md`` — no grounding, no
-inventory — and is pinned by hash, so an edit to either file is a
-conscious change.
+block, the block of ``Soul_Shirley_call.md`` and the generated capability
+block — no grounding, no inventory — and is pinned by hash, so an edit to
+either file or to a capability line is a conscious change.
 
 The exact-equality pins build the expected string from its parts in the
 real ``prompts/`` files, so they survive edits to the Soul text but fail
@@ -33,7 +33,7 @@ import services.ai_service_core as core_mod
 from services.ai_models import ConnectionStatus, Conversation, Message, MessageRole
 from services.ai_service_core import AIServiceCore, _temporal_grounding_block
 from services.tool_registry import get_tool_registry
-from services.voice_call import load_call_prompt
+from services.voice_call import load_call_prompt, render_call_capabilities
 from tests.fixtures.openrouter_responses import SIMPLE_TEXT_RESPONSE
 from tests.fixtures.sse_helpers import encode_sse_events
 
@@ -108,9 +108,15 @@ def test_shirley_prompt_is_byte_identical_composition() -> None:
     assert core.get_system_prompt() == expected
 
 
-def test_call_prompt_is_soul_block_plus_addendum_block() -> None:
-    """The call agent's prompt: Soul block · addendum block — no grounding, no inventory."""
-    expected = _fences(_soul("Shirley"))[0] + "\n\n" + _fences(_soul("Shirley_call"))[0]
+def test_call_prompt_is_soul_block_addendum_block_and_capabilities() -> None:
+    """The call agent's prompt: Soul · addendum · capabilities — no grounding, no inventory."""
+    expected = "\n\n".join(
+        (
+            _fences(_soul("Shirley"))[0],
+            _fences(_soul("Shirley_call"))[0],
+            render_call_capabilities(),
+        )
+    )
     composed = load_call_prompt()
     assert composed == expected
     assert _INVENTORY_HEADING not in composed
@@ -121,9 +127,9 @@ def test_call_prompt_is_soul_block_plus_addendum_block() -> None:
 
 
 def test_call_prompt_hash_is_pinned() -> None:
-    """An edit to either prompt file is a conscious change: update this hash with it."""
+    """An edit to either prompt file or a capability line is a conscious change."""
     digest = hashlib.sha256(load_call_prompt().encode("utf-8")).hexdigest()
-    assert digest == "e2b2b7603ee228fec92b8b89c029b57026a51453573d2b9be998e834d23ff08b"
+    assert digest == "4f801cd72f11db40cb850fbd8d5f0148c4199e39a3a503ceb68444008b37c9cd"
 
 
 def test_irene_finding_prompt_is_grounding_plus_system_block() -> None:

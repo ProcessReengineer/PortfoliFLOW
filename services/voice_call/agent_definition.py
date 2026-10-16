@@ -4,10 +4,12 @@
 """The agent definition and the call prompt composition (ADR-0137 §3, §8, §9).
 
 The definition lives in the repository; the vendor agent is brought in line
-with it. Its system prompt is composed in code from two files under
-``prompts/``: the first fenced block of ``Soul_Shirley.md`` — Shirley's own
-System Prompt, which stays byte-identical — and the first fenced block of
-``Soul_Shirley_call.md``, the call addendum. Nothing else: no temporal
+with it. Its system prompt is composed in code from three parts: the first
+fenced block of ``prompts/Soul_Shirley.md`` — Shirley's own System Prompt,
+which stays byte-identical — the first fenced block of
+``prompts/Soul_Shirley_call.md``, the call addendum, and the capability block
+of :mod:`services.voice_call.capabilities`, which says in plain language what
+``ask_shirley`` reaches and names no tool. Nothing else: no temporal
 grounding block (it changes daily and would change the definition hash every
 day), no tool inventory, no context files. The agent gets dates from Shirley
 through ``ask_shirley``.
@@ -30,6 +32,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from services.voice_call.capabilities import render_call_capabilities
 from services.voice_call.defaults import DEFAULT_TTS_MODEL_ID, MAX_DURATION_SECONDS
 from services.voice_call.port import AgentDefinition
 from services.voice_call.resolved import ResolvedCall
@@ -46,9 +49,10 @@ ASK_SHIRLEY_TOOL: Mapping[str, Any] = MappingProxyType(
     {
         "name": "ask_shirley",
         "description": (
-            "Ask Shirley, who has the portfolio data. Use it for every question about "
-            "numbers, names, dates, positions, limits or charts. Relay her answer; never "
-            "answer such a question yourself."
+            "Ask Shirley. She has the portfolio and its data, analyses, limits and "
+            "charts, and she can search current news and press coverage. Use it for "
+            "every question that needs a fact; relay her answer and never answer such "
+            "a question yourself."
         ),
         "parameters": {
             "type": "object",
@@ -113,7 +117,11 @@ def first_fenced_block(text: str) -> str:
 
 
 def compose_call_prompt(soul_text: str, addendum_text: str) -> str:
-    """Compose the call agent's system prompt: Soul block · blank line · addendum block.
+    """Compose the call agent's system prompt: Soul block · addendum block · capabilities.
+
+    The three parts are joined by a blank line. The capability block comes
+    last because the addendum's rules introduce ``ask_shirley`` and refer to
+    the block by its heading.
 
     Args:
         soul_text: The text of ``Soul_Shirley.md``.
@@ -126,7 +134,13 @@ def compose_call_prompt(soul_text: str, addendum_text: str) -> str:
     Raises:
         ValueError: If either text holds no complete fence pair.
     """
-    return first_fenced_block(soul_text) + "\n\n" + first_fenced_block(addendum_text)
+    return "\n\n".join(
+        (
+            first_fenced_block(soul_text),
+            first_fenced_block(addendum_text),
+            render_call_capabilities(),
+        )
+    )
 
 
 def load_call_prompt(prompts_dir: Path | None = None) -> str:

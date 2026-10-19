@@ -8,7 +8,7 @@
 | Scope | Operator / platform-administration tasks (tenant provisioning, super-admin management, diagnostics) |
 | Audience | Platform operators with superuser database access |
 | Language | English, per ADR-0008 |
-| Authoritative sources | ADR-0040 (bootstrap CLI), ADR-0063 (multi-tenant activation, subdomain routing, role model), ADR-0064 (super-admin surface, CLI operations), ADR-0086 (Irene heartbeat tick), ADR-0093 (market-data tick), ADR-0112 (scoped settings, credential vault) |
+| Authoritative sources | ADR-0040 (bootstrap CLI), ADR-0063 (multi-tenant activation, subdomain routing, role model), ADR-0064 (super-admin surface, CLI operations), ADR-0086 (Irene heartbeat tick), ADR-0093 (market-data tick), ADR-0112 (scoped settings, credential vault), ADR-0136 (voice providers), ADR-0137 (voice call) |
 
 > This handbook documents the operator surface as implemented. Where it
 > and an ADR disagree, the ADR wins — report the drift rather than
@@ -600,6 +600,115 @@ Operational notes:
    arrives both as text and as a **playable voice note**.
 3. Confirm a normal text message still works unchanged on both surfaces.
 4. Switch text-to-speech to *Not set* and repeat 1: the spoken question is answered in text.
+
+---
+
+## 8a. Optional: Voice call for Shirley (ADR-0137)
+
+Shirley can take a **live spoken call** in the web chat: a fluid conversation with
+interruption, not a voice message. The call is **off by default and additive** — with
+it off the chat behaves exactly as before and the call button is hidden. It is separate
+from the voice messages of §8 and can be on without them.
+
+**What leaves the house.** On a call, the user's **audio and the transcript go to the
+voice vendor** (ElevenLabs Agents in this version), which hosts the conversation layer
+and **retains conversation records on its side** under the tenant's own account. The
+conversation layer carries Shirley's persona and knows nothing about the book: every fact
+comes from one read-only tool, `ask_shirley`, which runs an ordinary Shirley turn inside
+the user's session and relays the answer; the agent cannot change anything. The call is a
+**per-tenant owner opt-in** on the Admin card below, with the tenant's own key — there is
+no deployment-wide switch and no `.env` key for it. The card states the compliance posture
+in one line and points here.
+
+**Prerequisites** (ElevenLabs):
+
+- a **paid plan** — the free plan refuses library voices through the API;
+- an API key with the **Agents write** permission. It may be the same key as for
+  text-to-speech when that key carries both permissions; store it on the card either way;
+- a **voice without live moderation**: the agent API refuses a library voice that has
+  live moderation enabled (HTTP 400 at agent creation). Pick the voice ID from the voice
+  library and set it as **Voice** on the card. Left empty, the call uses the
+  **text-to-speech voice of §8 only when that half's provider is `elevenlabs`** — a voice
+  of another provider is not a call voice, and the first start says so;
+- optional: **Language** (vendor language code, empty = German), **Model** (the
+  conversation-layer model from the vendor's list, empty = `gemini-2.5-flash`; a wrong value fails at the next start with the
+  vendor's message), **Base URL** (empty = `https://api.elevenlabs.io`). Whether
+  the Agents API is served on the EU-residency host is **unverified**; set it as Base URL
+  only after checking with the vendor.
+
+**Enable it per tenant** under Admin → Providers & Credentials → **Voice call**: the
+`Enabled` switch, the key, the voice. The card is **live — saves apply instantly**; the
+call button appears beside Send when the conversation is next opened. The card's state
+line reads one of: *inactive — switch off* · *inactive — no key* · *active, agent not yet
+provisioned* · *active (agent …)*. The switch alone offers the button; a missing key or
+voice is reported when a call is started, never silently.
+
+**Provisioning.** PortfoliFLOW creates the vendor agent **lazily at the first call** from
+a definition in the repository and writes its id into **Agent id** on the card. The
+definition's hash is part of the agent's name; at every start PortfoliFLOW reads the
+agent and PATCHes it only when the definition changed, so an upgrade that changes
+Shirley's call prompt reaches the vendor at the next call. The vendor dashboard is for
+**looking** — an edit made there is overwritten at the next start. Clearing **Agent id**
+provisions a fresh agent at the next call and **orphans** the old one at the vendor
+(delete it there by hand).
+
+**The call in the chat.** The call button replaces the composer with the call panel
+(connecting · listening · Shirley is speaking · looking that up · muted · ended). Every
+spoken line lands live in the chat history with a *Call* chip; an answer that needed a
+lookup appears as the ordinary Shirley bubble with its charts. A "Call started HH:MM" and
+a "Call ended" line frame the call. The lines are part of the in-memory history only — no
+audio is stored, and the history persists exactly as far as the text chat's does.
+
+**Timeouts.** A lookup is bounded twice: the vendor allows 90 s for the tool, PortfoliFLOW
+answers after **75 s** with "Das dauert länger — ich schreibe die Antwort in den Chat." /
+"This is taking longer — I'll put the answer in the chat." and keeps polling slowly for
+the answer, which lands in the chat when the turn finishes. A call ends by itself after
+**20 minutes**. A lookup that cannot reach the server is answered with "Ich konnte Shirley
+gerade nicht erreichen." and the reason is shown in the chat.
+
+**Browser requirements.** A secure context (HTTPS; `localhost` is exempt) for the
+microphone, and WebRTC not blocked by the network. If a reverse proxy sets a
+Content-Security-Policy, allow `api.elevenlabs.io` and the vendor's WebRTC media host
+(a LiveKit host; read its name from the browser's network panel on a first call) for
+`connect-src`, and `blob:` for `worker-src` (the audio worklets).
+
+**SDK vendoring.** The browser SDK is vendored, not loaded from a CDN, and loaded lazily
+on the first call start. To update it (`<ver>` is the npm version):
+
+1. In a temporary directory outside the repository:
+   `npm install @elevenlabs/client@<ver> esbuild`.
+2. Bundle **the browser entry**, not the package default:
+   `npx esbuild node_modules/@elevenlabs/client/dist/platform/web/index.js --bundle --format=esm --minify --target=es2020 --outfile=elevenlabs-client.esm.js`.
+   `dist/index.js` lacks the web session strategy; a bundle built from it loads but fails
+   at the first start with "No voice session setup strategy registered". The browser
+   build contains `AudioWorkletNode` — a test pins that marker.
+3. Copy the bundle, `node_modules/@elevenlabs/client/dist/worklets/*.js` and the package
+   `LICENSE` into `web/static/vendor/elevenlabs-client-<ver>/` and bump the directory
+   name in `web/static/js/call_elevenlabs.js` (the only place the version is written).
+   For 1.28.0 the bundle is 631,035 bytes.
+4. The bundle's `libsamplerate` CDN constant is reached only on the WebSocket path, never
+   with WebRTC, which the adapter uses.
+
+`/static` is served with `Cache-Control: no-cache`, so a replaced bundle is live on the
+next page load — no cache clearing, no version pin to bump.
+
+**Troubleshooting** (the panel shows "The call could not be started." with the vendor's
+message; the server log has the vendor status and body with the key scrubbed):
+
+| Symptom | Meaning | Fix |
+|---|---|---|
+| 503 at start, "Voice call is enabled but …" | Key or voice missing on the card | Fill the field the message names |
+| 502, `missing_permissions` (vendor 401) | The key lacks the Agents write permission | Issue a key with it |
+| 502, `paid_plan_required` (vendor 402) | Free plan | Upgrade the plan |
+| 502, vendor 400 naming the voice | Library voice with live moderation | Choose another voice |
+| 502, vendor 422 | Unknown model or voice id | Check **Model** / **Voice** against the vendor's lists |
+| "The call could not be started." + an SDK message | Browser side: microphone denied, WebRTC blocked, or a stale bundle | Allow the microphone, check the proxy/CSP, reload |
+| "Ich konnte Shirley gerade nicht erreichen." | The lookup's server request failed | See the inline error in the chat and the server log |
+
+**Smoke test** (call enabled, key and voice set): start a call, ask a small-talk question
+(answered without a lookup), ask a portfolio question (the panel shows "Looking that
+up…", the answer is spoken and appears as a bubble with its chart), interrupt Shirley
+mid-sentence, end the call — the "Call ended" line closes it and the composer returns.
 
 ---
 

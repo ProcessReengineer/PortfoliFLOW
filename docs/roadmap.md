@@ -100,12 +100,21 @@ against, and what has shipped. It records no history — that lives in git and i
   deployment-wide switch; the vendor agent is provisioned from a definition
   in the repository. Voice messages stay as they are; Telegram keeps voice
   messages only.
-- **Shipped so far:** nothing — concept and ADR.
-- **Remaining:** the implementation strand (taxonomy and Admin card, the call
-  package and the Soul addendum, the `ask_shirley` job with its tool
-  allowlist, session endpoint and browser panel, documentation), then the
-  combined voice walk (voice messages and the call) on a real account and
-  the tuning days.
+- **Shipped so far:** the implementation strand (ADR-0137): the `voice_call`
+  declaration and Admin card with its state line; the call package
+  (`services/voice_call/`: port, ElevenLabs provider, agent definition with
+  the composed call prompt and a generated capability block, read-only tool
+  allowlist, speakable rewrite, job records); the `ask_shirley` job behind
+  the turn lock with its relay and history lines; the session endpoint with
+  lazy, hash-compared agent provisioning; the browser panel and the vendored
+  SDK adapter; `/static` revalidation; operator documentation (handbook §8a).
+  Walked on a real account 2026-10-15/16: calls, lookups with charts,
+  interruption, timeouts, both languages.
+- **Remaining:** the written walk record for the cases not yet logged, and
+  the owner's tuning of the call addendum; the conversation style — today the
+  tool call blocks and an interruption discards the running lookup — is a
+  separate owner decision (non-blocking delivery as sketched under the ADR's
+  Alternatives), not part of this item.
 - **ADR:** ADR-0137.
 - **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
   user's turn waits visibly; #071 removes the wait.

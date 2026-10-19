@@ -9,6 +9,17 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ### Added
 
+- Shirley takes a live voice call in the web chat (ADR-0137, roadmap #077).
+  A vendor-hosted conversation layer (ElevenLabs Agents) carries Shirley's
+  persona and knows nothing about the book; every fact comes through one
+  read-only tool, `ask_shirley`, which runs an ordinary Shirley turn in the
+  user's session and relays the answer — interruption included. The call's
+  transcript lands in the chat history with a *Call* chip, answers that needed
+  a lookup appear as the usual bubble and chart. Per-tenant opt-in on the new
+  **Voice call** Admin card with the tenant's own key; the vendor agent is
+  provisioned lazily from a definition in the repository and kept up to date
+  by hash. Audio and transcript go to the vendor; the card and handbook §8a
+  say so. The browser SDK is vendored and loaded on the first call only.
 - Shirley's voice messages no longer depend on one vendor (ADR-0136, roadmap
   #076). Speech-to-text and text-to-speech are chosen per tenant and per half
   on the Voice cards: any server speaking the OpenAI audio wire —
@@ -30,6 +41,9 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   deleted `VOICE_STT_PROVIDER` / `VOICE_TTS_PROVIDER` and relied on the former
   code default finds that half inactive after the upgrade until a provider is
   chosen on the Voice cards or in `.env`. `VOICE_TTS_BASE_URL` is new.
+- `/static` is served with `Cache-Control: no-cache`: assets stay cacheable but
+  are revalidated on every use, so a redeployed script or stylesheet is live
+  on the next page load (an unchanged file costs one 304).
 
 ## [2026.10.0] — 2026-10-12
 

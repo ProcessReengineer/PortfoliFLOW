@@ -49,6 +49,9 @@ Sidebar order per ADR-0122 §1, plus the platform-operations surface.
 | `new` | `plus` |
 | `attach` | `paperclip` |
 | `voice` | `mic` |
+| `call` | `phone` |
+| `call-end` | `phone-off` |
+| `mute` | `mic-off` |
 | `send` | `send-horizontal` |
 | `back` | `chevron-left` |
 | `forward` | `chevron-right` |
@@ -67,7 +70,7 @@ Sidebar order per ADR-0122 §1, plus the platform-operations surface.
 | `calendar` | `calendar` |
 | `download` | `download` |
 
-38 icons in total. Four of them were renamed upstream before this
+41 icons in total. Four of them were renamed upstream before this
 release; v1.47.0 ships the newer stem in every case, so `ICONS` records
 `send-horizontal`, `triangle-alert`, `octagon-alert` and `ellipsis`
 rather than the older `send`, `alert-triangle`, `alert-octagon` and

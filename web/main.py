@@ -7,6 +7,9 @@ The app factory builds the engines in a lifespan context, queries the
 Alembic ``alembic_version`` table once to populate
 ``app.state.schema_revision``, mounts static / template directories,
 constructs the auth backend, and registers the sub-stream-2b routes.
+Static assets are served with ``Cache-Control: no-cache`` so that browsers
+revalidate them on every use and a redeployed asset is live on the next
+page load instead of staying heuristically fresh for hours.
 
 Two engines are managed:
 
@@ -44,9 +47,10 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -101,6 +105,34 @@ _LOG = logging.getLogger("portfoliflow.web")
 _WEB_DIR: Path = Path(__file__).resolve().parent
 _STATIC_DIR: Path = _WEB_DIR / "static"
 _TEMPLATES_DIR: Path = _WEB_DIR / "templates"
+
+
+class _RevalidatingStaticFiles(StaticFiles):
+    """Serve ``/static`` with ``Cache-Control: no-cache``.
+
+    Starlette sends ``ETag`` and ``Last-Modified`` but no ``Cache-Control``,
+    so browsers keep static assets heuristically fresh for hours and never
+    ask again — a redeployed script or vendored bundle then stays stale on
+    the client. ``no-cache`` keeps the files cacheable but makes every use
+    revalidate: an unchanged file costs one ``304``, a changed one is live on
+    the next page load. The conditional-request branch is inherited; the
+    header is added to both the full and the ``304`` response.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        """Return Starlette's file response with ``Cache-Control: no-cache`` set.
+
+        Args:
+            *args: Passed through to ``StaticFiles.file_response``.
+            **kwargs: Passed through to ``StaticFiles.file_response``.
+
+        Returns:
+            The ``FileResponse``, or the ``NotModifiedResponse`` when the
+            request's validators match, carrying the added header.
+        """
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 async def _read_schema_revision(database_url: str | None) -> str | None:
@@ -314,7 +346,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
     )
     app.state.settings = resolved_settings
 
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    app.mount("/static", _RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     # Browsers request ``GET /favicon.ico`` from the document root
     # regardless of the ``<link rel="icon">`` tag in <head>. Serving

@@ -50,6 +50,10 @@
         // The sentence the agent speaks when an answer takes longer than the poll.
         fallbackDe: "Das dauert länger — ich schreibe die Antwort in den Chat.",
         fallbackEn: "This is taking longer — I'll put the answer in the chat.",
+        // The sentence the agent speaks when no answer will come: the ask was
+        // refused or unreachable, or its job failed or was lost.
+        unreachableDe: "Ich konnte Shirley gerade nicht erreichen.",
+        unreachableEn: "I could not reach Shirley just now.",
         ended: function (from, to) {
             return "Call ended · " + from + "–" + to + " · see the conversation above";
         },
@@ -62,7 +66,7 @@
     const SLOW_POLL_LIMIT_MS = 10 * 60 * 1000;
     const LEVEL_MS = 120;
     const ENDED_HOLD_MS = 4000;
-    const ERROR_DETAIL_MAX = 120;
+    const ERROR_DETAIL_MAX = 160;
     // The server's bounds on one relayed batch and one line (_CallEventsBody).
     const BATCH_MAX = 200;
     const TEXT_MAX = 8000;
@@ -153,9 +157,58 @@
         return res && res.json && typeof res.json.detail === "string" ? res.json.detail : "";
     }
 
-    function fallbackSentence(language) {
+    function isGerman(language) {
         const code = String(language || "").trim().toLowerCase();
-        return code === "de" || code.indexOf("de-") === 0 ? COPY.fallbackDe : COPY.fallbackEn;
+        return code === "de" || code.indexOf("de-") === 0;
+    }
+
+    function fallbackSentence(language) {
+        return isGerman(language) ? COPY.fallbackDe : COPY.fallbackEn;
+    }
+
+    function unreachableSentence(language) {
+        return isGerman(language) ? COPY.unreachableDe : COPY.unreachableEn;
+    }
+
+    // An error as an error sub line: its message (or the error itself when it
+    // carries none), trimmed and bounded; ``fallback`` when nothing usable.
+    function errorDetail(err, fallback) {
+        const raw = err && typeof err.message === "string" ? err.message : err;
+        const text = raw == null ? "" : String(raw).trim();
+        if (text && text.length <= ERROR_DETAIL_MAX) return text;
+        return fallback === undefined ? COPY.vendorFailed : fallback;
+    }
+
+    // Panel code runs inside the vendor SDK's callbacks; an exception there
+    // must not reach the SDK, where it would tear the session down unseen.
+    function handlerFailed(name, err) {
+        console.error("call: handler failed", name, err);
+    }
+
+    function guard(name, fn) {
+        return function () {
+            try {
+                return fn.apply(this, arguments);
+            } catch (err) {
+                handlerFailed(name, err);
+                return undefined;
+            }
+        };
+    }
+
+    // The client tool's handler: the agent always gets a string back.
+    function guardAsync(name, fn) {
+        return function () {
+            try {
+                return Promise.resolve(fn.apply(this, arguments)).catch(function (err) {
+                    handlerFailed(name, err);
+                    return "";
+                });
+            } catch (err) {
+                handlerFailed(name, err);
+                return Promise.resolve("");
+            }
+        };
     }
 
     function el(selector) {
@@ -510,6 +563,7 @@
     // the server and lands in the chat (ADR-0137 §3 step 5).
     function overrun(c, job) {
         if (job.finished || job.settled) return;
+        console.debug("call:", "overrun");
         settle(job, fallbackSentence(c.language));
         goSlow(c, job);
         c.overrun = job;
@@ -537,15 +591,21 @@
             .then(function (data) {
                 if (job.finished) return;
                 const state = data && data.state;
+                if (state && state !== job.state) {
+                    job.state = state;
+                    console.debug("call:", "job", state);
+                }
                 if (state === "waiting_for_turn") {
                     const busy = Date.now() - job.startedAt >= BUSY_AFTER_MS;
                     if (busy !== job.busy) {
                         job.busy = busy;
+                        console.debug("call:", "job busy", busy);
                         render(c);
                     }
                 } else if (state === "running") {
                     if (job.busy) {
                         job.busy = false;
+                        console.debug("call:", "job busy", false);
                         render(c);
                     }
                 } else if (state === "done") {
@@ -554,7 +614,9 @@
                     refreshHistory();
                     return;
                 } else if (state === "failed") {
-                    settle(job, fallbackSentence(c.language));
+                    // No answer will land in the chat: the agent must not
+                    // promise one (the overrun sentence would).
+                    settle(job, unreachableSentence(c.language));
                     release(c, job);
                     inlineError(String(data.error || COPY.jobFailed));
                     return;
@@ -563,8 +625,9 @@
                     release(c, job);
                     return;
                 } else if (state === "lost") {
-                    settle(job, fallbackSentence(c.language));
+                    settle(job, unreachableSentence(c.language));
                     release(c, job);
+                    inlineError(COPY.jobFailed);
                     return;
                 }
                 job.pollTimer = setTimeout(function () {
@@ -589,6 +652,7 @@
             finished: false,
             busy: false,
             slow: false,
+            state: "",
             resolve: null,
         };
         c.job = job;
@@ -608,9 +672,10 @@
         })
             .then(function (res) {
                 if (res.status !== 202 || !res.json.job_id) {
-                    console.warn("call_panel.js: ask_shirley refused", res.status, detailOf(res));
-                    settle(job, fallbackSentence(c.language));
+                    console.error("call: ask_shirley refused", res.status);
+                    settle(job, unreachableSentence(c.language));
                     release(c, job);
+                    inlineError(detailOf(res) || COPY.jobFailed);
                     return;
                 }
                 markRelayed(c, events);
@@ -625,19 +690,23 @@
                 poll(c, job);
             })
             .catch(function (err) {
-                console.warn("call_panel.js: ask_shirley failed", err);
-                settle(job, fallbackSentence(c.language));
+                console.error("call: ask_shirley failed", err);
+                settle(job, unreachableSentence(c.language));
                 release(c, job);
+                inlineError(COPY.serverUnreachable);
             });
         return answer;
     }
 
     // ---- Vendor callbacks ------------------------------------------
 
+    // Every handler is guarded: the SDK calls them, and an exception in panel
+    // code must not propagate into it.
     function handlersFor(c) {
         return {
-            onStatus: function (status, details) {
+            onStatus: guard("onStatus", function (status, details) {
                 if (call !== c) return;
+                console.debug("call:", "status", status);
                 if (status === "connected") onConnected(c);
                 else if (status === "disconnected") {
                     // onDisconnect carries the reason, onStatusChange does not;
@@ -649,31 +718,44 @@
                         }, 0);
                     }
                 }
-            },
-            onMode: function (mode) {
+            }),
+            onMode: guard("onMode", function (mode) {
                 if (call !== c) return;
                 c.mode = mode === "speaking" ? "speaking" : "listening";
+                console.debug("call:", "mode", c.mode);
                 if (c.mode === "listening") flush(c);
                 render(c);
-            },
-            onTranscript: function (line) {
+            }),
+            onTranscript: guard("onTranscript", function (line) {
                 if (call === c) onTranscript(c, line);
-            },
-            onCorrection: function (correction) {
+            }),
+            onCorrection: guard("onCorrection", function (correction) {
                 if (call === c) onCorrection(c, correction);
-            },
-            onInterruption: function () {
-                if (call === c && c.job) cancelJob(c, c.job);
-            },
-            onToolCall: function (name, params) {
+            }),
+            onInterruption: guard("onInterruption", function () {
+                if (call !== c) return;
+                console.debug("call:", "interruption");
+                if (c.job) cancelJob(c, c.job);
+            }),
+            onToolCall: guardAsync("onToolCall", function (name, params) {
                 if (call !== c || name !== "ask_shirley") return Promise.resolve("");
+                const question = String((params && params.question) || "");
+                console.debug("call:", "tool call", name, question.length);
                 return askShirley(c, params);
-            },
-            onError: function (message) {
+            }),
+            onError: guard("onError", function (message) {
+                console.debug("call:", "vendor error", message);
+                if (!c.startedAt) {
+                    // Before connect the SDK reports the reason here and then
+                    // closes or rejects the start; keep it for that sub line.
+                    console.error("call: vendor error before connect", message);
+                    c.vendorErrorDetail = String(message || "");
+                    return;
+                }
                 // Transient vendor errors are reported while the session
                 // lives; the disconnect path decides the panel's state.
                 console.warn("call_panel.js: voice vendor error", message);
-            },
+            }),
         };
     }
 
@@ -681,13 +763,16 @@
         if (c.startedAt) return; // onConnect and onStatusChange both report it
         c.startedAt = Date.now();
         c.phase = "live";
+        console.debug("call:", "connected");
         startTimers(c);
         render(c);
     }
 
     function onDisconnected(c) {
         c.disconnectTimer = null;
-        if (call !== c || c.ending || c.disconnected) return;
+        // An error already shown stays: the SDK reports the disconnect before
+        // it rejects the start, and the deferred decision lands after it.
+        if (call !== c || c.ending || c.disconnected || c.phase === "error") return;
         // Before the start resolved, its own failure path decides — or, if it
         // resolves after all, the start's success path replays this.
         if (c.phase === "connecting" && !c.adapterStarted) {
@@ -695,6 +780,15 @@
             return;
         }
         c.disconnected = true;
+        if (!c.startedAt) {
+            // Never connected: the call did not start, it was not interrupted.
+            const reason = c.disconnectReason || "disconnected before connect";
+            console.error("call: start failed", reason);
+            showError(c, COPY.startFailed, errorDetail(c.vendorErrorDetail));
+            closeCall(c);
+            return;
+        }
+        console.debug("call:", "disconnected", c.disconnectReason || "");
         let sub = COPY.vendorClosed;
         if (c.disconnectReason === "error") sub += " " + COPY.connectionLost;
         showError(c, COPY.interrupted, sub);
@@ -727,6 +821,8 @@
                 disconnectPending: false,
                 disconnectReason: "",
                 disconnectTimer: null,
+                // The last vendor error before connect: the start failure's sub line.
+                vendorErrorDetail: "",
                 disconnected: false,
                 refreshing: null,
                 ending: false,
@@ -738,6 +834,7 @@
     }
 
     function startFailed(sub) {
+        console.error("call: start failed", sub);
         call = newCall({});
         showError(call, COPY.startFailed, sub);
     }
@@ -775,8 +872,15 @@
             maxDuration: Number(session.max_duration_seconds) || 0,
         });
         call = c;
+        console.debug("call:", "session minted", {
+            vendor: session.vendor,
+            call_id: c.callId,
+            language: c.language,
+            max_duration_seconds: c.maxDuration,
+        });
         const factory = window.pfCallAdapters && window.pfCallAdapters[session.vendor];
         if (typeof factory !== "function") {
+            console.error("call: start failed", COPY.noAdapter);
             showError(c, COPY.startFailed, COPY.noAdapter);
             closeCall(c);
             return;
@@ -788,6 +892,7 @@
         refreshHistory();
         Promise.resolve()
             .then(function () {
+                console.debug("call:", "adapter start requested");
                 return c.adapter.start({ token: session.token });
             })
             .then(function () {
@@ -797,10 +902,10 @@
             })
             .catch(function (err) {
                 if (call !== c || c.ending) return;
-                const message = String((err && err.message) || "");
-                const sub =
-                    message && message.length < ERROR_DETAIL_MAX ? message : COPY.vendorFailed;
-                showError(c, COPY.startFailed, sub);
+                console.error("call: start failed", err);
+                // The rejection's message first; the vendor error reported
+                // before it when the rejection carries none.
+                showError(c, COPY.startFailed, errorDetail(err, errorDetail(c.vendorErrorDetail)));
                 closeCall(c);
             });
     }
@@ -839,6 +944,7 @@
             })
             .then(function () {
                 c.ended = true;
+                console.debug("call:", "ended");
             });
         return c.closing;
     }
@@ -846,6 +952,7 @@
     // End: the End button, or the call's duration elapsed.
     function endCall(c) {
         if (!c || call !== c) return;
+        console.debug("call:", "end requested", c.phase);
         if (c.phase === "error") {
             // The error panel stays until End is clicked; the server side is
             // already closed, or closing.

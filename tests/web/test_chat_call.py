@@ -21,8 +21,8 @@ What is pinned here:
   from the tenant's vault row and from nowhere else — a ``VOICE_CALL_API_KEY``
   variable supplies nothing — the defaults of ``services.voice_call`` fill
   the empty fields, the persona voice ``voice_tts.voice`` stands in for an
-  empty call voice, and an incomplete call fails naming the card, not
-  ``.env`` (ADR-0137 §7).
+  empty call voice only when the text-to-speech half is ElevenLabs, and an
+  incomplete call fails naming the card, not ``.env`` (ADR-0137 §7).
 * **The ``ask_shirley`` job runs the typed turn's machinery** (ADR-0137 §3).
   Through the real login flow and a scripted core: the job answers 202 at
   once, waits for the turn, runs it with the tool allowlist, the turn's LLM
@@ -47,9 +47,11 @@ What is pinned here:
 * **The call in the browser** (ADR-0137 §2, §10). The dock offers the call
   button and the panel on the switch alone, the button between the attach
   trigger and Send; the panel script, the adapter module, the vendored SDK
-  and its worklets are served; the shell loads both scripts once; the
-  call's files name no persona but Shirley (UI-023). The browser's
-  behaviour itself is proven on the operator's walk.
+  and its worklets are served, the bundle being the SDK's browser build;
+  the panel surfaces a failed start and gives the agent a sentence of its
+  own for a refused ask; the shell loads both scripts once; the call's
+  files name no persona but Shirley (UI-023). The browser's behaviour
+  itself is proven on the operator's walk.
 """
 
 from __future__ import annotations
@@ -301,14 +303,30 @@ async def test_call_values_fill_the_package_defaults(
 async def test_call_values_fall_back_to_the_persona_voice(
     app_engine: AsyncEngine, vault_key: VaultCipher
 ) -> None:
-    """No call voice: the tenant's ``voice_tts.voice`` row is the call's voice."""
+    """No call voice and an ElevenLabs text-to-speech half: its voice is the call's voice."""
     await _enable_with_key(app_engine, vault_key)
+    await _write_setting(app_engine, provider="voice_tts", key="provider", value="elevenlabs")
     await _write_setting(app_engine, provider="voice_tts", key="voice", value="v_tts")
 
     call = await _call(app_engine)
 
     assert call is not None
     assert call.voice == "v_tts"
+
+
+async def test_call_values_leave_another_providers_voice_alone(
+    app_engine: AsyncEngine, vault_key: VaultCipher
+) -> None:
+    """Another text-to-speech provider: its voice is no fallback; the error names the card."""
+    await _enable_with_key(app_engine, vault_key)
+    await _write_setting(app_engine, provider="voice_tts", key="provider", value="openai")
+    await _write_setting(app_engine, provider="voice_tts", key="voice", value="alloy")
+
+    with pytest.raises(CallConfigurationError) as excinfo:
+        await _call(app_engine)
+
+    assert "Voice call" in str(excinfo.value)
+    assert ".env" not in str(excinfo.value)
 
 
 async def test_call_values_without_a_key_name_the_card(
@@ -997,6 +1015,7 @@ async def test_the_first_call_provisions_the_agent_and_writes_its_id_back(
     engine = app.state.engine
     await _enable_with_key(engine, vault_key)
     await _write_setting(engine, provider="voice_call", key="base_url", value=_VENDOR)
+    await _write_setting(engine, provider="voice_tts", key="provider", value="elevenlabs")
     await _write_setting(engine, provider="voice_tts", key="voice", value="v_tts")
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
     httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
@@ -1196,6 +1215,21 @@ async def test_the_call_assets_are_served(
         "/chat/call/end",
     ):
         assert endpoint in panel, endpoint
+    assert 'console.error("call: start failed"' in panel
+    assert "Ich konnte Shirley gerade nicht erreichen." in panel
+    assert 'console.debug("call:", "sdk imported")' in adapter
+
+
+def test_the_vendored_bundle_is_the_browser_build() -> None:
+    """The SDK bundle is built from the browser entry, which carries ``AudioWorkletNode``.
+
+    A build from the package's ``default`` entry has none and fails at the
+    first start with "No voice session setup strategy registered".
+    """
+    bundle = _REPO / "web" / _VENDOR_SDK.lstrip("/") / "elevenlabs-client.esm.js"
+
+    assert bundle.is_file()
+    assert "AudioWorkletNode" in bundle.read_text(encoding="utf-8")
 
 
 async def test_the_shell_loads_the_call_scripts_and_names_only_shirley(

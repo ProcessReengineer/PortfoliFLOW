@@ -1180,6 +1180,7 @@ async def test_the_voice_call_card_carries_its_copy_and_fields(
     assert ids == ["api_key", "enabled", "agent_id", "model", "voice", "language", "base_url"]
     assert "A key with the Agents write permission." in card
     assert "Leave empty to use the text-to-speech voice" in card
+    assert "An ElevenLabs voice id without live moderation." in card
     assert "Leave empty for German (de)." in card
     # The switch renders as a switch, off by default.
     assert _switch_input(card, "tenant-voice_call-enabled")

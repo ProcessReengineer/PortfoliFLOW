@@ -1711,8 +1711,11 @@ async def _call_values(resolver: CredentialResolver, *, tenant_id: UUID) -> Reso
 
     Tenant scope for every ``voice_call`` field — the declaration has no
     environment link — and the voice chains' scopes for the persona-voice
-    fallback ``voice_tts.voice``. The key is read only when the switch is
-    on, through the same credential read the voice halves use.
+    fallback ``voice_tts.voice``. That fallback applies only when the
+    text-to-speech half speaks ElevenLabs: a voice of another provider is
+    meaningless to the call vendor and would fail only at agent creation.
+    The key is read only when the switch is on, through the same credential
+    read the voice halves use.
 
     Returns:
         ``None`` when the call is off, else the assembled :class:`ResolvedCall`.
@@ -1729,7 +1732,10 @@ async def _call_values(resolver: CredentialResolver, *, tenant_id: UUID) -> Reso
     voice = await resolver.resolve_config("voice_call", "voice", scopes=_CALL_SCOPES)
     language = await resolver.resolve_config("voice_call", "language", scopes=_CALL_SCOPES)
     base_url = await resolver.resolve_config("voice_call", "base_url", scopes=_CALL_SCOPES)
-    tts_voice = await resolver.resolve_config("voice_tts", "voice", scopes=_VOICE_SCOPES)
+    tts_provider = await resolver.resolve_config("voice_tts", "provider", scopes=_VOICE_SCOPES)
+    tts_voice: str | None = None
+    if (tts_provider or "").strip().lower() == "elevenlabs":
+        tts_voice = await resolver.resolve_config("voice_tts", "voice", scopes=_VOICE_SCOPES)
     return assemble_call(True, api_key, agent_id, model, voice, language, base_url, tts_voice)
 
 

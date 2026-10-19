@@ -296,8 +296,8 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
         "provision a fresh agent."
     ),
     ("voice_call", "voice"): (
-        "The vendor voice id for the call. Leave empty to use the text-to-speech voice "
-        "when one is set."
+        "An ElevenLabs voice id without live moderation. Leave empty to use the "
+        "text-to-speech voice when that half is ElevenLabs."
     ),
 }
 

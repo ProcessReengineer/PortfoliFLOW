@@ -110,9 +110,10 @@ podman compose -f compose.test.yml down       # stop; its data is gone
 
 ## Running the full suite locally
 
-A full run took about two hours forty (2 h 39 min, 2026-10-08) on the development machine while the tests
-used the disk-backed development database; on the RAM-held test container
-(ADR-0135) it takes well under one. Treat it as a session of its own.
+A full run takes about 38 minutes on the RAM-held test container (37 min 41 s,
+2026-10-19; ADR-0135) and took about two hours forty (2 h 39 min, 2026-10-08) on
+the development machine while the tests used the disk-backed development
+database. Treat it as a session of its own.
 
 1. Start the test container (`podman compose -f compose.test.yml up -d`)
    and confirm that no other pytest process is running (`pgrep -af pytest`

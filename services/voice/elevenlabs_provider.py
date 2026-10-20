@@ -21,8 +21,9 @@ hands it a :class:`~services.voice.resolved.ResolvedSTT` or a
 ``base_url``.
 
 - **No env reads here.** The adapter receives its resolved half (or halves)
-  and never touches ``os.environ``; the key is sent as a header and never
-  logged or put into an error message.
+  and never touches ``os.environ``; the key is sent as a header only and
+  never appears in an error message: a body or a transport failure that
+  quotes it has every occurrence replaced by ``<key>``.
 - **Per-call client lifecycle.** A fresh ``httpx.AsyncClient`` is opened in
   each method and closed when the call ends — a client is bound to the loop
   it was created on, so it must not be cached across calls/threads.
@@ -69,6 +70,8 @@ _FMT_TO_OUTPUT: dict[str, tuple[str, str]] = {
 }
 # How much of an error body goes into the raised message.
 _BODY_EXCERPT_CHARS = 200
+# What an error message shows in place of the request's key.
+_KEY_PLACEHOLDER = "<key>"
 
 
 def _url(base_url: str, path: str) -> str:
@@ -76,9 +79,18 @@ def _url(base_url: str, path: str) -> str:
     return base_url.rstrip("/") + path
 
 
-def _status_detail(response: httpx.Response) -> str:
-    """Render a non-2xx response as ``HTTP <status>`` plus a body excerpt."""
-    excerpt = response.text[:_BODY_EXCERPT_CHARS].strip()
+def _scrub(text: str, secret: str) -> str:
+    """Replace every occurrence of ``secret`` in ``text`` with ``<key>``."""
+    return text.replace(secret, _KEY_PLACEHOLDER) if secret else text
+
+
+def _status_detail(response: httpx.Response, *, secret: str = "") -> str:
+    """Render a non-2xx response as ``HTTP <status>`` plus a body excerpt.
+
+    A non-empty ``secret`` is replaced by ``<key>`` before the body is cut, so
+    a key straddling the cut cannot leave a prefix of itself in the excerpt.
+    """
+    excerpt = _scrub(response.text, secret)[:_BODY_EXCERPT_CHARS].strip()
     return f"HTTP {response.status_code}: {excerpt}" if excerpt else f"HTTP {response.status_code}"
 
 
@@ -143,9 +155,13 @@ class ElevenLabsVoiceProvider:
                     data={"model_id": self._stt.model, "tag_audio_events": "false"},
                 )
         except httpx.HTTPError as exc:
-            raise VoiceTranscriptionError(f"Transcription failed: {exc}") from exc
+            raise VoiceTranscriptionError(
+                f"Transcription failed: {_scrub(str(exc), self._stt.api_key)}"
+            ) from exc
         if not response.is_success:
-            raise VoiceTranscriptionError(f"Transcription failed: {_status_detail(response)}")
+            raise VoiceTranscriptionError(
+                f"Transcription failed: {_status_detail(response, secret=self._stt.api_key)}"
+            )
 
         try:
             payload: Any = response.json()
@@ -208,9 +224,13 @@ class ElevenLabsVoiceProvider:
                     json={"text": clean, "model_id": self._tts.model},
                 )
         except httpx.HTTPError as exc:
-            raise VoiceSynthesisError(f"Synthesis failed: {exc}") from exc
+            raise VoiceSynthesisError(
+                f"Synthesis failed: {_scrub(str(exc), self._tts.api_key)}"
+            ) from exc
         if not response.is_success:
-            raise VoiceSynthesisError(f"Synthesis failed: {_status_detail(response)}")
+            raise VoiceSynthesisError(
+                f"Synthesis failed: {_status_detail(response, secret=self._tts.api_key)}"
+            )
 
         audio_bytes = response.content
         if not audio_bytes:

@@ -152,7 +152,7 @@ from services.voice_call import (
     DEFAULT_LANGUAGE,
     MAX_DURATION_SECONDS,
     SPEAK_TOOL,
-    SPEAK_TOOL_NAME,
+    SPEAK_TOOL_CHOICE,
     SPEAKABLE_SYSTEM_PROMPT,
     CallConfigurationError,
     CallJob,
@@ -2954,7 +2954,7 @@ async def _run_call_job(
                 system_prompt=SPEAKABLE_SYSTEM_PROMPT,
                 context_messages=speakable_messages(prose, chart_count=len(charts)),
                 tool=dict(SPEAK_TOOL),
-                tool_choice={"type": "function", "function": {"name": SPEAK_TOOL_NAME}},
+                tool_choice=SPEAK_TOOL_CHOICE,
                 llm=llm,
                 timeout=_SPEAKABLE_TIMEOUT_SECONDS,
             )

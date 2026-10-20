@@ -229,7 +229,8 @@ If a task asks you to break one of these rules, stop and say why.
 - Repository and route tests run against the Primary Tenant by default;
   cross-tenant tests use a second tenant explicitly
   (`tests/repositories/conftest.py`, `tests/web/conftest.py`).
-- Run the full suite (about two hours) only when the task asks for it.
+- Run the full suite (about 40 minutes on the test container, two hours forty on
+  the development database) only when the task asks for it.
   Procedure and tiers: `docs/testing.md`.
 
 ## Working protocol

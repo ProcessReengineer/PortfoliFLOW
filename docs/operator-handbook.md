@@ -683,9 +683,11 @@ on the first call start. To update it (`<ver>` is the npm version):
    at the first start with "No voice session setup strategy registered". The browser
    build contains `AudioWorkletNode` — a test pins that marker.
 3. Copy the bundle, `node_modules/@elevenlabs/client/dist/worklets/*.js` and the package
-   `LICENSE` into `web/static/vendor/elevenlabs-client-<ver>/` and bump the directory
-   name in `web/static/js/call_elevenlabs.js` (the only place the version is written).
-   For 1.28.0 the bundle is 631,035 bytes.
+   `LICENSE` into `web/static/vendor/elevenlabs-client-<ver>/` (three worklets; the
+   adapter's `WORKLETS` names the two the WebRTC path uses, `rawAudioProcessor` and
+   `audioConcatProcessor`; `scribeAudioProcessor.js` ships with the SDK and is unused)
+   and bump the directory name in `web/static/js/call_elevenlabs.js` (the only place the
+   version is written). For 1.28.0 the bundle is 631,035 bytes.
 4. The bundle's `libsamplerate` CDN constant is reached only on the WebSocket path, never
    with WebRTC, which the adapter uses.
 

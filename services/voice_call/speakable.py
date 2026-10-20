@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Final, Literal, TypedDict
 
 #: The name of the one tool the rewrite call is forced to use.
 SPEAK_TOOL_NAME = "speak"
@@ -55,10 +55,30 @@ SPEAK_TOOL: Mapping[str, Any] = MappingProxyType(
     }
 )
 
+
+class _SpeakFunctionName(TypedDict):
+    """The ``function`` member of a named tool choice: the tool's name."""
+
+    name: str
+
+
+class SpeakToolChoice(TypedDict):
+    """A named tool choice in OpenAI shape, declared without the SDK.
+
+    The call package imports only the standard library and ``httpx``, so the
+    shape of ``ChatCompletionNamedToolChoiceParam`` is mirrored here and the
+    constant is passed to ``AIServiceCore.run_synthesis`` as it is.
+    """
+
+    type: Literal["function"]
+    function: _SpeakFunctionName
+
+
 #: The ``tool_choice`` that forces :data:`SPEAK_TOOL`.
-SPEAK_TOOL_CHOICE: Mapping[str, Any] = MappingProxyType(
-    {"type": "function", "function": {"name": SPEAK_TOOL_NAME}}
-)
+SPEAK_TOOL_CHOICE: Final[SpeakToolChoice] = {
+    "type": "function",
+    "function": {"name": SPEAK_TOOL_NAME},
+}
 
 #: The instructions of the rewrite call.
 SPEAKABLE_SYSTEM_PROMPT = (

@@ -9,6 +9,7 @@ registration check builds the app without a configured database URL.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,12 @@ from markupsafe import Markup
 from web.icons import ICONS, _VENDOR_DIR, _inner, pf_icon
 from web.main import create_app
 from web.settings import WebSettings
+
+#: The vendored set's manifest: a table row per icon, the Lucide stem in its
+#: second column, and one paragraph opening with the total.
+_MANIFEST = _VENDOR_DIR / "MANIFEST.md"
+_MANIFEST_STEM = re.compile(r"^\|\s*`[a-z0-9-]+`\s*\|\s*`([a-z0-9-]+)`\s*\|")
+_MANIFEST_TOTAL = re.compile(r"^(\d+) icons in total\.")
 
 
 def test_every_icon_resolves_to_a_vendored_file() -> None:
@@ -134,3 +141,26 @@ def test_the_voice_call_icons_are_registered() -> None:
     assert (ICONS["call"], ICONS["call-end"], ICONS["mute"]) == ("phone", "phone-off", "mic-off")
     for name in ("call", "call-end", "mute"):
         assert str(pf_icon(name)).startswith("<svg"), name
+
+
+def test_the_manifest_lists_exactly_the_vendored_icons() -> None:
+    """``MANIFEST.md``, the vendored ``*.svg`` files and ``ICONS`` name one set of stems."""
+    lines = _MANIFEST.read_text(encoding="utf-8").splitlines()
+    manifest_stems = {m.group(1) for m in map(_MANIFEST_STEM.search, lines) if m}
+    totals = [int(m.group(1)) for m in map(_MANIFEST_TOTAL.match, lines) if m]
+    vendored_stems = {path.stem for path in _VENDOR_DIR.glob("*.svg")}
+
+    assert manifest_stems, "MANIFEST.md names no icon rows."
+    assert totals == [len(manifest_stems)], (
+        f"MANIFEST.md states {totals} icons in total but lists {len(manifest_stems)} rows."
+    )
+    assert manifest_stems == vendored_stems, (
+        "MANIFEST.md and the vendored files drift: "
+        f"manifest only {sorted(manifest_stems - vendored_stems)}, "
+        f"files only {sorted(vendored_stems - manifest_stems)}."
+    )
+    assert vendored_stems == set(ICONS.values()), (
+        "ICONS and the vendored files drift: "
+        f"files only {sorted(vendored_stems - set(ICONS.values()))}, "
+        f"ICONS only {sorted(set(ICONS.values()) - vendored_stems)}."
+    )

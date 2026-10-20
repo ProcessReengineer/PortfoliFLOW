@@ -140,6 +140,25 @@ async def test_transcribe_transport_error_surfaced(httpx_mock) -> None:
         await _make_provider().transcribe(b"audio-bytes", "audio/webm")
 
 
+async def test_transcribe_body_quoting_the_key_is_scrubbed(httpx_mock) -> None:
+    """HTTP 401 and a transport failure quoting the STT key: ``<key>`` stands in its place."""
+    httpx_mock.add_response(
+        url=_STT_URL, status_code=401, text='{"detail": "invalid api key xi-stt-test"}'
+    )
+    httpx_mock.add_exception(httpx.ConnectError("refused for key xi-stt-test"))
+
+    with pytest.raises(VoiceTranscriptionError) as refused:
+        await _make_provider().transcribe(b"audio-bytes", "audio/webm")
+    with pytest.raises(VoiceTranscriptionError) as unreachable:
+        await _make_provider().transcribe(b"audio-bytes", "audio/webm")
+
+    assert "HTTP 401" in str(refused.value)
+    for excinfo in (refused, unreachable):
+        message = str(excinfo.value)
+        assert "<key>" in message
+        assert "xi-stt-test" not in message
+
+
 async def test_transcribe_non_json_body_raises(httpx_mock) -> None:
     """A 2xx body that is not JSON is an error."""
     httpx_mock.add_response(url=_STT_URL, content=b"<html>")
@@ -215,6 +234,27 @@ async def test_synthesize_non_2xx_surfaced(httpx_mock) -> None:
     message = str(excinfo.value)
     assert "422" in message
     assert "xi-tts-test" not in message
+
+
+async def test_synthesize_body_quoting_the_key_is_scrubbed(httpx_mock) -> None:
+    """HTTP 401 and a transport failure quoting the TTS key: ``<key>`` stands in its place."""
+    httpx_mock.add_response(
+        url=f"{_TTS_URL}?output_format=mp3_44100_128",
+        status_code=401,
+        text='{"detail": "invalid api key xi-tts-test"}',
+    )
+    httpx_mock.add_exception(httpx.ConnectError("refused for key xi-tts-test"))
+
+    with pytest.raises(VoiceSynthesisError) as refused:
+        await _make_provider().synthesize("hello", fmt="mp3")
+    with pytest.raises(VoiceSynthesisError) as unreachable:
+        await _make_provider().synthesize("hello", fmt="mp3")
+
+    assert "HTTP 401" in str(refused.value)
+    for excinfo in (refused, unreachable):
+        message = str(excinfo.value)
+        assert "<key>" in message
+        assert "xi-tts-test" not in message
 
 
 async def test_synthesize_empty_body_raises(httpx_mock) -> None:

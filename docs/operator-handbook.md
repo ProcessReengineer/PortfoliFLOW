@@ -644,13 +644,19 @@ provisioned* · *active (agent …)*. The switch alone offers the button; a miss
 voice is reported when a call is started, never silently.
 
 **Provisioning.** PortfoliFLOW creates the vendor agent **lazily at the first call** from
-a definition in the repository and writes its id into **Agent id** on the card. The
-definition's hash is part of the agent's name; at every start PortfoliFLOW reads the
-agent and PATCHes it only when the definition changed, so an upgrade that changes
-Shirley's call prompt reaches the vendor at the next call. The vendor dashboard is for
-**looking** — an edit made there is overwritten at the next start. Clearing **Agent id**
-provisions a fresh agent at the next call and **orphans** the old one at the vendor
-(delete it there by hand).
+a definition in the repository and writes its id into **Agent id** on the card. Before it
+creates, it searches the account for an agent of the definition's name and adopts one it
+finds, so an orphan of an earlier run is reused rather than doubled. The definition's
+hash is part of the agent's name; at every start PortfoliFLOW reads the agent and PATCHes
+it only when the definition changed, so an upgrade that changes Shirley's call prompt
+reaches the vendor at the next call. The vendor dashboard is for **looking**: PortfoliFLOW
+compares the hash in the agent's **name**, not its content, so an edit made there
+survives until the definition next changes — and a renamed agent is PATCHed back at the
+next start. Clearing **Agent id** makes PortfoliFLOW find the agent again at the next call
+— by name, at the vendor — and write the id back; to force a fresh agent, delete it in the
+dashboard first. PortfoliFLOW never deletes at the vendor, so agents carrying an older
+`def` hash in their name stay until an operator removes them. Two browsers starting a
+tenant's first call at once provision one agent: first starts are serialised per tenant.
 
 **The call in the chat.** The call button replaces the composer with the call panel
 (connecting · listening · Shirley is speaking · looking that up · muted · ended). Every

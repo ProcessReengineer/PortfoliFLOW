@@ -641,7 +641,9 @@ def _field_view(
     contributes ``value_plain``, which is plain by design so it stays
     greppable for support (ADR-0112 §2). A switch field also contributes
     whether it is on, judged from the stored row exactly as the consumers
-    judge it (``true``, case-insensitive); an absent row is off on the card.
+    judge it (enabled, and ``true`` case-insensitive); an absent or disabled
+    row is off on the card, and a flip of a disabled switch saves ``true``,
+    which re-enables the row.
     """
     return {
         "provider": provider,
@@ -654,6 +656,7 @@ def _field_view(
         "switch_on": (
             field.is_switch
             and row is not None
+            and row.enabled
             and (row.value_plain or "").strip().lower() == "true"
         ),
         "is_set": row is not None,

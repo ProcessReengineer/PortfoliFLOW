@@ -1057,6 +1057,36 @@ async def test_a_switch_field_saves_true_and_false_and_renders_its_state(
         assert f'<span class="pf-credentials__switch-state">{state}</span>' in row_html, value
 
 
+async def test_a_disabled_switch_row_renders_off_and_offers_true(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+) -> None:
+    """A stored ``true`` that is disabled is off on the card, as the consumers read it."""
+    client = await client_factory("owner")
+    csrf = await _section_csrf(client)
+    base = {"csrf_token": csrf, "provider": "voice", "key": "enabled"}
+    saved = await client.post(
+        _TENANT_URL, data={**base, "value": "true", "action": "save"}, follow_redirects=False
+    )
+    assert saved.status_code == 200
+
+    disabled = await client.post(
+        _TENANT_URL, data={**base, "value": "", "action": "disable"}, follow_redirects=False
+    )
+
+    assert disabled.status_code == 200
+    row = await _read_row(app_engine, scope="tenant", provider="voice", key="enabled")
+    assert row is not None
+    assert row.value_plain == "true"
+    assert row.enabled is False
+    checkbox = _switch_input(disabled.text, "tenant-voice-enabled")
+    assert re.search(r"\schecked\b", checkbox) is None
+    assert 'hx-vals=\'{"value": "true"}\'' in checkbox
+    row_html = _row_html(disabled.text, "tenant-voice-enabled")
+    assert '<span class="pf-credentials__switch-state">off</span>' in row_html
+
+
 @pytest.mark.parametrize("value", ["yes", "1", "on"])
 async def test_a_switch_field_rejects_anything_but_the_boolean_pair(
     client_factory: Any,

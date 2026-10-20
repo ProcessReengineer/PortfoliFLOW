@@ -2573,10 +2573,11 @@ async def chat_stream(
 # The job outlives the request that started it; the browser stops polling at
 # 75 s and the job runs to completion, so the answer still lands in the chat.
 #
-# Five stores ride on ``app.state``, all single-worker like the rest of this
+# Six stores ride on ``app.state``, all single-worker like the rest of this
 # surface (ADR-0050):
 #
 # * ``call_agent_memo`` — the agent memo per tenant (below);
+# * ``call_provision_locks`` — one ``asyncio.Lock`` per tenant (below);
 # * ``call_jobs``       — the job records, a bounded ``CallJobStore``;
 # * ``call_tasks``      — strong references to the running job tasks, keyed
 #   like the jobs and removed when a task ends;
@@ -2605,6 +2606,13 @@ async def chat_stream(
 # clears or edits ``voice_call.agent_id`` in Admin changes the resolved id,
 # and a release that changes the definition changes the hash — either way the
 # pair no longer matches and the agent is checked again. A restart empties it.
+#
+# The provisioning lock serialises, per tenant, the memo check, the vendor's
+# agent read or create and the row write, so two call starts arriving
+# together on a fresh tenant provision one agent, not two: the second waits,
+# finds the pair the first verified and uses it. The token mint runs outside
+# the lock. One lock per tenant, never dropped, so no cap; single-worker
+# (ADR-0050), an in-process lock is the whole story.
 #
 # The agent id is the one ``voice_call`` field PortfoliFLOW writes (ADR-0137
 # §8): provisioning is lazy, so the chat route that creates the agent is the
@@ -3012,6 +3020,20 @@ def _call_agent_memo(request: Request) -> dict[UUID, tuple[str, str]]:
     return cast("dict[UUID, tuple[str, str]]", store)
 
 
+def _call_provision_locks(request: Request) -> dict[UUID, asyncio.Lock]:
+    """Return (and lazily initialise) the per-tenant provisioning locks.
+
+    ``app.state.call_provision_locks``: tenant id → the lock that serialises
+    that tenant's call starts across the memo check, the vendor's agent read
+    or create and the row write. One entry per tenant, so it needs no cap.
+    """
+    store = getattr(request.app.state, "call_provision_locks", None)
+    if store is None:
+        store = {}
+        request.app.state.call_provision_locks = store
+    return cast("dict[UUID, asyncio.Lock]", store)
+
+
 def _call_provider(resolved: ResolvedCall) -> CallProvider:
     """Build the vendor adapter for one call start (ADR-0137 §2).
 
@@ -3072,9 +3094,12 @@ async def post_call_session(
     ``voice_call.agent_id``. The definition's hash is carried in the agent's
     name, so a changed definition is a changed hash. At the vendor the agent
     is read back and its hash compared — tool and agent are PATCHed only when
-    they differ, and a vanished agent is created afresh. A memo per tenant
-    and process remembers the verified pair, so that read happens once per
-    process and definition.
+    they differ, and a vanished agent is adopted by name or created afresh.
+    A memo per tenant and process remembers the verified pair, so that read
+    happens once per process and definition. First starts of one tenant are
+    serialised by a per-tenant lock, so two starts arriving together
+    provision one agent; a refused credential drops the tenant's memo entry,
+    so the next start reads the agent again.
 
     Of the call itself nothing but the chat history is persisted (ADR-0137
     §10): the session credential is minted on every start and goes to the
@@ -3097,19 +3122,31 @@ async def post_call_session(
     provider = _call_provider(resolved)
     definition = build_agent_definition(resolved)
     memo = _call_agent_memo(request)
+    lock = _call_provision_locks(request).setdefault(session.tenant_id, asyncio.Lock())
     try:
-        verified = memo.get(session.tenant_id)
-        if resolved.agent_id is not None and verified == (
-            resolved.agent_id,
-            definition.definition_hash,
-        ):
-            agent_id = resolved.agent_id
-        else:
-            agent_id = await provider.ensure_agent(definition, resolved.agent_id)
+        async with lock:
+            verified = memo.get(session.tenant_id)
+            if (
+                verified is not None
+                and verified[1] == definition.definition_hash
+                and resolved.agent_id in (None, verified[0])
+            ):
+                # Verified by this process — possibly by the start that held
+                # the lock a moment ago, after this one's resolution read the
+                # row still empty.
+                agent_id = verified[0]
+            else:
+                agent_id = await provider.ensure_agent(definition, resolved.agent_id)
             if agent_id != resolved.agent_id:
                 await _store_call_agent_id(request, session, agent_id)
             memo[session.tenant_id] = (agent_id, definition.definition_hash)
-        credentials = await provider.session_credentials(agent_id)
+        try:
+            credentials = await provider.session_credentials(agent_id)
+        except CallProviderError:
+            # A refused mint may mean the agent is gone at the vendor: forget
+            # the verified pair, so the next start reads the agent again.
+            memo.pop(session.tenant_id, None)
+            raise
     except CallProviderError as exc:
         # The message carries the operation, the status and a scrubbed
         # excerpt — user-safe by the provider's contract.

@@ -42,8 +42,10 @@ What is pinned here:
   without a vendor request; a fresh tenant's agent is created and its id
   written back; a known agent is read once per process and definition and
   PATCHed only on a changed hash; a vanished one is re-created; a credential
-  is minted on every start; a refusal is a 502 that never quotes the key and
-  leaves no row, no memo entry and no line behind.
+  is minted on every start; two first starts arriving together provision one
+  agent; a refused credential forgets the memo entry so the next start reads
+  the agent again; a refusal is a 502 that never quotes the key and leaves no
+  row, no memo entry and no line behind.
 * **The call in the browser** (ADR-0137 §2, §10). The dock offers the call
   button and the panel on the switch alone, the button between the attach
   trigger and Send; the panel script, the adapter module, the vendored SDK
@@ -88,6 +90,7 @@ from services.voice_call import (
     AgentDefinition,
     CallConfigurationError,
     ResolvedCall,
+    SessionCredentials,
     build_agent_definition,
     fallback_for,
 )
@@ -920,6 +923,9 @@ _VENDOR = "https://vendor.invalid"
 _TOOLS_URL = f"{_VENDOR}/v1/convai/tools"
 _CREATE_URL = f"{_VENDOR}/v1/convai/agents/create"
 _TOOL_URL = f"{_VENDOR}/v1/convai/tools/tool_1"
+_AGENTS_URL = f"{_VENDOR}/v1/convai/agents"
+_LIST_URL = re.compile(re.escape(_AGENTS_URL) + r"\?.*")
+_NO_AGENTS = {"agents": [], "has_more": False}
 
 
 def _agent_url(agent_id: str) -> str:
@@ -1017,6 +1023,7 @@ async def test_the_first_call_provisions_the_agent_and_writes_its_id_back(
     await _write_setting(engine, provider="voice_call", key="base_url", value=_VENDOR)
     await _write_setting(engine, provider="voice_tts", key="provider", value="elevenlabs")
     await _write_setting(engine, provider="voice_tts", key="voice", value="v_tts")
+    httpx_mock.add_response(method="GET", url=_LIST_URL, json=_NO_AGENTS)
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
     httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
     httpx_mock.add_response(method="GET", url=_token_url("agent_new"), json=_token_reply("tok-1"))
@@ -1115,6 +1122,7 @@ async def test_a_vanished_agent_is_recreated_and_the_row_rewritten(
     engine = app.state.engine
     await _write_setting(engine, provider="voice_call", key="agent_id", value="agent_gone")
     httpx_mock.add_response(method="GET", url=_agent_url("agent_gone"), status_code=404)
+    httpx_mock.add_response(method="GET", url=_LIST_URL, json=_NO_AGENTS)
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
     httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
     httpx_mock.add_response(method="GET", url=_token_url("agent_new"), json=_token_reply("tok-1"))
@@ -1136,8 +1144,8 @@ async def test_a_vendor_refusal_is_a_502_that_never_quotes_the_key(
     client, app = app_client
     _uid, email, password = seeded_user
     httpx_mock.add_response(
-        method="POST",
-        url=_TOOLS_URL,
+        method="GET",
+        url=_LIST_URL,
         status_code=401,
         text=f'{{"detail": "invalid api key {_CALL_KEY}"}}',
     )
@@ -1152,6 +1160,96 @@ async def test_a_vendor_refusal_is_a_502_that_never_quotes_the_key(
     assert await _agent_row(app.state.engine) is None
     assert not getattr(app.state, "call_agent_memo", None)
     assert not getattr(app.state, "chat_call_lines", None)
+
+
+class _RecordingProvider:
+    """A ``CallProvider`` that counts its provisioning calls and mints distinct tokens."""
+
+    def __init__(self) -> None:
+        self.ensure_calls = 0
+        self.minted = 0
+
+    async def ensure_agent(self, definition: AgentDefinition, agent_id: str | None) -> str:
+        self.ensure_calls += 1
+        # Long enough for the second start to arrive while the first provisions.
+        await asyncio.sleep(0.05)
+        return "agent_new"
+
+    async def session_credentials(self, agent_id: str) -> SessionCredentials:
+        self.minted += 1
+        return SessionCredentials(
+            vendor="elevenlabs", token=f"tok-{self.minted}", conversation_id="conv_1"
+        )
+
+
+async def test_concurrent_first_starts_provision_the_agent_once(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two starts at once on a fresh tenant: one provisioning, two tokens, one row, one pair."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    fake = _RecordingProvider()
+    monkeypatch.setattr(chat_routes, "_call_provider", lambda resolved: fake)
+    csrf = await _login(client, email, password)
+
+    first, second = await asyncio.gather(_start(client, csrf), _start(client, csrf))
+
+    assert [first.status_code, second.status_code] == [200, 200]
+    assert {first.json()["token"], second.json()["token"]} == {"tok-1", "tok-2"}
+    assert fake.ensure_calls == 1
+    assert fake.minted == 2
+    assert await _agent_row(app.state.engine) == "agent_new"
+    definition = _expected_definition("v_call")
+    assert app.state.call_agent_memo == {
+        SENTINEL_TENANT_ID: ("agent_new", definition.definition_hash)
+    }
+
+
+async def test_a_failed_token_mint_drops_the_memo_and_the_next_start_reads_the_agent_again(
+    app_client: Any,
+    seeded_user: tuple[UUID, str, str],
+    call_configured: None,
+    httpx_mock: Any,
+) -> None:
+    """A memo hit whose token the vendor refuses: 502, memo gone; the next start provisions."""
+    client, app = app_client
+    _uid, email, password = seeded_user
+    engine = app.state.engine
+    await _write_setting(engine, provider="voice_call", key="agent_id", value="agent_1")
+    definition = _expected_definition("v_call")
+    app.state.call_agent_memo = {SENTINEL_TENANT_ID: ("agent_1", definition.definition_hash)}
+    httpx_mock.add_response(method="GET", url=_token_url("agent_1"), status_code=404)
+    httpx_mock.add_response(method="GET", url=_agent_url("agent_1"), status_code=404)
+    httpx_mock.add_response(method="GET", url=_LIST_URL, json=_NO_AGENTS)
+    httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
+    httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
+    httpx_mock.add_response(method="GET", url=_token_url("agent_new"), json=_token_reply("tok-2"))
+    csrf = await _login(client, email, password)
+
+    refused = await _start(client, csrf)
+    assert refused.status_code == 502
+    assert "HTTP 404" in refused.text
+    assert app.state.call_agent_memo == {}
+
+    recovered = await _start(client, csrf)
+
+    assert recovered.status_code == 200
+    assert recovered.json()["token"] == "tok-2"
+    assert await _agent_row(engine) == "agent_new"
+    assert app.state.call_agent_memo == {
+        SENTINEL_TENANT_ID: ("agent_new", definition.definition_hash)
+    }
+    assert [(r.method, str(r.url).split("?", 1)[0]) for r in httpx_mock.get_requests()] == [
+        ("GET", f"{_VENDOR}/v1/convai/conversation/token"),
+        ("GET", _agent_url("agent_1")),
+        ("GET", _AGENTS_URL),
+        ("POST", _TOOLS_URL),
+        ("POST", _CREATE_URL),
+        ("GET", f"{_VENDOR}/v1/convai/conversation/token"),
+    ]
 
 
 # ---------------------------------------------------------------------------

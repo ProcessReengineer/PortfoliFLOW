@@ -8,12 +8,16 @@ vendor's Tools and Agents API with plain ``httpx``, **no vendor SDK**. Every
 request authenticates with the ``xi-api-key`` header.
 
 - **Provisioning** (:meth:`ElevenLabsCallProvider.ensure_agent`): without an
-  agent id the ``ask_shirley`` client tool is created, then the agent with
-  that tool's id. With an id the agent is read back and the definition hash
-  in its ``name`` compared with the current definition's: equal means
-  nothing to do; different means the tool and the agent are PATCHed. An
-  agent the vendor no longer knows (HTTP 404) is created afresh, and the
-  caller persists the new id.
+  agent id the account's agents are searched by the definition's name and an
+  agent of exactly that name is adopted — its name carries the current hash,
+  so it is the agent this definition would create; otherwise the
+  ``ask_shirley`` client tool is created, then the agent with that tool's
+  id. With an id the agent is read back and the definition hash in its
+  ``name`` compared with the current definition's: equal means nothing to
+  do; different means the tool and the agent are PATCHed. An agent the
+  vendor no longer knows (HTTP 404) takes the no-id path — adopted by name or
+  created afresh — and the caller persists the id. Nothing is ever deleted
+  at the vendor.
 - **Session credential** (:meth:`ElevenLabsCallProvider.session_credentials`):
   a conversation token for a private agent (``enable_auth``), minted
   server-side for the browser's WebRTC session.
@@ -47,9 +51,12 @@ from services.voice_call.port import AgentDefinition, SessionCredentials
 _TIMEOUT = httpx.Timeout(60.0)
 _TOOLS_PATH = "/v1/convai/tools"
 _TOOL_PATH = "/v1/convai/tools/{tool_id}"
+_AGENTS_PATH = "/v1/convai/agents"
 _AGENTS_CREATE_PATH = "/v1/convai/agents/create"
 _AGENT_PATH = "/v1/convai/agents/{agent_id}"
 _TOKEN_PATH = "/v1/convai/conversation/token"
+# One page of the name search; an exact match sits on the first page.
+_LIST_PAGE_SIZE = "100"
 # How much of an error body goes into the raised message.
 _BODY_EXCERPT_CHARS = 200
 # What an error message shows in place of the request's key.
@@ -210,8 +217,34 @@ class ElevenLabsCallProvider:
         body = await self._call("Tool creation", "POST", _TOOLS_PATH, json=tool_body(definition))
         return _field(body, "id", "Tool creation")
 
+    async def _find_by_name(self, name: str) -> str | None:
+        """Return the id of the first agent of the account named exactly ``name``, or ``None``.
+
+        The vendor's ``search`` filters by name; one page is read and no
+        cursor followed. An entry without an ``agent_id`` is skipped.
+        """
+        body = await self._call(
+            "Agent lookup",
+            "GET",
+            _AGENTS_PATH,
+            params={"search": name, "page_size": _LIST_PAGE_SIZE},
+        )
+        for entry in body.get("agents") or []:
+            if isinstance(entry, dict) and entry.get("name") == name:
+                agent_id = entry.get("agent_id")
+                if isinstance(agent_id, str) and agent_id:
+                    return agent_id
+        return None
+
     async def _create(self, definition: AgentDefinition) -> str:
-        """Create the tool, then the agent with it; return the new agent id."""
+        """Adopt the agent already named for ``definition``, else create tool and agent.
+
+        Returns the agent id either way — an orphan of an earlier run is
+        reused, never doubled.
+        """
+        found = await self._find_by_name(definition.name)
+        if found is not None:
+            return found
         tool_id = await self._create_tool(definition)
         body = await self._call(
             "Agent creation",
@@ -229,8 +262,9 @@ class ElevenLabsCallProvider:
             agent_id: The persisted agent id, or ``None`` before provisioning.
 
         Returns:
-            The agent id the caller must persist: the new one after a create
-            (no id, or the vendor answered 404 for it), else ``agent_id``.
+            The agent id the caller must persist: the adopted or created one
+            when there was no id or the vendor answered 404 for it, else
+            ``agent_id``.
 
         Raises:
             CallProviderError: On a transport failure, a non-2xx status other

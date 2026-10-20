@@ -6,10 +6,10 @@
 These mock the HTTP transport with ``pytest-httpx``, exactly as the voice
 adapter's tests do, and assert the outgoing requests: their order, the
 ``xi-api-key`` header and the JSON envelopes of the tool and the agent. The
-provisioning paths — create, unchanged, update, vanished agent, agent without
-a tool — and the session token are each pinned, and so is the error
-rendering: ``HTTP <status>`` plus at most 200 body characters, the request's
-key replaced by ``<key>``.
+provisioning paths — adopt by name, create, unchanged, update, vanished
+agent, agent without a tool — and the session token are each pinned, and so
+is the error rendering: ``HTTP <status>`` plus at most 200 body characters,
+the request's key replaced by ``<key>``.
 
 Async tests need no decorator (``asyncio_mode = "auto"``).
 """
@@ -17,6 +17,7 @@ Async tests need no decorator (``asyncio_mode = "auto"``).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -36,6 +37,9 @@ _BASE_URL = "https://vendor.invalid"
 _KEY = "xi-call-test"
 _TOOLS_URL = f"{_BASE_URL}/v1/convai/tools"
 _CREATE_URL = f"{_BASE_URL}/v1/convai/agents/create"
+_AGENTS_URL = f"{_BASE_URL}/v1/convai/agents"
+_LIST_URL = re.compile(re.escape(_AGENTS_URL) + r"\?.*")
+_NO_AGENTS = {"agents": [], "has_more": False}
 _AGENT_URL = f"{_BASE_URL}/v1/convai/agents/agent_1"
 _TOOL_URL = f"{_BASE_URL}/v1/convai/tools/tool_1"
 _TOKEN_URL = f"{_BASE_URL}/v1/convai/conversation/token?agent_id=agent_1"
@@ -70,6 +74,17 @@ def _body(request: httpx.Request) -> dict[str, Any]:
     return json.loads(request.content)
 
 
+def _trail(requests: list[httpx.Request]) -> list[tuple[str, str]]:
+    """Method and URL without its query of each request, in order."""
+    return [(r.method, str(r.url).split("?", 1)[0]) for r in requests]
+
+
+def _assert_list_request(request: httpx.Request, definition: AgentDefinition) -> None:
+    assert request.method == "GET"
+    assert request.url.params["search"] == definition.name
+    assert request.url.params["page_size"] == "100"
+
+
 def _assert_tool_body(body: dict[str, Any]) -> None:
     config = body["tool_config"]
     assert config["type"] == "client"
@@ -100,7 +115,8 @@ def _assert_agent_body(body: dict[str, Any], definition: AgentDefinition, tool_i
 
 
 async def test_create_path_posts_the_tool_then_the_agent(httpx_mock) -> None:
-    """No agent id: POST tool, POST agent with that tool's id; the new id is returned."""
+    """No agent id and no agent of that name: POST tool, POST agent; the new id is returned."""
+    httpx_mock.add_response(method="GET", url=_LIST_URL, json=_NO_AGENTS)
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
     httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
     definition = _definition()
@@ -111,13 +127,15 @@ async def test_create_path_posts_the_tool_then_the_agent(httpx_mock) -> None:
 
     assert agent_id == "agent_new"
     requests = httpx_mock.get_requests()
-    assert [(r.method, str(r.url)) for r in requests] == [
+    assert _trail(requests) == [
+        ("GET", _AGENTS_URL),
         ("POST", _TOOLS_URL),
         ("POST", _CREATE_URL),
     ]
     assert all(r.headers["xi-api-key"] == _KEY for r in requests)
-    _assert_tool_body(_body(requests[0]))
-    _assert_agent_body(_body(requests[1]), definition, "tool_new")
+    _assert_list_request(requests[0], definition)
+    _assert_tool_body(_body(requests[1]))
+    _assert_agent_body(_body(requests[2]), definition, "tool_new")
 
 
 async def test_existing_agent_with_the_same_hash_is_left_alone(httpx_mock) -> None:
@@ -158,16 +176,67 @@ async def test_existing_agent_with_another_hash_is_patched(httpx_mock) -> None:
 
 
 async def test_a_vanished_agent_is_created_afresh(httpx_mock) -> None:
-    """GET answers 404: the create path runs and its new id is returned."""
+    """GET answers 404: the name search finds nothing, the create path runs, its id is returned."""
     httpx_mock.add_response(method="GET", url=_AGENT_URL, status_code=404)
+    httpx_mock.add_response(method="GET", url=_LIST_URL, json=_NO_AGENTS)
     httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
     httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
 
     agent_id = await _provider().ensure_agent(_definition(), "agent_1")
 
     assert agent_id == "agent_new"
-    assert [(r.method, str(r.url)) for r in httpx_mock.get_requests()] == [
+    assert _trail(httpx_mock.get_requests()) == [
         ("GET", _AGENT_URL),
+        ("GET", _AGENTS_URL),
+        ("POST", _TOOLS_URL),
+        ("POST", _CREATE_URL),
+    ]
+
+
+async def test_an_orphan_of_the_same_name_is_adopted_instead_of_created(httpx_mock) -> None:
+    """The name search lists an agent named for this definition: adopted, nothing created."""
+    definition = _definition()
+    httpx_mock.add_response(
+        method="GET",
+        url=_LIST_URL,
+        json={
+            "agents": [
+                {"agent_id": "agent_other", "name": "PortfoliFLOW Shirley call · def 00000000"},
+                {"name": definition.name},
+                {"agent_id": "agent_orphan", "name": definition.name},
+            ],
+            "has_more": False,
+        },
+    )
+
+    agent_id = await _provider().ensure_agent(definition, None)
+
+    assert agent_id == "agent_orphan"
+    requests = httpx_mock.get_requests()
+    assert _trail(requests) == [("GET", _AGENTS_URL)]
+    _assert_list_request(requests[0], definition)
+
+
+async def test_a_list_hit_with_another_name_is_not_adopted(httpx_mock) -> None:
+    """Only an exact name counts: a hit with another hash leaves the create path to run."""
+    httpx_mock.add_response(
+        method="GET",
+        url=_LIST_URL,
+        json={
+            "agents": [
+                {"agent_id": "agent_old", "name": "PortfoliFLOW Shirley call · def 00000000"}
+            ],
+            "has_more": False,
+        },
+    )
+    httpx_mock.add_response(method="POST", url=_TOOLS_URL, json={"id": "tool_new"})
+    httpx_mock.add_response(method="POST", url=_CREATE_URL, json={"agent_id": "agent_new"})
+
+    agent_id = await _provider().ensure_agent(_definition(), None)
+
+    assert agent_id == "agent_new"
+    assert _trail(httpx_mock.get_requests()) == [
+        ("GET", _AGENTS_URL),
         ("POST", _TOOLS_URL),
         ("POST", _CREATE_URL),
     ]
@@ -215,7 +284,7 @@ async def test_session_credentials_mint_a_conversation_token(httpx_mock) -> None
 async def test_a_refusal_carries_the_status_and_the_body_excerpt(httpx_mock) -> None:
     """HTTP 401: the message names the status and quotes the vendor's body."""
     body = '{"detail": {"status": "missing_permissions", "key": "sk-secret"}}'
-    httpx_mock.add_response(method="POST", url=_TOOLS_URL, status_code=401, text=body)
+    httpx_mock.add_response(method="GET", url=_LIST_URL, status_code=401, text=body)
 
     with pytest.raises(CallProviderError) as excinfo:
         await _provider().ensure_agent(_definition(), None)
@@ -228,7 +297,7 @@ async def test_a_refusal_carries_the_status_and_the_body_excerpt(httpx_mock) -> 
 async def test_a_body_quoting_the_key_is_scrubbed(httpx_mock) -> None:
     """HTTP 401 quoting the request's own key: ``<key>`` stands in its place, twice over."""
     body = f'{{"detail": "invalid api key {_KEY}"}}'
-    httpx_mock.add_response(method="POST", url=_TOOLS_URL, status_code=401, text=body)
+    httpx_mock.add_response(method="GET", url=_LIST_URL, status_code=401, text=body)
     httpx_mock.add_response(method="GET", url=_AGENT_URL, status_code=401, text=body)
 
     with pytest.raises(CallProviderError) as created:

@@ -18,6 +18,9 @@ Three things drift easily and break the whole arrangement quietly:
   middle cell with ``#shell-main``.
 * **One keyboard file.** Ctrl J lives beside Ctrl K in
   ``section_nav.js``, so the shell's two shortcuts cannot drift apart.
+* **Navigation owns the stage.** Showing Assistants · Shirley opens the
+  stage and showing any other view leaves it (``shell.js``), while
+  ``shirley.js`` stays the only writer of ``data-shirley`` (P-GP-4).
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ _BASE_HTML = _REPO_ROOT / "web" / "templates" / "base.html"
 _DOCK_HTML = _REPO_ROOT / "web" / "templates" / "_partials" / "shirley_dock.html"
 _SECTION_NAV_JS = _REPO_ROOT / "web" / "static" / "js" / "section_nav.js"
 _SHIRLEY_JS = _REPO_ROOT / "web" / "static" / "js" / "shirley.js"
+_SHELL_JS = _REPO_ROOT / "web" / "static" / "js" / "shell.js"
 
 #: ``id="chat-`` occurrences in the partial. Pinned to the number the
 #: pre-move ``shirley_section.html`` carried — brief banner, history,
@@ -106,3 +110,19 @@ def test_shirley_js_exposes_the_three_entry_points() -> None:
     # call form, so the file may still explain itself in prose.
     assert "cloneNode(" not in js
     assert "htmx.process(" not in js
+
+
+def test_navigation_owns_the_stage() -> None:
+    """Showing a Section syncs the stage; ``shirley.js`` does the writing.
+
+    ``shell.js`` opens the stage for Assistants · Shirley and leaves it for
+    any other view, both through ``window.pfShirley`` (P-GP-4). The old
+    explicit-fragment guard is gone: a bare ``/assistants`` is the stage too.
+    """
+    shell_js = _SHELL_JS.read_text()
+    shirley_js = _SHIRLEY_JS.read_text()
+    assert "window.pfShirley.leaveStage()" in shell_js
+    assert 'window.pfShirley.setState("stage")' in shell_js
+    assert "openStageForShirley(" not in shell_js
+    assert 'window.location.hash.slice(1) !== "shirley"' not in shell_js
+    assert "leaveStage: leaveStage" in shirley_js

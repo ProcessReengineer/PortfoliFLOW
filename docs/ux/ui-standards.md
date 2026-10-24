@@ -161,6 +161,7 @@ vendored locally (ADR-0037 §9). **Charts are not UI tokens** — see §3.
 | 3 | Answers carry the sources line; the model line moves to Providers & Credentials. | `.pf-sources` renders; the model line has **no home** — strand A-7. |
 | 4 | Shirley does not receive the current view as context; the "Consulting for" banner is the only context mechanism. | The case brief stash; no view context anywhere. |
 | 5 | The Watch Desk is not conversational — it takes the tabular anatomy. | **Built** — the watch list, the watchpoint list and the Journal are `pf-table`s with slot rows, the Watch points are `pf-settings` rows, the briefing is a `pf-panel` with one action beneath it; nothing in the Area is a chat, and the hand-off to Shirley is a button. |
+| 6 | Assistants · Shirley is the stage: arriving there opens it; showing any other view leaves it — for the dock when the conversation is loaded, closed when it never was. A case's "Consult Shirley" arrives docked. | `assistants_view` renders `stage` (`docked` for a live `?case=` marker); `shell.js` `syncStage()` → `pfShirley.setState("stage")` / `pfShirley.leaveStage()` (P-GP-4). |
 
 ### 2.11 Accessibility
 

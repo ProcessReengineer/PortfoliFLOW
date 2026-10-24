@@ -12,6 +12,8 @@
  *   stage   — the conversation at 420 px plus a canvas, filling the work
  *             area. ``#shell-main`` is hidden, not unmounted, so leaving
  *             the stage returns to exactly the view that was open.
+ *             Showing the Assistants · Shirley Section opens it, and
+ *             showing any other view leaves it (``shell.js``, P-GP-4).
  *
  * This file is the only thing that writes that attribute.
  *
@@ -148,6 +150,29 @@
         setState(state() === "closed" ? lastOpen : "closed");
     }
 
+    /**
+     * Leave the stage for a navigation the reader asked for (P-GP-4).
+     *
+     * A conversation that exists moves to the dock beside the new view —
+     * it, its brief banner and a running stream survive exactly as they do
+     * an area swap. One that was never fetched (the server rendered the
+     * stage and the page resolved to another Section before the dock
+     * loaded) simply closes: nobody saw it, so nothing is put in the way of
+     * the view, and Ctrl J then opens the dock rather than the stage.
+     */
+    function leaveStage() {
+        if (state() !== "stage") {
+            return;
+        }
+        if (document.getElementById("pf-chat")) {
+            setState("docked");
+            return;
+        }
+        openPending = false;
+        lastOpen = "docked";
+        setState("closed");
+    }
+
     // Delegated on the document: the dock's own buttons arrive later, in
     // the /chat/dock swap, and move between hosts with the conversation.
     document.addEventListener("click", function (event) {
@@ -201,5 +226,5 @@
         armDock();
     }
 
-    window.pfShirley = { setState: setState, toggle: toggle, state: state };
+    window.pfShirley = { setState: setState, toggle: toggle, state: state, leaveStage: leaveStage };
 })();

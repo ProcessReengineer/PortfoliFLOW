@@ -18,7 +18,8 @@ ASGI-level tests over a live Postgres. What they pin:
 * **The case marker still lands.** ``GET /assistants?case=<open>``
   arrives with the dock open, and the banner it promises renders in the
   dock fragment that follows — the marker sets the session stash on the
-  area page, ``/chat/dock`` reads it.
+  area page, ``/chat/dock`` reads it — and every other arrival at
+  Assistants opens on the stage (P-GP-4).
 """
 
 from __future__ import annotations
@@ -347,15 +348,34 @@ async def test_a_case_marker_opens_the_dock_and_banners_in_it(
     assert "Alpha" in dock.text
 
 
-async def test_assistants_without_a_marker_stays_closed(
+async def test_assistants_without_a_marker_opens_on_the_stage(
     client_factory: Any,
     seeded_owner: tuple[UUID, str, str],
 ) -> None:
-    """No marker, no brief: the Assistants page opens like any other."""
+    """No marker, no brief: Assistants · Shirley is the stage (P-GP-4)."""
     _id, email, password = seeded_owner
     client, _app = await client_factory()
     await _login(client, email, password)
 
     page = await client.get("/assistants", follow_redirects=False)
     assert page.status_code == 200
-    assert 'data-shirley="closed"' in page.text
+    assert 'data-shirley="stage"' in page.text
+    assert 'data-shirley="closed"' not in page.text
+
+
+async def test_a_malformed_marker_without_a_brief_opens_on_the_stage(
+    client_factory: Any,
+    seeded_owner: tuple[UUID, str, str],
+) -> None:
+    """A malformed marker is dropped silently (binding decision 5).
+
+    With a fresh login the stash is empty, so no brief is active and the
+    arrival is a bare one — the stage, not the dock.
+    """
+    _id, email, password = seeded_owner
+    client, _app = await client_factory()
+    await _login(client, email, password)
+
+    page = await client.get("/assistants?case=not-a-uuid", follow_redirects=False)
+    assert page.status_code == 200
+    assert 'data-shirley="stage"' in page.text

@@ -479,6 +479,14 @@ async def assistants_view(
     marker arriving on top of an already-stashed case therefore also
     opens the dock, which is the harmless way round: the banner it shows
     is the true one.
+
+    Every other arrival opens on the stage (P-GP-4): a reader who comes
+    to Assistants · Shirley comes to talk to her, and the Section is only
+    her pointer. ``shell.js`` keeps the same rule on the client for HTMX
+    swaps and fragments — showing this Section opens the stage, showing
+    any other leaves it. That is why ``/assistants#report-scraper``,
+    loaded directly, ends up closed rather than on the stage: the server
+    cannot see the fragment.
     """
     user_email = await _resolve_user_email(request, session)
     brief_banner = await resolve_active_brief_banner(request, session, case)
@@ -489,5 +497,5 @@ async def assistants_view(
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,
-        shirley_state="docked" if case and brief_banner else None,
+        shirley_state="docked" if case and brief_banner else "stage",
     )

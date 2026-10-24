@@ -57,6 +57,12 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   where she has the tools to deliver them. The voice-call addendum speaks in
   the first person and treats its capability list as complete, so the call
   agent offers only lookups that exist.
+- Assistants opens straight into the conversation with Shirley on the stage;
+  the page with the "Open on stage" button is only what lies beneath once
+  she is docked or closed. A case's "Consult Shirley" still opens the dock
+  with the case named. Navigating from the stage to another view now shows
+  that view and moves the conversation to the dock — before, the view
+  loaded unseen beneath the stage.
 
 ### Fixed
 

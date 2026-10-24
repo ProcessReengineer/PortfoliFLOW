@@ -129,7 +129,7 @@ def test_call_prompt_is_soul_block_addendum_block_and_capabilities() -> None:
 def test_call_prompt_hash_is_pinned() -> None:
     """An edit to either prompt file or a capability line is a conscious change."""
     digest = hashlib.sha256(load_call_prompt().encode("utf-8")).hexdigest()
-    assert digest == "4f801cd72f11db40cb850fbd8d5f0148c4199e39a3a503ceb68444008b37c9cd"
+    assert digest == "3552ff67346fe4467e62964ca97d0ad72970b74b4cd712453ea06a098f7932f0"
 
 
 def test_irene_finding_prompt_is_grounding_plus_system_block() -> None:

@@ -104,9 +104,9 @@ def render_call_capabilities() -> str:
     lines = [
         CAPABILITIES_HEADING,
         "",
-        "`ask_shirley` reaches everything below. Use it for any question in one of "
-        "these areas. If a request needs a fact outside them, say plainly that "
-        "Shirley cannot look that up.",
+        "`ask_shirley` reaches everything below and nothing else. Use it for any question "
+        "in one of these areas. If a request needs a fact or an analysis outside them, say "
+        "plainly that you cannot do that on a call, and do not offer it.",
         "",
     ]
     lines += [f"- {capability.text}" for capability in CALL_CAPABILITIES]

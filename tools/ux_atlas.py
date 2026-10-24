@@ -43,10 +43,19 @@ a list of scene objects:
 
 ``session`` is ``tenant`` or ``super_admin``. Each step carries exactly one verb:
 ``click`` (selector), ``fill`` (``{"selector": …, "value": …}``), ``wait``
-(selector becomes present) or ``wait_ms`` (integer pause). A step whose selector
-never appears marks the scene ``failed`` with the failing step index and the run
-continues to the next scene. This file ships with one worked example; filling it
-out for the real sub-surfaces is strand A's job.
+(selector becomes present), ``wait_ms`` (integer pause) or ``ensure``
+(``{"selector": …, "steps": […]}``: the nested steps run only when the selector
+is absent, so a scene can seed a record once and reuse it on every later run;
+``ensure`` does not nest). A scene may carry a free-text ``note`` naming the
+tenant data it needs; the tool ignores it, the operator reads it when the scene
+fails.
+
+A step that fails marks the scene ``failed`` with the failing step index and a
+one-line reason naming the step, its verb, its selector and the browser's first
+error line — never a ``fill`` value — and the run continues to the next scene.
+The run's last stdout lines repeat every failed scene, suspect capture and
+flagged scene shot in that shape, so the terminal tail says what the exit code
+means.
 
 Credentials
 -----------
@@ -68,6 +77,13 @@ Usage
     export PF_ATLAS_BASE_URL=http://minathena-capital.localhost:8000
     export PF_ATLAS_USER=… PF_ATLAS_PASSWORD=…
     python tools/ux_atlas.py
+
+``--scene NAME`` (repeatable, combinable with ``--area``) keeps only the named
+scenes; a name the scenes file does not carry, or one outside the selected
+Areas, exits 2 before any browser starts, so a typo costs no login.
+``--scenes-only`` skips the route pass — the login and its confirmation still
+run — which together re-run one failed scene in seconds:
+``python tools/ux_atlas.py --scene cases-detail --scenes-only``.
 
 Sections
 --------
@@ -117,7 +133,8 @@ local, regenerable artefact, never a committed one).
 
 Exit codes: 0 clean; 1 at least one suspect capture, flagged scene shot or
 failed scene (the outputs are written either way); 2 the Chromium browser or the
-Playwright package is missing; 3 login failed, or a session lost mid-run — that
+Playwright package is missing, or a usage error such as an unknown ``--scene``; 3
+login failed, or a session lost mid-run — that
 aborts the remaining routes, because every one of them would photograph the
 login page, but the manifest and contact sheet are still written with what the
 run already had.
@@ -213,6 +230,11 @@ NAV_TIMEOUT_MS = 30_000
 NETWORK_IDLE_TIMEOUT_MS = 10_000
 HTMX_QUIET_TIMEOUT_MS = 5_000
 STEP_TIMEOUT_MS = 5_000
+
+#: The browser's message in a failed step's reason is cut to its first line and
+#: to this many characters: Playwright appends a multi-line call log, and the
+#: reason has to stay one line a terminal tail can show.
+FAILURE_MESSAGE_MAX_CHARS = 160
 
 #: A full-page PNG smaller than this is almost certainly an error card or an
 #: empty shell rather than a rendered surface.
@@ -507,6 +529,36 @@ class SectionSwitchError(RuntimeError):
     the outside. It is a finding about one surface, not a reason to abandon the
     run: the route pass lets it end that route's captures and the scene pass
     turns it into a failed scene.
+    """
+
+
+class EnsureStepError(RuntimeError):
+    """Raised when a step nested in an ``ensure`` fails.
+
+    Carries the inner position and step so the scene's failure reason can name
+    them (``step 1 ensure[3] wait '…'``) rather than only the outer ``ensure``.
+    """
+
+    def __init__(self, index: int, step: dict[str, Any], cause: BaseException) -> None:
+        """Store the failing inner step and what it raised.
+
+        Args:
+            index: Zero-based position of the step inside the ``ensure``.
+            step: The inner step that failed.
+            cause: The exception it raised.
+        """
+        super().__init__(str(cause))
+        self.index = index
+        self.step = step
+        self.cause = cause
+
+
+class SceneSelectionError(ValueError):
+    """Raised when ``--scene`` names a scene the selection cannot hold.
+
+    Either the scenes file carries no scene of that name, or it does but
+    outside the Areas ``--area`` selected. ``main`` turns it into a usage
+    error (exit 2) before any browser starts.
     """
 
 
@@ -1700,7 +1752,7 @@ def run_scene(
                     file=None,
                     ok=False,
                     failed_step=index,
-                    reason=type(exc).__name__,
+                    reason=step_failure_reason(index, step, exc),
                 )
             settle(page)
         prepare(page)
@@ -1734,8 +1786,13 @@ def apply_step(page: Page, step: dict[str, Any]) -> None:
         step: A step object carrying exactly one verb.
 
     Raises:
-        ValueError: If the step carries no recognised verb.
+        ValueError: If the step carries no recognised verb, or an ``ensure``
+            nests another ``ensure``.
+        EnsureStepError: If a step nested in an ``ensure`` fails.
     """
+    if "ensure" in step:
+        apply_ensure(page, step["ensure"])
+        return
     if "click" in step:
         page.click(str(step["click"]), timeout=STEP_TIMEOUT_MS)
         return
@@ -1750,6 +1807,107 @@ def apply_step(page: Page, step: dict[str, Any]) -> None:
         page.wait_for_timeout(int(step["wait_ms"]))
         return
     raise ValueError(f"unrecognised scene step: {sorted(step)}")
+
+
+def apply_ensure(page: Page, spec: dict[str, Any]) -> None:
+    """Run an ``ensure`` step: its nested steps, but only when its selector is absent.
+
+    The verb exists so a scene can seed a record once and reuse it on every
+    later run — the five Cases scenes share one "Atlas seed case" instead of
+    each adding a row per run. A tenant that already carries the seed is left
+    exactly as it is.
+
+    The nesting check runs before the selector is looked up, so a malformed
+    scene fails the same way whether or not the seed happens to exist.
+
+    Args:
+        page: The page being walked.
+        spec: ``{"selector": …, "steps": […]}``; the nested steps use the four
+            plain verbs only.
+
+    Raises:
+        ValueError: If a nested step is itself an ``ensure``.
+        EnsureStepError: If a nested step fails, carrying its position.
+    """
+    nested: list[dict[str, Any]] = list(spec.get("steps", []))
+    if any("ensure" in inner for inner in nested):
+        raise ValueError("ensure does not nest")
+    if page.query_selector(str(spec["selector"])) is not None:
+        return
+    for index, inner in enumerate(nested):
+        try:
+            apply_step(page, inner)
+        except Exception as exc:  # noqa: BLE001 - re-raised with its position below
+            raise EnsureStepError(index, inner, exc) from exc
+    settle(page)
+
+
+def describe_step(step: dict[str, Any]) -> str | None:
+    """Name a step's verb and target for a failure reason.
+
+    A ``fill`` names its selector and never its value: a value could one day
+    be a credential, and a reason reaches stdout, the manifest and the sheet.
+
+    Args:
+        step: A scene step.
+
+    Returns:
+        e.g. ``click '#id'`` or ``wait_ms 400``; ``None`` when the step
+        carries no recognised verb.
+    """
+    if "ensure" in step:
+        spec = step["ensure"]
+        selector = spec.get("selector") if isinstance(spec, dict) else None
+        return f"ensure '{selector}'"
+    for verb in ("click", "wait"):
+        if verb in step:
+            return f"{verb} '{step[verb]}'"
+    if "fill" in step:
+        spec = step["fill"]
+        selector = spec.get("selector") if isinstance(spec, dict) else None
+        return f"fill '{selector}'"
+    if "wait_ms" in step:
+        return f"wait_ms {step['wait_ms']}"
+    return None
+
+
+def step_failure_reason(index: int, step: dict[str, Any], exc: BaseException) -> str:
+    """One line a reader can act on: which step, which verb, which selector, what the browser said.
+
+    The bare exception class name this replaces (``TimeoutError``) left a
+    failed run unattributable: five scenes timing out read the same whether
+    the selector was stale, the tenant lacked the data, or the page never
+    loaded. The browser's message is cut to its first line — Playwright
+    appends a multi-line call log — and to
+    :data:`FAILURE_MESSAGE_MAX_CHARS`.
+
+    Args:
+        index: Zero-based position of the failing step in the scene, the
+            same number the manifest records as ``failed_step``.
+        step: The failing step.
+        exc: What it raised. An :class:`EnsureStepError` is unwrapped, and
+            the reason names the inner position as ``ensure[<i>]``.
+
+    Returns:
+        e.g. ``TimeoutError at step 2 click '#id': Timeout 5000ms exceeded.``;
+        for a step with no recognised verb, the ``ValueError`` text as it
+        stands after the position.
+    """
+    position = f"step {index}"
+    if isinstance(exc, EnsureStepError):
+        position = f"{position} ensure[{exc.index}]"
+        step, exc = exc.step, exc.cause
+    action = describe_step(step)
+    lines = str(exc).strip().splitlines()
+    message = lines[0].strip() if lines else ""
+    if len(message) > FAILURE_MESSAGE_MAX_CHARS:
+        message = message[: FAILURE_MESSAGE_MAX_CHARS - 1] + "…"
+    head = f"{type(exc).__name__} at {position}"
+    if action:
+        head = f"{head} {action}"
+    reason = f"{head}: {message}" if message else head
+    # A selector read from JSON could carry a newline of its own.
+    return re.sub(r"[\r\n]+", " ", reason)
 
 
 # --------------------------------------------------------------------------- #
@@ -2090,21 +2248,49 @@ def write_index(
         lines.append("Nothing suspect and no failed scene.")
         lines.append("")
 
-    lines.append("### Skipped routes")
-    lines.append("")
-    by_reason: dict[str, list[str]] = {}
-    for skip in skipped:
-        by_reason.setdefault(skip.reason, []).append(skip.path)
-    for reason in sorted(by_reason):
-        paths = sorted(set(by_reason[reason]))
-        lines.append(
-            f"- **{reason}** ({len(by_reason[reason])}): "
-            f"{', '.join(f'`{path}`' for path in paths[:8])}"
-            f"{' …' if len(paths) > 8 else ''}"
-        )
-    lines.append("")
+    # A ``--scenes-only`` run selects no routes and so skips none; the heading
+    # would stand over nothing.
+    if skipped:
+        lines.append("### Skipped routes")
+        lines.append("")
+        by_reason: dict[str, list[str]] = {}
+        for skip in skipped:
+            by_reason.setdefault(skip.reason, []).append(skip.path)
+        for reason in sorted(by_reason):
+            paths = sorted(set(by_reason[reason]))
+            lines.append(
+                f"- **{reason}** ({len(by_reason[reason])}): "
+                f"{', '.join(f'`{path}`' for path in paths[:8])}"
+                f"{' …' if len(paths) > 8 else ''}"
+            )
+        lines.append("")
 
     (out_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def summary_lines(captured: list[Capture], scenes: list[SceneResult]) -> list[str]:
+    """List, for the terminal tail, everything that makes the exit code non-zero.
+
+    The contact sheet carries the same facts, but the operator reads stdout
+    first, and a tail that ends on a clean-looking count while the exit code
+    is 1 is what made an earlier run opaque.
+
+    Args:
+        captured: Every capture attempt.
+        scenes: Every scene walk.
+
+    Returns:
+        ``  ✗ <scene> — <reason>`` per failed scene, then
+        ``  ! <file> — <reason>`` per suspect capture and per flagged scene
+        shot; empty for a clean run.
+    """
+    lines = [f"  ✗ {scene.name} — {scene.reason or 'failed'}" for scene in scenes if not scene.ok]
+    lines.extend(f"  ! {item.file} — {item.reason}" for item in captured if item.suspect)
+    for scene in scenes:
+        reason = scene_shot_reason(scene) if scene.ok else None
+        if reason:
+            lines.append(f"  ! {scene.file} — {reason}")
+    return lines
 
 
 # --------------------------------------------------------------------------- #
@@ -2175,7 +2361,21 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLUG",
         help="Restrict the run to one Area; repeatable.",
     )
-    parser.add_argument("--no-scenes", action="store_true", help="Skip the scenes pass.")
+    parser.add_argument(
+        "--scene",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="Run only the named scene; repeatable, combinable with --area. An unknown "
+        "name exits 2 before any browser starts.",
+    )
+    passes = parser.add_mutually_exclusive_group()
+    passes.add_argument("--no-scenes", action="store_true", help="Skip the scenes pass.")
+    passes.add_argument(
+        "--scenes-only",
+        action="store_true",
+        help="Skip the route pass; the login and its confirmation still run.",
+    )
     parser.add_argument(
         "--bands",
         type=int,
@@ -2213,6 +2413,50 @@ def load_scenes(path: Path, areas: list[str] | None) -> list[dict[str, Any]]:
     return scenes
 
 
+def select_scenes(
+    path: Path, areas: list[str] | None, names: list[str] | None
+) -> list[dict[str, Any]]:
+    """Read the scenes file narrowed by ``--area`` and then by ``--scene``.
+
+    Every requested name is checked against the *unfiltered* file, so a name
+    that exists in another Area is reported as outside the selection rather
+    than as unknown — the two call for different corrections.
+
+    Args:
+        path: The scenes file.
+        areas: Area slugs to keep, or ``None`` for all.
+        names: Scene names to keep, or ``None`` for every scene in ``areas``.
+
+    Returns:
+        The selected scene objects, in file order.
+
+    Raises:
+        SceneSelectionError: If a name is not in the file, or is in the file
+            but not in the selected Areas. The message lists the names that
+            would have been accepted.
+    """
+    scenes = load_scenes(path, areas)
+    if not names:
+        return scenes
+    wanted = set(names)
+    kept = [scene for scene in scenes if scene.get("name") in wanted]
+
+    known = [str(scene.get("name")) for scene in load_scenes(path, None)]
+    unknown = sorted(wanted - set(known))
+    if unknown:
+        raise SceneSelectionError(
+            f"unknown scene(s): {', '.join(unknown)}. Known scenes: {', '.join(known)}"
+        )
+    outside = sorted(wanted - {str(scene.get("name")) for scene in kept})
+    if outside:
+        in_areas = ", ".join(str(scene.get("name")) for scene in scenes) or "none"
+        raise SceneSelectionError(
+            f"scene(s) not in the selected areas ({', '.join(areas or [])}): "
+            f"{', '.join(outside)}. Scenes in those areas: {in_areas}"
+        )
+    return kept
+
+
 def launch(playwright: Any) -> Any:
     """Launch headless Chromium, turning a missing browser into a typed error.
 
@@ -2242,9 +2486,23 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns:
         0 clean, 1 any suspect capture, flagged scene shot or failed scene, 2
-        browser or package missing, 3 login failed or a session lost mid-run.
+        browser or package missing (a usage error, an unknown ``--scene``
+        among them, exits 2 through ``argparse``), 3 login failed or a session
+        lost mid-run.
     """
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    # Resolved before anything else, browser included: a typo in --scene must
+    # not cost a login and a route pass before it is reported.
+    if args.no_scenes and args.scene:
+        parser.error("--scene selects scenes to run; it cannot be combined with --no-scenes")
+    scenes: list[dict[str, Any]] = []
+    if not args.no_scenes:
+        try:
+            scenes = select_scenes(Path(args.scenes), args.area, args.scene)
+        except SceneSelectionError as exc:
+            parser.error(str(exc))
 
     if playwright_api is None:
         print(PACKAGE_HINT, file=sys.stderr)
@@ -2274,7 +2532,9 @@ def main(argv: list[str] | None = None) -> int:
     admin_session_wanted = bool(admin_base_url and admin_user and admin_password)
 
     routes_csv = Path(args.routes)
-    routes = read_routes(routes_csv)
+    # ``--scenes-only`` selects no routes, and so skips none either: the
+    # manifest's ``captured`` and ``skipped`` are both empty for it.
+    routes = [] if args.scenes_only else read_routes(routes_csv)
 
     selected: list[RouteRow] = []
     skipped: list[Skip] = []
@@ -2356,8 +2616,8 @@ def main(argv: list[str] | None = None) -> int:
                 mark = " SUSPECT" if capture.suspect else ""
                 print(f"{capture.status} {route.path} -> {capture.file}{mark}")
 
-            if not session_lost and not args.no_scenes:
-                for scene in load_scenes(Path(args.scenes), args.area):
+            if not session_lost:
+                for scene in scenes:
                     result = run_scene(scene, sessions, out_dir, band_px=band_px)
                     scene_results.append(result)
                     print(f"scene {result.name}: {'ok' if result.ok else 'FAILED'}")
@@ -2393,6 +2653,8 @@ def main(argv: list[str] | None = None) -> int:
         f"captured: {len(captured)}  scenes: {len(scene_results)}  "
         f"skipped: {len(skipped)}  suspect: {suspects}  failed scenes: {failures}"
     )
+    for line in summary_lines(captured, scene_results):
+        print(line)
     print(f"written to: {out_dir}")
     if session_lost:
         return EXIT_LOGIN_FAILED

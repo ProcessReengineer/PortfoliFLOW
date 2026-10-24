@@ -13,6 +13,11 @@ its first quiet sample, a placeholder regex that misses the placeholders the
 templates actually write, or — since P-UX-A0t — two Sections of two routes
 writing their shots to the same name.
 
+Since P-UX-1c the scene contract is exercised too, against a fake page that
+records what it is asked to do: the ``ensure`` verb, the one-line failure
+reason a failed step leaves, the terminal tail, and the ``--scene`` selection
+that has to fail before any browser starts.
+
 The placeholder pattern is tested here in Python and handed to the browser
 verbatim as the argument to ``new RegExp``, so these cases are the ones that
 run in the page — the two engines agree on ``^``, ``\b``, ``.``, ``\u2026``
@@ -30,24 +35,35 @@ import json
 import struct
 import zlib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import tools.ux_atlas as ux_atlas
 from tools.ux_atlas import (
     CHROMIUM_MAX_AXIS_PX,
     DEFAULT_SCENES,
+    FAILURE_MESSAGE_MAX_CHARS,
     LOADING_PLACEHOLDER_RE,
     QUIET_HOLD_MS,
     Capture,
+    EnsureStepError,
+    SceneResult,
+    SceneSelectionError,
     ShotMeta,
     advance_quiet_window,
+    apply_step,
     band_rects,
     is_truncated,
     load_scenes,
+    main,
     manifest_entry,
     png_height,
     section_heading,
     section_shot_stem,
+    select_scenes,
+    step_failure_reason,
+    summary_lines,
     write_index,
 )
 
@@ -572,3 +588,404 @@ class TestShippedScenesFile:
         )
         assert sections["transactions-blotter"] == "blotter"
         assert sections["transactions-history"] == "history"
+
+    def test_every_cases_scene_seeds_through_ensure(self) -> None:
+        """Every Cases scene that needs the seed case creates it through one ``ensure``.
+
+        Before P-UX-1c each of the five scenes created its own "Atlas seed
+        case", so every run added five rows to the tenant. The contract is
+        structural rather than a count of the title's mentions: the scene has
+        exactly one ``ensure``, and the only ``fill`` of the title sits inside
+        it — a creation step outside it would run on every run again.
+        """
+        seeded = [
+            scene
+            for scene in load_scenes(DEFAULT_SCENES, ["cases"])
+            if "Atlas seed case" in json.dumps(scene["steps"])
+        ]
+        assert len(seeded) >= 5, "the five Cases scenes reach a case detail"
+
+        for scene in seeded:
+            ensures = [step for step in scene["steps"] if "ensure" in step]
+            assert len(ensures) == 1, f"{scene['name']}: {len(ensures)} ensure steps"
+            inner = ensures[0]["ensure"]["steps"]
+            assert "Atlas seed case" in ensures[0]["ensure"]["selector"]
+            assert any(step.get("fill", {}).get("value") == "Atlas seed case" for step in inner), (
+                f"{scene['name']}: the seed title is not filled inside the ensure"
+            )
+            outer_fills = [
+                step
+                for step in scene["steps"]
+                if step.get("fill", {}).get("value") == "Atlas seed case"
+            ]
+            assert not outer_fills, f"{scene['name']}: the seed title is filled outside it"
+
+    def test_no_shipped_ensure_nests(self) -> None:
+        """``ensure`` does not nest; a shipped scene that tried would fail every run."""
+        for scene in load_scenes(DEFAULT_SCENES, None):
+            for step in scene["steps"]:
+                if "ensure" in step:
+                    assert not any("ensure" in inner for inner in step["ensure"]["steps"]), scene[
+                        "name"
+                    ]
+
+
+class FakePage:
+    """A stand-in for a Playwright page that records the scene steps applied to it.
+
+    Args:
+        present: Selectors ``query_selector`` reports as present.
+        failing: Selectors whose ``click`` / ``fill`` / ``wait`` raises
+            ``TimeoutError`` with Playwright's two-part message shape.
+    """
+
+    def __init__(self, present: set[str] | None = None, failing: set[str] | None = None) -> None:
+        self.present = present or set()
+        self.failing = failing or set()
+        self.calls: list[tuple[str, str]] = []
+
+    def _act(self, verb: str, selector: str) -> None:
+        self.calls.append((verb, selector))
+        if selector in self.failing:
+            raise TimeoutError(
+                f"Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('{selector}')"
+            )
+
+    def query_selector(self, selector: str) -> object | None:
+        """Report a selector as present or absent."""
+        return object() if selector in self.present else None
+
+    def click(self, selector: str, timeout: int = 0) -> None:
+        """Record a click."""
+        self._act("click", selector)
+
+    def fill(self, selector: str, value: str, timeout: int = 0) -> None:
+        """Record a fill — the value is deliberately not recorded."""
+        self._act("fill", selector)
+
+    def wait_for_selector(self, selector: str, timeout: int = 0) -> None:
+        """Record a wait."""
+        self._act("wait", selector)
+
+    def wait_for_timeout(self, ms: int) -> None:
+        """Record a pause."""
+        self.calls.append(("wait_ms", str(ms)))
+
+
+SEED_ROW = '#cases-open-list .pf-case-row:has-text("Atlas seed case")'
+
+
+def seed_ensure() -> dict[str, Any]:
+    """Build the ``ensure`` step the Cases scenes ship with.
+
+    Returns:
+        The step.
+    """
+    return {
+        "ensure": {
+            "selector": SEED_ROW,
+            "steps": [
+                {"click": ".pf-cases__new-btn"},
+                {"wait": ".pf-cases__new-form"},
+                {"fill": {"selector": "input[name=title]", "value": "Atlas seed case"}},
+                {"click": "button[type=submit]"},
+            ],
+        }
+    }
+
+
+@pytest.fixture
+def settles(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Replace ``settle`` with a recorder; the real one polls a live page's clock.
+
+    Returns:
+        The pages ``settle`` was called with, in order.
+    """
+    seen: list[object] = []
+    monkeypatch.setattr(ux_atlas, "settle", seen.append)
+    return seen
+
+
+class TestApplyStepEnsure:
+    """The ``ensure`` verb: seed once, reuse thereafter."""
+
+    def test_a_present_selector_skips_the_nested_steps(self, settles: list[object]) -> None:
+        page = FakePage(present={SEED_ROW})
+        apply_step(page, seed_ensure())  # type: ignore[arg-type]
+        assert page.calls == []
+        assert settles == []
+
+    def test_an_absent_selector_runs_the_nested_steps_in_order(self, settles: list[object]) -> None:
+        page = FakePage()
+        apply_step(page, seed_ensure())  # type: ignore[arg-type]
+        assert page.calls == [
+            ("click", ".pf-cases__new-btn"),
+            ("wait", ".pf-cases__new-form"),
+            ("fill", "input[name=title]"),
+            ("click", "button[type=submit]"),
+        ]
+        assert settles == [page], "the seed is settled once, after its last step"
+
+    def test_ensure_does_not_nest(self, settles: list[object]) -> None:
+        step = {
+            "ensure": {"selector": "#a", "steps": [{"ensure": {"selector": "#b", "steps": []}}]}
+        }
+        with pytest.raises(ValueError, match="ensure does not nest"):
+            apply_step(FakePage(), step)  # type: ignore[arg-type]
+
+    def test_nesting_is_refused_even_when_the_seed_exists(self, settles: list[object]) -> None:
+        # A malformed scene must fail the same way on a seeded and an unseeded
+        # tenant, not only on the first run.
+        step = {
+            "ensure": {"selector": "#a", "steps": [{"ensure": {"selector": "#b", "steps": []}}]}
+        }
+        with pytest.raises(ValueError, match="ensure does not nest"):
+            apply_step(FakePage(present={"#a"}), step)  # type: ignore[arg-type]
+
+    def test_a_nested_failure_carries_its_inner_position(self, settles: list[object]) -> None:
+        page = FakePage(failing={".pf-cases__new-form"})
+        with pytest.raises(EnsureStepError) as caught:
+            apply_step(page, seed_ensure())  # type: ignore[arg-type]
+        assert caught.value.index == 1
+        assert caught.value.step == {"wait": ".pf-cases__new-form"}
+        assert page.calls[-1] == ("wait", ".pf-cases__new-form")
+
+    def test_a_nested_failures_reason_names_ensure_and_the_inner_step(
+        self, settles: list[object]
+    ) -> None:
+        step = seed_ensure()
+        page = FakePage(failing={".pf-cases__new-form"})
+        with pytest.raises(EnsureStepError) as caught:
+            apply_step(page, step)  # type: ignore[arg-type]
+        assert step_failure_reason(1, step, caught.value) == (
+            "TimeoutError at step 1 ensure[1] wait '.pf-cases__new-form': Timeout 5000ms exceeded."
+        )
+
+
+class TestStepFailureReason:
+    """The one-line reason a failed scene step leaves behind."""
+
+    TIMEOUT = TimeoutError("Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator")
+
+    def test_a_click(self) -> None:
+        selector = ".pf-table__actions .pf-btn--quiet:not(.pf-btn--icon)"
+        assert step_failure_reason(2, {"click": selector}, self.TIMEOUT) == (
+            f"TimeoutError at step 2 click '{selector}': Timeout 5000ms exceeded."
+        )
+
+    def test_a_wait(self) -> None:
+        assert step_failure_reason(0, {"wait": "#dc-monitor"}, self.TIMEOUT).startswith(
+            "TimeoutError at step 0 wait '#dc-monitor': "
+        )
+
+    def test_a_fill_names_its_selector_and_never_its_value(self) -> None:
+        step = {"fill": {"selector": "#password", "value": "hunter2-secret"}}
+        reason = step_failure_reason(3, step, self.TIMEOUT)
+        assert reason.startswith("TimeoutError at step 3 fill '#password': ")
+        assert "hunter2-secret" not in reason
+
+    def test_a_wait_ms_names_its_duration(self) -> None:
+        reason = step_failure_reason(4, {"wait_ms": 400}, RuntimeError("Target closed"))
+        assert reason == "RuntimeError at step 4 wait_ms 400: Target closed"
+
+    def test_an_ensure_names_its_selector(self) -> None:
+        reason = step_failure_reason(
+            1, {"ensure": {"selector": "#a", "steps": []}}, ValueError("ensure does not nest")
+        )
+        assert reason == "ValueError at step 1 ensure '#a': ensure does not nest"
+
+    def test_an_unrecognised_verb_keeps_the_value_error_text(self) -> None:
+        step = {"clik": "#a"}
+        with pytest.raises(ValueError) as caught:
+            apply_step(FakePage(), step)  # type: ignore[arg-type]
+        assert step_failure_reason(5, step, caught.value) == (
+            "ValueError at step 5: unrecognised scene step: ['clik']"
+        )
+
+    def test_the_browser_message_is_cut_to_its_first_line(self) -> None:
+        reason = step_failure_reason(0, {"wait": "#a"}, self.TIMEOUT)
+        assert "\n" not in reason
+        assert "Call log" not in reason
+
+    def test_a_long_message_is_cut_at_the_limit(self) -> None:
+        reason = step_failure_reason(0, {"wait": "#a"}, RuntimeError("x" * 500))
+        message = reason.split(": ", 1)[1]
+        assert len(message) == FAILURE_MESSAGE_MAX_CHARS
+        assert message.endswith("…")
+
+    def test_a_message_at_the_limit_is_left_whole(self) -> None:
+        reason = step_failure_reason(
+            0, {"wait": "#a"}, RuntimeError("y" * FAILURE_MESSAGE_MAX_CHARS)
+        )
+        assert reason.endswith("y" * FAILURE_MESSAGE_MAX_CHARS)
+
+    def test_a_selector_with_a_newline_still_yields_one_line(self) -> None:
+        reason = step_failure_reason(0, {"click": "#a,\n#b"}, self.TIMEOUT)
+        assert "\n" not in reason
+
+    def test_an_empty_message_leaves_no_dangling_colon(self) -> None:
+        assert step_failure_reason(0, {"wait": "#a"}, TimeoutError()) == (
+            "TimeoutError at step 0 wait '#a'"
+        )
+
+
+class TestSummaryLines:
+    """The terminal tail after the one-line run summary."""
+
+    def test_a_clean_run_prints_nothing_more(self) -> None:
+        assert summary_lines([], [SceneResult(name="ok", file="cases/scenes/a.png", ok=True)]) == []
+
+    def test_a_failed_scene_prints_its_reason(self) -> None:
+        reason = "TimeoutError at step 1 click '#x': Timeout 5000ms exceeded."
+        lines = summary_lines(
+            [],
+            [
+                SceneResult(
+                    name="transactions-blotter-impact-open",
+                    file=None,
+                    ok=False,
+                    failed_step=1,
+                    reason=reason,
+                )
+            ],
+        )
+        assert lines == [f"  ✗ transactions-blotter-impact-open — {reason}"]
+
+    def test_a_suspect_capture_and_a_flagged_scene_print_their_files(self) -> None:
+        capture = Capture(
+            area="investments",
+            path="/investments",
+            file="investments/investments.png",
+            status=500,
+            final_url="http://tenant.localhost:8000/investments",
+            partial=False,
+            session="tenant",
+            suspect=True,
+            reason="HTTP 500",
+        )
+        scene = SceneResult(
+            name="charts",
+            file="investments/scenes/charts.png",
+            ok=True,
+            charts_total=3,
+            charts_pending=1,
+        )
+        assert summary_lines([capture], [scene]) == [
+            "  ! investments/investments.png — HTTP 500",
+            "  ! investments/scenes/charts.png — charts not drawn (1 of 3)",
+        ]
+
+
+class TestScenesOnlyIndex:
+    """The contact sheet of a ``--scenes-only`` run."""
+
+    def test_no_empty_heading_stands_before_the_scenes(self, tmp_path: Path) -> None:
+        write_index(
+            tmp_path,
+            base_url="http://tenant.localhost:8000",
+            viewport=(1440, 900),
+            captured=[],
+            scenes=[SceneResult(name="cases-detail", file="cases/scenes/case-detail.png", ok=True)],
+            skipped=[],
+        )
+        sheet = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert "### Pages" not in sheet
+        assert "### Skipped routes" not in sheet
+        # The Area heading leads straight into its scenes, and the sheet ends
+        # on the "needs a look" verdict rather than on a heading over nothing.
+        assert "## cases\n\n### Scenes\n\n**cases-detail**" in sheet
+        assert sheet.rstrip().endswith("Nothing suspect and no failed scene.")
+
+
+class TestSceneSelection:
+    """``--scene``: a typo must cost nothing, and say what would have worked."""
+
+    def scenes_file(self, tmp_path: Path) -> Path:
+        """Write a three-scene file across two Areas.
+
+        Args:
+            tmp_path: Where to write it.
+
+        Returns:
+            The file's path.
+        """
+        path = tmp_path / "atlas-scenes.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {"name": "tx-a", "area": "transactions", "steps": [], "shot": "a"},
+                    {"name": "tx-b", "area": "transactions", "steps": [], "shot": "b"},
+                    {"name": "wd-journal", "area": "watch_desk", "steps": [], "shot": "j"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_no_names_keeps_every_scene_in_the_areas(self, tmp_path: Path) -> None:
+        names = [s["name"] for s in select_scenes(self.scenes_file(tmp_path), None, None)]
+        assert names == ["tx-a", "tx-b", "wd-journal"]
+
+    def test_the_filter_keeps_the_named_scenes_in_file_order(self, tmp_path: Path) -> None:
+        scenes = select_scenes(self.scenes_file(tmp_path), None, ["wd-journal", "tx-a"])
+        assert [s["name"] for s in scenes] == ["tx-a", "wd-journal"]
+
+    def test_area_and_scene_combine(self, tmp_path: Path) -> None:
+        scenes = select_scenes(self.scenes_file(tmp_path), ["transactions"], ["tx-b"])
+        assert [s["name"] for s in scenes] == ["tx-b"]
+
+    def test_an_unknown_name_lists_the_known_ones(self, tmp_path: Path) -> None:
+        with pytest.raises(SceneSelectionError, match="unknown scene") as caught:
+            select_scenes(self.scenes_file(tmp_path), None, ["tx-c"])
+        assert "tx-a, tx-b, wd-journal" in str(caught.value)
+
+    def test_a_name_outside_the_areas_is_not_called_unknown(self, tmp_path: Path) -> None:
+        with pytest.raises(SceneSelectionError) as caught:
+            select_scenes(self.scenes_file(tmp_path), ["transactions"], ["wd-journal"])
+        message = str(caught.value)
+        assert "not in the selected areas (transactions)" in message
+        assert "unknown" not in message
+        assert "tx-a, tx-b" in message
+
+    def test_main_exits_2_on_an_unknown_name_before_any_browser(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Nothing downstream of the selection may run: no Playwright, no
+        # credentials. Pulling the package out proves the order — reaching
+        # its check would return EXIT_NO_BROWSER instead of raising.
+        monkeypatch.setattr(ux_atlas, "playwright_api", None)
+        with pytest.raises(SystemExit) as caught:
+            main(["--scene", "cases-detial"])
+        assert caught.value.code == 2
+        err = capsys.readouterr().err
+        assert "unknown scene(s): cases-detial" in err
+        assert "cases-detail" in err
+
+    def test_main_reports_a_scene_outside_the_area(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(ux_atlas, "playwright_api", None)
+        with pytest.raises(SystemExit) as caught:
+            main(["--area", "transactions", "--scene", "watch-desk-journal"])
+        assert caught.value.code == 2
+        assert "not in the selected areas (transactions)" in capsys.readouterr().err
+
+    def test_scene_and_no_scenes_contradict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(ux_atlas, "playwright_api", None)
+        with pytest.raises(SystemExit) as caught:
+            main(["--no-scenes", "--scene", "cases-detail"])
+        assert caught.value.code == 2
+
+    def test_scenes_only_and_no_scenes_are_exclusive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(ux_atlas, "playwright_api", None)
+        with pytest.raises(SystemExit) as caught:
+            main(["--no-scenes", "--scenes-only"])
+        assert caught.value.code == 2
+
+    def test_a_valid_selection_proceeds_past_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # With the package gone the next gate is the missing-package exit, which
+        # is only reached once the selection has passed.
+        monkeypatch.setattr(ux_atlas, "playwright_api", None)
+        assert main(["--scene", "cases-detail", "--scenes-only"]) == ux_atlas.EXIT_NO_BROWSER

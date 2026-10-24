@@ -21,6 +21,7 @@
   },
   {
     "name": "transactions-blotter-impact-open",
+    "note": "needs a blotter ticket that is proposed or approved (a draft has no Impact button)",
     "area": "transactions",
     "start": "/transactions",
     "session": "tenant",
@@ -43,6 +44,7 @@
   },
   {
     "name": "transactions-history-detail-open",
+    "note": "needs a booked or cancelled ticket in the History",
     "area": "transactions",
     "start": "/transactions",
     "session": "tenant",
@@ -84,12 +86,14 @@
     "session": "tenant",
     "steps": [
       {"wait": "#cases-open-list"},
-      {"click": ".pf-area__header .pf-cases__new-btn"},
-      {"wait": ".pf-cases__new-form"},
-      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
-      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
-      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+                  "steps": [
+                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                  ]}},
+      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
       {"wait": ".pf-case-detail"}
     ],
     "shot": "case-detail"
@@ -101,12 +105,14 @@
     "session": "tenant",
     "steps": [
       {"wait": "#cases-open-list"},
-      {"click": ".pf-area__header .pf-cases__new-btn"},
-      {"wait": ".pf-cases__new-form"},
-      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
-      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
-      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+                  "steps": [
+                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                  ]}},
+      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
       {"wait": ".pf-case-detail"},
       {"click": ".pf-case-actions button:has-text(\"Add note\")"},
       {"wait": ".pf-case-composer__title:has-text(\"Add note\")"}
@@ -120,12 +126,14 @@
     "session": "tenant",
     "steps": [
       {"wait": "#cases-open-list"},
-      {"click": ".pf-area__header .pf-cases__new-btn"},
-      {"wait": ".pf-cases__new-form"},
-      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
-      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
-      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+                  "steps": [
+                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                  ]}},
+      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
       {"wait": ".pf-case-detail"},
       {"click": ".pf-case-actions button:has-text(\"Pin document\")"},
       {"wait": ".pf-case-composer__title:has-text(\"Pin document\")"}
@@ -139,12 +147,14 @@
     "session": "tenant",
     "steps": [
       {"wait": "#cases-open-list"},
-      {"click": ".pf-area__header .pf-cases__new-btn"},
-      {"wait": ".pf-cases__new-form"},
-      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
-      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
-      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+                  "steps": [
+                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                  ]}},
+      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
       {"wait": ".pf-case-detail"},
       {"click": ".pf-case-actions button:has-text(\"Record decision\")"},
       {"wait": ".pf-case-composer__title:has-text(\"Record decision\")"}
@@ -158,12 +168,14 @@
     "session": "tenant",
     "steps": [
       {"wait": "#cases-open-list"},
-      {"click": ".pf-area__header .pf-cases__new-btn"},
-      {"wait": ".pf-cases__new-form"},
-      {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-      {"click": ".pf-cases__new-form button[type=\"submit\"]"},
-      {"wait": ".pf-case-row:has-text(\"Atlas seed case\")"},
-      {"click": ".pf-case-row:has-text(\"Atlas seed case\")"},
+      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+                  "steps": [
+                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                  ]}},
+      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
       {"wait": ".pf-case-detail"},
       {"click": ".pf-case-actions button:has-text(\"Close case\")"},
       {"wait": ".pf-case-composer--close"}
@@ -269,6 +281,7 @@
   },
   {
     "name": "watch-desk-briefing-watch-list-open",
+    "note": "needs an SAA family group in the watch list — a tenant with an active limit set",
     "area": "watch_desk",
     "start": "/watch-desk",
     "session": "tenant",
@@ -302,5 +315,242 @@
       {"wait": "#dc-journal"}
     ],
     "shot": "journal"
+  },
+  {
+    "name": "shell-command-palette",
+    "area": "front_office",
+    "start": "/front-office",
+    "session": "tenant",
+    "steps": [
+      {"click": ".pf-view__search[data-pf-palette-open]"},
+      {"wait": "#pf-palette[open]"},
+      {"fill": {"selector": ".pf-palette__input", "value": "watch"}},
+      {"wait": "#pf-palette__results > *"}
+    ],
+    "shot": "command-palette"
+  },
+  {
+    "name": "shirley-voice-panel",
+    "area": "front_office",
+    "start": "/front-office",
+    "session": "tenant",
+    "note": "needs voice speech-to-text switched on for the tenant (ADR-0136 §4); a missing toggle is that tenant switch, not a defect",
+    "steps": [
+      {"click": ".pf-rail__btn"},
+      {"wait": "#pf-chat"},
+      {"wait": "#chat-history"},
+      {"click": "[data-pf-voice-toggle]"},
+      {"wait": "[data-pf-voice-controls]:not([hidden])"}
+    ],
+    "shot": "shirley-voice-panel"
+  },
+  {
+    "name": "investments-detail",
+    "area": "investments",
+    "start": "/investments",
+    "session": "tenant",
+    "note": "needs at least one investment",
+    "steps": [
+      {"wait": "#investments-table a[href^=\"/investments/\"]"},
+      {"click": "#investments-table a[href^=\"/investments/\"]"},
+      {"wait": "#inv-detail-title"}
+    ],
+    "shot": "detail"
+  },
+  {
+    "name": "investments-edit",
+    "area": "investments",
+    "start": "/investments",
+    "session": "tenant",
+    "note": "needs at least one investment; opens the edit form, never saves it",
+    "steps": [
+      {"wait": "#investments-table a[href^=\"/investments/\"]"},
+      {"click": "#investments-table a[href^=\"/investments/\"]"},
+      {"wait": "#inv-detail-title"},
+      {"click": ".inv-header__actions a[href$=\"/edit\"]"},
+      {"wait": "#inv-edit-title"}
+    ],
+    "shot": "edit"
+  },
+  {
+    "name": "investments-charts",
+    "area": "investments",
+    "start": "/investments",
+    "session": "tenant",
+    "note": "needs at least one investment",
+    "steps": [
+      {"wait": "#investments-table a[href^=\"/investments/\"]"},
+      {"click": "#investments-table a[href^=\"/investments/\"]"},
+      {"wait": "#inv-detail-title"},
+      {"click": ".inv-header__actions a[href$=\"/charts\"]"},
+      {"wait": "#inv-chart-total-return"}
+    ],
+    "shot": "charts"
+  },
+  {
+    "name": "watch-desk-cadence",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "calibration",
+    "steps": [
+      {"wait": "#dc-family-rows"},
+      {"click": "button[aria-controls=\"dc-cadence-panel\"]"},
+      {"wait": "#dc-cadence-panel:not([hidden])"}
+    ],
+    "shot": "cadence"
+  },
+  {
+    "name": "watch-desk-advanced-tuning",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "calibration",
+    "note": "needs a tenant-owner session: a member sees the summary but the owner-only note in place of the editor",
+    "steps": [
+      {"wait": "#dc-family-rows"},
+      {"click": "details[data-pf-wd=\"tuning\"] > summary"},
+      {"wait": "#dc-calibration-editor"}
+    ],
+    "shot": "advanced-tuning"
+  },
+  {
+    "name": "watch-desk-watchpoint-add",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "briefing",
+    "note": "needs a watched price or FX group in the Briefing watch list — only those group menus carry + Add watchpoint",
+    "steps": [
+      {"wait": "#dc-monitor"},
+      {"click": "#dc-monitor details.pf-menu:has([data-pf-wd=\"add-watchpoint\"]) > summary"},
+      {"click": "#dc-monitor details.pf-menu[open] [data-pf-wd=\"add-watchpoint\"]"},
+      {"wait": "#dc-watchpoint-new [data-pf-wd=\"watchpoint-form\"]"}
+    ],
+    "shot": "watchpoint-add"
+  },
+  {
+    "name": "watch-desk-watchpoint-edit",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "calibration",
+    "note": "needs at least one live (not retired) watch point",
+    "steps": [
+      {"wait": "#dc-watchpoint-list"},
+      {"click": "#dc-watchpoint-list details.pf-menu > summary"},
+      {"click": "#dc-watchpoint-list details.pf-menu[open] [data-pf-wd=\"adjust\"]"},
+      {"wait": "#dc-watchpoint-list [data-pf-wd=\"watchpoint-form\"]"}
+    ],
+    "shot": "watchpoint-edit"
+  },
+  {
+    "name": "watch-desk-watchpoint-history",
+    "area": "watch_desk",
+    "start": "/watch-desk",
+    "session": "tenant",
+    "section": "calibration",
+    "note": "needs at least one live (not retired) watch point",
+    "steps": [
+      {"wait": "#dc-watchpoint-list"},
+      {"click": "#dc-watchpoint-list details.pf-menu > summary"},
+      {"click": "#dc-watchpoint-list details.pf-menu[open] [data-pf-wd=\"history-open\"]"},
+      {"wait": "#dc-watchpoint-list [data-pf-wd=\"history\"]"}
+    ],
+    "shot": "watchpoint-history"
+  },
+  {
+    "name": "cases-archive-search",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "section": "archive",
+    "note": "results stay empty until a case titled \"Atlas …\" has been closed; the no-match state is the shot then",
+    "steps": [
+      {"wait": ".pf-archive__summary"},
+      {"ensure": {"selector": "details.pf-archive[open]",
+                  "steps": [{"click": ".pf-archive__summary"}]}},
+      {"fill": {"selector": ".pf-archive__input", "value": "Atlas"}},
+      {"click": ".pf-archive__form button[type=\"submit\"]"},
+      {"wait": "#cases-archive-results :is(.pf-case-list, .pf-empty-state)"}
+    ],
+    "shot": "archive-search"
+  },
+  {
+    "name": "transactions-blotter-cancel-open",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "blotter",
+    "note": "needs a blotter ticket (draft, proposed or approved); opens the cancel panel, never confirms it",
+    "steps": [
+      {"wait": "#blotter .pf-table__row"},
+      {"click": "#blotter .pf-table__row .pf-table__actions details.pf-menu > summary"},
+      {"click": "#blotter details.pf-menu[open] .pf-menu__item[hx-get$=\"/cancel\"]"},
+      {"wait": "#blotter .pf-table__slot .pf-panel"}
+    ],
+    "shot": "blotter-cancel-open"
+  },
+  {
+    "name": "transactions-history-reverse-open",
+    "area": "transactions",
+    "start": "/transactions",
+    "session": "tenant",
+    "section": "history",
+    "note": "needs a booked, reversible ticket in the History; opens the reverse panel, never confirms it",
+    "steps": [
+      {"wait": "#history .pf-table__row"},
+      {"click": "#history .pf-table__row .pf-table__actions details.pf-menu > summary"},
+      {"click": "#history details.pf-menu[open] .pf-menu__item[hx-get$=\"/reverse\"]"},
+      {"wait": "#history [id^=\"tx-reverse-\"] .pf-panel"}
+    ],
+    "shot": "history-reverse-open"
+  },
+  {
+    "name": "back-office-saa-asset-classes",
+    "area": "back_office",
+    "start": "/back-office",
+    "session": "tenant",
+    "section": "saa",
+    "note": "needs at least one SAA configuration (the empty state has no configuration picker and no manage button)",
+    "steps": [
+      {"wait": ".saa-picker__summary"},
+      {"ensure": {"selector": "details.saa-picker[open]",
+                  "steps": [{"click": ".saa-picker__summary"}]}},
+      {"click": "#saa-manage-asset-classes-btn"},
+      {"wait": "#saa-asset-classes-table"}
+    ],
+    "shot": "saa-asset-classes"
+  },
+  {
+    "name": "back-office-limits-set-detail",
+    "area": "back_office",
+    "start": "/back-office",
+    "session": "tenant",
+    "section": "limits",
+    "note": "needs at least one limit set in the Limit-Set History",
+    "steps": [
+      {"wait": "details.lim-history > summary"},
+      {"ensure": {"selector": "details.lim-history[open]",
+                  "steps": [{"click": "details.lim-history > summary"}]}},
+      {"click": ".lim-history__item > details > summary"},
+      {"wait": ".lim-set-detail"}
+    ],
+    "shot": "limits-set-detail"
+  },
+  {
+    "name": "planning-desk-hypothetical-add",
+    "area": "planning_desk",
+    "start": "/planning-desk",
+    "session": "tenant",
+    "section": "cash-flow-planning",
+    "note": "needs at least one investment (without one the disclosure holds no form); opens the form, never submits it",
+    "steps": [
+      {"wait": ".pd-hyp__summary"},
+      {"ensure": {"selector": "details.pd-hyp__add[open]",
+                  "steps": [{"click": ".pd-hyp__summary"}]}},
+      {"wait": "#pd-hyp-form"}
+    ],
+    "shot": "hypothetical-add"
   }
 ]

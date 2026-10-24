@@ -85,14 +85,27 @@ variables the `super_admin` routes are skipped with the manifest reason
 |---|---|
 | `--bands 1200` | Also cut every shot into 1200 px slices (default 0, off) |
 | `--area transactions` | Restrict the run to one Area; repeatable |
+| `--scene cases-detail` | Run only the named scene; repeatable, combinable with `--area` |
+| `--scenes-only` | Skip the route pass — the login and its confirmation still run |
 | `--no-scenes` | Route captures only |
 | `--viewport 390x844` | A different viewport — the mobile pass |
 | `--out <dir>` | Override the dated folder |
 | `--routes <csv>` | Select from a different inventory table |
 
+`--scene` and `--scenes-only` exist for the moment after a run, when one
+scene failed and the fix is a tenant bootstrap or a selector: `--scene
+cases-detail --scenes-only` re-runs that scene alone in seconds instead
+of photographing every route again. A name the scenes file does not
+carry exits `2` before any browser starts and lists the names it does
+carry, so a typo costs nothing; a name that exists in another Area than
+the `--area` selected is reported as outside the selection, not as
+unknown. Under `--scenes-only` the manifest's `captured` and `skipped`
+are both empty and the contact sheet holds the scenes alone.
+
 Exit codes: `0` clean, `1` at least one suspect capture, flagged scene
 shot or failed scene (the outputs are written either way), `2` the
-browser or the Playwright package is missing, `3` login failed — either
+browser or the Playwright package is missing, or a usage error such as
+an unknown `--scene`, `3` login failed — either
 at the start, or mid-run when a capture bounces to `/login`. A mid-run
 bounce **aborts the remaining routes**: the session is gone, so every one
 of them would photograph the login page instead of itself. The manifest
@@ -309,22 +322,101 @@ them. `../atlas-scenes.json` is a list of scene objects:
  "shot": "flow-chooser"}
 ```
 
+Besides those keys a scene may carry:
+
+| Key | Meaning |
+|---|---|
+| `section` | A Section slug, switched to through the URL fragment after `start` loads and before the first step |
+| `note` | Free text naming the tenant data the scene needs. Ignored by the tool; it is what the operator reads when the scene fails |
+
 `session` is `tenant` or `super_admin`. Each step carries exactly one
 verb:
 
 | Verb | Form | Effect |
 |---|---|---|
-| `click` | `{"click": "#id"}` | Click a Playwright selector |
+| `click` | `{"click": "#id"}` | Click a Playwright selector — the first match when several match |
 | `fill` | `{"fill": {"selector": "…", "value": "…"}}` | Type into a field |
-| `wait` | `{"wait": "#id"}` | Wait until a selector is present |
+| `wait` | `{"wait": "#id"}` | Wait until a selector is present and visible |
 | `wait_ms` | `{"wait_ms": 250}` | Pause |
+| `ensure` | `{"ensure": {"selector": "…", "steps": […]}}` | Run the nested steps only when the selector is absent, then let the page settle |
+
+`ensure` exists so a scene can **seed once and reuse thereafter**. The
+five Cases scenes each need a case to open; before `ensure` each of them
+created its own "Atlas seed case", and every run left five more rows in
+the tenant. Now the creation sits inside an `ensure` on the seeded row,
+so a tenant that already carries the seed is left exactly as it is. The
+same verb opens a `<details>` disclosure only if it is still closed —
+clicking a summary that a template rendered `open` would shut it. The
+nested steps use the four plain verbs; an `ensure` inside an `ensure` is
+an error, raised whether or not the seed exists.
 
 After the last step the tool waits for HTMX to go quiet and writes
-`<area>/scenes/<shot>.png`. A step whose selector never appears marks the
-scene `failed` with the failing step index and the run continues.
+`<area>/scenes/<shot>.png`. A step that fails marks the scene `failed`
+and the run continues. The reason is one line naming the step's
+zero-based index (the manifest's `failed_step`), its verb, its selector
+and the browser's first error line:
 
-The file ships with one worked example. Filling it out for the real
-sub-surfaces is strand A's job.
+```
+TimeoutError at step 1 click '.pf-table__id button': Timeout 5000ms exceeded.
+TimeoutError at step 1 ensure[1] wait '.pf-cases__new-form': Timeout 5000ms exceeded.
+```
+
+A `fill` names its selector, never its value. The same lines close the
+run's stdout — one `✗` per failed scene and one `!` per suspect capture
+or flagged scene shot — because the operator reads the terminal first,
+and a tail that looked clean beside exit code `1` is what made an
+earlier run unattributable.
+
+A scene must never submit anything that books, saves, closes or deletes.
+Opening a panel, a dialog, an editor or a composer is the limit; the one
+write the file makes is the Cases seed, once per tenant.
+
+### Data a scene needs
+
+A scene that fails on a `wait` or `click` for a *data* element — a
+blotter row, a watch-list group, a watch point — is photographing a
+tenant without that data, not finding an atlas bug. Bootstrap the
+tenant and re-run that scene with `--scene <name> --scenes-only`. The
+data-dependent scenes, with their `note`:
+
+| Scene | Needs |
+|---|---|
+| `transactions-blotter-impact-open` | A blotter ticket that is proposed or approved (a draft has no Impact button) |
+| `transactions-blotter-cancel-open` | A blotter ticket (draft, proposed or approved) |
+| `transactions-history-detail-open` | A booked or cancelled ticket in the History |
+| `transactions-history-reverse-open` | A booked, reversible ticket in the History |
+| `watch-desk-briefing-watch-list-open` | An SAA family group in the watch list — a tenant with an active limit set |
+| `watch-desk-watchpoint-add` | A watched price or FX group in the Briefing watch list — only those menus carry *+ Add watchpoint* |
+| `watch-desk-watchpoint-edit`, `watch-desk-watchpoint-history` | At least one live (not retired) watch point |
+| `watch-desk-advanced-tuning` | A tenant-owner session; a member sees the owner-only note in place of the editor |
+| `shirley-voice-panel` | Voice speech-to-text switched on for the tenant (ADR-0136 §4); a missing toggle is that switch, not a defect |
+| `investments-detail`, `-edit`, `-charts` | At least one investment |
+| `planning-desk-hypothetical-add` | At least one investment — without one the disclosure holds no form |
+| `cases-archive-search` | Nothing to pass; it shows hits only once a case titled "Atlas …" has been closed, and the no-match state otherwise |
+| `back-office-saa-asset-classes` | At least one SAA configuration — the empty state has no picker and no manage button |
+| `back-office-limits-set-detail` | At least one limit set in the Limit-Set History |
+
+The `note` in the scenes file is the authority; this table is its
+digest and is kept beside it.
+
+### Not scened, and why
+
+- **The Shirley call panel.** Clicking `[data-pf-call-start]` opens a
+  vendor session (ADR-0137) that costs money and needs a key. The call
+  *button* is already in the `shirley-docked` frame whenever the tenant
+  has calls switched on.
+- **The chat pin dialogs** (`chat_pin_dialog`, `chat_pin_chart_dialog`).
+  They need a completed Shirley turn — one LLM call per run.
+- **The data-import preview.** It needs a file upload.
+- **Order and commitment outcomes, booking confirmations.** Reaching them
+  is a write.
+- **The super-admin create forms.** They are inline on pages the route
+  pass already captures when the admin session is configured.
+- **The Planning Desk shock builders.** They are rendered inside the
+  Scenario Analysis body the route pass already shoots, with nothing
+  behind a click. The hypothetical-transaction form *is* behind one — a
+  collapsed `<details>` — and has its scene,
+  `planning-desk-hypothetical-add`.
 
 ## Reading a run
 

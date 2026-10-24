@@ -1,5 +1,5 @@
 area,template,block,source_kind,element_kind,visible_text,target,hx_target,source_file,source_line,flags
-_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,312,
+_shell,,main,python,python_title,PortfoliFLOW (web),,,web/main.py,344,
 _shell,,shell,python,python_label,Front Office,,,web/shell.py,70,
 _shell,,shell,python,python_label,Back Office,,,web/shell.py,71,
 _shell,,shell,python,python_label,Assistants,,,web/shell.py,72,
@@ -36,6 +36,13 @@ _shell,,shell,python,python_title,Portfolio Review,,,web/shell.py,216,
 _shell,,shell,python,python_title,Shirley,,,web/shell.py,218,internal-name
 _shell,,shell,python,python_title,Report Scraper,,,web/shell.py,219,
 _shell,,shell,python,python_title,Providers & Credentials,,,web/shell.py,222,
+_shell,_partials/call_panel.html,,template,button,"{{ pf_icon(""voice"") }}",,,web/templates/_partials/call_panel.html,17,dynamic
+_shell,_partials/call_panel.html,,template,tooltip,Mute,,,web/templates/_partials/call_panel.html,17,from:title
+_shell,_partials/call_panel.html,,template,tooltip,Mute,,,web/templates/_partials/call_panel.html,17,from:aria-label
+_shell,_partials/call_panel.html,,template,button,"{{ pf_icon(""call-end"") }}",,,web/templates/_partials/call_panel.html,19,dynamic
+_shell,_partials/call_panel.html,,template,tooltip,End call,,,web/templates/_partials/call_panel.html,19,from:title
+_shell,_partials/call_panel.html,,template,tooltip,End call,,,web/templates/_partials/call_panel.html,19,from:aria-label
+_shell,_partials/call_panel.html,,template,pill,"{{ pf_icon(""call"") }}Call",,,web/templates/_partials/call_panel.html,24,dynamic
 _shell,_partials/chat_brief_banner.html,,template,link,the briefing of {{ brief_banner.stamp }},{{ brief_banner.href }},,web/templates/_partials/chat_brief_banner.html,15,dynamic
 _shell,_partials/chat_brief_banner.html,,template,button,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,16,duplicate-label|synonym-candidate
 _shell,_partials/chat_brief_banner.html,,template,htmx,Dismiss,/chat/brief/dismiss,#chat-brief-banner,web/templates/_partials/chat_brief_banner.html,16,duplicate-label|synonym-candidate|verb:POST
@@ -48,65 +55,70 @@ _shell,_partials/chat_empty.html,,template,empty_state,Start a conversation by t
 _shell,_partials/command_palette.html,,template,tooltip,Command palette,,,web/templates/_partials/command_palette.html,10,from:aria-label|icon-only
 _shell,_partials/command_palette.html,,template,placeholder,"Jump to area, section or action…",,,web/templates/_partials/command_palette.html,12,
 _shell,_partials/command_palette.html,,template,tooltip,Search results,,,web/templates/_partials/command_palette.html,17,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,tooltip,Conversation with Shirley,,,web/templates/_partials/shirley_dock.html,40,from:aria-label|internal-name
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,47,dynamic
-_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,47,dynamic|verb:POST
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""stage"") }}",,,web/templates/_partials/shirley_dock.html,53,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,53,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,53,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""close"") }}",,,web/templates/_partials/shirley_dock.html,58,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Close Ctrl J,,,web/templates/_partials/shirley_dock.html,58,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Close Shirley,,,web/templates/_partials/shirley_dock.html,58,from:aria-label|internal-name
-_shell,_partials/shirley_dock.html,,template,htmx,,/chat/brief/banner,,web/templates/_partials/shirley_dock.html,73,icon-only|no-accessible-name|verb:GET
-_shell,_partials/shirley_dock.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_dock.html,86,icon-only|verb:GET
-_shell,_partials/shirley_dock.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_dock.html,86,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""attach"") }} {{ pf_icon(""voice"") }} Send ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it",/chat/messages,#chat-history,web/templates/_partials/shirley_dock.html,111,dynamic|verb:POST
-_shell,_partials/shirley_dock.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_dock.html,123,internal-name
-_shell,_partials/shirley_dock.html,,template,tooltip,Message,,,web/templates/_partials/shirley_dock.html,123,from:aria-label|icon-only
-_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,132,from:aria-label|hidden|icon-only
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""attach"") }}",,,web/templates/_partials/shirley_dock.html,136,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,136,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,136,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""voice"") }}",,,web/templates/_partials/shirley_dock.html,144,dynamic
-_shell,_partials/shirley_dock.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_dock.html,144,from:title
-_shell,_partials/shirley_dock.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_dock.html,144,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,Send,,,web/templates/_partials/shirley_dock.html,150,
-_shell,_partials/shirley_dock.html,,template,button,● Record,,,web/templates/_partials/shirley_dock.html,162,
-_shell,_partials/shirley_dock.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_dock.html,162,from:aria-label
-_shell,_partials/shirley_dock.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_dock.html,164,hidden
-_shell,_partials/shirley_dock.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_dock.html,164,from:aria-label|hidden
-_shell,_partials/shirley_dock.html,,template,button,Cancel,,,web/templates/_partials/shirley_dock.html,166,duplicate-label|hidden
-_shell,_partials/shirley_dock.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_dock.html,166,from:aria-label|hidden
-_shell,_partials/shirley_dock.html,,template,pill,,,,web/templates/_partials/shirley_dock.html,168,
-_shell,_partials/sidebar.html,,template,tooltip,Areas,,,web/templates/_partials/sidebar.html,35,from:aria-label
-_shell,_partials/sidebar.html,,template,tooltip,Area navigation,,,web/templates/_partials/sidebar.html,42,from:aria-label
-_shell,_partials/sidebar.html,,template,htmx,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,44,dynamic|verb:GET
-_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,44,dynamic
-_shell,_partials/sidebar.html,,template,tooltip,{{ label }} sections,,,web/templates/_partials/sidebar.html,56,dynamic|from:aria-label
-_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(""platform-admin"") }} Platform Admin",/super-admin/tenants,,web/templates/_partials/sidebar.html,68,dynamic
-_shell,_partials/sidebar.html,,template,tooltip,{{ user_email }},,,web/templates/_partials/sidebar.html,78,dynamic|from:title
-_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""nav-collapse"") }}Collapse {{ pf_icon(""nav-expand"") }}",/shell/sidebar/toggle,,web/templates/_partials/sidebar.html,90,dynamic
-_shell,_partials/sidebar.html,,template,tooltip,Expand sidebar Collapse sidebar,,,web/templates/_partials/sidebar.html,90,from:aria-label
-_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""sign-out"") }}Sign out {{ pf_icon(""sign-out"", ""Sign out"") }}",/logout,,web/templates/_partials/sidebar.html,108,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation with Shirley,,,web/templates/_partials/shirley_dock.html,48,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,55,dynamic
+_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""new"") }}New chat",/chat/new,#chat-history,web/templates/_partials/shirley_dock.html,55,dynamic|verb:POST
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""stage"") }}",,,web/templates/_partials/shirley_dock.html,61,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,61,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Open on stage,,,web/templates/_partials/shirley_dock.html,61,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""close"") }}",,,web/templates/_partials/shirley_dock.html,66,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Ctrl J,,,web/templates/_partials/shirley_dock.html,66,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Close Shirley,,,web/templates/_partials/shirley_dock.html,66,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,htmx,,/chat/brief/banner,,web/templates/_partials/shirley_dock.html,81,icon-only|no-accessible-name|verb:GET
+_shell,_partials/shirley_dock.html,,template,htmx,,/chat/history,,web/templates/_partials/shirley_dock.html,94,icon-only|verb:GET
+_shell,_partials/shirley_dock.html,,template,tooltip,Conversation history,/chat/history,,web/templates/_partials/shirley_dock.html,94,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,htmx,"{{ pf_icon(""attach"") }} {{ pf_icon(""voice"") }} {{ pf_icon(""call"") }} Send ● Record ■ I'm done Cancel Enter to send · Shift+Enter for newline · attach a photo to ask about it",/chat/messages,#chat-history,web/templates/_partials/shirley_dock.html,119,dynamic|verb:POST
+_shell,_partials/shirley_dock.html,,template,placeholder,Ask Shirley about your portfolio…,message,,web/templates/_partials/shirley_dock.html,131,internal-name
+_shell,_partials/shirley_dock.html,,template,tooltip,Message,,,web/templates/_partials/shirley_dock.html,131,from:aria-label|icon-only
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,140,from:aria-label|hidden|icon-only
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""attach"") }}",,,web/templates/_partials/shirley_dock.html,144,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,144,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Attach image,,,web/templates/_partials/shirley_dock.html,144,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""voice"") }}",,,web/templates/_partials/shirley_dock.html,152,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Voice mode,,,web/templates/_partials/shirley_dock.html,152,from:title
+_shell,_partials/shirley_dock.html,,template,tooltip,Toggle voice mode,,,web/templates/_partials/shirley_dock.html,152,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,"{{ pf_icon(""call"") }}",,,web/templates/_partials/shirley_dock.html,162,dynamic
+_shell,_partials/shirley_dock.html,,template,tooltip,Call Shirley,,,web/templates/_partials/shirley_dock.html,162,from:title|internal-name
+_shell,_partials/shirley_dock.html,,template,tooltip,Call Shirley,,,web/templates/_partials/shirley_dock.html,162,from:aria-label|internal-name
+_shell,_partials/shirley_dock.html,,template,button,Send,,,web/templates/_partials/shirley_dock.html,168,
+_shell,_partials/shirley_dock.html,,template,button,● Record,,,web/templates/_partials/shirley_dock.html,180,
+_shell,_partials/shirley_dock.html,,template,tooltip,Start recording,,,web/templates/_partials/shirley_dock.html,180,from:aria-label
+_shell,_partials/shirley_dock.html,,template,button,■ I'm done,,,web/templates/_partials/shirley_dock.html,182,hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Stop and send,,,web/templates/_partials/shirley_dock.html,182,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,button,Cancel,,,web/templates/_partials/shirley_dock.html,184,duplicate-label|hidden
+_shell,_partials/shirley_dock.html,,template,tooltip,Cancel recording,,,web/templates/_partials/shirley_dock.html,184,from:aria-label|hidden
+_shell,_partials/shirley_dock.html,,template,pill,,,,web/templates/_partials/shirley_dock.html,186,
+_shell,_partials/sidebar.html,,template,tooltip,Areas,,,web/templates/_partials/sidebar.html,41,from:aria-label
+_shell,_partials/sidebar.html,,template,tooltip,Area navigation,,,web/templates/_partials/sidebar.html,48,from:aria-label
+_shell,_partials/sidebar.html,,template,htmx,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,50,dynamic|verb:GET
+_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(slug.replace(""_"", ""-"")) }} {{ label }}",{{ url }},#shell-main,web/templates/_partials/sidebar.html,50,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,{{ label }} sections,,,web/templates/_partials/sidebar.html,62,dynamic|from:aria-label
+_shell,_partials/sidebar.html,,template,link,"{{ pf_icon(""platform-admin"") }} Platform Admin",/super-admin/tenants,,web/templates/_partials/sidebar.html,74,dynamic
+_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""nav-collapse"") }}Collapse {{ pf_icon(""nav-expand"") }}",/shell/sidebar/toggle,,web/templates/_partials/sidebar.html,91,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,Expand sidebar Collapse sidebar,,,web/templates/_partials/sidebar.html,91,from:aria-label
+_shell,_partials/sidebar.html,,template,button,"{{ pf_icon(""sign-out"") }}Sign out {{ pf_icon(""sign-out"", ""Sign out"") }}",/logout,,web/templates/_partials/sidebar.html,109,dynamic
+_shell,_partials/sidebar.html,,template,tooltip,Signed in as {{ user_email }},,,web/templates/_partials/sidebar.html,109,dynamic|from:title
 _shell,_partials/statusbar.html,,template,link,Source code,https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,33,synonym-candidate
 _shell,_partials/statusbar.html,,template,tooltip,Corresponding source (AGPL §13),https://github.com/ProcessReengineer/PortfoliFLOW /tree/{{ build_sha }},,web/templates/_partials/statusbar.html,33,abbrev|from:title|synonym-candidate
 _shell,_partials/statusbar.html,,template,tooltip,Build,,,web/templates/_partials/statusbar.html,41,from:title
 _shell,_partials/statusbar.html,,template,tooltip,Configuration loaded Configuration error,,,web/templates/_partials/statusbar.html,44,from:title
-_shell,base.html,shirley,template,heading,Shirley,,,web/templates/base.html,113,internal-name
-_shell,base.html,shirley,template,button,"{{ pf_icon(""dock"") }}Back to dock",,,web/templates/base.html,114,dynamic
-_shell,base.html,shirley,template,empty_state,Nothing on the stage yet. Figures Shirley renders will open here at full size.,,,web/templates/base.html,117,internal-name
-_shell,base.html,shirley,template,tooltip,Shirley,,,web/templates/base.html,130,from:aria-label|internal-name
-_shell,base.html,shirley,template,button,"{{ pf_icon(""shirley"") }}",,,web/templates/base.html,132,dynamic
-_shell,base.html,shirley,template,tooltip,Open Shirley Ctrl J,,,web/templates/base.html,132,from:title|internal-name
-_shell,base.html,shirley,template,tooltip,Open Shirley,,,web/templates/base.html,132,from:aria-label|internal-name
-_shell,base.html,shirley,template,htmx,,/chat/dock,,web/templates/base.html,138,icon-only|no-accessible-name|verb:GET
+_shell,base.html,shirley,template,heading,Shirley,,,web/templates/base.html,116,internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""dock"") }}Back to dock",,,web/templates/base.html,117,dynamic
+_shell,base.html,shirley,template,empty_state,Nothing on the stage yet. Figures Shirley renders will open here at full size.,,,web/templates/base.html,120,internal-name
+_shell,base.html,shirley,template,tooltip,Shirley,,,web/templates/base.html,133,from:aria-label|internal-name
+_shell,base.html,shirley,template,button,"{{ pf_icon(""shirley"") }}",,,web/templates/base.html,135,dynamic
+_shell,base.html,shirley,template,tooltip,Open Shirley Ctrl J,,,web/templates/base.html,135,from:title|internal-name
+_shell,base.html,shirley,template,tooltip,Open Shirley,,,web/templates/base.html,135,from:aria-label|internal-name
+_shell,base.html,shirley,template,htmx,,/chat/dock,,web/templates/base.html,141,icon-only|no-accessible-name|verb:GET
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,444,abbrev
 admin,,overview,python,python_title,Invested Capital & NAV,,,web/routes/overview.py,447,abbrev
 admin,,overview,python,python_title,Cashflows,,,web/routes/overview.py,454,
 admin,,overview,python,python_title,Cashflows,,,web/routes/overview.py,456,
 admin,,overview,python,python_title,NAV by fund,,,web/routes/overview.py,462,abbrev
 admin,,overview,python,python_title,Currency exposure,,,web/routes/overview.py,485,
-admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,1002,identifier-leak-loose|internal-name
+admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,1338,identifier-leak-loose|internal-name
+admin,,provider_credentials,python,python_message,tenant-wide provider settings are owner-managed.,,,web/routes/provider_credentials.py,1407,identifier-leak-loose|internal-name
+admin,,provider_credentials,python,python_message,store the API key on this card first — the list is fetched with it.,,,web/routes/provider_credentials.py,1416,abbrev
 admin,_partials/areas/_admin_body.html,,template,area_header,"Admin Internal management — data import, market data, investments, user administration and audit surfaces.",,,web/templates/_partials/areas/_admin_body.html,3,
 admin,_partials/areas/_admin_body.html,Admin,template,heading,Admin,,,web/templates/_partials/areas/_admin_body.html,4,
 admin,_partials/areas/_admin_body.html,Admin,template,button,Change investment settings,/investments,,web/templates/_partials/areas/_admin_body.html,59,inline-html|synonym-candidate
@@ -163,33 +175,38 @@ admin,_partials/overview_section.html,Foreign-currency cash,template,heading,For
 admin,_partials/overview_section.html,Foreign-currency cash,template,tooltip,Portfolio overview charts,,,web/templates/_partials/overview_section.html,185,from:aria-label
 admin,_partials/overview_section.html,{{ chart.title }},template,heading,{{ chart.title }},,,web/templates/_partials/overview_section.html,190,dynamic
 admin,_partials/overview_section.html,{{ chart.title }},template,empty_state,No data available.,,,web/templates/_partials/overview_section.html,200,
-admin,_partials/provider_credentials_section.html,,template,htmx,{{ label }},{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,50,dynamic|verb:POST
-admin,_partials/provider_credentials_section.html,,template,button,{{ label }},,,web/templates/_partials/provider_credentials_section.html,58,dynamic
-admin,_partials/provider_credentials_section.html,,template,htmx,{{ field.label }} Save,{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,77,dynamic|verb:POST
-admin,_partials/provider_credentials_section.html,,template,form_label,{{ field.label }},{{ prefix }}-{{ field.provider }}-{{ field.key }},,web/templates/_partials/provider_credentials_section.html,86,dynamic
-admin,_partials/provider_credentials_section.html,,template,placeholder,•••••••• Not set,value,,web/templates/_partials/provider_credentials_section.html,90,
-admin,_partials/provider_credentials_section.html,,template,button,Save,,,web/templates/_partials/provider_credentials_section.html,110,
-admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,118,
-admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,125,
-admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,128,
-admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,130,
-admin,_partials/provider_credentials_section.html,,template,pill,disabled,,,web/templates/_partials/provider_credentials_section.html,134,
-admin,_partials/provider_credentials_section.html,,template,button,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,166,duplicate-label
-admin,_partials/provider_credentials_section.html,,template,htmx,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,166,duplicate-label|verb:GET
-admin,_partials/provider_credentials_section.html,Tenant credentials,template,heading,Tenant credentials,,,web/templates/_partials/provider_credentials_section.html,200,internal-name
-admin,_partials/provider_credentials_section.html,Tenant credentials,template,tile,"{{ card.label }} {{ card.consumer_status }} {{ card.description }} {{ field_row(tenant_endpoint, csrf_token, field, vault_configured, 'tenant') }}",,,web/templates/_partials/provider_credentials_section.html,205,dynamic
-admin,_partials/provider_credentials_section.html,{{ card.label }},template,heading,{{ card.label }},,,web/templates/_partials/provider_credentials_section.html,207,dynamic
-admin,_partials/provider_credentials_section.html,{{ card.label }},template,pill,{{ card.consumer_status }},,,web/templates/_partials/provider_credentials_section.html,208,dynamic
-admin,_partials/provider_credentials_section.html,My settings,template,heading,My settings,,,web/templates/_partials/provider_credentials_section.html,228,
-admin,_partials/provider_credentials_section.html,My settings,template,tile,"{{ field.provider_label }} {{ field.provider_description }} {{ field_row(user_endpoint, csrf_token, field, vault_configured, 'user') }}",,,web/templates/_partials/provider_credentials_section.html,233,dynamic
-admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,heading,{{ field.provider_label }},,,web/templates/_partials/provider_credentials_section.html,235,dynamic
-admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,tile,"Telegram paired not paired The Telegram bot is switched off for this deployment (TELEGRAM_BOT_ENABLED). Pairing is not possible until the operator enables it. The Telegram bot is enabled but not running. Check the web process start-up log. No bot is running for this tenant. An owner stores a bot token under Tenant credentials; token changes apply after a restart. The bot for this tenant is running. Send /pair {{ telegram_pairing.code }} to the bot from the Telegram chat you want to use. The code is valid for {{ telegram_pairing.ttl_minutes }} minutes and works once — it is shown here only now. Chat {{ telegram_pairing.chat_id }} is linked to your account. Shirley answers there with your own settings. Link a Telegram chat to your account to use Shirley there. Generate a code, then send it to the bot from that chat. Generate new pairing code Generate pairing code Revoke pairing",,,web/templates/_partials/provider_credentials_section.html,244,dynamic
-admin,_partials/provider_credentials_section.html,Telegram,template,heading,Telegram,,,web/templates/_partials/provider_credentials_section.html,246,
-admin,_partials/provider_credentials_section.html,Telegram,template,pill,paired not paired,,,web/templates/_partials/provider_credentials_section.html,247,
-admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Generate new pairing code Generate pairing code,{{ telegram_pairing.pair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,300,verb:POST
-admin,_partials/provider_credentials_section.html,Telegram,template,button,Generate new pairing code Generate pairing code,,,web/templates/_partials/provider_credentials_section.html,305,
-admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Revoke pairing,{{ telegram_pairing.unpair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,310,verb:POST
-admin,_partials/provider_credentials_section.html,Telegram,template,button,Revoke pairing,,,web/templates/_partials/provider_credentials_section.html,315,
+admin,_partials/provider_credentials_section.html,,template,htmx,{{ label }},{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,54,dynamic|verb:POST
+admin,_partials/provider_credentials_section.html,,template,button,{{ label }},,,web/templates/_partials/provider_credentials_section.html,62,dynamic
+admin,_partials/provider_credentials_section.html,,template,htmx,{{ field.label }} {{ 'on' if field.switch_on else 'off' }} {{ field.label }} Not set {{ choice }} Save,{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,87,dynamic|verb:POST
+admin,_partials/provider_credentials_section.html,,template,form_label,,,,web/templates/_partials/provider_credentials_section.html,104,
+admin,_partials/provider_credentials_section.html,,template,htmx,,{{ endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,104,verb:POST
+admin,_partials/provider_credentials_section.html,,template,form_label,{{ field.label }} Not set {{ choice }},{{ prefix }}-{{ field.provider }}-{{ field.key }},,web/templates/_partials/provider_credentials_section.html,117,dynamic
+admin,_partials/provider_credentials_section.html,,template,placeholder,•••••••• Not set,value,,web/templates/_partials/provider_credentials_section.html,121,
+admin,_partials/provider_credentials_section.html,,template,select,Not set {{ choice }},value,,web/templates/_partials/provider_credentials_section.html,130,dynamic|options:2
+admin,_partials/provider_credentials_section.html,,template,button,Save,,,web/templates/_partials/provider_credentials_section.html,149,
+admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,158,
+admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,165,
+admin,_partials/provider_credentials_section.html,,template,pill,set,,,web/templates/_partials/provider_credentials_section.html,168,
+admin,_partials/provider_credentials_section.html,,template,pill,not set,,,web/templates/_partials/provider_credentials_section.html,170,
+admin,_partials/provider_credentials_section.html,,template,pill,disabled,,,web/templates/_partials/provider_credentials_section.html,174,
+admin,_partials/provider_credentials_section.html,,template,button,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,206,duplicate-label
+admin,_partials/provider_credentials_section.html,,template,htmx,Load models,{{ models_url }},#{{ models_base }}-slot,web/templates/_partials/provider_credentials_section.html,206,duplicate-label|verb:GET
+admin,_partials/provider_credentials_section.html,,template,button,{{ 'Load models' if field.key == 'model' else 'Load voices' }},{{ catalog_url }},#{{ catalog_base }}-slot,web/templates/_partials/provider_credentials_section.html,215,dynamic
+admin,_partials/provider_credentials_section.html,,template,htmx,{{ 'Load models' if field.key == 'model' else 'Load voices' }},{{ catalog_url }},#{{ catalog_base }}-slot,web/templates/_partials/provider_credentials_section.html,215,dynamic|verb:GET
+admin,_partials/provider_credentials_section.html,Tenant credentials,template,heading,Tenant credentials,,,web/templates/_partials/provider_credentials_section.html,249,internal-name
+admin,_partials/provider_credentials_section.html,Tenant credentials,template,tile,"{{ card.label }} {{ card.consumer_status }} {{ card.description }} {{ card.state_line }} {{ field_row(tenant_endpoint, csrf_token, field, vault_configured, 'tenant') }}",,,web/templates/_partials/provider_credentials_section.html,254,dynamic
+admin,_partials/provider_credentials_section.html,{{ card.label }},template,heading,{{ card.label }},,,web/templates/_partials/provider_credentials_section.html,256,dynamic
+admin,_partials/provider_credentials_section.html,{{ card.label }},template,pill,{{ card.consumer_status }},,,web/templates/_partials/provider_credentials_section.html,257,dynamic
+admin,_partials/provider_credentials_section.html,My settings,template,heading,My settings,,,web/templates/_partials/provider_credentials_section.html,278,
+admin,_partials/provider_credentials_section.html,My settings,template,tile,"{{ field.provider_label }} {{ field.provider_description }} {{ field_row(user_endpoint, csrf_token, field, vault_configured, 'user') }}",,,web/templates/_partials/provider_credentials_section.html,283,dynamic
+admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,heading,{{ field.provider_label }},,,web/templates/_partials/provider_credentials_section.html,285,dynamic
+admin,_partials/provider_credentials_section.html,{{ field.provider_label }},template,tile,"Telegram paired not paired The Telegram bot is switched off for this deployment (TELEGRAM_BOT_ENABLED). Pairing is not possible until the operator enables it. The Telegram bot is enabled but not running. Check the web process start-up log. No bot is running for this tenant. An owner stores a bot token under Tenant credentials; token changes apply after a restart. The bot for this tenant is running. Send /pair {{ telegram_pairing.code }} to the bot from the Telegram chat you want to use. The code is valid for {{ telegram_pairing.ttl_minutes }} minutes and works once — it is shown here only now. Chat {{ telegram_pairing.chat_id }} is linked to your account. Shirley answers there with your own settings. Link a Telegram chat to your account to use Shirley there. Generate a code, then send it to the bot from that chat. Generate new pairing code Generate pairing code Revoke pairing",,,web/templates/_partials/provider_credentials_section.html,294,dynamic
+admin,_partials/provider_credentials_section.html,Telegram,template,heading,Telegram,,,web/templates/_partials/provider_credentials_section.html,296,
+admin,_partials/provider_credentials_section.html,Telegram,template,pill,paired not paired,,,web/templates/_partials/provider_credentials_section.html,297,
+admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Generate new pairing code Generate pairing code,{{ telegram_pairing.pair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,350,verb:POST
+admin,_partials/provider_credentials_section.html,Telegram,template,button,Generate new pairing code Generate pairing code,,,web/templates/_partials/provider_credentials_section.html,355,
+admin,_partials/provider_credentials_section.html,Telegram,template,htmx,Revoke pairing,{{ telegram_pairing.unpair_endpoint }},closest .pf-credentials,web/templates/_partials/provider_credentials_section.html,360,verb:POST
+admin,_partials/provider_credentials_section.html,Telegram,template,button,Revoke pairing,,,web/templates/_partials/provider_credentials_section.html,365,
 admin,_partials/provider_credentials_section_lazy.html,,template,htmx,Loading providers & credentials…,/admin/providers-credentials/section,this,web/templates/_partials/provider_credentials_section_lazy.html,9,verb:GET
 admin,_partials/tenant_users_section.html,,template,htmx,Role {{ label }} Change role You will lose access to this area immediately.,{{ user.role_url }},closest .pf-users,web/templates/_partials/tenant_users_section.html,37,dynamic|verb:POST
 admin,_partials/tenant_users_section.html,,template,form_label,Role {{ label }},role-{{ user.id }},,web/templates/_partials/tenant_users_section.html,42,dynamic
@@ -212,6 +229,8 @@ admin,_partials/tenant_users_section.html,Add a user,template,form_label,Role {{
 admin,_partials/tenant_users_section.html,Add a user,template,select,{{ label }},role,,web/templates/_partials/tenant_users_section.html,199,dynamic|options:1
 admin,_partials/tenant_users_section.html,Add a user,template,button,Create user,,,web/templates/_partials/tenant_users_section.html,206,
 admin,_partials/tenant_users_section_lazy.html,,template,htmx,Loading users…,/admin/users/section,this,web/templates/_partials/tenant_users_section_lazy.html,13,verb:GET
+admin,_partials/voice_call_catalog.html,,template,button,{{ 'Load models' if key == 'model' else 'Load voices' }},{{ reload_url }},#{{ slot_id }},web/templates/_partials/voice_call_catalog.html,50,dynamic
+admin,_partials/voice_call_catalog.html,,template,htmx,{{ 'Load models' if key == 'model' else 'Load voices' }},{{ reload_url }},#{{ slot_id }},web/templates/_partials/voice_call_catalog.html,50,dynamic|verb:GET
 admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,51,dynamic
 admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,52,dynamic
 admin,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,56,dynamic
@@ -1078,8 +1097,9 @@ transactions,_partials/transactions/_wizard_stepper.html,,template,tooltip,Steps
 transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,51,dynamic
 transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,52,dynamic
 transactions,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,56,dynamic
-unassigned,_partials/chat_history.html,,template,button,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label
-unassigned,_partials/chat_history.html,,template,htmx,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,49,duplicate-label|verb:GET
+unassigned,_partials/chat_history.html,,template,pill,"{{ pf_icon(""call"") }}Call",,,web/templates/_partials/chat_history.html,41,dynamic
+unassigned,_partials/chat_history.html,,template,button,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,60,duplicate-label
+unassigned,_partials/chat_history.html,,template,htmx,Pin to case…,{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }},#chat-pin-dialog,web/templates/_partials/chat_history.html,60,duplicate-label|verb:GET
 unassigned,_partials/chat_pin_chart_dialog.html,,template,htmx,"Pin this chart to a case {{ error }} {{ unavailable_message }} Close There are no open cases to pin into. Open a case first, then return here to pin this chart. Cancel Go to Cases Case {{ case.label }} Chart {{ caption or 'Untitled chart' }} Why pin this? {{ comment or '' }} Cancel Pin to case",{{ pin_url }},#chat-pin-dialog,web/templates/_partials/chat_pin_chart_dialog.html,30,dynamic|verb:POST
 unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,heading,Pin this chart to a case,,,web/templates/_partials/chat_pin_chart_dialog.html,37,
 unassigned,_partials/chat_pin_chart_dialog.html,Pin this chart to a case,template,empty_state,{{ unavailable_message }},,,web/templates/_partials/chat_pin_chart_dialog.html,45,dynamic
@@ -1295,6 +1315,7 @@ watch_desk,_partials/watch_desk_watchpoint_list.html,"Watchpoints what this tena
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,heading,"{{ pf_section_title(active_area, section_slug) }}",,,web/templates/areas/_section.html,51,dynamic
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,pill,{{ section_pill }},,,web/templates/areas/_section.html,52,dynamic
 watch_desk,areas/_section.html,"{{ pf_section_title(active_area, section_slug) }}",template,button,"{{ pf_icon(""search"") }}SearchCtrl K",,,web/templates/areas/_section.html,56,dynamic
+_shell,_partials/shirley_dock.html,,js,js_call,Ask Shirley about your portfolio…,/chat/call/end,,web/static/js/call_panel.js,1010,event:pagehide|linked|verb:GET|via:post
 admin,_partials/data_import_preview.html,,js,js_call,,/api/data-uploads/{param}/import-as-investments,,web/static/js/data_import_section.js,35,linked|verb:POST
 admin,_partials/data_import_preview.html,,js,js_call,,/investments,,web/static/js/data_import_section.js,66,linked|navigation|verb:GET
 assistants,_partials/scraper_run_mount.html,,js,js_call,,/scraper/runs/{param}/stream,,web/static/js/scraper.js,153,event:click|linked|sse|url-from-attribute|verb:GET
@@ -1329,6 +1350,14 @@ investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templa
 investments,investments/_form.html,,js,js_call,,/investments/{param},,web/templates/investments/edit.html,79,event:submit|linked|navigation|verb:GET
 investments,investments/list.html,,js,js_call,,/investments/{param},,web/templates/investments/list.html,79,unlinked|verb:DELETE
 investments,investments/list.html,,js,js_call,,/investments/{param}/active,,web/templates/investments/list.html,95,unlinked|verb:PATCH
+unassigned,,,js,js_call,,<dynamic>,,web/static/js/call_panel.js,137,dynamic-url|unlinked|verb:POST
+unassigned,,,js,js_call,,/chat/call/events,,web/static/js/call_panel.js,412,unlinked|verb:GET|via:post
+unassigned,,,js,js_call,,/chat/history,,web/static/js/call_panel.js,486,unlinked|verb:GET
+unassigned,,,js,js_call,,/chat/call/jobs/{param}/cancel,,web/static/js/call_panel.js,536,unlinked|verb:GET|via:post
+unassigned,,,js,js_call,,/chat/call/jobs/{param},,web/static/js/call_panel.js,583,unlinked|verb:GET
+unassigned,,,js,js_call,,/chat/call/ask,,web/static/js/call_panel.js,667,unlinked|verb:GET|via:post
+unassigned,,,js,js_call,,/chat/call/session,,web/static/js/call_panel.js,846,unlinked|verb:GET|via:post
+unassigned,,,js,js_call,,/chat/call/end,,web/static/js/call_panel.js,937,unlinked|verb:GET|via:post
 unassigned,,,js,js_call,,/api/chat/pin-consultation,,web/static/js/chat.js,153,unlinked|verb:GET|via:appendPinButton
 unassigned,,,js,js_call,,/api/chat/pin-chart,,web/static/js/chat.js,167,unlinked|verb:GET|via:appendPinButton
 unassigned,_partials/chat_history.html,,js,js_call,Pin to case…,<dynamic>,,web/static/js/chat.js,182,dynamic-url|linked|verb:GET

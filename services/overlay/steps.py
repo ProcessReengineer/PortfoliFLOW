@@ -41,6 +41,7 @@ from datetime import date
 from decimal import Decimal
 from typing import cast
 
+import numpy as np
 import pandas as pd
 
 
@@ -115,14 +116,18 @@ def add_step(path: pd.Series, effective: date, amount: Decimal) -> pd.Series:
         zero = 0.0
 
     if key not in stepped.index:
-        # Boolean-mask indexing narrows to an Index; pandas carries no stubs,
-        # so pyright infers a scalar branch that cannot occur here.
-        earlier = cast(pd.Index, stepped.index[stepped.index < key])
+        # The comparison is materialised as a plain boolean ndarray before it
+        # indexes the Index: that is what it is at runtime, and it is the one
+        # key type every pandas version's inline annotations accept. pandas
+        # >= 3.1 types `index < key` as an Index, which `Index.__getitem__`
+        # rejects; older pandas leaves the result untyped, so the cast still
+        # narrows away the scalar branch pyright infers there.
+        earlier = cast(pd.Index, stepped.index[np.asarray(stepped.index < key, dtype=bool)])
         carried = stepped.loc[earlier.max()] if len(earlier) else zero
         stepped.loc[key] = carried
         stepped = stepped.sort_index()
 
-    at_or_after = stepped.index >= key
+    at_or_after = np.asarray(stepped.index >= key, dtype=bool)
     stepped.loc[at_or_after] = stepped.loc[at_or_after].map(lambda level: level + delta)
     return stepped
 
@@ -168,7 +173,7 @@ def scale_after(path: pd.Series, after: date, factor: Decimal) -> pd.Series:
 
     multiplier: Decimal | float = factor if _holds_decimal(scaled) else float(factor)
 
-    strictly_after = scaled.index > key
+    strictly_after = np.asarray(scaled.index > key, dtype=bool)
     scaled.loc[strictly_after] = scaled.loc[strictly_after].map(lambda level: level * multiplier)
     return scaled
 

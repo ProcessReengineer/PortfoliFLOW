@@ -1,0 +1,55 @@
+{# The call vendor's models or voices, as a datalist for one Voice call field.
+
+   Rendered by web/routes/provider_credentials.py into the
+   ``…-catalog-slot`` container under the Model or Voice field of the Voice
+   call card, replacing the slot's contents via ``hx-swap="innerHTML"``.
+   The sibling of openrouter_model_datalist.html, and progressive
+   enhancement the same way: both fields stay free text (ADR-0137 §4).
+
+   Deprecated models and voices under live moderation (which the vendor
+   refuses for an agent) are not offered; the status line names them.
+
+   Always rendered at HTTP 200 — the body is an HTMX fragment swap.
+
+   Context:
+     key          — ``model`` or ``voice``; None for a malformed request.
+     datalist_id  — id the field's ``list=`` attribute points at.
+     offered      — the CallModel or CallVoice entries the datalist offers.
+     withheld     — names of the entries not offered.
+     total        — the full count the vendor returned.
+     message      — operator-safe failure text, or None on success.
+     slot_id      — the container this fragment lives in, for the reload
+                    button's hx-target. None suppresses the button.
+     reload_url   — hx-get for the reload button. #}
+
+{% if message %}
+    <span class="pf-credentials__field-hint">
+        Could not load the {{ 'model' if key == 'model' else 'voice' }} list: {{ message }} You can still type {{ 'a model id' if key == 'model' else 'a voice id' }}.
+    </span>
+{% elif key == 'model' %}
+    <datalist id="{{ datalist_id }}">
+        {% for item in offered %}
+            <option value="{{ item.llm }}">{{ item.llm }}</option>
+        {% endfor %}
+    </datalist>
+    <span class="pf-credentials__field-hint">
+        {{ offered | length }} of {{ total }} models offered &mdash; type to filter.{% if withheld %} Deprecated and not offered: {{ withheld | join(', ') }}.{% endif %}
+    </span>
+{% else %}
+    <datalist id="{{ datalist_id }}">
+        {% for item in offered %}
+            <option value="{{ item.voice_id }}">{{ item.name }} · {{ item.category }}</option>
+        {% endfor %}
+    </datalist>
+    <span class="pf-credentials__field-hint">
+        {{ offered | length }} of {{ total }} voices offered &mdash; type to filter.{% if withheld %} Not usable for the call (live moderation): {{ withheld | join(', ') }}.{% endif %}
+    </span>
+{% endif %}
+
+{% if slot_id %}
+    <button type="button"
+            class="btn btn--ghost"
+            hx-get="{{ reload_url }}"
+            hx-target="#{{ slot_id }}"
+            hx-swap="innerHTML">{{ 'Load models' if key == 'model' else 'Load voices' }}</button>
+{% endif %}

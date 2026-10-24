@@ -73,6 +73,8 @@ Endpoints:
 * ``GET  /admin/providers-credentials/section`` — the lazy section body.
 * ``GET  /admin/providers-credentials/openrouter/models`` — the live model
   catalog, as a ``<datalist>`` for one model field.
+* ``GET  /admin/providers-credentials/voice-call/catalog`` — the call
+  vendor's models or voices, as a ``<datalist>`` for the Voice call card.
 * ``POST /admin/providers-credentials/tenant`` — owner-gated tenant write.
 * ``POST /admin/providers-credentials/user`` — self-service user write.
 * ``POST /admin/providers-credentials/telegram/pair`` — issue a pairing
@@ -86,7 +88,7 @@ as the GET, so state and banners come from one render path. A rejected
 write answers 400 with that same body, the house idiom for an HTMX form
 rejection (see ``web/routes/data_import.py``).
 
-The model-catalog endpoint is the one read that leaves the machine. It is
+The two catalog endpoints are the reads that leave the machine. Each is
 a **fragment** endpoint rather than a form one, so it answers 200 in every
 outcome — including refusal and fetch failure — and puts the reason in the
 body (the idiom ``web/routes/statistics.py`` uses for its FX errors): an
@@ -132,7 +134,15 @@ from services.market_data.provider import UnsupportedCapabilityError
 from services.openrouter_catalog import CatalogFetchError, CatalogModel, fetch_models
 from services.telegram_pairing import IssuedCode
 from services.voice import ADAPTER_DECLARATIONS, describe_voice_state
-from services.voice_call import DEFAULT_BASE_URL, DEFAULT_CONVERSATION_MODEL, DEFAULT_LANGUAGE
+from services.voice_call import (
+    DEFAULT_BASE_URL,
+    DEFAULT_CONVERSATION_MODEL,
+    DEFAULT_LANGUAGE,
+    CallCatalog,
+    CallProvider,
+    CallProviderError,
+    ElevenLabsCallProvider,
+)
 from web.auth import require_session, verify_csrf
 from web.errors import user_safe_error
 from web.permissions import get_authenticated_user, require_role
@@ -142,12 +152,14 @@ router = APIRouter()
 
 _SECTION_TEMPLATE = "_partials/provider_credentials_section.html"
 _MODEL_DATALIST_TEMPLATE = "_partials/openrouter_model_datalist.html"
+_CALL_CATALOG_TEMPLATE = "_partials/voice_call_catalog.html"
 
 _TENANT_ENDPOINT = "/admin/providers-credentials/tenant"
 _USER_ENDPOINT = "/admin/providers-credentials/user"
 _PAIR_ENDPOINT = "/admin/providers-credentials/telegram/pair"
 _UNPAIR_ENDPOINT = "/admin/providers-credentials/telegram/unpair"
 _MODELS_ENDPOINT = "/admin/providers-credentials/openrouter/models"
+_CALL_CATALOG_ENDPOINT = "/admin/providers-credentials/voice-call/catalog"
 
 #: The OpenRouter fields the model catalog serves. All four are declared,
 #: plain config fields; the taxonomy gate below still decides whether the
@@ -156,6 +168,10 @@ _MODELS_ENDPOINT = "/admin/providers-credentials/openrouter/models"
 _MODEL_FIELD_KEYS: frozenset[str] = frozenset(
     {"model", "scraper_model", "research_model", "irene_model"}
 )
+
+#: The Voice call fields the call catalog serves — both stay free text
+#: (ADR-0137 §4, D-VC-A-4); the list is an offer.
+_CALL_CATALOG_KEYS: frozenset[str] = frozenset({"model", "voice"})
 
 #: Actions each panel accepts. The user panel deliberately carries no
 #: enable/disable: a user's own row is either set or absent, and a third
@@ -914,7 +930,7 @@ async def _render_section(
 
 
 # ---------------------------------------------------------------------------
-# Model catalog (the one outbound read on this surface)
+# Model catalog (an outbound read; the call catalog below is the other)
 # ---------------------------------------------------------------------------
 
 
@@ -1046,6 +1062,113 @@ async def _resolve_catalog_endpoint(
             tenant_id=session.tenant_id,
             user_id=session.user_id if scope == "user" else None,
         )
+
+
+# ---------------------------------------------------------------------------
+# Call catalog (the call vendor's models and voices, through the port)
+# ---------------------------------------------------------------------------
+
+
+def _call_catalog_provider(api_key: str, base_url: str) -> CallProvider:
+    """Build the call provider the catalog fetch goes through.
+
+    The one construction site on this surface, and the seam the route tests
+    patch.
+    """
+    return ElevenLabsCallProvider(api_key=api_key, base_url=base_url)
+
+
+def _render_call_catalog(
+    request: Request,
+    *,
+    key: str | None,
+    catalog: CallCatalog | None = None,
+    message: str | None = None,
+) -> HTMLResponse:
+    """Render the call-catalog fragment for the Model or Voice slot.
+
+    Always HTTP 200, as :func:`_render_model_datalist`. Deprecated models and
+    voices under live moderation are withheld from the ``<datalist>`` and
+    named in the status line instead.
+
+    Args:
+        request: The active request.
+        key: ``model`` or ``voice`` — the field the slot's ids derive from.
+            ``None`` for a request too malformed to name a slot; the fragment
+            then carries the message alone.
+        catalog: The fetched catalog. Unused in the error state.
+        message: Operator-safe failure text, or ``None`` on success.
+
+    Returns:
+        The rendered fragment.
+    """
+    context: dict[str, Any] = {
+        "key": key,
+        "datalist_id": None,
+        "slot_id": None,
+        "reload_url": None,
+        "message": message,
+        "offered": [],
+        "withheld": [],
+        "total": 0,
+    }
+    if key is not None:
+        base = f"tenant-voice_call-{key}"
+        context["datalist_id"] = f"{base}-catalog"
+        context["slot_id"] = f"{base}-catalog-slot"
+        context["reload_url"] = f"{_CALL_CATALOG_ENDPOINT}?key={key}"
+    if catalog is not None and key == "model":
+        context["offered"] = [model for model in catalog.models if not model.deprecated]
+        context["withheld"] = [model.llm for model in catalog.models if model.deprecated]
+        context["total"] = len(catalog.models)
+    elif catalog is not None and key == "voice":
+        context["offered"] = [voice for voice in catalog.voices if not voice.live_moderation]
+        context["withheld"] = [voice.name for voice in catalog.voices if voice.live_moderation]
+        context["total"] = len(catalog.voices)
+
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(request, _CALL_CATALOG_TEMPLATE, context),
+    )
+
+
+async def _resolve_call_catalog_endpoint(
+    request: Request,
+    *,
+    session: SessionDTO,
+) -> tuple[str, str | None]:
+    """Resolve ``(base_url, api_key)`` for the call catalog, at tenant scope.
+
+    The Voice call declaration has no environment link and no user scope
+    (ADR-0137 §4), so the chain is the tenant's rows alone. With no database
+    engine the resolver is built without a session, as
+    :func:`_resolve_catalog_endpoint` does.
+
+    Args:
+        request: The active request.
+        session: The authenticated session, supplying the tenant.
+
+    Returns:
+        The vendor host (the default when none is stored) and the stored key,
+        or ``None`` when the card holds no key.
+    """
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        return await _call_catalog_endpoint_through(CredentialResolver(), tenant_id=None)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        return await _call_catalog_endpoint_through(
+            CredentialResolver(session=db_session), tenant_id=session.tenant_id
+        )
+
+
+async def _call_catalog_endpoint_through(
+    resolver: CredentialResolver, *, tenant_id: UUID | None
+) -> tuple[str, str | None]:
+    """Resolve the call catalog's ``(base_url, api_key)`` through ``resolver``."""
+    credential = await resolver.resolve("voice_call", tenant_id=tenant_id)
+    api_key = credential.payload["api_key"] if isinstance(credential, ProviderCredential) else None
+    stored = await resolver.resolve_config("voice_call", "base_url", scopes=("tenant",))
+    return (stored or "").strip() or DEFAULT_BASE_URL, api_key
 
 
 async def _handle_write(
@@ -1236,6 +1359,73 @@ async def get_openrouter_models(
         return _render_model_datalist(request, target=(scope, key), message=user_msg)
 
     return _render_model_datalist(request, target=(scope, key), models=models)
+
+
+@router.get(_CALL_CATALOG_ENDPOINT, response_class=HTMLResponse)
+async def get_voice_call_catalog(
+    request: Request,
+    key: str = Query("model"),
+    session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
+) -> HTMLResponse:
+    """Fetch the call vendor's models or the account's voices for one field.
+
+    Loaded on demand — a click is a fetch, uncached — and rendered as a
+    ``<datalist>`` behind the Model or Voice input of the Voice call card;
+    the input stays free text (ADR-0137 §4). The fetch goes through the call
+    port with the card's own key, resolved server-side; it never reaches the
+    browser. Without a stored key no vendor call is made.
+
+    The gates mirror :func:`get_openrouter_models`: the field must be one the
+    catalog serves and the taxonomy declares at tenant scope, and the caller
+    must be an owner. A refusal or a failure renders as the fragment's
+    message state.
+
+    Args:
+        request: The active request.
+        key: ``model`` or ``voice`` — which field's slot this fragment is
+            bound for.
+        session: The authenticated session.
+        user: The authenticated user; ``has_role("owner")`` gates the fetch.
+
+    Returns:
+        The catalog fragment. Always HTTP 200.
+    """
+    key = key.strip()
+    unoffered = "the request named a field this list is not offered for."
+
+    if key not in _CALL_CATALOG_KEYS:
+        return _render_call_catalog(request, key=None, message=unoffered)
+
+    try:
+        _validated_field("voice_call", key, scope="tenant")
+    except _WriteRejected:
+        return _render_call_catalog(request, key=None, message=unoffered)
+
+    if not user.has_role("owner"):
+        return _render_call_catalog(
+            request, key=key, message="tenant-wide provider settings are owner-managed."
+        )
+
+    try:
+        base_url, api_key = await _resolve_call_catalog_endpoint(request, session=session)
+        if api_key is None:
+            return _render_call_catalog(
+                request,
+                key=key,
+                message="store the API key on this card first — the list is fetched with it.",
+            )
+        catalog = await _call_catalog_provider(api_key, base_url).catalog()
+    except CallProviderError as exc:
+        # The provider scrubs its key from every message it raises.
+        logger.warning("voice-call catalog: fetch failed tenant=%s: %s", session.tenant_id, exc)
+        return _render_call_catalog(request, key=key, message=str(exc))
+    except Exception as exc:  # noqa: BLE001 — surface inline, masked.
+        user_msg, _error_id = user_safe_error(exc)
+        logger.warning("voice-call catalog: resolution failed tenant=%s", session.tenant_id)
+        return _render_call_catalog(request, key=key, message=user_msg)
+
+    return _render_call_catalog(request, key=key, catalog=catalog)
 
 
 @router.post(_TENANT_ENDPOINT, response_class=HTMLResponse)

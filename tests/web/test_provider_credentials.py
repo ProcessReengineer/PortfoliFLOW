@@ -49,10 +49,16 @@ Eleven groups:
   leaves the machine, the resolved key reaches the fetch but never the
   response body, a keyless tenant still gets a list, and the section wires
   the ``list=`` attribute onto the three model inputs and nothing else.
+* **Call catalog** (ADR-0137 §2, §4) — the Voice call card's Load models /
+  Load voices: live models and agent-usable voices are offered, deprecated
+  models and moderated voices named, a keyless card calls no vendor, a
+  refusal renders inline at HTTP 200, and non-owners and unoffered fields
+  are refused before the port is reached.
 """
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 import re
@@ -82,6 +88,13 @@ from services.credential_vault import MASTER_KEY_ENV_VAR, VaultCipher
 from services.openrouter_catalog import CatalogFetchError, CatalogModel
 from services.password_hashing import hash_password
 from services.voice import ADAPTER_DECLARATIONS
+from services.voice_call import (
+    DEFAULT_BASE_URL,
+    CallCatalog,
+    CallModel,
+    CallProviderError,
+    CallVoice,
+)
 from web.main import create_app
 from web.routes import provider_credentials
 from web.settings import WebSettings
@@ -110,6 +123,7 @@ _USER_URL = "/admin/providers-credentials/user"
 _PAIR_URL = "/admin/providers-credentials/telegram/pair"
 _UNPAIR_URL = "/admin/providers-credentials/telegram/unpair"
 _MODELS_URL = "/admin/providers-credentials/openrouter/models"
+_CALL_CATALOG_URL = "/admin/providers-credentials/voice-call/catalog"
 
 
 @pytest.fixture(autouse=True)
@@ -2151,7 +2165,7 @@ async def test_the_section_offers_the_list_on_the_model_fields_and_nowhere_else(
     client_factory: Any,
     vault_key: str,
 ) -> None:
-    """Five model inputs across the two panels; no other field gets a list."""
+    """Seven list inputs: five OpenRouter model fields, the call's Model and Voice."""
     client = await client_factory("owner")
     response = await client.get(_SECTION_URL, follow_redirects=False)
 
@@ -2167,9 +2181,233 @@ async def test_the_section_offers_the_list_on_the_model_fields_and_nowhere_else(
     ):
         assert expected in body
 
-    # Exactly those five — the OpenFIGI key, the base URL and the bot
-    # token are not model ids and get no autocomplete.
-    assert body.count('list="') == 5
-    assert body.count("Load models") == 5
+    # Exactly those five plus the Voice call card's Model and Voice — the
+    # OpenFIGI key, the base URL and the bot token are not model ids and get
+    # no autocomplete. Six "Load models": five OpenRouter, the call's Model.
+    assert body.count('list="') == 7
+    assert body.count("Load models") == 6
     assert "openrouter/models?scope=tenant&amp;key=model" in body
     assert "openrouter/models?scope=user&amp;key=model" in body
+
+
+# ---------------------------------------------------------------------------
+# Call catalog — the Voice call card's Load models / Load voices
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def call_catalog_stub(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace the route's call-provider factory with a recorder.
+
+    The route builds its provider through ``_call_catalog_provider``; the
+    fake's ``catalog()`` returns ``state["result"]`` or raises it. The
+    provider's wire behaviour is pinned in
+    ``tests/services/voice_call/test_elevenlabs_provider.py``.
+
+    Returns:
+        A dict with ``calls`` (list of ``(api_key, base_url)``) and a mutable
+        ``result``: a :class:`CallCatalog`, or an exception instance.
+    """
+    state: dict[str, Any] = {
+        "calls": [],
+        "result": CallCatalog(
+            models=(
+                CallModel(llm="gemini-2.5-flash", deprecated=False),
+                CallModel(llm="claude-haiku-4-5", deprecated=False),
+                CallModel(llm="gpt-4o", deprecated=True),
+            ),
+            voices=(
+                CallVoice(
+                    voice_id="v_rachel", name="Rachel", category="premade", live_moderation=False
+                ),
+                CallVoice(
+                    voice_id="v_own", name="Eigene Stimme", category="cloned", live_moderation=False
+                ),
+                CallVoice(
+                    voice_id="v_mod",
+                    name="Moderated Lib",
+                    category="professional",
+                    live_moderation=True,
+                ),
+            ),
+        ),
+    }
+
+    class _FakeProvider:
+        async def catalog(self) -> CallCatalog:
+            result = state["result"]
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+    def _factory(api_key: str, base_url: str) -> _FakeProvider:
+        state["calls"].append((api_key, base_url))
+        return _FakeProvider()
+
+    monkeypatch.setattr(provider_credentials, "_call_catalog_provider", _factory)
+    return state
+
+
+def _call_catalog_url(key: str) -> str:
+    return f"{_CALL_CATALOG_URL}?key={key}"
+
+
+async def _store_call_key(client: AsyncClient, value: str = "sk-call-catalog-key") -> None:
+    """Save the Voice call key through the tenant write endpoint, as an owner does."""
+    csrf = await _section_csrf(client)
+    saved = await client.post(
+        _TENANT_URL,
+        data={
+            "csrf_token": csrf,
+            "provider": "voice_call",
+            "key": "api_key",
+            "value": value,
+            "action": "save",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 200, saved.text
+
+
+async def test_the_call_model_list_offers_live_models_and_names_the_deprecated(
+    client_factory: Any,
+    vault_key: str,
+    call_catalog_stub: dict[str, Any],
+) -> None:
+    """``?key=model``: two live models offered, the deprecated one named in the status line."""
+    client = await client_factory("owner")
+    await _store_call_key(client)
+
+    response = await client.get(_call_catalog_url("model"), follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="tenant-voice_call-model-catalog"' in body
+    assert '<option value="gemini-2.5-flash">gemini-2.5-flash</option>' in body
+    assert '<option value="claude-haiku-4-5">claude-haiku-4-5</option>' in body
+    assert '<option value="gpt-4o">' not in body
+    text = _card_copy(body)
+    assert "2 of 3 models offered" in text
+    assert "Deprecated and not offered: gpt-4o." in text
+    assert "Load models" in body
+    assert 'hx-target="#tenant-voice_call-model-catalog-slot"' in body
+    assert call_catalog_stub["calls"] == [("sk-call-catalog-key", DEFAULT_BASE_URL)]
+    assert "sk-call-catalog-key" not in body
+
+
+async def test_the_call_voice_list_offers_only_voices_an_agent_can_use(
+    client_factory: Any,
+    app_engine: AsyncEngine,
+    vault_key: str,
+    call_catalog_stub: dict[str, Any],
+) -> None:
+    """``?key=voice``: moderated voices are named, not offered; a stored host is used."""
+    await _write_tenant_config(app_engine, "voice_call", "base_url", "https://eu.vendor.invalid")
+    client = await client_factory("owner")
+    await _store_call_key(client)
+
+    response = await client.get(_call_catalog_url("voice"), follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="tenant-voice_call-voice-catalog"' in body
+    assert '<option value="v_rachel">Rachel · premade</option>' in body
+    assert '<option value="v_own">Eigene Stimme · cloned</option>' in body
+    assert '<option value="v_mod">' not in body
+    text = _card_copy(body)
+    assert "2 of 3 voices offered" in text
+    assert "Not usable for the call (live moderation): Moderated Lib." in text
+    assert "Load voices" in body
+    assert call_catalog_stub["calls"] == [("sk-call-catalog-key", "https://eu.vendor.invalid")]
+
+
+async def test_the_call_catalog_without_a_key_asks_for_it_and_calls_no_vendor(
+    client_factory: Any,
+    vault_key: str,
+    call_catalog_stub: dict[str, Any],
+) -> None:
+    """No stored key: the fragment asks for one, and the port is never reached."""
+    client = await client_factory("owner")
+
+    response = await client.get(_call_catalog_url("model"), follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<datalist" not in response.text
+    assert "store the API key on this card first" in _card_copy(response.text)
+    assert call_catalog_stub["calls"] == []
+
+
+async def test_a_call_catalog_refusal_renders_inline_and_logs_one_scrubbed_line(
+    client_factory: Any,
+    vault_key: str,
+    call_catalog_stub: dict[str, Any],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A vendor refusal says so at HTTP 200 and leaves the field free text."""
+    call_catalog_stub["result"] = CallProviderError("Model list failed: HTTP 401: <key>")
+    client = await client_factory("owner")
+    await _store_call_key(client)
+
+    with caplog.at_level(logging.WARNING, logger="web.routes.provider_credentials"):
+        response = await client.get(_call_catalog_url("model"), follow_redirects=False)
+
+    assert response.status_code == 200
+    body = response.text
+    assert "<datalist" not in body
+    # Autoescaped in the markup; the operator reads the plain placeholder.
+    assert "&lt;key&gt;" in body
+    text = html.unescape(_card_copy(body))
+    assert "Could not load the model list: Model list failed: HTTP 401: <key>" in text
+    assert "You can still type a model id." in text
+    lines = [
+        record
+        for record in caplog.records
+        if "voice-call catalog: fetch failed tenant=" in record.message
+    ]
+    assert len(lines) == 1
+    assert lines[0].levelno == logging.WARNING
+    assert "sk-call-catalog-key" not in lines[0].message
+
+
+async def test_the_call_catalog_refuses_a_non_owner_and_an_unoffered_key(
+    client_factory: Any,
+    vault_key: str,
+    call_catalog_stub: dict[str, Any],
+) -> None:
+    """A member is refused; an owner asking for ``language`` is refused; no port call."""
+    member = await client_factory("member")
+    refused = await member.get(_call_catalog_url("model"), follow_redirects=False)
+    assert refused.status_code == 200
+    assert "owner-managed" in _card_copy(refused.text)
+
+    owner = await client_factory("owner")
+    await _store_call_key(owner)
+    unoffered = await owner.get(_call_catalog_url("language"), follow_redirects=False)
+    assert unoffered.status_code == 200
+    assert "not offered for" in _card_copy(unoffered.text)
+    assert "<button" not in unoffered.text
+
+    assert call_catalog_stub["calls"] == []
+
+
+async def test_the_voice_call_card_offers_load_buttons_on_model_and_voice(
+    client_factory: Any,
+    vault_key: str,
+) -> None:
+    """The owner's card wires both fields to the catalog; a member's section has neither."""
+    owner = await client_factory("owner")
+    response = await owner.get(_SECTION_URL, follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+    assert 'list="tenant-voice_call-model-catalog"' in body
+    assert 'list="tenant-voice_call-voice-catalog"' in body
+    assert body.count("Load voices") == 1
+    assert "voice-call/catalog?key=model" in body
+    assert "voice-call/catalog?key=voice" in body
+
+    member = await client_factory("member")
+    member_body = (await member.get(_SECTION_URL, follow_redirects=False)).text
+    assert "voice_call-model-catalog" not in member_body
+    assert "voice_call-voice-catalog" not in member_body
+    assert "Load voices" not in member_body
+    assert "voice-call/catalog" not in member_body

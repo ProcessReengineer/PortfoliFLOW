@@ -9,6 +9,10 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ### Added
 
+- The Voice call card loads the vendor's current model list and the account's
+  voices on request, behind the Model and Voice fields; deprecated models and
+  voices with live moderation (which an agent cannot use) are named but not
+  offered. The fields stay free text.
 - Shirley takes a live voice call in the web chat (ADR-0137, roadmap #077).
   A vendor-hosted conversation layer (ElevenLabs Agents) carries Shirley's
   persona and knows nothing about the book; every fact comes through one

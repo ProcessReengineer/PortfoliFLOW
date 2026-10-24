@@ -7,8 +7,8 @@ These mock the HTTP transport with ``pytest-httpx``, exactly as the voice
 adapter's tests do, and assert the outgoing requests: their order, the
 ``xi-api-key`` header and the JSON envelopes of the tool and the agent. The
 provisioning paths — adopt by name, create, unchanged, update, vanished
-agent, agent without a tool — and the session token are each pinned, and so
-is the error rendering: ``HTTP <status>`` plus at most 200 body characters,
+agent, agent without a tool — the session token and the catalog are each
+pinned, and so is the error rendering: ``HTTP <status>`` plus at most 200 body characters,
 the request's key replaced by ``<key>``.
 
 Async tests need no decorator (``asyncio_mode = "auto"``).
@@ -25,8 +25,11 @@ import pytest
 
 from services.voice_call import (
     AgentDefinition,
+    CallCatalog,
+    CallModel,
     CallProvider,
     CallProviderError,
+    CallVoice,
     ElevenLabsCallProvider,
     ResolvedCall,
     SessionCredentials,
@@ -43,6 +46,8 @@ _NO_AGENTS = {"agents": [], "has_more": False}
 _AGENT_URL = f"{_BASE_URL}/v1/convai/agents/agent_1"
 _TOOL_URL = f"{_BASE_URL}/v1/convai/tools/tool_1"
 _TOKEN_URL = f"{_BASE_URL}/v1/convai/conversation/token?agent_id=agent_1"
+_LLM_LIST_URL = f"{_BASE_URL}/v1/convai/llm/list"
+_VOICES_URL = f"{_BASE_URL}/v1/voices"
 
 
 def _definition() -> AgentDefinition:
@@ -345,3 +350,89 @@ async def test_a_token_response_without_a_conversation_id_names_the_field(httpx_
 
     assert "conversation_id" in str(excinfo.value)
     assert "tok-very-private" not in str(excinfo.value)
+
+
+async def test_catalog_lists_models_and_voices_with_their_flags(httpx_mock) -> None:
+    """The model list, then the voice list; deprecation and live moderation are flags."""
+    httpx_mock.add_response(
+        method="GET",
+        url=_LLM_LIST_URL,
+        json={
+            "llms": [
+                {"llm": "gemini-2.5-flash", "deprecation_info": None},
+                {
+                    "llm": "claude-haiku-4-5",
+                    "deprecation_info": {"llm": "claude-haiku-4-5", "is_deprecated": False},
+                },
+                {"llm": "gpt-4o", "deprecation_info": {"llm": "gpt-4o", "is_deprecated": True}},
+            ],
+            "default_deprecation_config": {},
+        },
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=_VOICES_URL,
+        json={
+            "voices": [
+                {"voice_id": "v_rachel", "name": "Rachel", "category": "premade"},
+                {
+                    "voice_id": "v_own",
+                    "name": "Eigene Stimme",
+                    "category": "cloned",
+                    "sharing": {"live_moderation_enabled": False},
+                },
+                {
+                    "voice_id": "v_mod",
+                    "name": "Moderated Lib",
+                    "category": "professional",
+                    "sharing": {"live_moderation_enabled": True},
+                },
+            ]
+        },
+    )
+
+    catalog = await _provider().catalog()
+
+    assert catalog == CallCatalog(
+        models=(
+            CallModel(llm="gemini-2.5-flash", deprecated=False),
+            CallModel(llm="claude-haiku-4-5", deprecated=False),
+            CallModel(llm="gpt-4o", deprecated=True),
+        ),
+        voices=(
+            CallVoice(
+                voice_id="v_rachel", name="Rachel", category="premade", live_moderation=False
+            ),
+            CallVoice(
+                voice_id="v_own", name="Eigene Stimme", category="cloned", live_moderation=False
+            ),
+            CallVoice(
+                voice_id="v_mod",
+                name="Moderated Lib",
+                category="professional",
+                live_moderation=True,
+            ),
+        ),
+    )
+    requests = httpx_mock.get_requests()
+    assert _trail(requests) == [("GET", _LLM_LIST_URL), ("GET", _VOICES_URL)]
+    assert all(r.headers["xi-api-key"] == _KEY for r in requests)
+
+
+async def test_a_catalog_refusal_is_a_provider_error_with_the_key_scrubbed(httpx_mock) -> None:
+    """HTTP 401 on the model list quoting the key: scrubbed, and no voice list is asked for."""
+    httpx_mock.add_response(
+        method="GET",
+        url=_LLM_LIST_URL,
+        status_code=401,
+        text=f'{{"detail": "invalid api key {_KEY}"}}',
+    )
+
+    with pytest.raises(CallProviderError) as excinfo:
+        await _provider().catalog()
+
+    message = str(excinfo.value)
+    assert "Model list failed: HTTP 401" in message
+    assert "<key>" in message
+    assert _KEY not in message
+    assert _trail(httpx_mock.get_requests()) == [("GET", _LLM_LIST_URL)]

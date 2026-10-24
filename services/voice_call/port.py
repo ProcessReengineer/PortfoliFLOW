@@ -9,7 +9,9 @@ and mint one browser session credential for it. :class:`CallProvider` is
 that seam; :class:`AgentDefinition` and :class:`SessionCredentials` are the
 vendor-neutral values crossing it. Everything above the port — the session
 endpoint, the ``ask_shirley`` job, the history logic, the Admin card — knows
-only these names.
+only these names. Beside its two writes the port carries one read,
+:meth:`CallProvider.catalog` — the vendor's models and voices as a
+:class:`CallCatalog` for the Admin card's Load buttons.
 
 This module imports only the standard library.
 """
@@ -49,6 +51,50 @@ class SessionCredentials:
         )
 
     __str__ = __repr__
+
+
+@dataclass(frozen=True)
+class CallModel:
+    """One conversation model the vendor offers (ADR-0137 §4: free text, this is an offer).
+
+    Attributes:
+        llm: The vendor's model id, as the Model field takes it.
+        deprecated: Whether the vendor marks the model deprecated.
+    """
+
+    llm: str
+    deprecated: bool
+
+
+@dataclass(frozen=True)
+class CallVoice:
+    """One voice of the vendor account; ``live_moderation`` voices cannot serve an agent.
+
+    Attributes:
+        voice_id: The vendor voice id, as the Voice field takes it.
+        name: The voice's display name.
+        category: The vendor's voice category (``premade``, ``cloned``, …).
+        live_moderation: Whether the voice runs under live moderation, which
+            the vendor refuses for an agent (ADR-0137 R9).
+    """
+
+    voice_id: str
+    name: str
+    category: str
+    live_moderation: bool
+
+
+@dataclass(frozen=True)
+class CallCatalog:
+    """The vendor's current model and voice lists, fetched on request for the Admin card.
+
+    Attributes:
+        models: The conversation models, in vendor order.
+        voices: The account's voices, in vendor order.
+    """
+
+    models: tuple[CallModel, ...]
+    voices: tuple[CallVoice, ...]
 
 
 @dataclass(frozen=True)
@@ -129,5 +175,19 @@ class CallProvider(Protocol):
 
         Raises:
             CallProviderError: If the vendor refuses or fails.
+        """
+        ...
+
+    async def catalog(self) -> CallCatalog:
+        """Fetch the vendor's conversation models and the account's voices.
+
+        Returns:
+            The :class:`CallCatalog`; vendor order, deprecated models and
+            moderated voices included and flagged — the caller decides what
+            to offer.
+
+        Raises:
+            CallProviderError: On a transport failure, a non-2xx status or a
+                response without the expected lists.
         """
         ...

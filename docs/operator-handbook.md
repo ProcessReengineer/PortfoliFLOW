@@ -629,10 +629,15 @@ in one line and points here.
   live moderation enabled (HTTP 400 at agent creation). Pick the voice ID from the voice
   library and set it as **Voice** on the card. Left empty, the call uses the
   **text-to-speech voice of §8 only when that half's provider is `elevenlabs`** — a voice
-  of another provider is not a call voice, and the first start says so;
+  of another provider is not a call voice, and the first start says so. **Load voices**
+  under the field fetches the account's voices with the card's key; voices with live
+  moderation are named, not offered;
 - optional: **Language** (vendor language code, empty = German), **Model** (the
   conversation-layer model from the vendor's list, empty = `gemini-2.5-flash`; a wrong value fails at the next start with the
-  vendor's message), **Base URL** (empty = `https://api.elevenlabs.io`). Whether
+  vendor's message. **Load models** under the field fetches the vendor's current list with
+  the card's key; deprecated models are named, not offered. The model shapes the agent's
+  manner more than any prompt line, so compare candidates here — the model is part of the
+  definition hash and the next start PATCHes the agent once), **Base URL** (empty = `https://api.elevenlabs.io`). Whether
   the Agents API is served on the EU-residency host is **unverified**; set it as Base URL
   only after checking with the vendor.
 

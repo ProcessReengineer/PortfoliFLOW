@@ -21,6 +21,11 @@ request authenticates with the ``xi-api-key`` header.
 - **Session credential** (:meth:`ElevenLabsCallProvider.session_credentials`):
   a conversation token for a private agent (``enable_auth``), minted
   server-side for the browser's WebRTC session.
+- **Catalog** (:meth:`ElevenLabsCallProvider.catalog`): the conversation
+  models of ``/v1/convai/llm/list`` with their deprecation flag and the
+  account's voices of ``/v1/voices`` with their live-moderation flag (a
+  moderated voice cannot serve an agent), read for the Admin card on request. The v1 voice list serves a
+  workspace of up to 500 voices; ``/v2/voices`` pagination is not followed.
 
 The agent body carries no ``turn`` block, so the vendor's turn defaults
 apply, and no ``overrides`` block, so overrides stay at the vendor's default
@@ -45,7 +50,13 @@ from urllib.parse import quote
 import httpx
 
 from services.voice_call.errors import CallProviderError
-from services.voice_call.port import AgentDefinition, SessionCredentials
+from services.voice_call.port import (
+    AgentDefinition,
+    CallCatalog,
+    CallModel,
+    CallVoice,
+    SessionCredentials,
+)
 
 # One call; the Agents API answers within seconds.
 _TIMEOUT = httpx.Timeout(60.0)
@@ -55,6 +66,8 @@ _AGENTS_PATH = "/v1/convai/agents"
 _AGENTS_CREATE_PATH = "/v1/convai/agents/create"
 _AGENT_PATH = "/v1/convai/agents/{agent_id}"
 _TOKEN_PATH = "/v1/convai/conversation/token"
+_LLM_LIST_PATH = "/v1/convai/llm/list"
+_VOICES_PATH = "/v1/voices"
 # One page of the name search; an exact match sits on the first page.
 _LIST_PAGE_SIZE = "100"
 # How much of an error body goes into the raised message.
@@ -325,6 +338,47 @@ class ElevenLabsCallProvider:
             token=_field(body, "token", "Session token"),
             conversation_id=_field(body, "conversation_id", "Session token"),
         )
+
+    async def catalog(self) -> CallCatalog:
+        """Fetch the vendor's conversation models, then the account's voices.
+
+        Entries without a string ``llm`` or a ``voice_id`` are skipped; a
+        missing ``llms`` or ``voices`` key is an empty list. Vendor order is
+        kept.
+
+        Returns:
+            The :class:`~services.voice_call.port.CallCatalog`, deprecated
+            models and moderated voices included and flagged.
+
+        Raises:
+            CallProviderError: On a transport failure, a non-2xx status or a
+                response that is no JSON object; a refused model list stops
+                before the voice list is requested.
+        """
+        models_body = await self._call("Model list", "GET", _LLM_LIST_PATH)
+        voices_body = await self._call("Voice list", "GET", _VOICES_PATH)
+        models: list[CallModel] = []
+        for entry in models_body.get("llms") or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("llm"), str):
+                continue
+            deprecated = bool((entry.get("deprecation_info") or {}).get("is_deprecated"))
+            models.append(CallModel(llm=entry["llm"], deprecated=deprecated))
+        voices: list[CallVoice] = []
+        for entry in voices_body.get("voices") or []:
+            if not isinstance(entry, dict) or not entry.get("voice_id"):
+                continue
+            voice_id = str(entry["voice_id"])
+            voices.append(
+                CallVoice(
+                    voice_id=voice_id,
+                    name=str(entry.get("name") or voice_id),
+                    category=str(entry.get("category") or ""),
+                    live_moderation=bool(
+                        (entry.get("sharing") or {}).get("live_moderation_enabled")
+                    ),
+                )
+            )
+        return CallCatalog(models=tuple(models), voices=tuple(voices))
 
 
 def _json_object(operation: str, response: httpx.Response) -> dict[str, Any]:

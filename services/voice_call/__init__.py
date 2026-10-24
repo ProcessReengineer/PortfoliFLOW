@@ -64,7 +64,14 @@ from services.voice_call.errors import (
     VoiceCallError,
 )
 from services.voice_call.jobs import CallJob, CallJobStore
-from services.voice_call.port import AgentDefinition, CallProvider, SessionCredentials
+from services.voice_call.port import (
+    AgentDefinition,
+    CallCatalog,
+    CallModel,
+    CallProvider,
+    CallVoice,
+    SessionCredentials,
+)
 from services.voice_call.resolved import ResolvedCall, assemble_call
 from services.voice_call.speakable import (
     SPEAK_TOOL,
@@ -80,7 +87,10 @@ from services.voice_call.speakable import (
 
 __all__ = [  # noqa: RUF022 — grouped by seam; a flat sort orphans the group comments
     # Port and provider
+    "CallCatalog",
+    "CallModel",
     "CallProvider",
+    "CallVoice",
     "SessionCredentials",
     "AgentDefinition",
     "ElevenLabsCallProvider",

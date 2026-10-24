@@ -99,8 +99,8 @@
 /* Record question Q-UX-S-A6-31: a reading measure and a scroll container for
  * long prose (D-A6-108). The written briefing — on the Briefing view and in
  * the Journal slot — keeps the 78ch measure pf-panel__sub and pf-more p use,
- * and scrolls inside its wrapper past half the viewport; the record names only
- * pf-scroll-x. The paragraphs drop the slot's pf-more p measure so the text
- * is not narrowed twice. */
-.pf-watch-desk [data-pf-wd="briefing-text"] { max-width: 78ch; max-height: 50vh; overflow-y: auto; }
+ * and scrolls inside its wrapper past three quarters of the viewport
+ * (P-GP-5); the record names only pf-scroll-x. The paragraphs drop the slot's
+ * pf-more p measure so the text is not narrowed twice. */
+.pf-watch-desk [data-pf-wd="briefing-text"] { max-width: 78ch; max-height: 75vh; overflow-y: auto; }
 .pf-watch-desk [data-pf-wd="briefing-text"] > p { max-width: none; }

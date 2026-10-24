@@ -63,6 +63,11 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   with the case named. Navigating from the stage to another view now shows
   that view and moves the conversation to the dock — before, the view
   loaded unseen beneath the stage.
+- The Watch Desk briefing runs about half again as long: each part is asked
+  for about 60 to 120 words instead of two to four sentences, while a quiet
+  check still says so in one sentence. The briefing text box on the Briefing
+  view and in the Journal grows to three quarters of the screen height before
+  it scrolls.
 
 ### Fixed
 

@@ -6,12 +6,14 @@
 Pure: no database and no model. The schema is pinned as the model is
 offered it, the forced choice as ``run_synthesis`` receives it, and
 :func:`parse_write_briefing` against every shape the briefing step must
-refuse — so a refused output is ``invalid_output`` and never a row.
+refuse — so a refused output is ``invalid_output`` and never a row. The
+length guard pins the Soul and the tool to one word range per part.
 """
 
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any
 
 import services.irene.briefing_step as briefing_step_module
@@ -88,3 +90,27 @@ def test_a_blank_markets_text_is_invalid_and_the_vocabulary_is_the_models() -> N
     for reason in ("llm_error", "invalid_output", "nothing_to_write"):
         assert f'"{reason}"' in source
         assert reason in BRIEFING_SKIP_REASONS
+
+
+_PROMPTS = Path(__file__).resolve().parents[3] / "prompts"
+
+#: The briefing's length, per part (P-GP-5) — stated alike in the Soul and
+#: in both tool descriptions, because the model reads both.
+_LENGTH = "about 60 to 120 words"
+
+
+def _briefing_block() -> str:
+    soul = (_PROMPTS / "Soul_Irene.md").read_text(encoding="utf-8")
+    return soul.split("## Briefing Prompt", 1)[1].split("```", 2)[1]
+
+
+def test_the_briefing_length_is_one_word_range_in_prompt_and_tool() -> None:
+    """The Soul and the tool name the same word range per part, and no sentence count."""
+    properties = WRITE_BRIEFING_TOOL["function"]["parameters"]["properties"]
+    for name in ("text_markets", "text_watch"):
+        assert _LENGTH in properties[name]["description"]
+        assert "sentences" not in properties[name]["description"]
+    block = _briefing_block()
+    assert block.count(_LENGTH) == 2
+    assert "two to four sentences" not in block
+    assert "short briefing" not in block

@@ -40,14 +40,14 @@ WRITE_BRIEFING_TOOL: dict[str, Any] = {
                 "text_markets": {
                     "type": "string",
                     "description": (
-                        'Part 1, "Markets and press": two to four sentences reading '
+                        'Part 1, "Markets and press": about 60 to 120 words reading '
                         "the market and the press against the book."
                     ),
                 },
                 "text_watch": {
                     "type": "string",
                     "description": (
-                        'Part 2, "Under observation": two to four sentences on the '
+                        'Part 2, "Under observation": about 60 to 120 words on the '
                         "switched-on watch points and what this check raised. An "
                         "empty string when no watch point is switched on."
                     ),

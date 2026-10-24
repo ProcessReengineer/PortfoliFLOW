@@ -14,8 +14,10 @@ from __future__ import annotations
 
 #: The conversation-layer model offered when ``voice_call.model`` is empty. The
 #: vendor documents no default for its ``llm`` field, so the default is a
-#: literal here and a changed vendor default is a conscious change (ADR-0137 §7).
-DEFAULT_CONVERSATION_MODEL = "gemini-2.5-flash"
+#: literal here and a change is a conscious one (ADR-0137 §7). Chosen by ear:
+#: with Shirley's Soul as the prompt, this model keeps her character on a call
+#: more faithfully than the vendor's own first pick did (owner, 2026-10-24).
+DEFAULT_CONVERSATION_MODEL = "claude-haiku-4-5"
 #: Vendor speech model for the agent — the vendor's documented default for
 #: agents on 2026-10-14, set explicitly so the definition hash covers it.
 DEFAULT_TTS_MODEL_ID = "eleven_v4_turbo"

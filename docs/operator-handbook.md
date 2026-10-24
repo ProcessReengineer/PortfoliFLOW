@@ -633,7 +633,7 @@ in one line and points here.
   under the field fetches the account's voices with the card's key; voices with live
   moderation are named, not offered;
 - optional: **Language** (vendor language code, empty = German), **Model** (the
-  conversation-layer model from the vendor's list, empty = `gemini-2.5-flash`; a wrong value fails at the next start with the
+  conversation-layer model from the vendor's list, empty = `claude-haiku-4-5`; a wrong value fails at the next start with the
   vendor's message. **Load models** under the field fetches the vendor's current list with
   the card's key; deprecated models are named, not offered. The model shapes the agent's
   manner more than any prompt line, so compare candidates here — the model is part of the

@@ -48,6 +48,9 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 - `/static` is served with `Cache-Control: no-cache`: assets stay cacheable but
   are revalidated on every use, so a redeployed script or stylesheet is live
   on the next page load (an unchanged file costs one 304).
+- The voice call's default conversation model is `claude-haiku-4-5` (empty
+  **Model** on the Voice call card); it keeps Shirley's character on a call
+  more faithfully. Tenants that set a model explicitly are unaffected.
 
 ## [2026.10.0] — 2026-10-12
 

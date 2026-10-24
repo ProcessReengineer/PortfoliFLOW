@@ -108,13 +108,19 @@ against, and what has shipped. It records no history — that lives in git and i
   the turn lock with its relay and history lines; the session endpoint with
   lazy, hash-compared agent provisioning; the browser panel and the vendored
   SDK adapter; `/static` revalidation; operator documentation (handbook §8a).
-  Walked on a real account 2026-10-15/16: calls, lookups with charts,
-  interruption, timeouts, both languages.
-- **Remaining:** the written walk record for the cases not yet logged, and
-  the owner's tuning of the call addendum; the conversation style — today the
-  tool call blocks and an interruption discards the running lookup — is a
-  separate owner decision (non-blocking delivery as sketched under the ADR's
-  Alternatives), not part of this item.
+  Walked on a real account 2026-10-15/16 and 2026-10-24: calls, lookups with
+  charts, interruption, extending a pending request, timeouts, both languages,
+  the failure surfaces, mute, call end and reload; no code defect in the
+  record. Release hygiene after the build (key scrub in the voice adapter,
+  per-tenant first-start lock, same-name agent adoption, memo drop on a failed
+  mint); the Soul's character edit and the first-person call addendum with a
+  complete capability list; the card's model and voice lists on request; the
+  default conversation model chosen by ear.
+- **Remaining:** the conversation style — today the tool call blocks and an
+  interruption discards the running lookup — is a separate owner decision
+  (non-blocking delivery as sketched under the ADR's Alternatives; spike S-2
+  and a successor ADR pending), not part of this item; the vendor's
+  per-minute price and the EU-residency question before the first tenant.
 - **ADR:** ADR-0137.
 - **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
   user's turn waits visibly; #071 removes the wait.

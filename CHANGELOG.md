@@ -51,6 +51,25 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 - The voice call's default conversation model is `claude-haiku-4-5` (empty
   **Model** on the Voice call card); it keeps Shirley's character on a call
   more faithfully. Tenants that set a model explicitly are unaffected.
+- Shirley's character is stated explicitly in her Soul: a senior-analyst frame
+  with institutional portfolio management as home ground and private markets
+  as the depth, "Du" in German, no platitudes or lecturing, and next steps only
+  where she has the tools to deliver them. The voice-call addendum speaks in
+  the first person and treats its capability list as complete, so the call
+  agent offers only lookups that exist.
+
+### Fixed
+
+- The ElevenLabs voice adapter scrubs the tenant's API key from its error
+  messages, as the call provider already did; a vendor body quoting the key
+  shows `<key>`.
+- Two browsers starting a tenant's first voice call at the same moment no
+  longer create two vendor agents: first starts are serialised per tenant, an
+  agent carrying the definition's name is adopted before a new one is created,
+  and a failed session-token mint makes the next start re-read the agent at
+  the vendor instead of failing until a restart.
+- A disabled on/off row on the Providers & Credentials cards renders as off,
+  as the resolver reads it.
 
 ## [2026.10.0] — 2026-10-12
 

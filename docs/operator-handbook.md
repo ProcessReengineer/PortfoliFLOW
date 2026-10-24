@@ -633,13 +633,14 @@ in one line and points here.
   under the field fetches the account's voices with the card's key; voices with live
   moderation are named, not offered;
 - optional: **Language** (vendor language code, empty = German), **Model** (the
-  conversation-layer model from the vendor's list, empty = `claude-haiku-4-5`; a wrong value fails at the next start with the
-  vendor's message. **Load models** under the field fetches the vendor's current list with
-  the card's key; deprecated models are named, not offered. The model shapes the agent's
-  manner more than any prompt line, so compare candidates here — the model is part of the
-  definition hash and the next start PATCHes the agent once), **Base URL** (empty = `https://api.elevenlabs.io`). Whether
-  the Agents API is served on the EU-residency host is **unverified**; set it as Base URL
-  only after checking with the vendor.
+  conversation-layer model from the vendor's list, empty = `claude-haiku-4-5`; a wrong value
+  fails at the next start with the vendor's message. **Load models** under the field fetches
+  the vendor's current list with the card's key; deprecated models are named, not offered.
+  The model shapes the agent's manner more than any prompt line, so compare candidates here
+  — the model is part of the definition hash and the next start PATCHes the agent once),
+  **Base URL** (empty = `https://api.elevenlabs.io`). Whether the Agents API is served on
+  the EU-residency host is **unverified**; set it as Base URL only after checking with the
+  vendor.
 
 **Enable it per tenant** under Admin → Providers & Credentials → **Voice call**: the
 `Enabled` switch, the key, the voice. The card is **live — saves apply instantly**; the
@@ -680,7 +681,8 @@ gerade nicht erreichen." and the reason is shown in the chat.
 **Browser requirements.** A secure context (HTTPS; `localhost` is exempt) for the
 microphone, and WebRTC not blocked by the network. If a reverse proxy sets a
 Content-Security-Policy, allow `api.elevenlabs.io` and the vendor's WebRTC media host
-(a LiveKit host; read its name from the browser's network panel on a first call) for
+(observed as `livekit.rtc.elevenlabs.io`, the signalling WebSocket, on 2026-10-24; the
+host is the vendor's and may change — confirm it in the browser's network panel) for
 `connect-src`, and `blob:` for `worker-src` (the audio worklets).
 
 **SDK vendoring.** The browser SDK is vendored, not loaded from a CDN, and loaded lazily
@@ -722,6 +724,8 @@ message; the server log has the vendor status and body with the key scrubbed):
 (answered without a lookup), ask a portfolio question (the panel shows "Looking that
 up…", the answer is spoken and appears as a bubble with its chart), interrupt Shirley
 mid-sentence, end the call — the "Call ended" line closes it and the composer returns.
+On a second start Shirley's first word follows the button within about a second (walk
+2026-10-24); a first start adds the microphone prompt and the SDK load.
 
 ---
 

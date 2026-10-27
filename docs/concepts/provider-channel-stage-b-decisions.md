@@ -507,6 +507,11 @@ it. Calendar consequences (B-D-16): re-sign `directory_version 2` by
   `2026.10.0`. If that publication falls after 2026-11-09 (the re-sign
   reminder that `verify --strict` enforces), `directory_version 2` is signed
   first and published instead.
+- *Addendum 2026-10-27:* release `2026.10.1` was cut on 2026-10-27
+  **without** the publication as well; it is deferred again, with no
+  release named. The rule of the 2026-10-12 addendum stands: a publication
+  after 2026-11-09 signs `directory_version 2` first and publishes that
+  instead. The calendar consequences above are unchanged.
 
 ### B-D-25 · The suggestion list in the Transactions UI (MB-1, operator 2026-09-11)
 

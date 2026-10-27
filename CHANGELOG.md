@@ -7,12 +7,10 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ## [Unreleased]
 
+## [2026.10.1] — 2026-10-27
+
 ### Added
 
-- The Voice call card loads the vendor's current model list and the account's
-  voices on request, behind the Model and Voice fields; deprecated models and
-  voices with live moderation (which an agent cannot use) are named but not
-  offered. The fields stay free text.
 - Shirley takes a live voice call in the web chat (ADR-0137, roadmap #077).
   A vendor-hosted conversation layer (ElevenLabs Agents) carries Shirley's
   persona and knows nothing about the book; every fact comes through one
@@ -24,6 +22,10 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   provisioned lazily from a definition in the repository and kept up to date
   by hash. Audio and transcript go to the vendor; the card and handbook §8a
   say so. The browser SDK is vendored and loaded on the first call only.
+- The Voice call card loads the vendor's current model list and the account's
+  voices on request, behind the Model and Voice fields; deprecated models and
+  voices with live moderation (which an agent cannot use) are named but not
+  offered. The fields stay free text.
 - Shirley's voice messages no longer depend on one vendor (ADR-0136, roadmap
   #076). Speech-to-text and text-to-speech are chosen per tenant and per half
   on the Voice cards: any server speaking the OpenAI audio wire —

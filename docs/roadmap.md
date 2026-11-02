@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-10-27
+**Last updated:** 2026-11-02
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#078`.**
+  bucket and is never reused. **Next free ID: `#094`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -55,8 +55,9 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Shipped so far:** the shell, design tokens and component layer (A-0), the
   Transactions Area as the pilot (A-1) and the Watch Desk on M-WD-1 v2 (A-6:
   Briefing, Watch points, Journal; seven families added to the vocabulary).
-- **Remaining, in order:** A-2 Back Office, A-3 Cases, A-4 Admin and My
-  settings, A-5 Front Office and the shell, A-7 Assistants; then the user
+- **Remaining, in order:** A-2 Back Office, A-3 Cases (as the acceptance walk of
+  #078, which builds the Section on the pf vocabulary directly), A-4 Admin and
+  My settings, A-5 Front Office and the shell, A-7 Assistants; then the user
   manual.
 - **ADR:** ADR-0134 (Section as one view); conventions in
   [`docs/ux/ui-standards.md`](ux/ui-standards.md).
@@ -125,6 +126,29 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
   user's turn waits visibly; #071 removes the wait.
 
+### #078 — Cases rework: the working file
+
+- **Purpose:** make Cases the place a portfolio manager wants to work in. A
+  case becomes a question or task about the book kept open longer than one
+  conversation: a structured, editable working file — the question, where we
+  stand (read live from the book, the Watch Desk and Transactions), threads,
+  figures with provenance, conversations, open points, decision — over the
+  existing append-only record, which is written only at milestones and freezes
+  the file each time. Waiting as a third state; Keep instead of pin dialogs;
+  Shirley briefed by the file, with case tools; linked investments,
+  counterparty and tickets on the case; one Section with the case as its
+  sub-surface. Documentation becomes a by-product of the work.
+- **Shipped so far:** nothing — the concept closed 2026-11-02; the record is
+  [`docs/concepts/cases-rework-concept.md`](concepts/cases-rework-concept.md),
+  the binding mockup M-CS-2 is kept outside the tree.
+- **Remaining:** the ADR-0107 successor, then the build in six strands (model
+  and states with migration b037; where we stand and system lines; the
+  Section; Keep and the two new kept classes; Shirley tools and proposals;
+  close-out). The former UX strand A-3 becomes this item's acceptance walk.
+- **ADR:** ADR-0107 successor (to be filed; ADR-0107, 0114 and 0120 stay as
+  built).
+- **Depends on:** none. Feeds #089 (the case is where background jobs land).
+
 ---
 
 ## Next
@@ -150,6 +174,19 @@ against, and what has shipped. It records no history — that lives in git and i
 | 17 | #073 | Scope the autouse `reset_schema` in `tests/services` | — |
 | 18 | #074 | Register default AI tools from the composition root | — |
 | 19 | #075 | Speed up the example-portfolio roundtrip test | — |
+| 20 | #079 | FX-rate series read tool for Shirley | — |
+| 21 | #080 | Manager view | — |
+| 22 | #081 | `nav_move` watch family for reported investments | ADR-0116 annex |
+| 23 | #082 | Press review per investment or manager | ADR-0022, ADR-0023 |
+| 24 | #083 | Document input for Shirley | ADR-0022, ADR-0023 |
+| 25 | #084 | Reading room | — |
+| 26 | #085 | Report Scraper: highlights and monthly reports | ADR-0053 |
+| 27 | #086 | Stated-vs-book performance reconciliation | — |
+| 28 | #087 | Prospective-commitment impact | ADR-0104 |
+| 29 | #088 | Hedge ratio and currency exposure per fund | — |
+| 30 | #089 | Background Shirley jobs landing in a case | — |
+| 31 | #090 | Generated briefing documents | ADR-0073 §5 |
+| 32 | #091 | Dictated conversation notes | ADR-0136 |
 
 ### #072 — Tenant and credential resolution in the bot and the AI core
 
@@ -172,6 +209,7 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Purpose:** `_TURN_LOCK` (ADR-0031) is still process-wide although
   multi-user has shipped, so turns of different users and tenants serialise.
 - **Remaining:** scope the lock per user and per tenant; needs an ADR.
+- **Needed by:** #089 (background jobs run under the scoped lock).
 
 ### #066 — Installer: `--doctor` re-resolves the engine
 
@@ -238,7 +276,7 @@ against, and what has shipped. It records no history — that lives in git and i
   Plotly via `kaleido`, ADR-0073 §5); detail areas; branding. PDF vs. HTML with
   print CSS is still open.
 - **ADR:** ADR-0073 §5; ADR-0020 (Proposed — the three-layer reporting design).
-- **Depends on:** #046.
+- **Depends on:** #046. #090 names this item's export path.
 
 ### #063 — Market-data trading-hours awareness
 
@@ -257,7 +295,8 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Remaining:** an `fx_rate` series kind, capability entry and adapter —
   ECB SDMX preferred; decide how a rate series is keyed, since a currency is not
   a security. `FxRateRepository.upsert_live` is already waiting.
-- **ADR:** ADR-0099 §5, ADR-0091, ADR-0092. **Depends on:** #036.
+- **ADR:** ADR-0099 §5, ADR-0091, ADR-0092. **Depends on:** #036. #079 is the
+  read-tool sibling.
 
 ### #025 — Hosted deployment (Hetzner)
 
@@ -313,6 +352,126 @@ against, and what has shipped. It records no history — that lives in git and i
   takes ~550 s — DB import, not parsing (Q-CL-D-16).
 - **Remaining:** a slow marker or a smaller fixture.
 
+### #079 — FX-rate series read tool for Shirley
+
+- **Purpose:** Shirley cannot read an FX-rate series; `fx_rate` is used only
+  inside conversions. "Lay USD/EUR beside this fund" is not answerable.
+- **Remaining:** one read tool over `FxRateRepository` returning a dated
+  series for a pair, chartable as a second series by `render_chart`.
+- **Depends on:** none; #042 is the supply-side sibling.
+
+### #080 — Manager view
+
+- **Purpose:** `manager_name` is free text on the investment and nothing
+  aggregates by it; "how have this GP's funds developed?" is a per-fund
+  exercise today.
+- **Remaining:** a manager-level read over the book — funds, vintages,
+  commitments, NAV, exposure, multiples — as a Shirley tool first; a Front
+  Office surface later. Decide whether `manager_name` is normalised or matched
+  as is.
+
+### #081 — `nav_move` watch family for reported investments
+
+- **Purpose:** a sharp NAV move on a reported (non-priced) investment is not a
+  finding; the `price` family watches instrument prices only.
+- **Remaining:** a `nav_move` family over `InvestmentNav` in badness units like
+  `price`, with its own watchpoint shape, Approaching/Triggered rendering and
+  briefing mention.
+- **ADR:** an ADR-0116 annex.
+
+### #082 — Press review per investment or manager
+
+- **Purpose:** the web research tool searches the curated feeds over a short
+  window for a free query; a press review on one fund or manager over a longer
+  period is not a first-class ask.
+- **Remaining:** scope the query to an investment or manager, allow a longer
+  window, return the review in a shape a case can keep.
+- **ADR:** ADR-0022, ADR-0023 (Fetcher discipline unchanged).
+
+### #083 — Document input for Shirley
+
+- **Purpose:** the chat composer accepts images only; a PDF (a GP special
+  report, a PPM page) cannot be handed to Shirley.
+- **Remaining:** document attachments in the chat with the Fetcher discipline
+  for untrusted documents (summary wrapped as external content, never the raw
+  text in the agent's context), excerpt by page, size and type caps.
+- **ADR:** ADR-0022, ADR-0023. Takes up the document-reading half of #003.
+
+### #084 — Reading room
+
+- **Purpose:** due diligence means many documents; a case can hold attachments
+  but nothing reads them.
+- **Remaining:** a bounded, case-scoped document set Shirley reads on request
+  and answers questions over; results land in the case as excerpts and
+  figures. No DMS semantics — no folders, versions or content-search surface;
+  large sets go through an extraction pipeline (the Report Scraper is that
+  pipeline for one document type).
+- **Depends on:** #083, #078.
+
+### #085 — Report Scraper: highlights and monthly reports
+
+- **Purpose:** the Scraper extracts keyword values with sources from one
+  quarterly PDF; it keeps no narrative highlights and is not tuned to monthly
+  letters.
+- **Remaining:** a highlights/summary output beside the values; monthly
+  cadence; a per-fund "last two months" read for #090.
+- **ADR:** ADR-0053.
+
+### #086 — Stated-vs-book performance reconciliation
+
+- **Purpose:** the book computes rolling TVPI/DPI/RVPI and IRR per investment;
+  laying a GP's stated figures beside ours as of one date, and naming the
+  usual reasons for a gap, is manual.
+- **Remaining:** a comparison helper over the existing series plus typed
+  stated figures (gross/net, as-of, FX, subscription line, fee timing as the
+  named candidates); a Shirley tool and a Figures-row shape for #078.
+
+### #087 — Prospective-commitment impact
+
+- **Purpose:** how a new fund would change SAA, AnlV headroom and liquidity is
+  the question behind every re-up; the impact panel covers order tickets only
+  and `get_saa_hypothetical_comparison` covers SAA only. The U-NEW impact was
+  the named fast-follow of the Transactions track and never became an item.
+- **Remaining:** U-NEW impact in the impact panel; a hypothetical commitment in
+  the plan world; the three lenses as for order tickets.
+- **ADR:** ADR-0104; the impact-panel decisions of the Transactions track.
+
+### #088 — Hedge ratio and currency exposure per fund
+
+- **Purpose:** a fund's reported hedge ratio and currency exposure are not data
+  points; the gap between USD and EUR performance of a hedged fund cannot be
+  attributed.
+- **Remaining:** hedge ratio per fund and period as reported data (candidate:
+  `type_specific_data`), shown on the investment and readable by Shirley.
+  Ties into #045.
+
+### #089 — Background Shirley jobs landing in a case
+
+- **Purpose:** a multi-step ask ("put together everything I need for the AGM")
+  runs longer than a chat turn; every turn blocks behind the turn lock and
+  results live only in the ephemeral chat history.
+- **Remaining:** a job runner (the `ask_shirley` job of ADR-0137 is the seed)
+  with the case as the inbox — progress line, result as a proposal package
+  accepted item by item, system lines on request and landing.
+- **Depends on:** #071 (the lock), #078 (the landing place).
+
+### #090 — Generated briefing documents
+
+- **Purpose:** Shirley's output is chat prose; a composed memo — per fund:
+  highlights, figures, charts, press — as an editable, exportable artefact does
+  not exist.
+- **Remaining:** a generated-document artefact kept in a case, PM-editable
+  after acceptance, with its sources; export to PDF over the #001 path.
+- **ADR:** ADR-0073 §5 for the export path. **Depends on:** #078, #085, #089.
+
+### #091 — Dictated conversation notes
+
+- **Purpose:** notes after a call are typed; the voice chain already
+  transcribes.
+- **Remaining:** dictate into a case's Conversations through the
+  speech-to-text port; the transcript lands as a note draft the PM edits.
+- **ADR:** ADR-0136. **Depends on:** #078.
+
 ---
 
 ## Ideas
@@ -321,7 +480,9 @@ Unprioritised. One paragraph each; none is scheduled.
 
 **#003 — Due-diligence support.** A sibling of the Report Scraper on the same
 extraction backend for GP due-diligence documents (PPMs, LPA drafts): fund size,
-strategy, track record, key-person clauses.
+strategy, track record, key-person clauses. #083 and #084 take up the
+document-reading half; the DD-specific extraction (fund size, strategy, track
+record, key-person clauses) stays here.
 
 **#017 — Shirley: code generation and execution.** Shirley writes a Python or
 charting snippet that runs in a sandbox with a library allowlist, under a
@@ -400,6 +561,16 @@ information while keeping its basic optics (filled area against the zero
 line); inspiration from Bloomberg-style terminals. Deferred from the
 pre-release polish of `2026.10.0`; needs a short concept note before a build
 prompt.
+
+
+**#092 — Fee terms and fee drag.** Fee terms on the investment (management fee
+basis and rate, carry, hurdle, catch-up) and a fee-drag comparison across
+funds of one manager or vintage; the question behind every re-up that the
+book cannot answer today.
+
+**#093 — Look-through from GP reports.** Portfolio-company level extraction in
+the Report Scraper, so "the companies did well but the fund did not" can be
+checked against data instead of memory.
 
 ---
 

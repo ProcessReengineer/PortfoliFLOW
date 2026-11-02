@@ -65,7 +65,7 @@ from core.models.case import (
     CaseThread,
 )
 from core.repositories.base import BaseRepository
-from core.repositories.case_repository import _MUTABLE_STATES, _UNSET
+from core.repositories._case_common import _MUTABLE_STATES, _UNSET
 
 # ---------------------------------------------------------------------------
 # Vocabularies (ADR-0138 §3, §8, §9 and Object model)

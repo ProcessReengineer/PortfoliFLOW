@@ -537,7 +537,7 @@ async def test_cw07_investment_links(app_engine: AsyncEngine, seed_tenant) -> No
             await repo.link(case.id, investment_id=investment_id, linked_by=user_id, now=_T1)
 
         cases = CaseRepository(session)
-        await cases.set_waiting(waiting_case.id, wait_until=date(2027, 5, 1), now=_T2)
+        await cases.wait(waiting_case.id, wait_until=date(2027, 5, 1), by=user_id, now=_T2)
         await cases.close(closed_case.id, closed_by=user_id, closing_note="done", now=_T2)
 
         assert await repo.list_case_ids_for_investment(investment_id) == [
@@ -678,7 +678,9 @@ async def _build_world(app_engine: AsyncEngine, seed_tenant, label: str, *, stat
                 case.id, closed_by=user_id, closing_note="done", now=_T1
             )
         elif state == "waiting":
-            await CaseRepository(session).set_waiting(case.id, wait_until=date(2027, 1, 1), now=_T1)
+            await CaseRepository(session).wait(
+                case.id, wait_until=date(2027, 1, 1), by=user_id, now=_T1
+            )
     return _World(
         tenant_id=tenant_id,
         user_id=user_id,

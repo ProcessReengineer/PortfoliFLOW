@@ -226,7 +226,7 @@ async def test_ca05_waiting_case_accepts_and_bumps_updated_at(
     async with tenant_context(app_engine, tenant_id) as session:
         repo = CaseRepository(session)
         waiting = await repo.create(title="Waiting", opened_by=user_id, opened_actor="pm", now=_T0)
-        await repo.set_waiting(waiting.id, wait_until=date(2027, 1, 1), now=_T0)
+        await repo.wait(waiting.id, wait_until=date(2027, 1, 1), by=user_id, now=_T0)
         closed = await repo.create(title="Closed", opened_by=user_id, opened_actor="pm", now=_T0)
         await repo.close(closed.id, closed_by=user_id, closing_note="done", now=_T0)
 

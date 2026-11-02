@@ -33,14 +33,14 @@ Coverage
 * CR-11: ``update_working_file`` — partial writes, the empty-title guard,
   the ``updated_at`` bump, the closed-case refusal.
 * CR-12: the states open · waiting · closed (ADR-0138 §4, D-CS-B-2) —
-  set / lift, the lists, the wake-up read, close and append on a waiting
-  case.
+  ``wait`` / ``lift_wait``, the lists, the wake-up read, close and append
+  on a waiting case.
 * CR-13: the extended kind vocabulary — milestone-only kinds refused on the
   generic path, ``system_line`` accepted, ``note`` still writable
   (D-CS-B-1).
 * CR-14: ``search_working_file`` — hits across the working file, the DMS
   boundary held (ADR-0138 §11), the state filter, escaping.
-* CR-15: ``set_owner`` — the owner changes, ``opened_by`` stays.
+* CR-15: ``hand_over`` — the owner changes, ``opened_by`` stays.
 """
 
 from __future__ import annotations
@@ -191,8 +191,8 @@ async def test_cr01c_savepoint_recovers_from_real_unique_violation(
                 await session.execute(
                     text(
                         "INSERT INTO cases "
-                        "(tenant_id, case_number, title, opened_by) "
-                        "VALUES (:tid, :num, :title, :uid)"
+                        "(tenant_id, case_number, title, opened_by, owner_user_id) "
+                        "VALUES (:tid, :num, :title, :uid, :uid)"
                     ),
                     {
                         "tid": str(first.tenant_id),
@@ -842,12 +842,12 @@ async def test_cr12_states_waiting(app_engine: AsyncEngine, seed_tenant) -> None
         b = await repo.create(title="B", opened_by=user_id, opened_actor="pm", now=_T0 + minute)
         c = await repo.create(title="C", opened_by=user_id, opened_actor="pm", now=_T0 + 2 * minute)
 
-        waiting_b = await repo.set_waiting(b.id, wait_until=today, now=_T0 + 10 * minute)
+        waiting_b = await repo.wait(b.id, wait_until=today, by=user_id, now=_T0 + 10 * minute)
         assert (waiting_b.state, waiting_b.wait_until) == ("waiting", today)
         assert waiting_b.updated_at == _T0 + 10 * minute
-        await repo.set_waiting(c.id, wait_until=tomorrow, now=_T0 + 5 * minute)
+        await repo.wait(c.id, wait_until=tomorrow, by=user_id, now=_T0 + 5 * minute)
         with pytest.raises(CaseStateInvalid):
-            await repo.set_waiting(b.id, wait_until=tomorrow, now=_T0 + 11 * minute)
+            await repo.wait(b.id, wait_until=tomorrow, by=user_id, now=_T0 + 11 * minute)
 
         assert [x.id for x in await repo.list_open()] == [a.id]
         assert [x.id for x in await repo.list_cases(state="waiting")] == [b.id, c.id]
@@ -871,10 +871,10 @@ async def test_cr12_states_waiting(app_engine: AsyncEngine, seed_tenant) -> None
         )
         assert entry.kind == "note"
 
-        lifted = await repo.lift_waiting(c.id, now=_T0 + 13 * minute)
+        lifted = await repo.lift_wait(c.id, by=user_id, now=_T0 + 13 * minute)
         assert (lifted.state, lifted.wait_until) == ("open", None)
         with pytest.raises(CaseStateInvalid):
-            await repo.lift_waiting(a.id, now=_T0 + 13 * minute)
+            await repo.lift_wait(a.id, by=user_id, now=_T0 + 13 * minute)
 
         await repo.close(a.id, closed_by=user_id, closing_note="done", now=_T0 + 14 * minute)
         assert [x.id for x in await repo.list_cases(state="closed")] == [a.id]
@@ -1045,11 +1045,11 @@ async def test_cr14_search_working_file(app_engine: AsyncEngine, seed_tenant) ->
 
 
 # ---------------------------------------------------------------------------
-# CR-15: set_owner (ADR-0138 §13)
+# CR-15: hand_over (ADR-0138 §13)
 # ---------------------------------------------------------------------------
 
 
-async def test_cr15_set_owner(app_engine: AsyncEngine, seed_tenant) -> None:
+async def test_cr15_hand_over(app_engine: AsyncEngine, seed_tenant) -> None:
     tenant_id = await seed_tenant("CR-15")
     pm1 = await _seed_user(app_engine, tenant_id, "pm1@cr15.example")
     pm2 = await _seed_user(app_engine, tenant_id, "pm2@cr15.example")
@@ -1058,7 +1058,7 @@ async def test_cr15_set_owner(app_engine: AsyncEngine, seed_tenant) -> None:
     async with tenant_context(app_engine, tenant_id) as session:
         repo = CaseRepository(session)
         case = await repo.create(title="Hand me over", opened_by=pm1, opened_actor="pm", now=_T0)
-        handed = await repo.set_owner(case.id, owner_user_id=pm2, now=later)
+        handed = await repo.hand_over(case.id, to_user_id=pm2, by=pm1, now=later)
         assert handed.owner_user_id == pm2
         assert handed.opened_by == pm1
         assert handed.updated_at == later
@@ -1067,4 +1067,4 @@ async def test_cr15_set_owner(app_engine: AsyncEngine, seed_tenant) -> None:
 
         await repo.close(case.id, closed_by=pm2, closing_note="done", now=later)
         with pytest.raises(CaseClosedError):
-            await repo.set_owner(case.id, owner_user_id=pm1, now=later)
+            await repo.hand_over(case.id, to_user_id=pm1, by=pm2, now=later)

@@ -18,18 +18,28 @@ the *absence* of code paths as much as by the guards below:
   ``delete_entry``.
 * **The working file is mutable while open or waiting.** The working-file
   columns of a case (:meth:`update_working_file`), its owner
-  (:meth:`set_owner`) and its state transitions (:meth:`set_waiting`,
-  :meth:`lift_waiting`, :meth:`close`) are the permitted mutations of a
+  (:meth:`hand_over`) and its state transitions (:meth:`wait`,
+  :meth:`lift_wait`, :meth:`close`) are the permitted mutations of a
   case row; each one bumps ``updated_at``. The eight working-file tables
   live in :mod:`core.repositories.case_working_file_repository`.
 * **A closed case is read-only in both layers** (ADR-0107 §4, confirmed by
   ADR-0138 §4). There is deliberately no ``delete_case`` and no
   ``reopen``.
 
-The milestone path — a milestone entry and its ``frozen`` snapshot written
-with the state change in one transaction — lands in P-CS-1b; until then
-the state transitions here are column transitions only, and
-:meth:`append_entry` refuses the milestone-only kinds.
+**The milestone path** (ADR-0138 §2, D-CS-B-7). Every milestone —
+``opened`` (:meth:`create`), ``waiting_set`` (:meth:`wait`),
+``waiting_lifted`` (:meth:`lift_wait`), ``handed_over``
+(:meth:`hand_over`), ``decision_record`` (:meth:`record_decision`) and
+``closed`` (:meth:`close`) — goes through one path: its column transition,
+the milestone entry and a ``frozen`` entry carrying the whole-file
+snapshot (:mod:`core.repositories.case_snapshot`), all in the caller's one
+transaction. The column writes behind them are private, so nothing outside
+this module moves a case between states without a record, and
+:meth:`append_entry` refuses the milestone-only kinds. The ``frozen`` rows
+are the record's hidden half: :meth:`list_entries` leaves them out unless
+asked, and they are fetched by milestone (:meth:`get_frozen_for`,
+:meth:`latest_frozen`) — the milestone and its snapshot render as one
+record row (D-CS-B-6).
 
 The repository never touches an Irene finding. A case *references* its
 finding (``finding_id``) and reads it, but resolving that finding as
@@ -68,15 +78,15 @@ from core.models.case import (
     CaseThread,
 )
 from core.models.irene_finding import IreneFinding
+from core.repositories._case_common import _MUTABLE_STATES, _UNSET
 from core.repositories.base import BaseRepository
+from core.repositories.case_snapshot import SNAPSHOT_VERSION, build_file_snapshot
+from core.repositories.case_working_file_repository import CaseDecisionRepository
 
 # Canonical lowercase vocabularies (ADR-0107 §2, ADR-0138 §4 and Object
 # model). The columns are plain TEXT; the vocabularies are enforced here,
 # not as SQL enums, matching the codebase's TEXT-for-status convention.
 _VALID_STATES: frozenset[str] = frozenset({"open", "waiting", "closed"})
-# The states in which the working file (and the record's generic append
-# path) accepts writes; a closed case is read-only in both layers.
-_MUTABLE_STATES: frozenset[str] = frozenset({"open", "waiting"})
 # ``note`` / ``pin`` / ``decision_record`` stay writable until their last
 # route writer is replaced (D-CS-B-1, staged retirement).
 _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
@@ -99,20 +109,13 @@ _MILESTONE_ONLY_KINDS: frozenset[str] = frozenset(
 )
 _VALID_ACTORS: frozenset[str] = frozenset({"pm", "shirley", "system"})
 _VALID_FRAMINGS: frozenset[str] = frozenset({"question", "task"})
-
-
-class _Unset:
-    """Type of :data:`_UNSET` — "argument not given", distinct from ``None``."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "_UNSET"
-
-
-#: Sentinel for partial updates: a field left at ``_UNSET`` is not written,
-#: while an explicit ``None`` clears a nullable column.
-_UNSET: Any = _Unset()
+# The kinds a milestone entry may carry (the snapshot itself is ``frozen``).
+_MILESTONE_KINDS: frozenset[str] = (_MILESTONE_ONLY_KINDS | {"opened", "decision_record"}) - {
+    "frozen"
+}
+# Why a wait is lifted (ADR-0138 §4, D-CS-M-4): by the PM, or by the
+# program on the date or on an event.
+_LIFT_REASONS: frozenset[str] = frozenset({"manual", "date", "event"})
 
 # The unique constraint that guarantees tenant-sequential numbering; a
 # concurrent allocation collides on it and the write is retried once.
@@ -265,6 +268,101 @@ class CaseRepository(BaseRepository):
         row = (await self._session.execute(stmt)).one()
         return CaseEntryDTO(**row._mapping)
 
+    # ------------------------------------------------------------------
+    # The milestone path (ADR-0138 §2, Object model; D-CS-B-7)
+    # ------------------------------------------------------------------
+
+    async def _insert_milestone(
+        self,
+        *,
+        case: CaseDTO,
+        kind: str,
+        actor: str,
+        actor_user_id: UUID | None,
+        payload: dict,
+        now: datetime,
+    ) -> CaseEntryDTO:
+        """Insert the milestone entry of a milestone pair. Transaction-agnostic."""
+        assert kind in _MILESTONE_KINDS, f"{kind!r} is not a milestone kind"
+        return await self._insert_entry(
+            tenant_id=case.tenant_id,
+            case_id=case.id,
+            kind=kind,
+            actor=actor,
+            actor_user_id=actor_user_id,
+            payload=payload,
+            now=now,
+        )
+
+    async def _insert_frozen(
+        self,
+        *,
+        case: CaseDTO,
+        milestone: CaseEntryDTO,
+        now: datetime,
+        stand: dict | None,
+        book_values: dict | None,
+    ) -> CaseEntryDTO:
+        """Build the whole-file snapshot and insert the ``frozen`` entry for ``milestone``.
+
+        Built at call time, so it shows every write the transaction has made
+        before it — the column transition and the milestone entry included.
+        Written by ``system`` with no acting user, at the milestone's
+        ``now``. Transaction-agnostic.
+        """
+        snapshot = await build_file_snapshot(
+            self._session, case.id, stand=stand, book_values=book_values
+        )
+        return await self._insert_entry(
+            tenant_id=case.tenant_id,
+            case_id=case.id,
+            kind="frozen",
+            actor="system",
+            actor_user_id=None,
+            payload={
+                "milestone_entry_id": str(milestone.id),
+                "milestone_kind": milestone.kind,
+                "snapshot_version": SNAPSHOT_VERSION,
+                "frozen_at": now.isoformat(),
+                "file": snapshot,
+            },
+            now=now,
+        )
+
+    async def _milestone(
+        self,
+        *,
+        case: CaseDTO,
+        kind: str,
+        actor: str,
+        actor_user_id: UUID | None,
+        payload: dict,
+        now: datetime,
+        stand: dict | None,
+        book_values: dict | None,
+    ) -> tuple[CaseEntryDTO, CaseEntryDTO]:
+        """Write a milestone pair: the milestone entry, then its ``frozen`` snapshot.
+
+        Transaction-agnostic like :meth:`_insert_entry`: the caller's
+        transaction carries both rows and any column write made before them,
+        so the snapshot shows the state the milestone produced.
+
+        Returns:
+            ``(milestone, frozen)``.
+        """
+        milestone = await self._insert_milestone(
+            case=case,
+            kind=kind,
+            actor=actor,
+            actor_user_id=actor_user_id,
+            payload=payload,
+            now=now,
+        )
+        frozen = await self._insert_frozen(
+            case=case, milestone=milestone, now=now, stand=stand, book_values=book_values
+        )
+        return milestone, frozen
+
     async def _attempt_create(
         self,
         *,
@@ -279,8 +377,9 @@ class CaseRepository(BaseRepository):
         due_on: date | None,
         framing: str | None,
         now: datetime,
+        stand: dict | None = None,
     ) -> CaseDTO:
-        """One case-creation attempt: the case row plus its ``opened`` entry.
+        """One case-creation attempt: the case row plus its ``opened`` pair.
 
         Wrapped in a SAVEPOINT so a case-number collision rolls back just
         this attempt, leaving the caller's transaction intact for the retry.
@@ -312,18 +411,19 @@ class CaseRepository(BaseRepository):
             row = (await self._session.execute(case_stmt)).one()
             case_dto = CaseDTO(**row._mapping)
 
-            # The mandatory first timeline entry. The opened entry is
-            # attributed to a user only when a human PM opened the case;
-            # system / shirley openings carry no actor_user_id.
+            # The mandatory first milestone and its snapshot. The opened
+            # entry is attributed to a user only when a human PM opened the
+            # case; system / shirley openings carry no actor_user_id.
             opened_actor_user = opened_by if opened_actor == "pm" else None
-            await self._insert_entry(
-                tenant_id=active_tenant,
-                case_id=case_dto.id,
+            await self._milestone(
+                case=case_dto,
                 kind="opened",
                 actor=opened_actor,
                 actor_user_id=opened_actor_user,
                 payload=opened_payload or {},
                 now=now,
+                stand=stand,
+                book_values=None,
             )
         return case_dto
 
@@ -340,13 +440,15 @@ class CaseRepository(BaseRepository):
         due_on: date | None = None,
         framing: str | None = None,
         now: datetime,
+        stand: dict | None = None,
     ) -> CaseDTO:
         """Open a case — the one creation path for both entry points.
 
         Manual creation passes a ``description`` and no ``finding_id``;
         open-from-finding passes a ``finding_id`` (and may leave
-        ``description`` null). Either way exactly one ``opened`` timeline
-        entry is written in the same transaction, carrying ``opened_payload``
+        ``description`` null). Either way exactly one ``opened`` entry and
+        its ``frozen`` snapshot are written in the same transaction (the
+        milestone pair, ADR-0138 §2), the entry carrying ``opened_payload``
         (opaque JSONB — the route layer later freezes materiality-at-opening
         into it; this layer treats it as opaque). ADR-0107 §3: two entry
         points, one object.
@@ -379,7 +481,9 @@ class CaseRepository(BaseRepository):
             due_on: The case's own due date, or ``None``.
             framing: ``question`` / ``task`` (ADR-0138 §3), or ``None``.
             now: The timestamp for ``opened_at``, ``updated_at`` and the
-                ``opened`` entry.
+                ``opened`` pair.
+            stand: Where we stand as rendered, for the snapshot, or
+                ``None`` (D-CS-B-8).
 
         Returns:
             The newly created :class:`CaseDTO`.
@@ -409,6 +513,7 @@ class CaseRepository(BaseRepository):
                     due_on=due_on,
                     framing=framing,
                     now=now,
+                    stand=stand,
                 )
             except IntegrityError as exc:
                 # Retry once on a case-number collision; propagate anything
@@ -574,8 +679,8 @@ class CaseRepository(BaseRepository):
         Vocabulary is validated before any SQL runs. The milestone-only
         kinds — ``closed``, ``handed_over``, ``waiting_set``,
         ``waiting_lifted`` and ``frozen`` — are rejected here: they are
-        written only by the milestone path (:meth:`close` today, the
-        milestone + freeze transaction of P-CS-1b). ``note``, ``pin`` and
+        written only by the milestone path (:meth:`wait`,
+        :meth:`lift_wait`, :meth:`hand_over`, :meth:`close`). ``note``, ``pin`` and
         ``decision_record`` stay writable until their last route writer is
         replaced (D-CS-B-1); ``system_line`` is the system lines' kind
         (ADR-0138 §7).
@@ -637,14 +742,63 @@ class CaseRepository(BaseRepository):
             now=now,
         )
 
-    async def list_entries(self, case_id: UUID) -> list[CaseEntryDTO]:
-        """Return a case's timeline, oldest ``created_at`` first."""
+    async def list_entries(
+        self, case_id: UUID, *, include_frozen: bool = False
+    ) -> list[CaseEntryDTO]:
+        """Return a case's record, oldest ``created_at`` first.
+
+        The ``frozen`` snapshots are left out by default (D-CS-B-6): a
+        milestone and its snapshot render as one record row, and the
+        snapshot is reached through :meth:`get_frozen_for` /
+        :meth:`latest_frozen`. With ``include_frozen=True`` every row is
+        returned and a snapshot follows its milestone (same ``created_at``,
+        ``frozen`` sorted last within the instant).
+
+        Args:
+            case_id: The case.
+            include_frozen: Also return the ``frozen`` rows.
+        """
+        stmt = select(CaseEntry).where(CaseEntry.case_id == case_id)
+        if include_frozen:
+            stmt = stmt.order_by(CaseEntry.created_at.asc(), (CaseEntry.kind == "frozen").asc())
+        else:
+            stmt = stmt.where(CaseEntry.kind != "frozen").order_by(CaseEntry.created_at.asc())
+        result = await self._session.execute(stmt)
+        return [_entry_to_dto(model) for model in result.scalars().all()]
+
+    async def get_frozen_for(self, milestone_entry_id: UUID) -> CaseEntryDTO | None:
+        """Return the ``frozen`` snapshot written with a milestone, or ``None``.
+
+        Matches ``payload->>'milestone_entry_id'`` against the id as text —
+        unindexed, which is fine: a case has few milestones. ``None`` for an
+        entry that is no milestone, and for another tenant's id (RLS).
+        """
         result = await self._session.execute(
             select(CaseEntry)
-            .where(CaseEntry.case_id == case_id)
-            .order_by(CaseEntry.created_at.asc())
+            .where(
+                CaseEntry.kind == "frozen",
+                CaseEntry.payload["milestone_entry_id"].astext == str(milestone_entry_id),
+            )
+            .limit(1)
         )
-        return [_entry_to_dto(model) for model in result.scalars().all()]
+        model = result.scalar_one_or_none()
+        return _entry_to_dto(model) if model is not None else None
+
+    async def latest_frozen(self, case_id: UUID) -> CaseEntryDTO | None:
+        """Return the case's newest ``frozen`` snapshot, or ``None``.
+
+        Newest by ``created_at``. Two freezes never share an instant: one
+        milestone writes one snapshot, and a transaction that writes two
+        milestones (the lift + close of P-CS-3c) passes two ``now`` values.
+        """
+        result = await self._session.execute(
+            select(CaseEntry)
+            .where(CaseEntry.case_id == case_id, CaseEntry.kind == "frozen")
+            .order_by(CaseEntry.created_at.desc())
+            .limit(1)
+        )
+        model = result.scalar_one_or_none()
+        return _entry_to_dto(model) if model is not None else None
 
     async def close(
         self,
@@ -653,14 +807,17 @@ class CaseRepository(BaseRepository):
         closed_by: UUID,
         closing_note: str,
         now: datetime,
+        stand: dict | None = None,
+        book_values: dict | None = None,
     ) -> CaseDTO:
         """Close an open case — the close trio, once (ADR-0107 §4, ADR-0138 §4).
 
         In one transaction: sets ``state='closed'``, ``closed_by``,
         ``closed_at=now``, the stripped ``closing_note`` and
-        ``updated_at=now``, then appends the
-        ``closed`` timeline entry (``actor='pm'``, ``actor_user_id=closed_by``,
-        payload carrying the note). No Journal is written — the Journal is a
+        ``updated_at=now``, then writes the milestone pair — the ``closed``
+        entry (``actor='pm'``, ``actor_user_id=closed_by``, payload carrying
+        the note) and its ``frozen`` snapshot of the file as closed — the
+        "At close" record (ADR-0138 §2). No Journal is written — the Journal is a
         projection that gains closed cases as a render-time source in C4
         (Gate-C0 decision B); no later prompt should reinvent a journal write
         here.
@@ -673,7 +830,10 @@ class CaseRepository(BaseRepository):
             case_id: The case to close.
             closed_by: The user closing the case.
             closing_note: The mandatory closing note (ADR-0107 §4).
-            now: The ``closed_at`` timestamp and the ``closed`` entry's time.
+            now: The ``closed_at`` timestamp and the ``closed`` pair's time.
+            stand: Where we stand as rendered, for the snapshot, or ``None``.
+            book_values: Resolved ``book`` figure values for the snapshot,
+                or ``None`` (D-CS-B-8).
 
         Returns:
             The closed :class:`CaseDTO`.
@@ -720,21 +880,22 @@ class CaseRepository(BaseRepository):
         row = (await self._session.execute(upd)).one()
         closed = CaseDTO(**row._mapping)
 
-        await self._insert_entry(
-            tenant_id=case.tenant_id,
-            case_id=case_id,
+        await self._milestone(
+            case=closed,
             kind="closed",
             actor="pm",
             actor_user_id=closed_by,
             payload={"closing_note": note},
             now=now,
+            stand=stand,
+            book_values=book_values,
         )
         return closed
 
     # ------------------------------------------------------------------
     # The working-file columns, the owner and the state transitions
-    # (ADR-0138 §4, §13, Object model). Column writes only: the milestone
-    # entries and their frozen snapshots around them are P-CS-1b's.
+    # (ADR-0138 §4, §13, Object model). The owner and the states move only
+    # through the milestone methods below; their column writes are private.
     # ------------------------------------------------------------------
 
     async def _write_case(self, case_id: UUID, values: dict[str, Any]) -> CaseDTO:
@@ -855,50 +1016,147 @@ class CaseRepository(BaseRepository):
         values["updated_at"] = now
         return await self._write_case(case_id, values)
 
-    async def set_owner(self, case_id: UUID, *, owner_user_id: UUID, now: datetime) -> CaseDTO:
+    async def _set_owner_column(
+        self, case: CaseDTO, *, owner_user_id: UUID, now: datetime
+    ) -> CaseDTO:
         """Set the owner of an open or waiting case (ADR-0138 §13).
 
-        A column write only — the ``handed_over`` milestone and its freeze
-        are P-CS-1b's. ``opened_by`` is left as history.
-
-        Raises:
-            CaseStateInvalid: If no such case exists in the active tenant.
-            CaseClosedError: If the case is closed.
+        Column write; called by the milestone methods only (:meth:`hand_over`).
+        ``opened_by`` is left as history.
         """
-        await self._require_mutable(case_id, action="hand over")
-        return await self._write_case(case_id, {"owner_user_id": owner_user_id, "updated_at": now})
+        assert case.state in _MUTABLE_STATES, f"cannot hand over a {case.state} case"
+        return await self._write_case(case.id, {"owner_user_id": owner_user_id, "updated_at": now})
 
-    async def set_waiting(self, case_id: UUID, *, wait_until: date, now: datetime) -> CaseDTO:
+    async def _set_waiting_columns(
+        self, case: CaseDTO, *, wait_until: date, now: datetime
+    ) -> CaseDTO:
         """Move an open case to ``waiting`` until ``wait_until`` (ADR-0138 §4).
 
-        A column transition only — the ``waiting_set`` milestone and its
-        freeze are P-CS-1b's.
+        Column write; called by the milestone methods only (:meth:`wait`).
+        """
+        assert case.state == "open", f"cannot set a {case.state} case waiting"
+        return await self._write_case(
+            case.id, {"state": "waiting", "wait_until": wait_until, "updated_at": now}
+        )
+
+    async def _lift_waiting_columns(self, case: CaseDTO, *, now: datetime) -> CaseDTO:
+        """Return a waiting case to ``open`` and clear ``wait_until`` (ADR-0138 §4).
+
+        Column write; called by the milestone methods only (:meth:`lift_wait`).
+        """
+        assert case.state == "waiting", f"cannot lift a {case.state} case"
+        return await self._write_case(
+            case.id, {"state": "open", "wait_until": None, "updated_at": now}
+        )
+
+    async def wait(
+        self,
+        case_id: UUID,
+        *,
+        wait_until: date,
+        by: UUID,
+        now: datetime,
+        note: str | None = None,
+        stand: dict | None = None,
+        book_values: dict | None = None,
+    ) -> CaseDTO:
+        """Set an open case waiting until ``wait_until`` — the ``waiting_set`` milestone.
+
+        In the caller's transaction: the state moves to ``waiting`` with
+        ``wait_until`` (ADR-0138 §4), then the ``waiting_set`` entry
+        (``actor='pm'``, payload ``{wait_until, note}``) and its ``frozen``
+        snapshot are written. The repository does not judge the date; the
+        route validates it.
+
+        Args:
+            case_id: The case.
+            wait_until: The date the case returns to open.
+            by: The PM setting the wait.
+            now: ``updated_at`` and the pair's time.
+            note: Optional note on what the case waits for.
+            stand: Where we stand as rendered, for the snapshot, or ``None``.
+            book_values: Resolved ``book`` figure values, or ``None``.
+
+        Returns:
+            The updated :class:`CaseDTO`.
 
         Raises:
             CaseStateInvalid: If no such case exists in the active tenant, or
                 the case is not open.
+            CaseClosedError: If the case is closed.
         """
-        case = await self.get(case_id)
-        if case is None or case.state != "open":
-            state = "absent" if case is None else case.state
+        case = await self._require_mutable(case_id, action="set waiting")
+        if case.state != "open":
             raise CaseStateInvalid(
-                f"Case {case_id} is {state}; only an open case can be set waiting.",
+                f"Case {case_id} is {case.state}; only an open case can be set waiting.",
                 field="state",
             )
-        return await self._write_case(
-            case_id, {"state": "waiting", "wait_until": wait_until, "updated_at": now}
+        waiting = await self._set_waiting_columns(case, wait_until=wait_until, now=now)
+        await self._milestone(
+            case=waiting,
+            kind="waiting_set",
+            actor="pm",
+            actor_user_id=by,
+            payload={"wait_until": wait_until.isoformat(), "note": note},
+            now=now,
+            stand=stand,
+            book_values=book_values,
         )
+        return waiting
 
-    async def lift_waiting(self, case_id: UUID, *, now: datetime) -> CaseDTO:
-        """Return a waiting case to ``open`` and clear ``wait_until`` (ADR-0138 §4).
+    async def lift_wait(
+        self,
+        case_id: UUID,
+        *,
+        now: datetime,
+        by: UUID | None = None,
+        reason: str = "manual",
+        event: dict | None = None,
+        stand: dict | None = None,
+        book_values: dict | None = None,
+    ) -> CaseDTO:
+        """Return a waiting case to open — the ``waiting_lifted`` milestone.
 
-        A column transition only — the ``waiting_lifted`` milestone and its
-        freeze are P-CS-1b's.
+        The PM lifts by hand (``reason='manual'``, ``by`` given, ``actor='pm'``);
+        the program lifts on the date or on an event (``reason='date'`` /
+        ``'event'``, no ``by``, ``actor='system'``) — ADR-0138 §4, D-CS-M-4.
+        The payload is ``{reason, wait_until, event}`` with the date that was
+        set. The waking event's own system line is the caller's, not written
+        here.
+
+        Args:
+            case_id: The case.
+            now: ``updated_at`` and the pair's time.
+            by: The PM lifting the wait (``manual`` only).
+            reason: ``manual`` · ``date`` · ``event``.
+            event: The waking event, opaque and non-empty (``event`` only).
+            stand: Where we stand as rendered, for the snapshot, or ``None``.
+            book_values: Resolved ``book`` figure values, or ``None``.
+
+        Returns:
+            The updated :class:`CaseDTO`.
 
         Raises:
+            CaseWorkingFileInvalid: On a reason outside the vocabulary, or a
+                ``by`` / ``event`` that does not fit the reason.
             CaseStateInvalid: If no such case exists in the active tenant, or
                 the case is not waiting.
         """
+        if reason not in _LIFT_REASONS:
+            raise CaseWorkingFileInvalid(
+                f"Invalid lift reason {reason!r}; expected one of {sorted(_LIFT_REASONS)}.",
+                field="reason",
+            )
+        if reason == "manual" and by is None:
+            raise CaseWorkingFileInvalid("A manual lift names the PM (by).", field="by")
+        if reason != "manual" and by is not None:
+            raise CaseWorkingFileInvalid(
+                f"A {reason!r} lift is the program's; it names no PM (by).", field="by"
+            )
+        if reason == "event" and not event:
+            raise CaseWorkingFileInvalid("An 'event' lift carries the event.", field="event")
+        if reason != "event" and event is not None:
+            raise CaseWorkingFileInvalid(f"A {reason!r} lift carries no event.", field="event")
         case = await self.get(case_id)
         if case is None or case.state != "waiting":
             state = "absent" if case is None else case.state
@@ -906,9 +1164,162 @@ class CaseRepository(BaseRepository):
                 f"Case {case_id} is {state}; only a waiting case can be lifted.",
                 field="state",
             )
-        return await self._write_case(
-            case_id, {"state": "open", "wait_until": None, "updated_at": now}
+        lifted = await self._lift_waiting_columns(case, now=now)
+        await self._milestone(
+            case=lifted,
+            kind="waiting_lifted",
+            actor="pm" if reason == "manual" else "system",
+            actor_user_id=by,
+            payload={
+                "reason": reason,
+                "wait_until": case.wait_until.isoformat() if case.wait_until else None,
+                "event": event,
+            },
+            now=now,
+            stand=stand,
+            book_values=book_values,
         )
+        return lifted
+
+    async def hand_over(
+        self,
+        case_id: UUID,
+        *,
+        to_user_id: UUID,
+        by: UUID,
+        now: datetime,
+        note: str | None = None,
+        stand: dict | None = None,
+        book_values: dict | None = None,
+    ) -> CaseDTO:
+        """Hand an open or waiting case to another owner — the ``handed_over`` milestone.
+
+        ADR-0138 §13: the owner changes, ``opened_by`` stays as history; the
+        ``handed_over`` entry (``actor='pm'``, payload ``{from_user_id,
+        to_user_id, note}``) and its ``frozen`` snapshot are written in the
+        caller's transaction.
+
+        Args:
+            case_id: The case.
+            to_user_id: The new owner.
+            by: The PM handing over.
+            now: ``updated_at`` and the pair's time.
+            note: Optional hand-over note.
+            stand: Where we stand as rendered, for the snapshot, or ``None``.
+            book_values: Resolved ``book`` figure values, or ``None``.
+
+        Returns:
+            The updated :class:`CaseDTO`.
+
+        Raises:
+            CaseWorkingFileInvalid: If ``to_user_id`` is the current owner.
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed.
+        """
+        case = await self._require_mutable(case_id, action="hand over")
+        if to_user_id == case.owner_user_id:
+            raise CaseWorkingFileInvalid(
+                f"User {to_user_id} already owns case {case_id}.", field="to_user_id"
+            )
+        handed = await self._set_owner_column(case, owner_user_id=to_user_id, now=now)
+        await self._milestone(
+            case=handed,
+            kind="handed_over",
+            actor="pm",
+            actor_user_id=by,
+            payload={
+                "from_user_id": str(case.owner_user_id),
+                "to_user_id": str(to_user_id),
+                "note": note,
+            },
+            now=now,
+            stand=stand,
+            book_values=book_values,
+        )
+        return handed
+
+    async def record_decision(
+        self,
+        case_id: UUID,
+        *,
+        recorded_by: UUID,
+        now: datetime,
+        stand: dict | None = None,
+        book_values: dict | None = None,
+    ) -> CaseEntryDTO:
+        """Record the case's draft decision — the ``decision_record`` milestone.
+
+        ADR-0138 §14: the draft needs a chosen option and a rationale
+        (D-CS-B-10); ``decided_by`` / ``decided_at`` stay optional. In the
+        caller's transaction, in this order: the ``decision_record`` entry
+        (``actor='pm'``, the decision as payload), then the draft is marked
+        recorded against that entry (immutable from then on, ``updated_at =
+        now``), then the ``frozen`` snapshot — so the snapshot shows the
+        decision under ``recorded`` and no draft. A case may record more
+        than one decision; each is its own milestone pair (D-CS-M-3).
+
+        Args:
+            case_id: The case.
+            recorded_by: The PM recording the decision.
+            now: ``recorded_at``, ``updated_at`` and the pair's time.
+            stand: Where we stand as rendered, for the snapshot, or ``None``.
+            book_values: Resolved ``book`` figure values, or ``None``.
+
+        Returns:
+            The ``decision_record`` entry.
+
+        Raises:
+            CaseWorkingFileInvalid: If there is no draft, or it has no chosen
+                option or an empty rationale.
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed.
+        """
+        case = await self._require_mutable(case_id, action="record a decision on")
+        decisions = CaseDecisionRepository(self._session)
+        draft = await decisions.get_draft(case_id)
+        if draft is None:
+            raise CaseWorkingFileInvalid(
+                f"Case {case_id} has no draft decision to record.", field="decision"
+            )
+        if draft.chosen_key is None:
+            raise CaseWorkingFileInvalid(
+                "A decision is recorded with a chosen option.", field="chosen_key"
+            )
+        if not (draft.rationale or "").strip():
+            raise CaseWorkingFileInvalid(
+                "A decision is recorded with a rationale.", field="rationale"
+            )
+        chosen_text = next(
+            (option["text"] for option in draft.options if option["key"] == draft.chosen_key),
+            None,
+        )
+        if chosen_text is None:
+            raise CaseWorkingFileInvalid(
+                f"chosen_key {draft.chosen_key!r} names no option.", field="chosen_key"
+            )
+        milestone = await self._insert_milestone(
+            case=case,
+            kind="decision_record",
+            actor="pm",
+            actor_user_id=recorded_by,
+            payload={
+                "decision_id": str(draft.id),
+                "options": draft.options,
+                "chosen_key": draft.chosen_key,
+                "chosen_text": chosen_text,
+                "rationale": draft.rationale,
+                "decided_by": draft.decided_by,
+                "decided_at": draft.decided_at.isoformat() if draft.decided_at else None,
+            },
+            now=now,
+        )
+        await decisions.mark_recorded(
+            draft.id, recorded_by=recorded_by, record_entry_id=milestone.id, now=now
+        )
+        await self._insert_frozen(
+            case=case, milestone=milestone, now=now, stand=stand, book_values=book_values
+        )
+        return milestone
 
     async def list_due_for_wake(self, *, today: date) -> list[CaseDTO]:
         """Return waiting cases whose ``wait_until`` is on or before ``today``.

@@ -397,37 +397,45 @@ class DuplicateCashPositionError(PlanWorldError):
 class CaseStateInvalid(ValidationError):
     """Raised for a bad case state, or a state-dependent op with no better fit.
 
-    Per ADR-0107 §2 a case's ``state`` is ``open`` / ``closed`` (lowercase
-    TEXT, application-enforced). This covers a value outside that vocabulary
-    and the residual "operation on a case in the wrong state" where a more
-    specific sibling (:class:`CaseClosedError`) does not apply — for example
-    an entry-append or close aimed at a case id that does not exist in the
-    active tenant context (RLS having hidden it).
+    Per ADR-0138 §4 a case's ``state`` is ``open`` / ``waiting`` /
+    ``closed`` (lowercase TEXT, application-enforced). This covers a value
+    outside that vocabulary and the residual "operation on a case in the
+    wrong state" where a more specific sibling (:class:`CaseClosedError`)
+    does not apply — a wait set on a case that is not open, a wait lifted on
+    a case that is not waiting, a waiting case closed without the wait lifted
+    first, or any write aimed at a case id that does not exist in the active
+    tenant context (RLS having hidden it).
     """
 
 
 class CaseClosedError(ValidationError):
     """Raised when any write targets an already-closed case.
 
-    Per ADR-0107 §4 closed cases are immutable **in their entirety** — no
-    entry append, no attachment create, no re-close, no reopen. The close
-    transition is the single permitted mutation of a case row (ADR-0107 §2),
-    and once taken the case is a read-only record. Reports a conflict with
-    the case's current state (the :class:`ValuationModeError` shape), not a
-    malformed field.
+    Closed cases are immutable in both layers — the record and the working
+    file (ADR-0138 §2): no entry append, no attachment create, no
+    working-file write, no milestone, no re-close, no reopen. The permitted
+    mutations of a case row are the working-file columns while open or
+    waiting, the state transitions, the owner at hand-over and the close
+    trio once; after the close the case is read-only. Reports a conflict
+    with the case's current state (the :class:`ValuationModeError` shape),
+    not a malformed field.
     """
 
 
 class CaseEntryKindInvalid(ValidationError):
     """Raised when a timeline entry carries a kind outside the vocabulary.
 
-    Per ADR-0107 §2 an entry's ``kind`` is one of ``opened`` / ``note`` /
-    ``pin`` / ``decision_record`` / ``closed``. Also raised when
-    ``kind='closed'`` reaches
+    Per ADR-0138 (§2, Object model) an entry's ``kind`` is one of
+    ``opened`` / ``handed_over`` / ``waiting_set`` / ``waiting_lifted`` /
+    ``decision_record`` / ``closed`` / ``frozen`` / ``system_line``, with the
+    legacy ``note`` / ``pin`` still accepted until their last writer is
+    replaced. Also raised when a milestone-only kind (``closed``,
+    ``handed_over``, ``waiting_set``, ``waiting_lifted``) or ``frozen``
+    reaches
     :meth:`~core.repositories.case_repository.CaseRepository.append_entry`:
-    the ``closed`` entry is written **only** by ``close()``, so accepting it
-    on the generic append path would let a case be marked closed without the
-    state transition that word implies.
+    those are written **only** by the milestone path, together with their
+    state or owner transition and the snapshot, so accepting them on the
+    generic append path would record a transition that never happened.
     """
 
 

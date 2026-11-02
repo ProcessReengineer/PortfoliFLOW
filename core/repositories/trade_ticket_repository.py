@@ -587,6 +587,29 @@ class TradeTicketRepository(BaseRepository):
         result = await self._session.execute(stmt.order_by(TradeTicket.ticket_number))
         return [_ticket_to_dto(model) for model in result.scalars().all()]
 
+    async def list_by_case(self, case_id: UUID) -> list[TradeTicketDTO]:
+        """Return the tenant's tickets that carry ``case_id``, newest number first.
+
+        The case-side read-back of a ticket's ``case_id`` (ADR-0128 §7):
+        Where we stand lists the case's tickets with their state (ADR-0138
+        §5, §6). Every status is returned — a cancelled or reversed ticket
+        is part of what happened on the case. Ordered by ``ticket_number``
+        descending, the blotter's order.
+
+        Args:
+            case_id: The case whose tickets to list.
+
+        Returns:
+            The case's tickets, highest ``ticket_number`` first. Empty when
+            none carries the case (or the case is another tenant's — RLS).
+        """
+        result = await self._session.execute(
+            select(TradeTicket)
+            .where(TradeTicket.case_id == case_id)
+            .order_by(TradeTicket.ticket_number.desc())
+        )
+        return [_ticket_to_dto(model) for model in result.scalars().all()]
+
     async def update_draft(self, ticket_id: UUID, **fields: Any) -> TradeTicketDTO:
         """Update a ticket that is still in ``draft``.
 

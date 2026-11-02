@@ -34,6 +34,8 @@ Coverage
   columns, honours the exclusion, and stays tenant-scoped.
 * TT-11: ``list_by_status``'s History filter set (A-19) — one test per
   keyword parameter, one combining them, and the ``kind`` refusal.
+* TT-12: ``list_by_case`` reads a case's tickets back — every status,
+  newest number first, no other case's ticket (ADR-0138 §5).
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from core.exceptions import TicketNotFound, TicketStateInvalid
 from core.repositories import (
     AssetClassRepository,
+    CaseRepository,
     InvestmentRepository,
     UserRepository,
     tenant_context,
@@ -1222,3 +1225,42 @@ async def test_tt11_list_by_status_combines_every_filter(
         )
 
     assert [t.id for t in found] == [wanted.id]
+
+
+# ---------------------------------------------------------------------------
+# TT-12: list_by_case — the case-side read-back (ADR-0138 §5)
+# ---------------------------------------------------------------------------
+
+
+async def test_tt12_list_by_case_reads_every_status_newest_first(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A case's tickets come back in every status, newest number first, and alone.
+
+    Where we stand lists what was traded on a case (ADR-0138 §6); a
+    cancelled ticket is part of that history, and another case's ticket or a
+    ticket without a case is not.
+    """
+    tenant_id = await seed_tenant("TT-12")
+    actor, instrument, _ = await _seed_actor_and_investments(
+        app_engine, tenant_id, email="pm@tt12.example"
+    )
+
+    async with tenant_context(app_engine, tenant_id, user_id=actor.id) as session:
+        cases = CaseRepository(session)
+        case = await cases.create(title="TT-12 case", opened_by=actor.id, now=_T0)
+        other_case = await cases.create(title="TT-12 other", opened_by=actor.id, now=_T0)
+        repo = TradeTicketRepository(session)
+        first = await _draft(repo, actor.id, investment_id=instrument.id, case_id=case.id)
+        await _draft(repo, actor.id, investment_id=instrument.id, case_id=other_case.id)
+        await _draft(repo, actor.id, investment_id=instrument.id)
+        second = await _draft(repo, actor.id, case_id=case.id)
+        await repo.set_status(second.id, status="cancelled", now=_T0, cancel_reason="test")
+
+        found = await repo.list_by_case(case.id)
+        nothing = await repo.list_by_case(uuid4())
+
+    assert [t.id for t in found] == [second.id, first.id]
+    assert [t.status for t in found] == ["cancelled", "draft"]
+    assert all(t.case_id == case.id for t in found)
+    assert nothing == []

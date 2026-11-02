@@ -53,6 +53,7 @@ import re
 
 import services.analytics.irene_floor as irene_floor_module
 import services.analytics.signal_watch as signal_watch_module
+import services.cases.stand as cases_stand_module
 import services.irene.briefing_material as briefing_material_module
 import services.irene.briefing_step as briefing_step_module
 import services.irene.beat as beat_module
@@ -112,8 +113,12 @@ _HARDCODED_WARN = re.compile(r"_WARN_THRESHOLD_PCT\s*[:=]|Decimal\(\"90")
 
 
 def test_no_beat_side_consumer_reads_the_effective_watchpoints_itself() -> None:
-    """The watchpoint maps arrive resolved, or it is a second resolution."""
-    for module in _BEAT_SIDE:
+    """The watchpoint maps arrive resolved, or it is a second resolution.
+
+    Where we stand (ADR-0138 §6) reads the same resolution on the web side
+    and is held to the same rule.
+    """
+    for module in (*_BEAT_SIDE, cases_stand_module):
         assert "effective_watchpoints(" not in inspect.getsource(module), (
             f"{module.__name__} reads watchpoints directly; the overlay and "
             "signal maps arrive through resolve_watch_desk (ADR-0116 §1)."

@@ -17,7 +17,19 @@ from core.models.audit_log import AuditLog
 from core.models.base import Base
 from core.models.benchmark import Benchmark
 from core.models.benchmark_observation import BenchmarkObservation
-from core.models.case import Case, CaseAttachment, CaseEntry
+from core.models.case import (
+    Case,
+    CaseAttachment,
+    CaseConversation,
+    CaseDecision,
+    CaseEntry,
+    CaseFigure,
+    CaseInvestment,
+    CaseKept,
+    CasePoint,
+    CaseProposal,
+    CaseThread,
+)
 from core.models.country import Country
 from core.models.data_store_entry import DataStoreEntry
 from core.models.data_upload import DataUpload, DataUploadSheet
@@ -65,7 +77,15 @@ __all__ = [
     "BenchmarkObservation",
     "Case",
     "CaseAttachment",
+    "CaseConversation",
+    "CaseDecision",
     "CaseEntry",
+    "CaseFigure",
+    "CaseInvestment",
+    "CaseKept",
+    "CasePoint",
+    "CaseProposal",
+    "CaseThread",
     "Country",
     "DataStoreEntry",
     "DataUpload",

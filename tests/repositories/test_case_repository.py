@@ -27,11 +27,25 @@ Coverage
   newest first, open cases absent, exclusive ``before``, inclusive
   ``start``, the cap — and filters by the originating finding's family
   through the ``finding_id`` join (the Journal's case source, ADR-0133 §5).
+* CR-10: ``create`` sets the owner and ``updated_at``; ``framing`` /
+  ``counterparty`` / ``due_on`` round-trip; the framing vocabulary
+  (ADR-0138 §3, §13).
+* CR-11: ``update_working_file`` — partial writes, the empty-title guard,
+  the ``updated_at`` bump, the closed-case refusal.
+* CR-12: the states open · waiting · closed (ADR-0138 §4, D-CS-B-2) —
+  set / lift, the lists, the wake-up read, close and append on a waiting
+  case.
+* CR-13: the extended kind vocabulary — milestone-only kinds refused on the
+  generic path, ``system_line`` accepted, ``note`` still writable
+  (D-CS-B-1).
+* CR-14: ``search_working_file`` — hits across the working file, the DMS
+  boundary held (ADR-0138 §11), the state filter, escaping.
+* CR-15: ``set_owner`` — the owner changes, ``opened_by`` stays.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
@@ -43,6 +57,8 @@ from core.exceptions import (
     CaseClosedError,
     CaseClosingNoteMissing,
     CaseEntryKindInvalid,
+    CaseStateInvalid,
+    CaseWorkingFileInvalid,
 )
 from core.repositories import (
     IreneFindingRepository,
@@ -53,6 +69,13 @@ from core.repositories.case_attachment_repository import (
     CaseAttachmentRepository,
 )
 from core.repositories.case_repository import CaseRepository
+from core.repositories.case_working_file_repository import (
+    CaseConversationRepository,
+    CaseDecisionRepository,
+    CaseFigureRepository,
+    CaseKeptRepository,
+    CaseThreadRepository,
+)
 
 _T0 = datetime(2026, 7, 21, 9, 0, tzinfo=timezone.utc)
 
@@ -713,3 +736,335 @@ async def test_cr09_list_closed_before_pages_and_filters_by_origin_family(
             for case in await repo.list_closed_before(before=far, limit=10, family="anlv")
         ] == ["From finding"]
         assert await repo.list_closed_before(before=far, limit=10, family="saa") == []
+
+
+# ---------------------------------------------------------------------------
+# CR-10: create — owner, updated_at and the working-file columns (ADR-0138)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr10_create_sets_owner_and_working_file_columns(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("CR-10")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr10.example")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(
+            title="Re-up Fund V?",
+            opened_by=user_id,
+            opened_actor="pm",
+            counterparty="Alpine Partners",
+            due_on=date(2026, 12, 15),
+            framing="task",
+            now=_T0,
+        )
+        bare = await repo.create(title="Bare", opened_by=user_id, opened_actor="pm", now=_T0)
+        with pytest.raises(CaseWorkingFileInvalid):
+            await repo.create(
+                title="Bad", opened_by=user_id, opened_actor="pm", framing="watch", now=_T0
+            )
+        read_back = await repo.get(case.id)
+
+    assert case.owner_user_id == case.opened_by == user_id
+    assert case.updated_at == _T0
+    assert (case.framing, case.counterparty, case.due_on) == (
+        "task",
+        "Alpine Partners",
+        date(2026, 12, 15),
+    )
+    assert case.wait_until is None
+    assert read_back == case
+    assert (bare.framing, bare.counterparty, bare.due_on) == (None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# CR-11: update_working_file
+# ---------------------------------------------------------------------------
+
+
+async def test_cr11_update_working_file(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-11")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr11.example")
+    later = _T0 + timedelta(days=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(
+            title="Question",
+            opened_by=user_id,
+            opened_actor="pm",
+            counterparty="GP",
+            now=_T0,
+        )
+        updated = await repo.update_working_file(
+            case.id, now=later, description="why now", framing="question"
+        )
+        assert updated.title == "Question"  # untouched
+        assert updated.counterparty == "GP"  # untouched
+        assert (updated.description, updated.framing) == ("why now", "question")
+        assert updated.updated_at == later
+
+        cleared = await repo.update_working_file(
+            case.id, now=later, title="  Renamed  ", counterparty=None, due_on=date(2027, 1, 31)
+        )
+        assert cleared.title == "Renamed"
+        assert cleared.counterparty is None
+        assert cleared.due_on == date(2027, 1, 31)
+        assert cleared.description == "why now"
+
+        with pytest.raises(CaseWorkingFileInvalid):
+            await repo.update_working_file(case.id, now=later, title="   ")
+        with pytest.raises(CaseWorkingFileInvalid):
+            await repo.update_working_file(case.id, now=later, framing="watch")
+
+        await repo.close(case.id, closed_by=user_id, closing_note="done", now=later)
+        with pytest.raises(CaseClosedError):
+            await repo.update_working_file(case.id, now=later, description="late")
+
+
+# ---------------------------------------------------------------------------
+# CR-12: open · waiting · closed
+# ---------------------------------------------------------------------------
+
+
+async def test_cr12_states_waiting(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-12")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr12.example")
+    today = date(2026, 11, 2)
+    tomorrow = today + timedelta(days=1)
+    minute = timedelta(minutes=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        a = await repo.create(title="A", opened_by=user_id, opened_actor="pm", now=_T0)
+        b = await repo.create(title="B", opened_by=user_id, opened_actor="pm", now=_T0 + minute)
+        c = await repo.create(title="C", opened_by=user_id, opened_actor="pm", now=_T0 + 2 * minute)
+
+        waiting_b = await repo.set_waiting(b.id, wait_until=today, now=_T0 + 10 * minute)
+        assert (waiting_b.state, waiting_b.wait_until) == ("waiting", today)
+        assert waiting_b.updated_at == _T0 + 10 * minute
+        await repo.set_waiting(c.id, wait_until=tomorrow, now=_T0 + 5 * minute)
+        with pytest.raises(CaseStateInvalid):
+            await repo.set_waiting(b.id, wait_until=tomorrow, now=_T0 + 11 * minute)
+
+        assert [x.id for x in await repo.list_open()] == [a.id]
+        assert [x.id for x in await repo.list_cases(state="waiting")] == [b.id, c.id]
+        assert [x.id for x in await repo.list_cases()] == [b.id, c.id, a.id]
+        assert [x.id for x in await repo.list_due_for_wake(today=today)] == [b.id]
+        with pytest.raises(CaseStateInvalid):
+            await repo.list_cases(state="pending")
+
+        # D-CS-B-2: a waiting case is closed by lifting the wait first.
+        with pytest.raises(CaseStateInvalid):
+            await repo.close(b.id, closed_by=user_id, closing_note="done", now=_T0 + 12 * minute)
+
+        # A waiting case is mutable like an open one.
+        entry = await repo.append_entry(
+            b.id,
+            kind="note",
+            actor="pm",
+            actor_user_id=user_id,
+            payload={},
+            now=_T0 + 12 * minute,
+        )
+        assert entry.kind == "note"
+
+        lifted = await repo.lift_waiting(c.id, now=_T0 + 13 * minute)
+        assert (lifted.state, lifted.wait_until) == ("open", None)
+        with pytest.raises(CaseStateInvalid):
+            await repo.lift_waiting(a.id, now=_T0 + 13 * minute)
+
+        await repo.close(a.id, closed_by=user_id, closing_note="done", now=_T0 + 14 * minute)
+        assert [x.id for x in await repo.list_cases(state="closed")] == [a.id]
+        with pytest.raises(CaseClosedError):
+            await repo.append_entry(
+                a.id,
+                kind="note",
+                actor="pm",
+                actor_user_id=user_id,
+                payload={},
+                now=_T0 + 15 * minute,
+            )
+
+
+# ---------------------------------------------------------------------------
+# CR-13: the extended kind vocabulary (D-CS-B-1)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr13_entry_kinds(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-13")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr13.example")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(title="Kinds", opened_by=user_id, opened_actor="pm", now=_T0)
+        for milestone_kind in ("frozen", "handed_over", "waiting_set", "waiting_lifted", "closed"):
+            with pytest.raises(CaseEntryKindInvalid):
+                await repo.append_entry(
+                    case.id,
+                    kind=milestone_kind,
+                    actor="pm",
+                    actor_user_id=user_id,
+                    payload={},
+                    now=_T0,
+                )
+        line = await repo.append_entry(
+            case.id,
+            kind="system_line",
+            actor="system",
+            actor_user_id=None,
+            payload={"event": "nav_restated"},
+            now=_T0 + timedelta(minutes=1),
+        )
+        note = await repo.append_entry(
+            case.id,
+            kind="note",
+            actor="pm",
+            actor_user_id=user_id,
+            payload={},
+            now=_T0 + timedelta(minutes=2),
+        )
+        entries = await repo.list_entries(case.id)
+
+    assert (line.kind, line.actor, line.actor_user_id) == ("system_line", "system", None)
+    assert note.kind == "note"
+    assert [e.kind for e in entries] == ["opened", "system_line", "note"]
+
+
+# ---------------------------------------------------------------------------
+# CR-14: search_working_file — the working file is searched, the DMS is not
+# ---------------------------------------------------------------------------
+
+
+async def test_cr14_search_working_file(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-14")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr14.example")
+    minute = timedelta(minutes=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+
+        async def new_case(title: str, offset: int):
+            return await repo.create(
+                title=title, opened_by=user_id, opened_actor="pm", now=_T0 + offset * minute
+            )
+
+        via_thread = await new_case("Case one", 1)
+        await CaseThreadRepository(session).add(
+            via_thread.id, title="T", prose="the zebrathread idea", now=_T0 + minute
+        )
+        via_figure = await new_case("Case two", 2)
+        await CaseFigureRepository(session).add(
+            via_figure.id, label="Quokka fee", source="typed", now=_T0 + 2 * minute
+        )
+        via_conversation = await new_case("Case three", 3)
+        await CaseConversationRepository(session).add(
+            via_conversation.id,
+            held_on=date(2026, 10, 1),
+            what_was_said="the wombat said so",
+            now=_T0 + 3 * minute,
+        )
+        via_decision = await new_case("Case four", 4)
+        await CaseDecisionRepository(session).upsert_draft(
+            via_decision.id, now=_T0 + 4 * minute, rationale="narwhal reasons"
+        )
+        via_excerpt = await new_case("Case five", 5)
+        attachment = await CaseAttachmentRepository(session).create(
+            via_excerpt.id,
+            filename="secretfilename.pdf",
+            mime_type="application/pdf",
+            size_bytes=13,
+            sha256="h",
+            content=b"bytescontents",
+            uploaded_by=user_id,
+            now=_T0 + 5 * minute,
+        )
+        await CaseKeptRepository(session).keep(
+            via_excerpt.id,
+            artifact="document_excerpt",
+            payload={"passage": "an ocelot clause", "page": 3},
+            kept_by=user_id,
+            via="keep",
+            attachment_id=attachment.id,
+            now=_T0 + 5 * minute,
+        )
+        closed = await new_case("Case six", 6)
+        await repo.close(
+            closed.id, closed_by=user_id, closing_note="pangolin outcome", now=_T0 + 6 * minute
+        )
+        chart = await new_case("Case seven", 7)
+        await CaseKeptRepository(session).keep(
+            chart.id,
+            artifact="chart_snapshot",
+            payload={"title": "lemurchart", "passage": "lemurchart"},
+            kept_by=user_id,
+            via="keep",
+            now=_T0 + 7 * minute,
+        )
+        removed = await new_case("Case eight", 8)
+        threads = CaseThreadRepository(session)
+        gone = await threads.add(removed.id, title="axolotl", now=_T0 + 8 * minute)
+        await threads.remove(gone.id, now=_T0 + 8 * minute)
+        percent = await new_case("100% sure", 9)
+        await new_case("1000 units", 10)
+
+        async def hits(query: str, state: str | None = None) -> list:
+            return [x.id for x in await repo.search_working_file(query, state=state)]
+
+        assert await hits("ZEBRATHREAD") == [via_thread.id]
+        assert await hits("quokka") == [via_figure.id]
+        assert await hits("wombat") == [via_conversation.id]
+        assert await hits("narwhal") == [via_decision.id]
+        assert await hits("ocelot") == [via_excerpt.id]
+        assert await hits("pangolin") == [closed.id]
+        # The DMS boundary (ADR-0138 §11): no filename, no bytes, no other
+        # kept payload field, no removed thread.
+        assert await hits("secretfilename") == []
+        assert await hits("bytescontents") == []
+        assert await hits("lemurchart") == []
+        assert await hits("axolotl") == []
+        # The state filter, the empty query, the escaped wildcard.
+        assert await hits("pangolin", state="closed") == [closed.id]
+        assert await hits("zebrathread", state="closed") == []
+        assert await hits("   ") == []
+        assert await hits("0%") == [percent.id]
+        # Ordering: updated_at descending.
+        assert await hits("Case") == [
+            removed.id,
+            chart.id,
+            closed.id,
+            via_excerpt.id,
+            via_decision.id,
+            via_conversation.id,
+            via_figure.id,
+            via_thread.id,
+        ]
+
+
+# ---------------------------------------------------------------------------
+# CR-15: set_owner (ADR-0138 §13)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr15_set_owner(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-15")
+    pm1 = await _seed_user(app_engine, tenant_id, "pm1@cr15.example")
+    pm2 = await _seed_user(app_engine, tenant_id, "pm2@cr15.example")
+    later = _T0 + timedelta(hours=3)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(title="Hand me over", opened_by=pm1, opened_actor="pm", now=_T0)
+        handed = await repo.set_owner(case.id, owner_user_id=pm2, now=later)
+        assert handed.owner_user_id == pm2
+        assert handed.opened_by == pm1
+        assert handed.updated_at == later
+        assert [x.id for x in await repo.list_cases(owner_user_id=pm2)] == [case.id]
+        assert await repo.list_cases(owner_user_id=pm1) == []
+
+        await repo.close(case.id, closed_by=pm2, closing_note="done", now=later)
+        with pytest.raises(CaseClosedError):
+            await repo.set_owner(case.id, owner_user_id=pm1, now=later)

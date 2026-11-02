@@ -15,11 +15,13 @@ Coverage
   counts.
 * CA-03: a closed (or missing) case rejects ``create``.
 * CA-04: cross-tenant invisibility (RLS smoke).
+* CA-05: a waiting case accepts ``create`` and the upload bumps
+  ``cases.updated_at``; a closed case still refuses (ADR-0138 §4, D-CS-B-5).
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -207,3 +209,54 @@ async def test_ca04_cross_tenant_invisibility(app_engine: AsyncEngine, seed_tena
         assert await arepo.count_for_case(case.id) == 0
         count = await session.execute(text("SELECT count(*) FROM case_attachments"))
         assert count.scalar_one() == 0
+
+
+# ---------------------------------------------------------------------------
+# CA-05: a waiting case accepts uploads; the upload bumps updated_at
+# ---------------------------------------------------------------------------
+
+
+async def test_ca05_waiting_case_accepts_and_bumps_updated_at(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("CA-05")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@ca05.example")
+    upload_at = _T0 + timedelta(days=2)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        waiting = await repo.create(title="Waiting", opened_by=user_id, opened_actor="pm", now=_T0)
+        await repo.set_waiting(waiting.id, wait_until=date(2027, 1, 1), now=_T0)
+        closed = await repo.create(title="Closed", opened_by=user_id, opened_actor="pm", now=_T0)
+        await repo.close(closed.id, closed_by=user_id, closing_note="done", now=_T0)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        arepo = CaseAttachmentRepository(session)
+        att = await arepo.create(
+            waiting.id,
+            filename="report.pdf",
+            mime_type="application/pdf",
+            size_bytes=1,
+            sha256="h",
+            content=b"x",
+            uploaded_by=user_id,
+            now=upload_at,
+        )
+        with pytest.raises(CaseClosedError):
+            await arepo.create(
+                closed.id,
+                filename="late.pdf",
+                mime_type="application/pdf",
+                size_bytes=1,
+                sha256="h",
+                content=b"x",
+                uploaded_by=user_id,
+                now=upload_at,
+            )
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        after = await CaseRepository(session).get(waiting.id)
+    assert att.case_id == waiting.id
+    assert after is not None
+    assert after.state == "waiting"
+    assert after.updated_at == upload_at

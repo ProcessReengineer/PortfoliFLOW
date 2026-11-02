@@ -22,11 +22,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, update
 
 from core.exceptions import CaseClosedError, CaseStateInvalid
 from core.models.case import Case, CaseAttachment
 from core.repositories.base import BaseRepository
+from core.repositories.case_repository import _MUTABLE_STATES
 
 _ATTACHMENT_METADATA_COLUMNS = (
     CaseAttachment.id,
@@ -75,10 +76,12 @@ class CaseAttachmentRepository(BaseRepository):
         uploaded_by: UUID,
         now: datetime,
     ) -> CaseAttachmentDTO:
-        """Store one attachment against an open case.
+        """Store one attachment against an open or waiting case.
 
-        The parent case must exist in the active tenant and be open — a
-        closed case is immutable in its entirety (ADR-0107 §4). ``tenant_id``
+        The parent case must exist in the active tenant and be open or
+        waiting — a closed case is immutable in its entirety (ADR-0107 §4,
+        ADR-0138 §2). The upload is a write to the working file, so it sets
+        ``cases.updated_at = now`` (D-CS-B-5). ``tenant_id``
         is denormalised from the parent case row (read alongside its state)
         so the write matches the RLS row-locality idiom without a second
         lookup.
@@ -93,7 +96,8 @@ class CaseAttachmentRepository(BaseRepository):
                 design (ADR-0107 §7).
             content: The raw file bytes.
             uploaded_by: The uploading user.
-            now: The ``created_at`` timestamp.
+            now: The ``created_at`` timestamp and the case's new
+                ``updated_at``.
 
         Returns:
             The stored :class:`CaseAttachmentDTO` (metadata only).
@@ -113,7 +117,7 @@ class CaseAttachmentRepository(BaseRepository):
                 field="state",
             )
         state, tenant_id = row
-        if state != "open":
+        if state not in _MUTABLE_STATES:
             raise CaseClosedError(
                 f"Case {case_id} is closed; closed cases are immutable (ADR-0107 §4)."
             )
@@ -134,6 +138,7 @@ class CaseAttachmentRepository(BaseRepository):
             .returning(*_ATTACHMENT_METADATA_COLUMNS)
         )
         created = (await self._session.execute(stmt)).one()
+        await self._session.execute(update(Case).where(Case.id == case_id).values(updated_at=now))
         return CaseAttachmentDTO(**created._mapping)
 
     async def get_with_content(self, attachment_id: UUID) -> tuple[CaseAttachmentDTO, bytes] | None:

@@ -1,24 +1,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""CaseRepository — persistence for the Cases area workflow (ADR-0107).
+"""CaseRepository — persistence for the Cases area (ADR-0107, ADR-0138).
 
 Backs the ``cases`` and ``case_entries`` tables introduced in migration
-b031. Shape mirrors the other tenant-scoped repositories: a tenant-scoped
+b031 and extended in b037. Shape mirrors the other tenant-scoped repositories: a tenant-scoped
 :class:`AsyncSession` is passed in, methods return frozen DTOs, and
 ``tenant_id`` is implicit in the session context (RLS derives it from
 ``app.tenant_id``).
 
-Two invariants are enforced by the *absence* of code paths as much as by
-the guards below:
+A case has two layers (ADR-0138 §2), and three invariants are enforced by
+the *absence* of code paths as much as by the guards below:
 
-* **Append-only timeline.** Entries are never updated or deleted; a new
-  situation is a new entry (ADR-0107 §2). There is deliberately no
-  ``update_entry`` / ``delete_entry``.
-* **Closed-case immutability.** A closed case is a read-only record in its
-  entirety (ADR-0107 §4). The close transition — via :meth:`close` — is the
-  single permitted mutation of a case row (ADR-0107 §2). There is
-  deliberately no ``update_case``, no ``delete_case``, and no ``reopen``.
+* **The record is append-only.** ``case_entries`` rows are never updated or
+  deleted; a new situation is a new entry (ADR-0107 §2, confirmed by
+  ADR-0138 §2). There is deliberately no ``update_entry`` /
+  ``delete_entry``.
+* **The working file is mutable while open or waiting.** The working-file
+  columns of a case (:meth:`update_working_file`), its owner
+  (:meth:`set_owner`) and its state transitions (:meth:`set_waiting`,
+  :meth:`lift_waiting`, :meth:`close`) are the permitted mutations of a
+  case row; each one bumps ``updated_at``. The eight working-file tables
+  live in :mod:`core.repositories.case_working_file_repository`.
+* **A closed case is read-only in both layers** (ADR-0107 §4, confirmed by
+  ADR-0138 §4). There is deliberately no ``delete_case`` and no
+  ``reopen``.
+
+The milestone path — a milestone entry and its ``frozen`` snapshot written
+with the state change in one transaction — lands in P-CS-1b; until then
+the state transitions here are column transitions only, and
+:meth:`append_entry` refuses the milestone-only kinds.
 
 The repository never touches an Irene finding. A case *references* its
 finding (``finding_id``) and reads it, but resolving that finding as
@@ -32,10 +43,11 @@ decision B), not a table this layer writes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, insert, or_, select, text, update
+from sqlalchemy import Text, and_, cast, exists, func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from core.exceptions import (
@@ -44,19 +56,63 @@ from core.exceptions import (
     CaseClosingNoteMissing,
     CaseEntryKindInvalid,
     CaseStateInvalid,
+    CaseWorkingFileInvalid,
 )
-from core.models.case import Case, CaseEntry
+from core.models.case import (
+    Case,
+    CaseConversation,
+    CaseDecision,
+    CaseEntry,
+    CaseFigure,
+    CaseKept,
+    CaseThread,
+)
 from core.models.irene_finding import IreneFinding
 from core.repositories.base import BaseRepository
 
-# Canonical lowercase vocabularies (ADR-0107 §2). The columns are plain
-# TEXT; the vocabularies are enforced here, not as SQL enums, matching the
-# codebase's TEXT-for-status convention.
-_VALID_STATES: frozenset[str] = frozenset({"open", "closed"})
+# Canonical lowercase vocabularies (ADR-0107 §2, ADR-0138 §4 and Object
+# model). The columns are plain TEXT; the vocabularies are enforced here,
+# not as SQL enums, matching the codebase's TEXT-for-status convention.
+_VALID_STATES: frozenset[str] = frozenset({"open", "waiting", "closed"})
+# The states in which the working file (and the record's generic append
+# path) accepts writes; a closed case is read-only in both layers.
+_MUTABLE_STATES: frozenset[str] = frozenset({"open", "waiting"})
+# ``note`` / ``pin`` / ``decision_record`` stay writable until their last
+# route writer is replaced (D-CS-B-1, staged retirement).
 _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
-    {"opened", "note", "pin", "decision_record", "closed"}
+    {
+        "opened",
+        "note",
+        "pin",
+        "decision_record",
+        "closed",
+        "handed_over",
+        "waiting_set",
+        "waiting_lifted",
+        "frozen",
+        "system_line",
+    }
+)
+# Written only by the milestone path (P-CS-1b); append_entry rejects them.
+_MILESTONE_ONLY_KINDS: frozenset[str] = frozenset(
+    {"closed", "handed_over", "waiting_set", "waiting_lifted", "frozen"}
 )
 _VALID_ACTORS: frozenset[str] = frozenset({"pm", "shirley", "system"})
+_VALID_FRAMINGS: frozenset[str] = frozenset({"question", "task"})
+
+
+class _Unset:
+    """Type of :data:`_UNSET` — "argument not given", distinct from ``None``."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "_UNSET"
+
+
+#: Sentinel for partial updates: a field left at ``_UNSET`` is not written,
+#: while an explicit ``None`` clears a nullable column.
+_UNSET: Any = _Unset()
 
 # The unique constraint that guarantees tenant-sequential numbering; a
 # concurrent allocation collides on it and the write is retried once.
@@ -75,6 +131,12 @@ _CASE_COLUMNS = (
     Case.closed_by,
     Case.closed_at,
     Case.closing_note,
+    Case.wait_until,
+    Case.owner_user_id,
+    Case.counterparty,
+    Case.due_on,
+    Case.framing,
+    Case.updated_at,
 )
 
 _CASE_ENTRY_COLUMNS = (
@@ -105,6 +167,12 @@ class CaseDTO:
     closed_by: UUID | None
     closed_at: datetime | None
     closing_note: str | None
+    wait_until: date | None
+    owner_user_id: UUID
+    counterparty: str | None
+    due_on: date | None
+    framing: str | None
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -143,6 +211,15 @@ def _escape_like(term: str) -> str:
     Backslash first (it is the escape character), then ``%`` and ``_``.
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _validate_framing(framing: str | None) -> None:
+    """Raise :class:`CaseWorkingFileInvalid` unless ``framing`` is valid or None."""
+    if framing is not None and framing not in _VALID_FRAMINGS:
+        raise CaseWorkingFileInvalid(
+            f"Invalid framing {framing!r}; expected one of {sorted(_VALID_FRAMINGS)} or None.",
+            field="framing",
+        )
 
 
 class CaseRepository(BaseRepository):
@@ -198,6 +275,9 @@ class CaseRepository(BaseRepository):
         finding_id: UUID | None,
         opened_payload: dict | None,
         opened_actor: str,
+        counterparty: str | None,
+        due_on: date | None,
+        framing: str | None,
         now: datetime,
     ) -> CaseDTO:
         """One case-creation attempt: the case row plus its ``opened`` entry.
@@ -221,6 +301,11 @@ class CaseRepository(BaseRepository):
                     finding_id=finding_id,
                     opened_by=opened_by,
                     opened_at=now,
+                    owner_user_id=opened_by,
+                    counterparty=counterparty,
+                    due_on=due_on,
+                    framing=framing,
+                    updated_at=now,
                 )
                 .returning(*_CASE_COLUMNS)
             )
@@ -251,6 +336,9 @@ class CaseRepository(BaseRepository):
         finding_id: UUID | None = None,
         opened_payload: dict | None = None,
         opened_actor: str = "system",
+        counterparty: str | None = None,
+        due_on: date | None = None,
+        framing: str | None = None,
         now: datetime,
     ) -> CaseDTO:
         """Open a case — the one creation path for both entry points.
@@ -269,6 +357,9 @@ class CaseRepository(BaseRepository):
         whole attempt (which re-reads ``MAX(case_number)``) is retried once,
         and if the retry also collides the error propagates.
 
+        The opener becomes the case's owner (``owner_user_id``, ADR-0138
+        §13) and ``updated_at`` starts at ``now``.
+
         This method does **not** touch the finding referenced by
         ``finding_id`` — resolving it as ``opened_case`` is the C4 route's
         concern, composed in the route transaction (ADR-0085).
@@ -284,14 +375,20 @@ class CaseRepository(BaseRepository):
                 to ``{}``.
             opened_actor: One of ``pm`` / ``shirley`` / ``system`` — who
                 opened the case. Defaults to ``system``.
-            now: The timestamp for ``opened_at`` and the ``opened`` entry.
+            counterparty: Free-text counterparty (ADR-0138 §5), or ``None``.
+            due_on: The case's own due date, or ``None``.
+            framing: ``question`` / ``task`` (ADR-0138 §3), or ``None``.
+            now: The timestamp for ``opened_at``, ``updated_at`` and the
+                ``opened`` entry.
 
         Returns:
             The newly created :class:`CaseDTO`.
 
         Raises:
             CaseActorInvalid: If ``opened_actor`` is outside the vocabulary.
+            CaseWorkingFileInvalid: If ``framing`` is outside the vocabulary.
         """
+        _validate_framing(framing)
         if opened_actor not in _VALID_ACTORS:
             raise CaseActorInvalid(
                 f"Invalid actor {opened_actor!r}; expected one of {sorted(_VALID_ACTORS)}.",
@@ -308,6 +405,9 @@ class CaseRepository(BaseRepository):
                     finding_id=finding_id,
                     opened_payload=opened_payload,
                     opened_actor=opened_actor,
+                    counterparty=counterparty,
+                    due_on=due_on,
+                    framing=framing,
                     now=now,
                 )
             except IntegrityError as exc:
@@ -469,16 +569,22 @@ class CaseRepository(BaseRepository):
         payload: dict,
         now: datetime,
     ) -> CaseEntryDTO:
-        """Append a timeline entry to an open case (append-only, ADR-0107 §2).
+        """Append a record entry to an open or waiting case (append-only).
 
-        Vocabulary is validated before any SQL runs. ``kind='closed'`` is
-        rejected here — the ``closed`` entry is written only by
-        :meth:`close`.
+        Vocabulary is validated before any SQL runs. The milestone-only
+        kinds — ``closed``, ``handed_over``, ``waiting_set``,
+        ``waiting_lifted`` and ``frozen`` — are rejected here: they are
+        written only by the milestone path (:meth:`close` today, the
+        milestone + freeze transaction of P-CS-1b). ``note``, ``pin`` and
+        ``decision_record`` stay writable until their last route writer is
+        replaced (D-CS-B-1); ``system_line`` is the system lines' kind
+        (ADR-0138 §7).
 
         Args:
             case_id: The case to append to.
-            kind: One of ``opened`` / ``note`` / ``pin`` / ``decision_record``
-                (``closed`` is rejected).
+            kind: One of ``opened`` / ``note`` / ``pin`` /
+                ``decision_record`` / ``system_line`` (the milestone-only
+                kinds are rejected).
             actor: One of ``pm`` / ``shirley`` / ``system``.
             actor_user_id: The acting user when a user acted, else ``None``.
             payload: Opaque JSONB for the entry.
@@ -489,7 +595,7 @@ class CaseRepository(BaseRepository):
 
         Raises:
             CaseEntryKindInvalid: If ``kind`` is outside the vocabulary, or is
-                ``closed`` (which only :meth:`close` may write).
+                a milestone-only kind (which only the milestone path writes).
             CaseActorInvalid: If ``actor`` is outside the vocabulary.
             CaseStateInvalid: If no such case exists in the active tenant.
             CaseClosedError: If the case is already closed.
@@ -499,10 +605,11 @@ class CaseRepository(BaseRepository):
                 f"Invalid entry kind {kind!r}; expected one of {sorted(_VALID_ENTRY_KINDS)}.",
                 field="kind",
             )
-        if kind == "closed":
+        if kind in _MILESTONE_ONLY_KINDS:
             raise CaseEntryKindInvalid(
-                "The 'closed' entry is written only by CaseRepository.close(); "
-                "append_entry does not accept kind='closed'.",
+                f"The {kind!r} entry is written only by the milestone path "
+                "(CaseRepository.close() and the milestone + freeze transaction); "
+                f"append_entry does not accept kind={kind!r}.",
                 field="kind",
             )
         if actor not in _VALID_ACTORS:
@@ -516,7 +623,7 @@ class CaseRepository(BaseRepository):
                 f"No case {case_id} in this tenant to append to.",
                 field="state",
             )
-        if case.state != "open":
+        if case.state not in _MUTABLE_STATES:
             raise CaseClosedError(
                 f"Case {case_id} is closed; closed cases are immutable (ADR-0107 §4)."
             )
@@ -547,15 +654,20 @@ class CaseRepository(BaseRepository):
         closing_note: str,
         now: datetime,
     ) -> CaseDTO:
-        """Close a case — the single permitted case-row mutation (ADR-0107 §2).
+        """Close an open case — the close trio, once (ADR-0107 §4, ADR-0138 §4).
 
         In one transaction: sets ``state='closed'``, ``closed_by``,
-        ``closed_at=now`` and the stripped ``closing_note``, then appends the
+        ``closed_at=now``, the stripped ``closing_note`` and
+        ``updated_at=now``, then appends the
         ``closed`` timeline entry (``actor='pm'``, ``actor_user_id=closed_by``,
         payload carrying the note). No Journal is written — the Journal is a
         projection that gains closed cases as a render-time source in C4
         (Gate-C0 decision B); no later prompt should reinvent a journal write
         here.
+
+        A waiting case is not closed directly: the wait is lifted first
+        (D-CS-B-2) — the close route of P-CS-3c does lift + close in one
+        transaction, two milestones with two freezes.
 
         Args:
             case_id: The case to close.
@@ -568,7 +680,8 @@ class CaseRepository(BaseRepository):
 
         Raises:
             CaseClosingNoteMissing: If ``closing_note`` is empty/whitespace.
-            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseStateInvalid: If no such case exists in the active tenant, or
+                the case is waiting.
             CaseClosedError: If the case is already closed.
         """
         note = (closing_note or "").strip()
@@ -583,9 +696,14 @@ class CaseRepository(BaseRepository):
                 f"No case {case_id} in this tenant to close.",
                 field="state",
             )
-        if case.state != "open":
+        if case.state == "closed":
             raise CaseClosedError(
                 f"Case {case_id} is already closed; closed cases are immutable (ADR-0107 §4)."
+            )
+        if case.state == "waiting":
+            raise CaseStateInvalid(
+                f"Case {case_id} is waiting; lift the wait before closing.",
+                field="state",
             )
         upd = (
             update(Case)
@@ -595,6 +713,7 @@ class CaseRepository(BaseRepository):
                 closed_by=closed_by,
                 closed_at=now,
                 closing_note=note,
+                updated_at=now,
             )
             .returning(*_CASE_COLUMNS)
         )
@@ -612,6 +731,294 @@ class CaseRepository(BaseRepository):
         )
         return closed
 
+    # ------------------------------------------------------------------
+    # The working-file columns, the owner and the state transitions
+    # (ADR-0138 §4, §13, Object model). Column writes only: the milestone
+    # entries and their frozen snapshots around them are P-CS-1b's.
+    # ------------------------------------------------------------------
+
+    async def _write_case(self, case_id: UUID, values: dict[str, Any]) -> CaseDTO:
+        """UPDATE one case row with ``values`` and return the updated DTO."""
+        upd = update(Case).where(Case.id == case_id).values(**values).returning(*_CASE_COLUMNS)
+        row = (await self._session.execute(upd)).one()
+        return CaseDTO(**row._mapping)
+
+    async def _require_mutable(self, case_id: UUID, *, action: str) -> CaseDTO:
+        """Return the case if it is open or waiting.
+
+        Raises:
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed.
+        """
+        case = await self.get(case_id)
+        if case is None:
+            raise CaseStateInvalid(f"No case {case_id} in this tenant to {action}.", field="state")
+        if case.state not in _MUTABLE_STATES:
+            raise CaseClosedError(
+                f"Case {case_id} is closed; closed cases are immutable (ADR-0138 §2)."
+            )
+        return case
+
+    async def list_cases(
+        self,
+        *,
+        state: str | None = None,
+        owner_user_id: UUID | None = None,
+        limit: int = 200,
+    ) -> list[CaseDTO]:
+        """Return cases for the list filter Open · Waiting · Closed · All (ADR-0138 §12).
+
+        Args:
+            state: ``open`` / ``waiting`` / ``closed``, or ``None`` for all.
+            owner_user_id: When given, restrict to cases this user owns —
+                the *Mine* filter, a filter and never a data boundary.
+            limit: Maximum number of rows.
+
+        Returns:
+            Waiting cases by ``wait_until`` ascending; closed cases by
+            ``closed_at`` descending; open cases and *all* by ``updated_at``
+            descending — ``case_number`` descending as the tie-break.
+
+        Raises:
+            CaseStateInvalid: If ``state`` is outside the vocabulary.
+        """
+        if state is not None and state not in _VALID_STATES:
+            raise CaseStateInvalid(
+                f"Invalid state {state!r}; expected one of {sorted(_VALID_STATES)} or None.",
+                field="state",
+            )
+        stmt = select(*_CASE_COLUMNS)
+        if state is not None:
+            stmt = stmt.where(Case.state == state)
+        if owner_user_id is not None:
+            stmt = stmt.where(Case.owner_user_id == owner_user_id)
+        if state == "waiting":
+            stmt = stmt.order_by(Case.wait_until.asc(), Case.case_number.desc())
+        elif state == "closed":
+            stmt = stmt.order_by(Case.closed_at.desc(), Case.case_number.desc())
+        else:
+            stmt = stmt.order_by(Case.updated_at.desc(), Case.case_number.desc())
+        result = await self._session.execute(stmt.limit(limit))
+        return [CaseDTO(**row._mapping) for row in result.all()]
+
+    async def update_working_file(
+        self,
+        case_id: UUID,
+        *,
+        now: datetime,
+        title: str = _UNSET,
+        description: str | None = _UNSET,
+        counterparty: str | None = _UNSET,
+        due_on: date | None = _UNSET,
+        framing: str | None = _UNSET,
+    ) -> CaseDTO:
+        """Write the working-file columns of an open or waiting case.
+
+        Only the fields given are written; an explicit ``None`` clears a
+        nullable column. ``updated_at`` is set to ``now`` (D-CS-B-5).
+        ``description`` is the question's (or task's) prose.
+
+        Args:
+            case_id: The case to update.
+            now: The new ``updated_at``.
+            title: The title — stripped, must not be empty.
+            description: The question's prose, or ``None``.
+            counterparty: Free-text counterparty, or ``None``.
+            due_on: The case's own due date, or ``None``.
+            framing: ``question`` / ``task``, or ``None``.
+
+        Returns:
+            The updated :class:`CaseDTO`.
+
+        Raises:
+            CaseWorkingFileInvalid: If ``title`` is empty or ``framing`` is
+                outside the vocabulary.
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed.
+        """
+        values: dict[str, Any] = {}
+        if title is not _UNSET:
+            stripped = (title or "").strip()
+            if not stripped:
+                raise CaseWorkingFileInvalid("A case title must not be empty.", field="title")
+            values["title"] = stripped
+        if framing is not _UNSET:
+            _validate_framing(framing)
+            values["framing"] = framing
+        if description is not _UNSET:
+            values["description"] = description
+        if counterparty is not _UNSET:
+            values["counterparty"] = counterparty
+        if due_on is not _UNSET:
+            values["due_on"] = due_on
+        await self._require_mutable(case_id, action="update")
+        values["updated_at"] = now
+        return await self._write_case(case_id, values)
+
+    async def set_owner(self, case_id: UUID, *, owner_user_id: UUID, now: datetime) -> CaseDTO:
+        """Set the owner of an open or waiting case (ADR-0138 §13).
+
+        A column write only — the ``handed_over`` milestone and its freeze
+        are P-CS-1b's. ``opened_by`` is left as history.
+
+        Raises:
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed.
+        """
+        await self._require_mutable(case_id, action="hand over")
+        return await self._write_case(case_id, {"owner_user_id": owner_user_id, "updated_at": now})
+
+    async def set_waiting(self, case_id: UUID, *, wait_until: date, now: datetime) -> CaseDTO:
+        """Move an open case to ``waiting`` until ``wait_until`` (ADR-0138 §4).
+
+        A column transition only — the ``waiting_set`` milestone and its
+        freeze are P-CS-1b's.
+
+        Raises:
+            CaseStateInvalid: If no such case exists in the active tenant, or
+                the case is not open.
+        """
+        case = await self.get(case_id)
+        if case is None or case.state != "open":
+            state = "absent" if case is None else case.state
+            raise CaseStateInvalid(
+                f"Case {case_id} is {state}; only an open case can be set waiting.",
+                field="state",
+            )
+        return await self._write_case(
+            case_id, {"state": "waiting", "wait_until": wait_until, "updated_at": now}
+        )
+
+    async def lift_waiting(self, case_id: UUID, *, now: datetime) -> CaseDTO:
+        """Return a waiting case to ``open`` and clear ``wait_until`` (ADR-0138 §4).
+
+        A column transition only — the ``waiting_lifted`` milestone and its
+        freeze are P-CS-1b's.
+
+        Raises:
+            CaseStateInvalid: If no such case exists in the active tenant, or
+                the case is not waiting.
+        """
+        case = await self.get(case_id)
+        if case is None or case.state != "waiting":
+            state = "absent" if case is None else case.state
+            raise CaseStateInvalid(
+                f"Case {case_id} is {state}; only a waiting case can be lifted.",
+                field="state",
+            )
+        return await self._write_case(
+            case_id, {"state": "open", "wait_until": None, "updated_at": now}
+        )
+
+    async def list_due_for_wake(self, *, today: date) -> list[CaseDTO]:
+        """Return waiting cases whose ``wait_until`` is on or before ``today``.
+
+        The wake-up step's read (ADR-0138 §4, P-CS-2c), ``wait_until``
+        ascending; served by the partial index ``ix_cases_wait_until``.
+        """
+        result = await self._session.execute(
+            select(*_CASE_COLUMNS)
+            .where(Case.state == "waiting", Case.wait_until <= today)
+            .order_by(Case.wait_until.asc(), Case.case_number.asc())
+        )
+        return [CaseDTO(**row._mapping) for row in result.all()]
+
+    async def search_working_file(self, query: str, *, state: str | None = None) -> list[CaseDTO]:
+        """Search cases over what the PM wrote or kept as text (ADR-0138 §10/§11).
+
+        Case-insensitive substring match (ILIKE) with ``%`` / ``_`` in the
+        user input escaped so they match literally, over: the case's
+        ``title``, ``description`` and ``closing_note``; its threads'
+        ``title`` / ``prose`` / ``conclusion`` (removed threads excluded);
+        its figures' ``label`` / ``value_text`` / ``note``; its
+        conversations' ``with_whom`` / ``what_was_said`` /
+        ``what_was_promised``; its decisions' ``rationale`` / ``decided_by``
+        and option texts; its kept rows' ``caption`` / ``comment`` and —
+        for ``document_excerpt`` rows only — the quoted ``passage``
+        (removed kept rows excluded). Closed cases are searched too: the
+        archive is the institution's memory.
+
+        **The DMS boundary holds** (ADR-0138 §11): never an attachment's
+        filename or contents, never any other kept payload field, never a
+        record entry's payload. An empty or whitespace-only query returns
+        an empty list rather than matching everything.
+
+        Args:
+            query: The search text.
+            state: ``open`` / ``waiting`` / ``closed``, or ``None`` for all.
+
+        Returns:
+            Matching cases, ``updated_at`` descending, ``case_number``
+            descending as the tie-break.
+
+        Raises:
+            CaseStateInvalid: If ``state`` is outside the vocabulary.
+        """
+        if state is not None and state not in _VALID_STATES:
+            raise CaseStateInvalid(
+                f"Invalid state {state!r}; expected one of {sorted(_VALID_STATES)} or None.",
+                field="state",
+            )
+        stripped = query.strip()
+        if not stripped:
+            return []
+        pattern = f"%{_escape_like(stripped)}%"
+
+        def matches(*columns: Any) -> Any:
+            return or_(*(column.ilike(pattern, escape="\\") for column in columns))
+
+        thread_hit = exists().where(
+            CaseThread.case_id == Case.id,
+            CaseThread.removed_at.is_(None),
+            matches(CaseThread.title, CaseThread.prose, CaseThread.conclusion),
+        )
+        figure_hit = exists().where(
+            CaseFigure.case_id == Case.id,
+            matches(CaseFigure.label, CaseFigure.value_text, CaseFigure.note),
+        )
+        conversation_hit = exists().where(
+            CaseConversation.case_id == Case.id,
+            matches(
+                CaseConversation.with_whom,
+                CaseConversation.what_was_said,
+                CaseConversation.what_was_promised,
+            ),
+        )
+        decision_hit = exists().where(
+            CaseDecision.case_id == Case.id,
+            matches(
+                CaseDecision.rationale,
+                CaseDecision.decided_by,
+                cast(CaseDecision.options, Text),
+            ),
+        )
+        kept_hit = exists().where(
+            CaseKept.case_id == Case.id,
+            CaseKept.removed_at.is_(None),
+            or_(
+                matches(CaseKept.caption, CaseKept.comment),
+                and_(
+                    CaseKept.artifact == "document_excerpt",
+                    matches(CaseKept.payload["passage"].astext),
+                ),
+            ),
+        )
+        stmt = select(*_CASE_COLUMNS).where(
+            or_(
+                matches(Case.title, Case.description, Case.closing_note),
+                thread_hit,
+                figure_hit,
+                conversation_hit,
+                decision_hit,
+                kept_hit,
+            )
+        )
+        if state is not None:
+            stmt = stmt.where(Case.state == state)
+        stmt = stmt.order_by(Case.updated_at.desc(), Case.case_number.desc())
+        result = await self._session.execute(stmt)
+        return [CaseDTO(**row._mapping) for row in result.all()]
+
 
 def _case_to_dto(model: Case) -> CaseDTO:
     return CaseDTO(
@@ -627,6 +1034,12 @@ def _case_to_dto(model: Case) -> CaseDTO:
         closed_by=model.closed_by,
         closed_at=model.closed_at,
         closing_note=model.closing_note,
+        wait_until=model.wait_until,
+        owner_user_id=model.owner_user_id,
+        counterparty=model.counterparty,
+        due_on=model.due_on,
+        framing=model.framing,
+        updated_at=model.updated_at,
     )
 
 

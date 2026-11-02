@@ -451,6 +451,54 @@ class CaseClosingNoteMissing(ValidationError):
     """
 
 
+class CaseWorkingFileInvalid(ValidationError):
+    """Raised when a write to a case's working file violates its vocabulary or shape.
+
+    Per ADR-0138 (Object model, §3, §5, §9, §14) the working file's
+    vocabularies are TEXT, application-enforced: the case ``framing``
+    (``question`` · ``task``), the thread status, the kept class and its
+    ``via`` channel, the figure source, the conversation channel, the
+    proposal item status. The shape rules are enforced here too: a ``book``
+    figure carries no typed value and names its investment and metric; a
+    decision's options are ``{key, text}`` with unique non-empty keys and
+    ``chosen_key`` among them; ``attachment_id`` is required for
+    ``document`` / ``document_excerpt`` kept rows and forbidden otherwise;
+    a kept row's thread belongs to its case. ``field`` names the offending
+    field.
+    """
+
+
+class CaseKeptImmutable(ValidationError):
+    """Raised when a write targets the payload of an immutable kept artefact.
+
+    Per ADR-0138 §9 the payload of every kept class except
+    ``generated_document`` is **immutable once kept** — frozen snapshots
+    reference kept rows by id and by payload hash, so an edited payload
+    would falsify the record. Placement (thread, caption, comment,
+    removal) stays mutable.
+    """
+
+
+class CaseDecisionRecorded(ValidationError):
+    """Raised when a write targets an already-recorded decision.
+
+    Per ADR-0138 §14 a recorded decision is immutable: a change of mind is
+    a new decision, recorded in its own right. Raised by a second
+    ``mark_recorded`` and by any draft-style write aimed at a recorded row.
+    """
+
+
+class CasePointLinked(ValidationError):
+    """Raised when an open point's ticket link forbids the operation.
+
+    Per ADR-0138 §5 an open point may create a ticket, which links the
+    point to the ticket; the link is written once. A point is hard-deletable
+    only while no ticket is linked — afterwards the point is the forward
+    half of the provenance chain whose back-link is ``trade_tickets.case_id``
+    (ADR-0128 §7). Raised by a second link and by a delete of a linked point.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Transactions / trade-ticket errors (ADR-0128).
 #

@@ -311,6 +311,76 @@ def _wd_where(where: dict[str, str]) -> dict[str, str]:
     return {key.replace("_", "-"): value for key, value in where.items()}
 
 
+def _hook_literal(
+    hook: str, companion_order: tuple[str, ...], name: str, /, **companions: str
+) -> str:
+    """The attribute literal for one hooked element, companions in canonical order."""
+    unknown = set(companions) - set(companion_order)
+    if unknown:
+        raise ValueError(f"unknown {hook} companion(s): {sorted(unknown)}")
+    parts = [f'{hook}="{name}"']
+    parts.extend(
+        f'{hook}-{suffix}="{companions[suffix]}"'
+        for suffix in companion_order
+        if suffix in companions
+    )
+    return " ".join(parts)
+
+
+def _hook_blocks(markup: str, hook: str, literal: str, name: str, **where: str) -> list[str]:
+    """Every element carrying ``hook=name`` and the ``where`` filters, as outer markup.
+
+    ``literal`` is the caller's ``wd(name)`` / ``cs(name)``, used to name the
+    element in the unbalanced-nesting error.
+    """
+    wanted = {hook: name, **_wd_where(where)}
+    blocks: list[str] = []
+    for start in _START_TAG.finditer(markup):
+        attributes = _wd_attributes(start.group(2))
+        if any(attributes.get(key) != value for key, value in wanted.items()):
+            continue
+        tag = start.group(1).lower()
+        if tag in _VOID_ELEMENTS or start.group(3):
+            blocks.append(start.group(0))
+            continue
+        depth = 1
+        pattern = re.compile(rf"<(/?){tag}(?=[\s>/])", re.IGNORECASE)
+        for match in pattern.finditer(markup, start.end()):
+            depth += -1 if match.group(1) else 1
+            if depth == 0:
+                close = markup.index(">", match.end())
+                blocks.append(markup[start.start() : close + 1])
+                break
+        else:
+            raise ValueError(f"the <{tag}> carrying {literal} is unbalanced")
+    return blocks
+
+
+def _hook_block(markup: str, hook: str, literal: str, name: str, **where: str) -> str:
+    """Exactly one element carrying ``hook=name`` (see ``_hook_blocks``)."""
+    blocks = _hook_blocks(markup, hook, literal, name, **where)
+    assert len(blocks) == 1, (
+        f"expected exactly one {literal} element with {_wd_where(where)}, found {len(blocks)}"
+    )
+    return blocks[0]
+
+
+def _hook_count(markup: str, hook: str, literal: str, name: str, **where: str) -> int:
+    """How many elements carry ``hook=name`` (see ``_hook_blocks``)."""
+    return len(_hook_blocks(markup, hook, literal, name, **where))
+
+
+def _hook_text(
+    markup_or_block: str, hook: str, literal: str, name: str | None = None, **where: str
+) -> str:
+    """The visible text of a block, or of the one ``hook=name`` element in the markup."""
+    if name is None:
+        block = markup_or_block
+    else:
+        block = _hook_block(markup_or_block, hook, literal, name, **where)
+    return re.sub(r"\s+", " ", html.unescape(_ANY_TAG.sub(" ", block))).strip()
+
+
 def wd(name: str, /, **companions: str) -> str:
     """The hook attribute literal for one Watch Desk element.
 
@@ -334,16 +404,7 @@ def wd(name: str, /, **companions: str) -> str:
     Raises:
         ValueError: If a companion suffix is not one of the five.
     """
-    unknown = set(companions) - set(_WD_COMPANIONS)
-    if unknown:
-        raise ValueError(f"unknown data-pf-wd companion(s): {sorted(unknown)}")
-    parts = [f'{WD_HOOK}="{name}"']
-    parts.extend(
-        f'{WD_HOOK}-{suffix}="{companions[suffix]}"'
-        for suffix in _WD_COMPANIONS
-        if suffix in companions
-    )
-    return " ".join(parts)
+    return _hook_literal(WD_HOOK, _WD_COMPANIONS, name, **companions)
 
 
 def wd_blocks(markup: str, name: str, **where: str) -> list[str]:
@@ -372,27 +433,7 @@ def wd_blocks(markup: str, name: str, **where: str) -> list[str]:
     Raises:
         ValueError: If a matching element's nesting is unbalanced.
     """
-    wanted = {WD_HOOK: name, **_wd_where(where)}
-    blocks: list[str] = []
-    for start in _START_TAG.finditer(markup):
-        attributes = _wd_attributes(start.group(2))
-        if any(attributes.get(key) != value for key, value in wanted.items()):
-            continue
-        tag = start.group(1).lower()
-        if tag in _VOID_ELEMENTS or start.group(3):
-            blocks.append(start.group(0))
-            continue
-        depth = 1
-        pattern = re.compile(rf"<(/?){tag}(?=[\s>/])", re.IGNORECASE)
-        for match in pattern.finditer(markup, start.end()):
-            depth += -1 if match.group(1) else 1
-            if depth == 0:
-                close = markup.index(">", match.end())
-                blocks.append(markup[start.start() : close + 1])
-                break
-        else:
-            raise ValueError(f"the <{tag}> carrying {wd(name)} is unbalanced")
-    return blocks
+    return _hook_blocks(markup, WD_HOOK, wd(name), name, **where)
 
 
 def wd_block(markup: str, name: str, **where: str) -> str:
@@ -410,11 +451,7 @@ def wd_block(markup: str, name: str, **where: str) -> str:
         AssertionError: If no element or more than one matches; the message
             names the hook, the filters and the count.
     """
-    blocks = wd_blocks(markup, name, **where)
-    assert len(blocks) == 1, (
-        f"expected exactly one {wd(name)} element with {_wd_where(where)}, found {len(blocks)}"
-    )
-    return blocks[0]
+    return _hook_block(markup, WD_HOOK, wd(name), name, **where)
 
 
 def wd_count(markup: str, name: str, **where: str) -> int:
@@ -428,7 +465,7 @@ def wd_count(markup: str, name: str, **where: str) -> int:
     Returns:
         The number of matching elements.
     """
-    return len(wd_blocks(markup, name, **where))
+    return _hook_count(markup, WD_HOOK, wd(name), name, **where)
 
 
 def wd_text(markup_or_block: str, name: str | None = None, **where: str) -> str:
@@ -448,8 +485,117 @@ def wd_text(markup_or_block: str, name: str | None = None, **where: str) -> str:
     Raises:
         AssertionError: If ``name`` is given and does not match exactly once.
     """
-    block = markup_or_block if name is None else wd_block(markup_or_block, name, **where)
-    return re.sub(r"\s+", " ", html.unescape(_ANY_TAG.sub(" ", block))).strip()
+    literal = wd(name) if name is not None else ""
+    return _hook_text(markup_or_block, WD_HOOK, literal, name, **where)
+
+
+#: The one attribute family the Cases partials name their elements by (P-CS-3a,
+#: D-CS-B-36 — the A-6 seam applied to the Cases Section).
+CS_HOOK = "data-pf-cs"
+
+#: Companion suffixes in the order the Cases templates render them.
+_CS_COMPANIONS = ("state", "count", "kind", "name", "case")
+
+
+def cs(name: str, /, **companions: str) -> str:
+    """The hook attribute literal for one Cases element.
+
+    The Cases twin of ``wd``: builds the exact attribute run the Cases
+    partials render, companions in their canonical order whatever order the
+    caller passes them in.
+
+    Example: ``cs("state", state="open")`` is
+    ``'data-pf-cs="state" data-pf-cs-state="open"'``.
+
+    Args:
+        name: The hook name (``data-pf-cs`` value).
+            Positional-only, so the ``name`` companion can be passed as a keyword.
+        **companions: Companion values keyed by suffix — ``state``,
+            ``count``, ``kind``, ``name`` or ``case``.
+
+    Returns:
+        The attribute literal.
+
+    Raises:
+        ValueError: If a companion suffix is not one of the five.
+    """
+    return _hook_literal(CS_HOOK, _CS_COMPANIONS, name, **companions)
+
+
+def cs_blocks(markup: str, name: str, **where: str) -> list[str]:
+    """Every element carrying ``data-pf-cs=name``, as its full outer markup.
+
+    The Cases twin of ``wd_blocks``: each element balanced on its own tag
+    name, a void or self-closing element as its start tag alone.
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to find.
+        **where: Further attributes the start tag must carry with exactly
+            this value, as written. Underscores in a keyword stand for
+            hyphens: ``data_pf_cs_case="CASE-0001"`` is
+            ``data-pf-cs-case="CASE-0001"``.
+
+    Returns:
+        The matching elements in document order; empty when none match.
+
+    Raises:
+        ValueError: If a matching element's nesting is unbalanced.
+    """
+    return _hook_blocks(markup, CS_HOOK, cs(name), name, **where)
+
+
+def cs_block(markup: str, name: str, **where: str) -> str:
+    """Exactly one element carrying ``data-pf-cs=name`` (see ``cs_blocks``).
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to find.
+        **where: Further exact attribute filters, as for ``cs_blocks``.
+
+    Returns:
+        The element's outer markup.
+
+    Raises:
+        AssertionError: If no element or more than one matches; the message
+            names the hook, the filters and the count.
+    """
+    return _hook_block(markup, CS_HOOK, cs(name), name, **where)
+
+
+def cs_count(markup: str, name: str, **where: str) -> int:
+    """How many elements carry ``data-pf-cs=name`` (see ``cs_blocks``).
+
+    Args:
+        markup: Rendered markup, raw or whitespace-flattened.
+        name: The hook name to count.
+        **where: Further exact attribute filters, as for ``cs_blocks``.
+
+    Returns:
+        The number of matching elements.
+    """
+    return _hook_count(markup, CS_HOOK, cs(name), name, **where)
+
+
+def cs_text(markup_or_block: str, name: str | None = None, **where: str) -> str:
+    """The visible text of a block, for copy assertions scoped to one Cases element.
+
+    Args:
+        markup_or_block: A block, or the markup to find one in.
+        name: When given, the text is that of
+            ``cs_block(markup_or_block, name, **where)``; otherwise of
+            ``markup_or_block`` itself.
+        **where: Further exact attribute filters, as for ``cs_blocks``.
+
+    Returns:
+        The text with tags and comments stripped, entities unescaped and
+        whitespace collapsed to single spaces, trimmed.
+
+    Raises:
+        AssertionError: If ``name`` is given and does not match exactly once.
+    """
+    literal = cs(name) if name is not None else ""
+    return _hook_text(markup_or_block, CS_HOOK, literal, name, **where)
 
 
 def wd_attr(block: str, attr: str) -> str | None:

@@ -48,6 +48,9 @@ Coverage
   (ADR-0138 §7, D-CS-B-16).
 * CR-17: ``list_open_by_finding_subject`` — open or waiting cases from an
   ``opened_case`` finding on the subject.
+* CR-18: ``count_by_state`` (every state present, zeros included) and the
+  Closed filter's paging through ``list_cases(before=…)`` — newest first,
+  ``before`` exclusive, refused for any other state (P-CS-3a, D-CS-B-31).
 """
 
 from __future__ import annotations
@@ -1216,3 +1219,50 @@ async def test_cr17_list_open_by_finding_subject(app_engine: AsyncEngine, seed_t
     assert ids == [found.id, waiting.id]
     for absent in (unresolved, closed, other, manual):
         assert absent.id not in ids
+
+
+# ---------------------------------------------------------------------------
+# CR-18: count_by_state and the Closed filter's paging (P-CS-3a, D-CS-B-31)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr18_count_by_state_and_closed_paging(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-18")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr18.example")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        assert await repo.count_by_state() == {"closed": 0, "open": 0, "waiting": 0}
+
+        await repo.create(title="open", opened_by=user_id, opened_actor="pm", now=_T0)
+        waiting = await repo.create(title="waiting", opened_by=user_id, opened_actor="pm", now=_T0)
+        await repo.wait(waiting.id, wait_until=date(2026, 8, 1), by=user_id, now=_T0)
+        assert await repo.count_by_state() == {"closed": 0, "open": 1, "waiting": 1}
+
+        closed = []
+        for i in range(3):
+            case = await repo.create(
+                title=f"closed {i}", opened_by=user_id, opened_actor="pm", now=_T0
+            )
+            closed.append(
+                await repo.close(
+                    case.id,
+                    closed_by=user_id,
+                    closing_note="done",
+                    now=_T0 + timedelta(hours=i + 1),
+                )
+            )
+        assert await repo.count_by_state() == {"closed": 3, "open": 1, "waiting": 1}
+
+        first_page = await repo.list_cases(state="closed", limit=2)
+        assert [c.id for c in first_page] == [closed[2].id, closed[1].id]
+        cursor = first_page[-1].closed_at
+        assert cursor is not None
+        second_page = await repo.list_cases(state="closed", before=cursor, limit=2)
+        # ``before`` is exclusive: the cursor row itself is not repeated.
+        assert [c.id for c in second_page] == [closed[0].id]
+
+        with pytest.raises(ValueError, match="Closed filter only"):
+            await repo.list_cases(state="open", before=cursor)
+        with pytest.raises(ValueError, match="Closed filter only"):
+            await repo.list_cases(before=cursor)

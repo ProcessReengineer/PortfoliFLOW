@@ -163,14 +163,10 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
         SectionMeta(slug="cash-flow-planning", title="Cash Flow Planning"),
         SectionMeta(slug="scenario-analysis", title="Scenario Analysis"),
     ),
-    # Three surfaces, in list order (ADR-0107): the open-cases to-do list,
-    # the recently-closed reviewer's view, and the closed-case archive
-    # search. The case detail view is C3; these are the list experience only.
-    "cases": (
-        SectionMeta(slug="open-cases", title="Open Cases"),
-        SectionMeta(slug="recently-closed", title="Recently Closed"),
-        SectionMeta(slug="archive", title="Archive"),
-    ),
+    # One Section (ADR-0138 §12): the list with the filter Open · Waiting ·
+    # Closed · All, Mine and search. The case opens as the Section's
+    # sub-surface with the crumb ‹ Cases › CASE-nnnn — no stand-alone page.
+    "cases": (SectionMeta(slug="cases", title="Cases"),),
     # Three sections, in list order (ADR-0128 §7): the order and
     # record-flow composer, the blotter (draft / proposed / approved), the
     # history (booked / cancelled). Placeholder bodies until S4 / S5.

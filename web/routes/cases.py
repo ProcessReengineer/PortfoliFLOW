@@ -1,25 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Cases area web surface — the eighth top-level Area (ADR-0107).
+"""Cases area web surface — one Section, the list and the case (ADR-0138 §12).
 
-C2 shipped the Cases *list* experience: the three surfaces (open cases,
-recently closed, archive search) and manual creation. C3a armed the read
-side — a full-page detail view (``GET /cases/{case_id}``) rendering the
-origin embed, the append-only timeline and the status/linked-objects rail.
-C3b arms everything that *writes* to a case from that detail view: the four
-composers (Add note / Pin document / Record decision / Close case), the
-attachment upload/download pipeline with its caps, the pin timeline anatomy,
-and the rail's attachments count.
+The Cases area is one Section, ``cases``: the list with the filter Open ·
+Waiting · Closed · All, *Mine* and search (``GET /api/cases/list``), and the
+case opened as the Section's **sub-surface** (``GET /api/cases/{case_id}``),
+which writes the crumb ``‹ Cases › CASE-nnnn`` into the Section head out of
+band. The page URLs ``/cases`` and ``/cases/{case_id}`` are the shell's
+(``web/routes/areas.py``); the shell's host loads one of the two partials. In
+P-CS-3a the sub-surface is the page move of the retired stand-alone detail
+page: the facts, the actions on an open case, the composer slot, the origin
+embed or the description, and the record. The four composers (Add note / Pin
+document / Record decision / Close case), the attachment upload/download
+pipeline with its caps and the pin timeline anatomy are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
-The detail view *reads* a case's originating finding through the finding
-repository's read-only ``get`` (added for the origin embed, ADR-0107 C3a),
-but resolving a finding as ``opened_case`` and the Journal's closed-case
-projection remain C4 concerns (Gate-C0 decision B); this sub-strand adds no
-finding-vocabulary surface. Close writes **no** Journal row and offers **no**
-Journal link — the Journal's closed-case projection source and the deep link
-are C4 (the C1 ``close()`` docstring already pins this).
+The file *reads* a case's originating finding through the finding
+repository's read-only ``get``; resolving a finding as ``opened_case`` lives
+on the Watch Desk. A closed case carries the Journal deep link (ADR-0107 C4,
+binding decision 2) on its list row and in its facts.
 
 Pin payload contract (binding decision 4)
 -----------------------------------------
@@ -128,22 +128,21 @@ coverage service — so it must write exactly what this view reads.
 
 Endpoints
 ---------
-* ``GET  /api/cases/open`` — the open-cases list (the to-do list). ``?mine=1``
-  filters to the current user's cases (``opened_by``) — a filter, never a
-  data boundary (ADR-0107 §1). Newest first (the repository orders).
-* ``GET  /api/cases/recently-closed`` — up to five most-recently-closed cases.
-* ``GET  /api/cases/archive`` — the collapsed search panel when ``q`` is
-  absent (the lazy section load), or result rows when ``q`` is present
-  (whitespace → the idle state, never "no results"). Titles + closing notes
-  only (``search_archive`` enforces the DMS boundary, ADR-0107 §7).
+* ``GET  /api/cases/list`` — the list partial (D-CS-B-32): ``state`` one of
+  ``open`` (open cases, then the Waiting group) · ``waiting`` · ``closed``
+  (paged, ``before=``) · ``all``; ``mine=1`` filters on the owner
+  (``owner_user_id``) — a filter, never a data boundary; a non-blank ``q``
+  searches the working file (``search_working_file``, never attachments).
+  The repository orders; the route never re-sorts.
 * ``GET  /api/cases/new`` — the manual-creation form.
 * ``POST /api/cases/new`` — validate the title, create the case (exactly one
-  ``opened`` entry, ``actor='pm'``), and refresh the open-cases list out of
-  band. A blank title re-renders the form with an inline error and creates
-  nothing.
-* ``GET  /cases/{case_id}`` — the full-page detail read view (C3a). Unknown
-  or foreign ids resolve to ``None`` under RLS and are mapped to 404, the
-  entity-detail idiom (``web/routes/investments.py``).
+  ``opened`` entry, ``actor='pm'``), and land the PM in its file
+  (``HX-Redirect: /cases/{id}``). A blank title re-renders the form with an
+  inline error and creates nothing.
+* ``GET  /api/cases/{case_id}`` — the sub-surface partial (the case file).
+  Unknown or foreign ids resolve to ``None`` under RLS and are mapped to 404,
+  the entity-detail idiom (``web/routes/investments.py``).
+* The composer, write, download and close routes below, unchanged.
 
 Reads use ``session = Depends(require_session)``; the write also takes
 ``_ = Depends(verify_csrf)`` and opens a ``tenant_context`` so it is
@@ -157,9 +156,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import pathlib
-from collections.abc import Iterable
-from datetime import datetime, timezone
+from collections.abc import Iterable, Sequence
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -179,12 +179,19 @@ from core.repositories.case_repository import (
     CaseEntryDTO,
     CaseRepository,
 )
+from core.repositories.case_working_file_repository import (
+    CasePointDTO,
+    CasePointRepository,
+    CaseThreadDTO,
+    CaseThreadRepository,
+)
 from core.repositories.irene_finding_repository import (
     IreneFindingDTO,
     IreneFindingRepository,
 )
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
+from services.cases.stand import StandContext, headline_for
 from web.auth import require_session, verify_csrf
 from web.routes.watch_desk import JOURNAL_DEEP_LINK, resolution_label
 from web.routes.planning_desk import AREA_URL as PLANNING_DESK_AREA_URL
@@ -343,171 +350,280 @@ def _owner_label(owner_id: UUID, owner_names: dict[UUID, str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _project_open(case: CaseDTO, owner_names: dict[UUID, str]) -> dict[str, Any]:
-    """Project one open case into the open-cases row context."""
-    return {
-        "badge": f"CASE-{case.case_number:04d}",
-        "title": case.title,
-        "owner": _owner_label(case.opened_by, owner_names),
-        "opened_date": case.opened_at.strftime("%d %b %Y"),
-        # Badge only — no finding load and no finding navigation on the row.
-        "from_finding": case.finding_id is not None,
-        # C3a arms the row-level detail link (per the mock's clickable row).
-        "id": str(case.id),
-        "href": f"/cases/{case.id}",
-    }
+_CLOSED_PAGE_SIZE: int = 50
+_SOON_DAYS: int = 7
+_LIST_STATES: tuple[str, ...] = ("open", "waiting", "closed", "all")
+
+# The empty-state sentence per filter (D-CS-B-41); a search has its own.
+_EMPTY_TEXT: dict[str, str] = {
+    "open": "No open cases — nothing needs working right now.",
+    "waiting": "Nothing is waiting.",
+    "closed": "No cases closed yet.",
+    "all": 'No cases yet — "New case" opens one.',
+}
 
 
-def _project_closed(case: CaseDTO, owner_names: dict[UUID, str]) -> dict[str, Any]:
-    """Project one closed case into a closed-case row context.
+def _badge(case: CaseDTO) -> str:
+    """Return the case's ``CASE-nnnn`` badge."""
+    return f"CASE-{case.case_number:04d}"
 
-    The full ``closing_note`` is carried through untruncated; the template
-    excerpts it (truncation happens in the template, never in the data).
-    ``closed_at`` is always set for a closed case, but the projection stays
-    defensive in case a partially closed row is ever read.
+
+def _day(moment: date) -> str:
+    """Render a date as ``dd Mon YYYY`` (the list's long date)."""
+    return moment.strftime("%d %b %Y")
+
+
+def subject_display(subject_key: str) -> str:
+    """Label a finding's subject the way the Watch Desk monitor does.
+
+    The part after the colon with underscores as spaces, capitalised
+    (``saa:listed_equity`` → ``Listed equity``) — the idiom of
+    ``_partials/watch_desk_monitor.html``; an unkeyed subject is shown as it is.
+
+    Args:
+        subject_key: The finding's subject key.
+
+    Returns:
+        The display label.
     """
-    owner_id = case.closed_by if case.closed_by is not None else case.opened_by
-    closed_at = case.closed_at
+    if ":" not in subject_key:
+        return subject_key
+    tail = subject_key.split(":", 1)[1]
+    if not tail:
+        return subject_key
+    return tail.replace("_", " ").capitalize()
+
+
+def _when_label(moment: datetime, *, now: datetime) -> str:
+    """``today HH:MM`` / ``yesterday`` / ``dd Mon`` / ``dd Mon YYYY`` in UTC (D-CS-B-41)."""
+    stamp = moment.astimezone(timezone.utc)
+    today = now.astimezone(timezone.utc).date()
+    if stamp.date() == today:
+        return f"today {stamp:%H:%M}"
+    if stamp.date() == today - timedelta(days=1):
+        return "yesterday"
+    if stamp.year == today.year:
+        return stamp.strftime("%d %b")
+    return stamp.strftime("%d %b %Y")
+
+
+def _next_due(case: CaseDTO, point: CasePointDTO | None) -> tuple[str, date | None]:
+    """The row's Next · due text and the date it reads — the earlier of the two (D-CS-M-2).
+
+    The candidates are the case's own ``due_on`` and the next undone dated
+    point; on a tie the point wins (it names what is due). Neither → ``("", None)``.
+    """
+    point_due = point.due_on if point is not None else None
+    if (
+        point is not None
+        and point_due is not None
+        and (case.due_on is None or point_due <= case.due_on)
+    ):
+        return f"{point.text} · {point_due:%d %b}", point_due
+    if case.due_on is not None:
+        return f"Due {_day(case.due_on)}", case.due_on
+    return "", None
+
+
+def _threads_summary(threads: Sequence[CaseThreadDTO]) -> str:
+    """``n · c confirmed`` / ``n · o open`` / ``n`` / ``—`` (D-CS-B-41)."""
+    total = len(threads)
+    if total == 0:
+        return "—"
+    confirmed = sum(1 for thread in threads if thread.status == "confirmed")
+    if confirmed > 0:
+        return f"{total} · {confirmed} confirmed"
+    still_open = sum(1 for thread in threads if thread.status == "open")
+    if still_open > 0:
+        return f"{total} · {still_open} open"
+    return str(total)
+
+
+def _frozen_headline(frozen: CaseEntryDTO | None) -> str:
+    """Read ``file.where_we_stand.headline`` off a frozen snapshot, by name.
+
+    JSONB keeps no key order and an older snapshot may lack a level, so every
+    level is read with ``dict.get``; anything absent or empty is ``""``.
+    """
+    if frozen is None:
+        return ""
+    file_block = (frozen.payload or {}).get("file")
+    stand = file_block.get("where_we_stand") if isinstance(file_block, dict) else None
+    headline = stand.get("headline") if isinstance(stand, dict) else None
+    return headline if isinstance(headline, str) else ""
+
+
+async def _project_row(
+    db_session: AsyncSession,
+    ctx: StandContext,
+    case: CaseDTO,
+    owner_names: dict[UUID, str],
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """One list row: badge, title, href, api_href, state, framing, sub, stand, threads,
+    next, next_soon, next_empty, wait_until, owner, updated (D-CS-B-32 / D-CS-B-41).
+
+    Reads per row: the finding (a finding case's sub line), the headline (an
+    open or waiting case, through :func:`headline_for` with
+    :func:`subject_display`) or the newest frozen snapshot (a closed case),
+    the threads and the next due point.
+    """
+    is_closed = case.state == "closed"
+
+    sub_parts: list[str] = []
+    if case.finding_id is not None:
+        finding = await IreneFindingRepository(db_session).get(case.finding_id)
+        sub_parts.append("From finding")
+        if finding is not None:
+            sub_parts.extend([subject_display(finding.subject_key), finding.band])
+    else:
+        sub_parts.append("Manual")
+    if case.counterparty:
+        sub_parts.append(f"counterparty {case.counterparty}")
+    sub_parts.append(f"opened {_day(case.opened_at)}")
+    if is_closed and case.closed_at is not None:
+        sub_parts.append(f"closed {_day(case.closed_at)}")
+
+    if is_closed:
+        stand = _frozen_headline(await CaseRepository(db_session).latest_frozen(case.id))
+    else:
+        stand = await headline_for(ctx, case, subject_label=subject_display)
+
+    threads = await CaseThreadRepository(db_session).list_for_case(case.id)
+    point = await CasePointRepository(db_session).next_due(case.id)
+    next_text, next_date = ("", None) if is_closed else _next_due(case, point)
+    today = now.astimezone(timezone.utc).date()
+
     return {
-        "badge": f"CASE-{case.case_number:04d}",
+        "badge": _badge(case),
         "title": case.title,
-        "owner": _owner_label(owner_id, owner_names),
-        "closed_date": (closed_at.strftime("%d %b %Y") if closed_at is not None else ""),
-        "closing_note": case.closing_note,
-        # C3a arms the row-level detail link (per the mock's clickable row).
-        "id": str(case.id),
         "href": f"/cases/{case.id}",
+        "api_href": f"/api/cases/{case.id}",
+        "state": case.state,
+        "framing": case.framing,
+        "sub": " · ".join(sub_parts),
+        "stand": stand or "—",
+        "threads": _threads_summary(threads),
+        "next": next_text,
+        "next_soon": next_date is not None and next_date - today <= timedelta(days=_SOON_DAYS),
+        "next_empty": "—" if is_closed else "no point yet",
+        "wait_until": _day(case.wait_until) if case.wait_until is not None else "",
+        "owner": _owner_label(case.owner_user_id, owner_names),
+        "updated": _when_label(case.updated_at, now=now),
     }
 
 
 # ---------------------------------------------------------------------------
-# Open cases — the to-do list (+ the "Mine" filter)
+# The list — Open · Waiting · Closed · All, Mine and search (ADR-0138 §12)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/cases/open", response_class=HTMLResponse)
-async def get_open_cases(
+@router.get("/api/cases/list", response_class=HTMLResponse)
+async def get_case_list(
     request: Request,
+    state: str = "open",
     mine: bool = False,
+    q: str = "",
+    before: datetime | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
-    """Return the open-cases section body.
+    """The list partial (D-CS-B-32). ``state`` outside the four values → 400; ``before``
+    with any state but ``closed`` → 400; ``before`` renders the next Closed page as rows only
+    (``cases_list_rows.html``).
 
-    ``mine`` toggles the ``opened_by == current user`` filter (ADR-0107 §1) —
-    a filter over the same tenant-visible set, never a data boundary. Cases
-    arrive newest-first from the repository; the route never re-sorts.
+    *Open* is the open cases by ``updated_at`` followed by the Waiting group;
+    *Waiting* the waiting cases by ``wait_until``; *Closed* one page of closed
+    cases, newest first; *All* every case by ``updated_at``. *Mine* filters on
+    ``owner_user_id`` — never ``opened_by``. A non-blank ``q`` searches the
+    working file (``search_working_file``) under the same filter, *Mine*
+    applied here. The repository orders; the route never re-sorts. The counts
+    in the head are the tenant's, whatever the filter.
     """
+    if state not in _LIST_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown filter {state!r}; expected one of {', '.join(_LIST_STATES)}.",
+        )
+    if before is not None and state != "closed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="before pages the Closed filter only.",
+        )
+    query = q.strip()
+    owner = session.user_id if mine else None
+    now = _now()
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
         repo = CaseRepository(db_session)
-        cases = await repo.list_open(opened_by=session.user_id if mine else None)
+        ctx = await StandContext.load(db_session, now=now)
+
+        waiting_cases: list[CaseDTO] = []
+        if query:
+            if state == "open":
+                cases = await repo.search_working_file(query, state="open")
+                waiting_cases = await repo.search_working_file(query, state="waiting")
+            else:
+                cases = await repo.search_working_file(
+                    query, state=None if state == "all" else state
+                )
+            if owner is not None:
+                cases = [c for c in cases if c.owner_user_id == owner]
+                waiting_cases = [c for c in waiting_cases if c.owner_user_id == owner]
+        elif state == "open":
+            cases = await repo.list_cases(state="open", owner_user_id=owner)
+            waiting_cases = await repo.list_cases(state="waiting", owner_user_id=owner)
+        elif state == "closed":
+            cases = await repo.list_cases(
+                state="closed", owner_user_id=owner, before=before, limit=_CLOSED_PAGE_SIZE
+            )
+        else:
+            cases = await repo.list_cases(
+                state=None if state == "all" else state, owner_user_id=owner
+            )
+
         owner_names = await _resolve_owner_names(
-            UserRepository(db_session), (c.opened_by for c in cases)
+            UserRepository(db_session), (c.owner_user_id for c in [*cases, *waiting_cases])
+        )
+        rows = [await _project_row(db_session, ctx, c, owner_names, now=now) for c in cases]
+        waiting = [
+            await _project_row(db_session, ctx, c, owner_names, now=now) for c in waiting_cases
+        ]
+        counts = await repo.count_by_state() if before is None else {}
+
+    older_href: str | None = None
+    if state == "closed" and not query and len(cases) == _CLOSED_PAGE_SIZE:
+        last_closed = cases[-1].closed_at
+        if last_closed is not None:
+            params = {"state": "closed", "before": last_closed.isoformat()}
+            if mine:
+                params["mine"] = "1"
+            older_href = f"/api/cases/list?{urlencode(params)}"
+
+    if before is not None:
+        return _render(
+            request,
+            "_partials/cases_list_rows.html",
+            {"rows": rows, "older_href": older_href, "journal_href": JOURNAL_DEEP_LINK},
         )
 
-    context = {
-        "cases": [_project_open(case, owner_names) for case in cases],
-        "mine": mine,
-        "oob": False,
-    }
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(request, "_partials/cases_open.html", context),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Recently closed — the reviewer's view (last five)
-# ---------------------------------------------------------------------------
-
-
-@router.get("/api/cases/recently-closed", response_class=HTMLResponse)
-async def get_recently_closed(
-    request: Request,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Return the recently-closed section body — up to five, newest first."""
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        repo = CaseRepository(db_session)
-        cases = await repo.list_recently_closed(limit=5)
-        owner_names = await _resolve_owner_names(
-            UserRepository(db_session),
-            (c.closed_by if c.closed_by is not None else c.opened_by for c in cases),
-        )
-
-    context = {
-        "cases": [_project_closed(case, owner_names) for case in cases],
-        # The Journal deep link the closed rows carry (binding decision 2).
-        "journal_href": JOURNAL_DEEP_LINK,
-    }
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(
-            request, "_partials/cases_recently_closed.html", context
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Archive — collapsed search over titles + closing notes
-# ---------------------------------------------------------------------------
-
-
-@router.get("/api/cases/archive", response_class=HTMLResponse)
-async def get_archive(
-    request: Request,
-    q: str | None = None,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Return the archive panel, or archive search results.
-
-    ``q`` absent (the lazy section load) renders the collapsed search panel.
-    ``q`` present (the search form always sends it) renders result rows into
-    the panel's results container: a whitespace-only query renders the idle
-    prompt (``search_archive`` returns ``[]`` for it, and the template shows
-    the idle state, never "no results"). Titles and closing notes only — the
-    repository enforces the DMS boundary (ADR-0107 §7).
-    """
-    if q is None:
-        # Initial lazy load: render the collapsed panel (its results
-        # container starts in the idle state).
-        return cast(
-            HTMLResponse,
-            _templates(request).TemplateResponse(request, "_partials/cases_archive.html", {}),
-        )
-
-    stripped = q.strip()
-    if not stripped:
-        # A whitespace query is the idle state, not a "no results" state.
-        return cast(
-            HTMLResponse,
-            _templates(request).TemplateResponse(
-                request,
-                "_partials/cases_archive_results.html",
-                {"idle": True},
-            ),
-        )
-
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        repo = CaseRepository(db_session)
-        cases = await repo.search_archive(stripped)
-        owner_names = await _resolve_owner_names(
-            UserRepository(db_session),
-            (c.closed_by if c.closed_by is not None else c.opened_by for c in cases),
-        )
-
-    context = {
-        "idle": False,
-        "query": stripped,
-        "results": [_project_closed(case, owner_names) for case in cases],
-    }
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(
-            request, "_partials/cases_archive_results.html", context
-        ),
+    empty_text = f'No cases match "{query}".' if query else _EMPTY_TEXT[state]
+    if mine:
+        empty_text += " (Mine is on.)"
+    return _render(
+        request,
+        "_partials/cases_list.html",
+        {
+            "state": state,
+            "mine": mine,
+            "q": query,
+            "rows": rows,
+            "waiting": waiting,
+            "counts": counts,
+            "older_href": older_href,
+            "empty_text": empty_text,
+            "journal_href": JOURNAL_DEEP_LINK,
+        },
     )
 
 
@@ -540,15 +656,15 @@ async def create_case(
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Create a manually opened case and refresh the open-cases list.
+    """Create a manually opened case and land the PM in its file (D-CS-B-33).
 
     The title is validated non-empty at the route (the repository does not
     enforce it); a blank title re-renders the form with an inline error and
     writes nothing. On success the case is created with exactly one
     ``opened`` entry (``actor='pm'``, ``actor_user_id`` = the session user),
-    and the response clears the form slot while refreshing the open-cases
-    list out of band so the new row appears at the top. No redirect to a
-    detail page — C3 arms detail navigation.
+    and the response carries ``HX-Redirect: /cases/{id}`` — the full-refresh
+    idiom :func:`post_case_close` uses — so the first thing after "New case"
+    is the file.
     """
     clean_title = title.strip()
     if not clean_title:
@@ -580,10 +696,6 @@ async def create_case(
             opened_actor="pm",
             now=now,
         )
-        cases = await repo.list_open()
-        owner_names = await _resolve_owner_names(
-            UserRepository(db_session), (c.opened_by for c in cases)
-        )
 
     logger.info(
         "cases create: tenant=%s user=%s case=%s number=%s",
@@ -593,21 +705,11 @@ async def create_case(
         created.case_number,
     )
 
-    # oob=True: the open-cases list is swapped out of band into
-    # #cases-open-list; the empty main content clears the form slot.
-    context = {
-        "cases": [_project_open(case, owner_names) for case in cases],
-        "mine": False,
-        "oob": True,
-    }
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(request, "_partials/cases_new_result.html", context),
-    )
+    return HTMLResponse("", headers={"HX-Redirect": f"/cases/{created.id}"})
 
 
 # ---------------------------------------------------------------------------
-# Case detail — the read experience (C3a): origin embed + timeline + rail
+# The case file — the Section's sub-surface (the page move of C3a's detail view)
 # ---------------------------------------------------------------------------
 
 # Kind → human label for the timeline entries the detail view knows how to
@@ -680,9 +782,14 @@ def _materiality_lines(entries: Iterable[CaseEntryDTO]) -> list[str]:
 
 
 def _project_head(case: CaseDTO, owner_names: dict[UUID, str]) -> dict[str, Any]:
-    """Project the case head: badge, title, state, opened/closed metadata."""
+    """Project the case head: badge, title, state, opened/closed metadata.
+
+    Also the owner (``owner_user_id`` — the hand-over changes it, ``opened_by``
+    stays as history), the counterparty, the case's due date and, for a
+    waiting case, the date it returns to open.
+    """
     return {
-        "badge": f"CASE-{case.case_number:04d}",
+        "badge": _badge(case),
         "title": case.title,
         "state": case.state,
         "opened_stamp": _stamp(case.opened_at),
@@ -691,6 +798,10 @@ def _project_head(case: CaseDTO, owner_names: dict[UUID, str]) -> dict[str, Any]
         "closed_by": (
             _owner_label(case.closed_by, owner_names) if case.closed_by is not None else None
         ),
+        "owner": _owner_label(case.owner_user_id, owner_names),
+        "counterparty": case.counterparty,
+        "due": _day(case.due_on) if case.due_on is not None else None,
+        "wait_until": _day(case.wait_until) if case.wait_until is not None else None,
     }
 
 
@@ -837,7 +948,7 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
 
     Loads the entries (and the originating finding, for the ``opened``
     phrasing), resolves actor names in one batch, and projects each entry
-    exactly as :func:`case_detail_view` does — the single source of the
+    exactly as :func:`load_case_file_context` does — the single source of the
     timeline shape the note / decision / pin composers refresh into
     ``#case-timeline``.
     """
@@ -857,72 +968,65 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
     return [_project_entry(entry, owner_names, opened_text=opened_text) for entry in entries]
 
 
-@router.get("/cases/{case_id}", response_class=HTMLResponse)
-async def case_detail_view(
-    request: Request,
-    case_id: UUID,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Render the full-page case detail read view (ADR-0107, C3a).
+async def load_case_file_context(
+    db_session: AsyncSession, case: CaseDTO, session: SessionDTO
+) -> dict[str, Any]:
+    """The sub-surface context — what ``case_detail_view`` built, as one function the
+    partial route renders and tests exercise: head (badge, title, state, opened/closed
+    stamps and names, owner, counterparty, due, wait_until), is_open, origin / description,
+    entries, linked_finding, attachments_count / attachments_cap / show_attachments,
+    journal_href, capture_scenario_href, consult_shirley_href, csrf_token, case_id.
 
-    Loads the case, its append-only timeline, and — when the case was opened
-    from a finding — that finding through the read-only finding lookup, then
-    projects a detail context: head, origin embed (present only with a
-    finding; manual cases show the description block instead), the ascending
-    timeline, and the status/linked-objects rail. C3b adds the composer slot
-    and — on an *open* case only — the Actions block (gated in the template on
-    ``is_open``, so the UI never offers what the closed-case layer refuses).
+    Loads the case's append-only timeline, its originating finding through the
+    read-only finding lookup when it has one, the actor and owner names in one
+    batch, and the attachments count. The actions — and with them the composer
+    slot, "Capture scenario" and "Consult Shirley" — are offered on an *open*
+    case only (``is_open``), so the UI never offers what the write routes'
+    ``state == "open"`` gate refuses; a waiting case reads like a closed one
+    until P-CS-3c re-gates the composers (D-CS-B-34).
 
-    Unknown or foreign-tenant ids resolve to ``None`` under RLS and are mapped
-    to 404 — the entity-detail idiom (``web/routes/investments.py``), which
-    deliberately does not disclose whether the id exists in another tenant.
+    Args:
+        db_session: A tenant-scoped session.
+        case: The case, already read (and 404-checked) by the caller.
+        session: The PM's session (for the CSRF token).
+
+    Returns:
+        The template context of ``_partials/cases_file.html``.
     """
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        case_repo = CaseRepository(db_session)
-        case = await case_repo.get(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found.",
-            )
-        entries = await case_repo.list_entries(case_id)
+    entries = await CaseRepository(db_session).list_entries(case.id)
 
-        finding: IreneFindingDTO | None = None
-        if case.finding_id is not None:
-            finding = await IreneFindingRepository(db_session).get(case.finding_id)
+    finding: IreneFindingDTO | None = None
+    if case.finding_id is not None:
+        finding = await IreneFindingRepository(db_session).get(case.finding_id)
 
-        user_repo = UserRepository(db_session)
-        actor_ids: set[UUID] = {case.opened_by}
-        if case.closed_by is not None:
-            actor_ids.add(case.closed_by)
-        actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
-        owner_names = await _resolve_owner_names(user_repo, actor_ids)
-        current_user = await user_repo.get_by_id(session.user_id)
-        attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case_id)
+    actor_ids: set[UUID] = {case.opened_by, case.owner_user_id}
+    if case.closed_by is not None:
+        actor_ids.add(case.closed_by)
+    actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
+    owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
+    attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
 
     head = _project_head(case, owner_names)
     origin = _project_origin(finding, entries) if finding is not None else None
     opened_text = _opened_text(case, finding)
     is_open = case.state == "open"
+    is_closed = case.state == "closed"
     cfg = get_config()
 
-    context = {
-        "active_area": "cases",
-        "user_email": current_user.email if current_user is not None else "",
+    return {
         "csrf_token": session.csrf_token,
         "case_id": str(case.id),
         "head": head,
         "is_open": is_open,
         "origin": origin,
-        # The manual-case substitute for the origin embed (Step 3): rendered
-        # only when there is no finding to embed.
+        # The manual-case substitute for the origin embed: rendered only when
+        # there is no finding to embed.
         "description": case.description if origin is None else None,
         "entries": [
             _project_entry(entry, owner_names, opened_text=opened_text) for entry in entries
         ],
-        # Linked objects: the origin finding row (text only), when present. No
-        # Investments row (binding decision 1).
+        # The origin finding fact (text only), when present. No Investments
+        # row (binding decision 1).
         "linked_finding": (
             {"subject_key": origin["subject_key"], "band": origin["band"]}
             if origin is not None
@@ -933,8 +1037,9 @@ async def case_detail_view(
         "attachments_cap": cfg.case_attachment_max_count,
         "show_attachments": attachments_count > 0 or is_open,
         # Journal deep link — closed cases only (a closed case is in the
-        # Journal as a closed-case row; an open one is not). Binding decision 2.
-        "journal_href": None if is_open else JOURNAL_DEEP_LINK,
+        # Journal as a closed-case row; an open or waiting one is not).
+        # Binding decision 2.
+        "journal_href": JOURNAL_DEEP_LINK if is_closed else None,
         # "Capture scenario" (ADR-0107 C5) — open cases only: a plain link to the
         # Planning Desk with this case as the capture marker, so the Desk arrives
         # "capturing for" it. The C4 cross-module URL idiom — one imported target,
@@ -942,14 +1047,34 @@ async def case_detail_view(
         "capture_scenario_href": (f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_open else None),
         # "Consult Shirley" (ADR-0107 C6) — open cases only: a plain link to the
         # assistants surface carrying this case as the ``?case=`` brief marker,
-        # so Shirley arrives "consulting for" it. Same cross-module URL idiom;
-        # closed cases render nothing (the loop's pin half needs an open case).
+        # so Shirley arrives "consulting for" it. The in-place hand-off is
+        # P-CS-5a's (D-CS-B-40).
         "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_open else None),
     }
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(request, "cases_detail.html", context),
-    )
+
+
+@router.get("/api/cases/{case_id}", response_class=HTMLResponse)
+async def get_case_file(
+    request: Request, case_id: UUID, session: SessionDTO = Depends(require_session)
+) -> HTMLResponse:
+    """The sub-surface partial (D-CS-B-28); an unknown or foreign id → 404.
+
+    Swapped into the Section's ``#cs-host`` by a list row, or by the host's
+    own load when the page was opened on ``/cases/{case_id}``. Unknown or
+    foreign-tenant ids resolve to ``None`` under RLS and are mapped to 404 —
+    the entity-detail idiom (``web/routes/investments.py``), which deliberately
+    does not disclose whether the id exists in another tenant.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        case = await CaseRepository(db_session).get(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Case not found.",
+            )
+        context = await load_case_file_context(db_session, case, session)
+    return _render(request, "_partials/cases_file.html", context)
 
 
 # ---------------------------------------------------------------------------

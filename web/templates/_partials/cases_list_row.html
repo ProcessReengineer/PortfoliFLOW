@@ -1,0 +1,28 @@
+{# One Cases list row (M-CS-2). Context: row — see _project_row in
+   web/routes/cases.py; journal_href for closed rows. The title is the link: it
+   carries the page URL for a plain click and the HTMX swap into #cs-host with
+   hx-push-url for the enhanced one — never both on nested elements, so a click
+   navigates exactly once. #}
+<tr class="pf-table__row" data-pf-cs="row" data-pf-cs-state="{{ row.state }}" data-pf-cs-case="{{ row.badge }}">
+    <td><span class="pf-table__id">{{ row.badge }}</span></td>
+    <td>
+        <a class="pf-table__link" href="{{ row.href }}"
+           hx-get="{{ row.api_href }}" hx-target="#cs-host" hx-swap="innerHTML"
+           hx-push-url="{{ row.href }}">{{ row.title }}</a>
+        {% if row.framing == "task" %}<span class="pf-kind" data-pf-cs="framing" data-pf-cs-kind="task">task</span>{% endif %}
+        <span class="pf-table__sub" data-pf-cs="sub">{{ row.sub }}{% if row.state == "closed" %} · {% include "_partials/cases_journal_link.html" %}{% endif %}</span>
+    </td>
+    <td><div class="pf-stand" data-pf-cs="stand"><span>{{ row.stand }}</span></div></td>
+    <td data-pf-cs="threads">{{ row.threads }}</td>
+    <td data-pf-cs="next">
+        {% if row.state == "waiting" %}
+            <span class="pf-state pf-state--waiting">Waiting until {{ row.wait_until }}</span>
+        {% elif row.next %}
+            <span class="pf-due{% if row.next_soon %} is-soon{% endif %}">{{ row.next }}</span>
+        {% else %}
+            <span class="pf-hint">{{ row.next_empty }}</span>
+        {% endif %}
+    </td>
+    <td data-pf-cs="owner">{{ row.owner }}</td>
+    <td data-pf-cs="updated"><span class="pf-hint">{{ row.updated }}</span></td>
+</tr>

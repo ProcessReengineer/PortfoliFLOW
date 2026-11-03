@@ -1,0 +1,14 @@
+{# The Cases Section body: the creation-form slot and the host. The host loads
+   the list (GET /api/cases/list) on the page's own load, or — when the page was
+   opened on a case (cs_case_id, GET /cases/{case_id}) — that case's file
+   (GET /api/cases/{case_id}). Both partials write the Section head out of band:
+   the list restores the plain title and the counts, the file writes the crumb
+   and the state pill (D-CS-B-29). Nothing in this body reads the database: the
+   area render stays the no-DB shell render it is everywhere. #}
+<div id="cs-new-slot" data-pf-cs="new-slot"></div>
+<div id="cs-host" data-pf-cs="host"
+     hx-get="{% if cs_case_id %}/api/cases/{{ cs_case_id }}{% else %}/api/cases/list{% endif %}"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+    <p class="pf-section__lazy-skeleton" aria-live="polite">Loading cases&hellip;</p>
+</div>

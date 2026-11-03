@@ -23,6 +23,7 @@ Coverage
 * ST-11: the headline, shared by the list and the block.
 * ST-12: ``to_snapshot`` is JSON-ready.
 * ST-13: nothing is cached across contexts.
+* ST-14: the headline's subject label is presentation only (P-CS-3a).
 """
 
 from __future__ import annotations
@@ -724,3 +725,31 @@ async def test_st13_nothing_is_cached_across_contexts(
     assert before.subject is not None and before.subject.now is not None
     assert after.subject is not None and after.subject.now is not None
     assert after.subject.now.value != before.subject.now.value
+
+
+# ---------------------------------------------------------------------------
+# ST-14
+# ---------------------------------------------------------------------------
+
+
+async def test_st14_headline_subject_label_is_presentation_only(
+    app_engine: AsyncEngine, superuser_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id, user_id, _ = await _book(app_engine, superuser_engine, seed_tenant, "ST-14")
+
+    async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+        case = await _finding_case(session, user_id)
+        ctx = await StandContext.load(session, now=_now())
+        raw = await headline_for(ctx, case)
+        labelled = await headline_for(ctx, case, subject_label=str.upper)
+        closed = await CaseRepository(session).close(
+            case.id, closed_by=user_id, closing_note="done", now=_now()
+        )
+        closed_raw = await headline_for(ctx, closed)
+        closed_labelled = await headline_for(ctx, closed, subject_label=str.upper)
+
+    assert raw.startswith(SAA_SUBJECT)
+    assert labelled.startswith(SAA_SUBJECT.upper())
+    # Only the subject's name changes; the reading after it is the same.
+    assert labelled[len(SAA_SUBJECT) :] == raw[len(SAA_SUBJECT) :]
+    assert closed_raw == "" and closed_labelled == ""

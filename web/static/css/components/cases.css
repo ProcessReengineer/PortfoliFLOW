@@ -1057,3 +1057,58 @@
 .pf-cases a.pf-dc-res-tag:hover {
     background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
 }
+
+/* P-CS-3a — M-CS-2 families, provisional; P-CS-3d decides generic vs scoped */
+
+/* States the Cases list and file render (the generic pf-state carries the dot). */
+.pf-cases .pf-state--open { --dot: var(--ui-semantic-info); }
+.pf-cases .pf-state--closed { color: var(--ui-text-tertiary); --dot: var(--ui-text-tertiary); }
+.pf-cases .pf-state--confirmed { --dot: var(--ui-semantic-positive); }
+.pf-cases .pf-state--pending { color: var(--ui-text-secondary); }
+.pf-cases .pf-state--pending::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+.pf-cases .pf-state--waiting { color: var(--ui-text-secondary); }
+.pf-cases .pf-state--waiting::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-semantic-warn); }
+
+/* The list (view-cases). */
+.pf-cases .pf-cases-list .pf-table td { vertical-align: middle; }
+.pf-cases .pf-filters__field--wide { min-width: 320px; }
+.pf-cases .pf-table__link { color: var(--ui-text-primary); text-decoration: none; }
+.pf-cases .pf-table__link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pf-cases .pf-stand { display: flex; flex-direction: column; gap: 2px; }
+.pf-cases .pf-stand small { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-due.is-soon { color: var(--ui-semantic-warn); }
+.pf-cases .pf-kind { display: inline-flex; align-items: center; height: 18px; margin-left: var(--ui-space-2); padding: 0 7px; border-radius: 3px; background: var(--ui-background-section); color: var(--ui-text-tertiary); font-size: 11px; letter-spacing: .02em; vertical-align: middle; }
+.pf-cases .pf-src { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--ui-border-default); color: var(--ui-text-secondary); font-size: 11px; white-space: nowrap; vertical-align: middle; }
+.pf-cases .pf-src::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--src, var(--ui-text-tertiary)); }
+.pf-cases .pf-src--live { --src: var(--ui-semantic-positive); }
+.pf-cases .pf-src--typed { --src: var(--ui-text-secondary); }
+.pf-cases .pf-src--doc { --src: var(--ui-semantic-info); }
+.pf-cases .pf-src--kept { --src: var(--ui-accent-primary); }
+.pf-cases .pf-src--call { --src: var(--ui-semantic-warn); }
+.pf-cases .pf-src--frozen { --src: var(--ui-text-disabled); }
+.pf-cases .pf-table__group td { padding: 18px 12px 6px; border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-medium); text-transform: uppercase; letter-spacing: .06em; background: none; }
+.pf-cases .pf-table__group-note { text-transform: none; letter-spacing: normal; font-weight: var(--ui-font-weight-regular); }
+.pf-cases .pf-table__older td { padding: var(--ui-space-2) 12px; text-align: center; }
+
+/* The file (view-case / view-closed). The outline's sticky offset is the
+   sticky view head's fixed min-height (layout.css .pf-view__head: 72px). */
+.pf-cases .pf-case { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--ui-space-5); align-items: start; }
+.pf-cases .pf-case__toc { position: sticky; top: 72px; display: flex; flex-direction: column; gap: 2px; padding-top: var(--ui-space-2); }
+.pf-cases .pf-case__toc a { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: var(--ui-radius-sm); color: var(--ui-text-tertiary); text-decoration: none; font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-case__toc a:hover { color: var(--ui-text-primary); background: var(--ui-background-secondary); }
+.pf-cases .pf-case__toc a .n { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-case__toc a.is-empty { color: var(--ui-text-disabled); }
+.pf-cases .pf-case__toc a.is-empty .n { color: var(--ui-text-disabled); }
+.pf-cases .pf-case__toc a.is-empty:hover { color: var(--ui-text-secondary); }
+.pf-cases .pf-case__toc .toc-foot { margin-top: var(--ui-space-4); padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border-soft); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pf-cases .pf-case__file { display: flex; flex-direction: column; gap: var(--ui-space-6); max-width: 980px; }
+.pf-cases .pf-case__head { display: flex; flex-direction: column; gap: var(--ui-space-3); padding-bottom: var(--ui-space-4); border-bottom: 1px solid var(--ui-border-soft); }
+.pf-cases .pf-case__headrow { display: flex; align-items: center; gap: var(--ui-space-4); }
+.pf-cases .pf-case__headrow .pf-facts { flex: 1; margin: 0; }
+.pf-cases .pf-case__actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+.pf-cases .pf-blk { display: flex; flex-direction: column; gap: var(--ui-space-3); scroll-margin-top: 96px; }
+.pf-cases .pf-blk__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-3); }
+.pf-cases .pf-blk__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-semibold); white-space: nowrap; }
+.pf-cases .pf-blk__sub { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-blk__tools { margin-left: auto; display: flex; gap: var(--ui-space-2); }
+.pf-cases .pf-saved { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }

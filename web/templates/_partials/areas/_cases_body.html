@@ -1,49 +1,27 @@
-{# Cases area body — the eighth Area (ADR-0107). See
-   _watch_desk_body.html for the pattern: a pf-area header plus one
-   section block per surface, each lazy-loading its body over HTMX.
+{# Cases area body — one Section (ADR-0138 §12). The Section holds the list
+   with the filter Open · Waiting · Closed · All, Mine and search; a case opens
+   as the Section's sub-surface inside #cs-host and writes the crumb
+   ‹ Cases › CASE-nnnn into the Section head out of band — the Transactions
+   composer idiom (_partials/transactions/_composer_head.html). "New case" is
+   the Section's one primary action; a created case lands in its file.
 
-   Three surfaces (ADR-0107, C2), in list order: Open cases (the to-do
-   list), Recently closed (the reviewer's view), Archive (closed-case
-   search). Rows link through to the case detail view (C3a, /cases/{id}).
-
-   "New case" (top-right, per the mock) opens the manual-creation form into
-   the always-present #cases-new-case-slot below the header; the slot is
-   static (not inside a lazy section) so the header button can target it
-   reliably regardless of section-reveal timing. #}
+   Context: cs_case_id — set by GET /cases/{case_id} (web/routes/areas.py) when
+   the page opens on a case; the host then loads the file instead of the list.
+   Every other key is the shell's area context (web/routes/areas.py). #}
 <div class="pf-area pf-cases" data-area="cases">
     <header class="pf-area__header">
         <div>
             <h1 class="pf-area__title">Cases</h1>
             <p class="pf-area__subtitle">
-                Open questions about the portfolio, worked to a documented
-                close — your to-do list in front, your decision log behind.
+                Questions and tasks about the book you keep open longer than one
+                conversation — the working file in front, the record behind.
             </p>
         </div>
-        <button type="button"
-                class="pf-cases__new-btn"
-                hx-get="/api/cases/new"
-                hx-target="#cases-new-case-slot"
-                hx-swap="innerHTML">
-            New case
-        </button>
     </header>
 
-    {# The manual-creation form renders here; empty until "New case" is
-       clicked, and cleared again once a case is created. #}
-    <div id="cases-new-case-slot"></div>
-
-    {% with section_slug="open-cases",
-            section_body_template="_partials/cases_open_lazy.html" %}
-        {% include "areas/_section.html" %}
-    {% endwith %}
-
-    {% with section_slug="recently-closed",
-            section_body_template="_partials/cases_recently_closed_lazy.html" %}
-        {% include "areas/_section.html" %}
-    {% endwith %}
-
-    {% with section_slug="archive",
-            section_body_template="_partials/cases_archive_lazy.html" %}
+    {% with section_slug="cases",
+            section_primary_template="_partials/cases_new_action.html",
+            section_body_template="_partials/cases_section.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}
 </div>

@@ -1,0 +1,16 @@
+{# Rows of the Cases list plus the Closed filter's "Show older" row. Included by
+   cases_list.html; rendered alone by GET /api/cases/list?state=closed&before=…
+   Context: rows, older_href, journal_href. #}
+{% for row in rows %}
+    {% include "_partials/cases_list_row.html" %}
+{% endfor %}
+{% if older_href %}
+    <tr class="pf-table__older" data-pf-cs="older">
+        <td colspan="7">
+            <button type="button" class="pf-btn pf-btn--quiet"
+                    hx-get="{{ older_href }}"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML">Show older</button>
+        </td>
+    </tr>
+{% endif %}

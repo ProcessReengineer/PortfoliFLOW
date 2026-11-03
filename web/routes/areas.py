@@ -9,7 +9,8 @@ One GET endpoint per area in ``modules/module_registry.py``, in the
     * ``GET /front-office``
     * ``GET /back-office``
     * ``GET /watch-desk`` (ADR-0089)
-    * ``GET /cases`` (ADR-0107)
+    * ``GET /cases`` (ADR-0107; one Section, ADR-0138 §12)
+    * ``GET /cases/{case_id}`` — the Cases area opened on one case (ADR-0138 §12)
     * ``GET /transactions`` (ADR-0128 §7)
     * ``GET /planning-desk`` (ADR-0104 §6)
     * ``GET /investor-communication``
@@ -37,12 +38,14 @@ from __future__ import annotations
 
 import logging
 from typing import cast
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from core.repositories._session import tenant_context
+from core.repositories.case_repository import CaseRepository
 from core.repositories.tenant_repository import TenantRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO, SessionRepository
@@ -286,14 +289,14 @@ async def cases_view(
     session: SessionDTO = Depends(require_session),
     htmx: bool = Depends(is_htmx_request),
 ) -> HTMLResponse:
-    """Render the Cases area page (ADR-0107).
+    """Render the Cases area page (ADR-0107, ADR-0138 §12).
 
-    The eighth top-level Area — open questions about the portfolio worked to
-    a documented close. Its three Sections (Open cases, Recently closed,
-    Archive) lazy-load their bodies over HTMX, mirroring the Watch Desk
-    pattern, so this handler stays a thin shell render with no DB access. The
-    case detail view (timeline + composers) is C3; the list rows this
-    sub-strand renders carry no detail link yet.
+    The eighth top-level Area — questions and tasks about the book kept open
+    longer than one conversation. Its one Section, ``cases``, holds a host
+    that lazy-loads the list (``GET /api/cases/list``) over HTMX, so this
+    handler stays a thin shell render with no DB access beyond the shell's
+    own user lookup. A case opens inside the same Section as its sub-surface;
+    :func:`case_view` is the page URL for one case.
     """
     user_email = await _resolve_user_email(request, session)
     return _render_area(
@@ -303,6 +306,41 @@ async def cases_view(
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,
+    )
+
+
+@router.get("/cases/{case_id}", response_class=HTMLResponse)
+async def case_view(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    htmx: bool = Depends(is_htmx_request),
+) -> HTMLResponse:
+    """Render the Cases area opened on one case (ADR-0138 §12, D-CS-B-28).
+
+    The page URL every cross-area link carries. The case is read once so an
+    unknown or foreign-tenant id (``None`` under RLS) is a 404 before any shell
+    renders — the entity-detail idiom; the shell then renders with the Section's
+    host pointed at ``GET /api/cases/{case_id}``, which loads the file and
+    writes the crumb into the Section head out of band. The file itself is not
+    rendered here: the sticky head is the shell's, and the crumb reaches it only
+    through a swap (``_composer_head.html``), so the page is the shell plus a
+    host that loads the case — the lazy-section idiom of every area.
+    """
+    user_email = await _resolve_user_email(request, session)
+    engine = request.app.state.engine
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await CaseRepository(db).get(case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Case not found.")
+    return _render_area(
+        request,
+        area_slug="cases",
+        template_name="areas/cases.html",
+        user_email=user_email,
+        csrf_token=session.csrf_token,
+        htmx=htmx,
+        extra_context={"cs_case_id": str(case_id)},
     )
 
 

@@ -1,0 +1,78 @@
+{# The case as the Section's sub-surface (ADR-0138 §12). Swapped into #cs-host
+   by a row click or by the host's load (GET /api/cases/{case_id}); writes the
+   crumb into #cases-title and the state pill into #cases-asof out of band
+   (D-CS-B-29). In P-CS-3a this is the page move of cases_detail.html: the
+   facts row, the actions (open cases only), the composer slot, the origin
+   embed or the description, and the record (the timeline partial, unchanged).
+   P-CS-3b/3c fill the outline with the file's sections.
+
+   Context: see load_case_file_context in web/routes/cases.py. #}
+<h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
+    <button type="button" class="pf-crumb__back"
+            hx-get="/api/cases/list" hx-target="#cs-host" hx-swap="innerHTML"
+            hx-push-url="/cases">{{ pf_icon("back") }}Cases</button>
+    <span class="pf-crumb__sep" aria-hidden="true">›</span>
+    <span class="pf-crumb__here">{{ head.badge }} · {{ head.title }}</span>
+</h2>
+<span class="pf-view__asof" id="cases-asof" hx-swap-oob="outerHTML">
+    <span class="pf-state pf-state--{{ head.state }}" data-pf-cs="state" data-pf-cs-state="{{ head.state }}">{{ head.state|capitalize }}</span>
+</span>
+
+<div class="pf-case" data-pf-cs="file" data-pf-cs-state="{{ head.state }}" data-pf-cs-case="{{ head.badge }}">
+    <nav class="pf-case__toc" aria-label="Sections of this case" data-pf-cs="outline">
+        <a href="#cs-question" data-pf-cs="outline-item" data-pf-cs-name="question">The question</a>
+        <a href="#cs-record" data-pf-cs="outline-item" data-pf-cs-name="record">Record <span class="n">{{ entries|length }}</span></a>
+        <div class="toc-foot">
+            <span class="pf-state pf-state--{{ head.state }}">{{ head.state|capitalize }}</span>
+            <span class="pf-hint">Owner {{ head.owner }}</span>
+            {% if head.due %}<span class="pf-hint">Due {{ head.due }}</span>{% endif %}
+            {% if head.wait_until %}<span class="pf-hint">Waiting until {{ head.wait_until }}</span>{% endif %}
+        </div>
+    </nav>
+
+    <div class="pf-case__file">
+        <div class="pf-case__head">
+            <div class="pf-case__headrow">
+                <dl class="pf-facts" data-pf-cs="facts">
+                    <div><dt>Opened</dt><dd>{{ head.opened_stamp }} · {{ head.opened_by }}</dd></div>
+                    {% if head.counterparty %}<div><dt>Counterparty</dt><dd>{{ head.counterparty }}</dd></div>{% endif %}
+                    {% if linked_finding %}<div><dt>Finding</dt><dd><span class="mono">{{ linked_finding.subject_key }}</span> <span class="pf-dc-band-tag pf-dc-band-tag--{{ linked_finding.band }}">{{ linked_finding.band|capitalize }}</span></dd></div>{% endif %}
+                    {% if show_attachments %}{% include "_partials/cases_detail_attachments_row.html" %}{% endif %}
+                    {% if head.closed_stamp %}<div><dt>Closed</dt><dd>{{ head.closed_stamp }} · {{ head.closed_by }}</dd></div>{% endif %}
+                    {% if journal_href %}<div><dt>Journal</dt><dd>{% include "_partials/cases_journal_link.html" %}</dd></div>{% endif %}
+                </dl>
+            </div>
+            {% if is_open %}
+                <div class="pf-case__actions" data-pf-cs="actions">
+                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="note" hx-get="/api/cases/{{ case_id }}/composer/note" hx-target="#case-composer-slot" hx-swap="innerHTML">Add note</button>
+                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="pin" hx-get="/api/cases/{{ case_id }}/composer/pin" hx-target="#case-composer-slot" hx-swap="innerHTML">Pin document</button>
+                    <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="capture" href="{{ capture_scenario_href }}">Capture scenario</a>
+                    <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="consult" href="{{ consult_shirley_href }}">Consult Shirley</a>
+                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="decision" hx-get="/api/cases/{{ case_id }}/composer/decision" hx-target="#case-composer-slot" hx-swap="innerHTML">Record decision</button>
+                    <button type="button" class="pf-btn pf-btn--primary" data-pf-cs="action" data-pf-cs-kind="close" hx-get="/api/cases/{{ case_id }}/composer/close" hx-target="#case-composer-slot" hx-swap="innerHTML">Close case…</button>
+                </div>
+                <div id="case-composer-slot" class="pf-case-composer-slot" data-pf-cs="composer-slot"></div>
+            {% endif %}
+        </div>
+
+        <section class="pf-blk" id="cs-question" data-pf-cs="block" data-pf-cs-name="question">
+            <div class="pf-blk__head"><h3 class="pf-blk__title">The question</h3></div>
+            {% if origin %}
+                {% include "_partials/cases_detail_origin.html" %}
+            {% elif description %}
+                {# Manually opened case: no finding to embed, so the description
+                   block stands in the origin's place (moved verbatim from
+                   cases_detail.html, P-CS-3a). #}
+                <div class="pf-origin pf-origin--manual">
+                    <span class="pf-origin__label">Description</span>
+                    <p class="pf-origin__finding">{{ description }}</p>
+                </div>
+            {% endif %}
+        </section>
+
+        <section class="pf-blk" id="cs-record" data-pf-cs="block" data-pf-cs-name="record">
+            <div class="pf-blk__head"><h3 class="pf-blk__title">Record</h3></div>
+            {% include "_partials/cases_detail_timeline.html" %}
+        </section>
+    </div>
+</div>

@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -569,19 +569,26 @@ def _figure_text(value: Decimal, unit: str | None) -> str:
     return f"{float(value):.1f} %"
 
 
-def _subject_line(subject_key: str, reading: SubjectReading | None, reason: str | None) -> str:
-    """Return the subject's one line."""
+def _subject_line(
+    subject_key: str,
+    reading: SubjectReading | None,
+    reason: str | None,
+    *,
+    label: str | None = None,
+) -> str:
+    """Return the subject's one line, naming it ``label`` when given, else the key."""
+    name = label or subject_key
     if reading is None:
-        return f"{subject_key}: {reason or 'not available'}"
+        return f"{name}: {reason or 'not available'}"
     if reading.value is None:
-        return f"{subject_key}: {reading.status_label}"
+        return f"{name}: {reading.status_label}"
     value = _figure_text(reading.value, reading.unit)
     if reading.ceiling is None:
-        return f"{subject_key}: {value} ({reading.status_label})"
+        return f"{name}: {value} ({reading.status_label})"
     ceiling = _figure_text(reading.ceiling, reading.unit)
     if reading.family in _LIMIT_FAMILIES:
-        return f"{subject_key} at {value} of the {ceiling} ceiling ({reading.status_label})"
-    return f"{subject_key}: {value} against {ceiling} ({reading.status_label})"
+        return f"{name} at {value} of the {ceiling} ceiling ({reading.status_label})"
+    return f"{name}: {value} against {ceiling} ({reading.status_label})"
 
 
 def _investment_line(
@@ -595,16 +602,27 @@ def _investment_line(
     return f"{name} · NAV {nav} · {as_of}"
 
 
-async def headline_for(ctx: StandContext, case: CaseDTO) -> str:
+async def headline_for(
+    ctx: StandContext,
+    case: CaseDTO,
+    *,
+    subject_label: Callable[[str], str] | None = None,
+) -> str:
     """Return the list's one line for ``case`` — cheap by construction.
 
     A finding case reads its finding and states the subject off the
     context; otherwise the first linked investment's latest NAV; else
     ``""``. A closed case returns ``""``: its row reads the frozen headline.
 
+    ``subject_label`` is a presentation mapping the list supplies (the Watch
+    Desk monitor's subject label, P-CS-3a); by default the stand prints the
+    raw subject key, as :func:`compose` does.
+
     Args:
         ctx: The request's context.
         case: The case.
+        subject_label: Maps the finding's subject key to the name the line
+            prints; ``None`` prints the key.
 
     Returns:
         The headline, possibly empty.
@@ -616,7 +634,12 @@ async def headline_for(ctx: StandContext, case: CaseDTO) -> str:
         finding = await IreneFindingRepository(session).get(case.finding_id)
         if finding is not None:
             reading = _subject_now(ctx, finding.subject_key)
-            return _subject_line(finding.subject_key, reading, ctx.status_unavailable_reason)
+            return _subject_line(
+                finding.subject_key,
+                reading,
+                ctx.status_unavailable_reason,
+                label=subject_label(finding.subject_key) if subject_label is not None else None,
+            )
     links = await CaseInvestmentRepository(session).list_for_case(case.id)
     if not links:
         return ""

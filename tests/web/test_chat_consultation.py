@@ -640,7 +640,7 @@ async def test_a_successful_pin_writes_one_entry_and_renders_the_anatomy(
     assert entry.payload["excerpt"] == excerpt
 
     # The timeline renders the quoted excerpt + comment under Shirley's name.
-    detail = await client.get(f"/cases/{case_id}")
+    detail = await client.get(f"/api/cases/{case_id}")
     assert detail.status_code == 200
     assert "Consultation pinned" in detail.text
     assert excerpt in detail.text
@@ -657,7 +657,7 @@ async def test_a_successful_pin_writes_one_entry_and_renders_the_anatomy(
         actor_user_id=actor_id,
         payload={"artifact": "mystery", "secret": "SHOULD-NOT-LEAK"},
     )
-    detail = await client.get(f"/cases/{case_id}")
+    detail = await client.get(f"/api/cases/{case_id}")
     assert detail.status_code == 200
     assert "SHOULD-NOT-LEAK" not in detail.text
 
@@ -679,11 +679,11 @@ async def test_consult_shirley_action_open_only(
     client, _core = await client_factory()
     await _login_and_csrf(client, email, password)
 
-    open_detail = await client.get(f"/cases/{open_id}")
+    open_detail = await client.get(f"/api/cases/{open_id}")
     assert "Consult Shirley" in open_detail.text
     assert f'href="/assistants?case={open_id}"' in open_detail.text
 
-    closed_detail = await client.get(f"/cases/{closed_id}")
+    closed_detail = await client.get(f"/api/cases/{closed_id}")
     assert "Consult Shirley" not in closed_detail.text
 
 
@@ -950,7 +950,7 @@ async def test_a_successful_chart_pin_freezes_the_spec_and_renders_it(
     assert entry.payload["spec"] == _SPEC  # the frozen figure, byte for byte
 
     # The timeline re-plots it from the payload — nothing recomputed.
-    detail = await client.get(f"/cases/{case_id}")
+    detail = await client.get(f"/api/cases/{case_id}")
     assert detail.status_code == 200
     assert "Chart snapshot pinned" in detail.text
     assert comment in detail.text

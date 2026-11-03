@@ -7,7 +7,7 @@
    Context: csrf_token, error (optional), title (echoed back on error). #}
 <form class="pf-cases__new-form"
       hx-post="/api/cases/new"
-      hx-target="#cases-new-case-slot"
+      hx-target="#cs-new-slot"
       hx-swap="innerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h3 class="pf-cases__new-form-title">New case</h3>

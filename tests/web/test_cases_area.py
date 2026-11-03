@@ -1,34 +1,41 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Cases web surface — the eighth Area (ADR-0107, C2).
+"""Tests for the Cases web surface — one Section (ADR-0107, ADR-0138 §12).
 
 ASGI-level tests over a live Postgres, mirroring the fixture pattern in
 ``tests/web/test_watch_desk.py`` (login helper, superuser-seeded
-tenant/user, HTMX header simulation). They cover the C2 list experience:
+tenant/user, HTMX header simulation).
 
-* Area/nav — ``/cases`` renders the page and the HTMX branch the partial.
-* Open cases — rows newest-first, owner display name, finding-origin badge.
-* "Mine" filter — narrows to the current user's cases and back.
-* Recently closed — at most five, newest first, closing-note excerpt.
-* Archive — title / closing-note search, idle state on whitespace, the
-  collapsed panel on the bare (no-``q``) load.
-* Manual creation — ``POST /api/cases/new`` writes exactly one ``opened``
-  entry (``actor='pm'``, ``actor_user_id`` set), the new row appears in the
-  re-rendered list, and a blank title re-renders the form with an error and
-  creates nothing.
+The Cases area is one Section, ``cases`` (P-CS-3a). ``GET /cases`` and
+``GET /cases/{id}`` are the shell: the Section's host lazy-loads the list
+(``GET /api/cases/list``) or the case's file (``GET /api/cases/{id}``), so
+content assertions go against the two partials and the pages are asserted as
+the shell with the host. New markup is named through the ``data-pf-cs`` seam
+(``cs()`` / ``cs_block()`` / ``cs_text()`` in ``tests/web/conftest.py``), which
+survives the P-CS-3d restyle.
 
-C3a arms the read side: the detail-view tests below cover the full-page
-``GET /cases/{case_id}`` — head, origin embed, timeline and rail — the 404
-idiom for unknown / foreign ids, and the list rows now linking to it.
+* CS3a-01/02 — the one Section, the host, the case page, the 404s.
+* CS3a-03…08 — the list: Open with the Waiting group, the filters, *Mine* on
+  the owner, search over the working file (never attachments), the row
+  columns, the Closed paging.
+* CS3a-09 — creation lands in the file (``HX-Redirect``).
+* CS3a-10 — the file: crumb, state, outline, facts, actions (the page move).
+* CS3a-11 — the one registered module.
+
+The file tests below (origin embed, timeline, pins, composers, close,
+downloads) were the stand-alone detail page's; they now read the sub-surface
+partial, whose markup moved verbatim.
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import os
+import re
 from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -45,9 +52,18 @@ from core.repositories.case_attachment_repository import (
     CaseAttachmentRepository,
 )
 from core.repositories.case_repository import CaseDTO, CaseRepository
+from core.repositories.case_working_file_repository import (
+    CasePointRepository,
+    CaseThreadRepository,
+)
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
+
+import modules  # noqa: F401 — importing the package populates the ModuleRegistry
+import web.routes.cases as cases_module
+from modules.module_registry import registry
 from services.password_hashing import hash_password
+from tests.web.conftest import cs, cs_block, cs_blocks, cs_count, cs_text, wd_attr
 from web.main import create_app
 from web.settings import WebSettings
 
@@ -478,36 +494,6 @@ async def _seed_foreign_tenant_case(superuser_engine: AsyncEngine, app_engine: A
 # ---------------------------------------------------------------------------
 
 
-async def test_cases_page_renders_three_sections(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-) -> None:
-    """``GET /cases`` renders the area with its three Sections.
-
-    The right-edge section indicator this test used to pin (a
-    ``data-section`` dot per slug) was retired by P-UX-A0b: one section
-    is shown per view, and the second navigation level replaced the
-    dots (design parameters §2.1.2). The two markers that carry that
-    arrangement are pinned instead — ``data-pf-section-link`` in the
-    sidebar's second level, which ``shell.js`` marks ``aria-current``,
-    and ``data-pf-section`` on the body ``shell.js`` shows or hides.
-    """
-    _id, email, password = seeded_user
-    await _login(web_client, email, password)
-
-    response = await web_client.get("/cases", follow_redirects=False)
-    assert response.status_code == 200
-    body = response.text
-    assert 'data-area="cases"' in body
-    assert "<html" in body.lower()
-    for slug in ("open-cases", "recently-closed", "archive"):
-        assert f'id="{slug}"' in body, f'missing section anchor id="{slug}"'
-        assert f'data-pf-section="{slug}"' in body, f"missing section body for {slug}"
-        assert f'data-pf-section-link="{slug}"' in body, (
-            f"missing second-level nav entry for {slug}"
-        )
-
-
 async def test_cases_htmx_branch_returns_partial(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
@@ -526,184 +512,297 @@ async def test_cases_htmx_branch_returns_partial(
     assert 'data-area="cases"' in body
 
 
-# ---------------------------------------------------------------------------
-# Open cases — order, owner name, finding-origin badge
-# ---------------------------------------------------------------------------
-
-
-async def test_open_list_rows_newest_first_owner_and_finding_badge(
+async def test_cases_page_renders_one_section_with_the_host(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pm1, email, password = seeded_user
-    finding_id = await _seed_finding(app_engine, opened_by=pm1)
-    # Older manual case, then a newer from-finding case.
-    await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Board-meeting preparation",
-        opened_at=_T0,
-    )
-    await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Private equity approaching its SAA ceiling",
-        opened_at=_T0 + timedelta(hours=1),
-        finding_id=finding_id,
-    )
+    """CS3a-01: ``GET /cases`` renders one Section whose host loads the list.
 
+    The three retired Sections are gone; the second navigation level links
+    the one Section, and "New case" is its primary action. The page reads no
+    case: the host loads the list over HTMX. ``monkeypatch`` pins the page
+    size the list would page by, to prove the shell does not consult it.
+    """
+    monkeypatch.setattr(cases_module, "_CLOSED_PAGE_SIZE", 1)
+    _id, email, password = seeded_user
     await _login(web_client, email, password)
-    response = await web_client.get("/api/cases/open", follow_redirects=False)
+
+    response = await web_client.get("/cases", follow_redirects=False)
     assert response.status_code == 200
     body = response.text
-
-    # Both cases, newest (CASE-0002, from-finding) before oldest (CASE-0001).
-    assert "CASE-0001" in body and "CASE-0002" in body
-    assert body.index("CASE-0002") < body.index("CASE-0001")
-    # Owner display name resolved (the Journal idiom), not a raw UUID.
-    assert "S. Behrens" in body
-    assert str(pm1) not in body
-    # The finding-origin badge shows on the from-finding row; the manual row
-    # reads "opened manually".
-    assert "From finding" in body
-    assert "opened manually" in body
+    assert "<html" in body.lower()
+    assert 'id="cases"' in body
+    assert 'data-pf-section="cases"' in body
+    assert 'data-pf-section-link="cases"' in body
+    assert wd_attr(cs_block(body, "host"), "hx-get") == "/api/cases/list"
+    for retired in ("open-cases", "recently-closed", "archive"):
+        assert f'id="{retired}"' not in body
+    assert cs("new-action") in body
 
 
-# ---------------------------------------------------------------------------
-# "Mine" filter — narrows to the current user and back
-# ---------------------------------------------------------------------------
-
-
-async def test_mine_filter_narrows_and_restores(
+async def test_case_page_is_the_shell_with_the_host_on_the_case(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
+    """CS3a-02: ``GET /cases/{id}`` is the shell with the host on the case; 404s."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(
+        app_engine, opened_by=pm1, title="A title only the file shows", opened_at=_T0
+    )
+    foreign_id = await _seed_foreign_tenant_case(fresh_superuser_engine, app_engine)
+    await _login(web_client, email, password)
+
+    page = await web_client.get(f"/cases/{case.id}", follow_redirects=False)
+    assert page.status_code == 200
+    assert wd_attr(cs_block(page.text, "host"), "hx-get") == f"/api/cases/{case.id}"
+    assert "A title only the file shows" not in page.text
+
+    for missing in (uuid4(), foreign_id):
+        for url in (f"/cases/{missing}", f"/api/cases/{missing}"):
+            response = await web_client.get(url, follow_redirects=False)
+            assert response.status_code == 404, url
+
+
+# ---------------------------------------------------------------------------
+# The list (P-CS-3a) — Open · Waiting · Closed · All, Mine and search
+# ---------------------------------------------------------------------------
+
+
+def _row_badges(body: str) -> list[str]:
+    """The ``CASE-nnnn`` badges of the list rows, in document order."""
+    return [wd_attr(row, "data-pf-cs-case") or "" for row in cs_blocks(body, "row")]
+
+
+async def test_open_view_orders_by_updated_and_groups_the_waiting(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3a-03: open rows by ``updated_at``, then the Waiting group; counts; head."""
+    pm1, email, password = seeded_user
+    first = await _seed_case(app_engine, opened_by=pm1, title="First", opened_at=_T0)
+    await _seed_case(app_engine, opened_by=pm1, title="Second", opened_at=_T0 + timedelta(hours=1))
+    third = await _seed_case(
+        app_engine, opened_by=pm1, title="Third", opened_at=_T0 + timedelta(hours=2)
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        repo = CaseRepository(session)
+        await repo.wait(
+            third.id,
+            wait_until=date.today() + timedelta(days=30),
+            by=pm1,
+            now=_T0 + timedelta(hours=3),
+        )
+        # The bump puts the oldest open case first.
+        await repo.update_working_file(first.id, counterparty="GP X", now=_T0 + timedelta(hours=4))
+
+    await _login(web_client, email, password)
+    response = await web_client.get("/api/cases/list", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+
+    assert _row_badges(body) == ["CASE-0001", "CASE-0002", "CASE-0003"]
+    group = cs_block(body, "group", data_pf_cs_state="waiting", data_pf_cs_count="1")
+    assert body.index(cs("row", state="open", case="CASE-0002")) < body.index(group)
+    assert body.index(group) < body.index(cs("row", state="waiting", case="CASE-0003"))
+    waiting_row = cs_block(body, "row", data_pf_cs_case="CASE-0003")
+    assert cs_text(waiting_row, "next").startswith("Waiting until")
+    assert cs_text(body, "counts") == "2 open · 1 waiting · 0 closed"
+    assert '<h2 class="pf-view__title" id="cases-title" hx-swap-oob="outerHTML">' in body
+
+
+async def test_waiting_closed_and_all_filters(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3a-04: Waiting alone; Closed newest first with the Journal; All; a bad filter."""
+    pm1, email, password = seeded_user
+    await _seed_case(app_engine, opened_by=pm1, title="Open one", opened_at=_T0)
+    waiting = await _seed_case(app_engine, opened_by=pm1, title="Waiting one", opened_at=_T0)
+    await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Closed early",
+        opened_at=_T0,
+        close_note="done early",
+        closed_at=_T0 + timedelta(hours=1),
+    )
+    await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Closed late",
+        opened_at=_T0,
+        close_note="done late",
+        closed_at=_T0 + timedelta(hours=5),
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).wait(
+            waiting.id, wait_until=date.today() + timedelta(days=10), by=pm1, now=_T0
+        )
+
+    await _login(web_client, email, password)
+
+    only_waiting = (await web_client.get("/api/cases/list?state=waiting")).text
+    assert _row_badges(only_waiting) == ["CASE-0002"]
+    assert cs_count(only_waiting, "group") == 0
+
+    closed = (await web_client.get("/api/cases/list?state=closed")).text
+    assert _row_badges(closed) == ["CASE-0004", "CASE-0003"]
+    assert cs_count(closed, "row", data_pf_cs_state="open") == 0
+    for row in cs_blocks(closed, "row"):
+        assert cs_text(row, "sub").endswith("View in Journal ↗")
+    assert "/watch-desk#journal" in closed
+
+    every = (await web_client.get("/api/cases/list?state=all")).text
+    assert sorted(_row_badges(every)) == ["CASE-0001", "CASE-0002", "CASE-0003", "CASE-0004"]
+    assert cs_count(every, "group") == 0
+
+    bogus = await web_client.get("/api/cases/list?state=bogus")
+    assert bogus.status_code == 400
+
+
+async def test_mine_filters_on_the_owner_not_the_opener(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3a-05: *Mine* reads ``owner_user_id`` — a handed-over case leaves it."""
     pm1, email, password = seeded_user
     pm2 = await _seed_extra_user(
         fresh_superuser_engine, email="pm2@example.com", display_name="M. Otten"
     )
-    await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Mine — PM1 case",
-        opened_at=_T0,
-    )
-    await _seed_case(
-        app_engine,
-        opened_by=pm2,
-        title="Theirs — PM2 case",
-        opened_at=_T0 + timedelta(minutes=1),
-    )
-
-    await _login(web_client, email, password)
-
-    # All open — both cases, both owners visible (Mine is a filter, never a
-    # data boundary: PM1 sees PM2's case).
-    all_open = await web_client.get("/api/cases/open", follow_redirects=False)
-    assert all_open.status_code == 200
-    assert "Mine — PM1 case" in all_open.text
-    assert "Theirs — PM2 case" in all_open.text
-    assert "M. Otten" in all_open.text
-
-    # Mine — only PM1's case; PM2's is filtered out. The Mine chip is active.
-    mine = await web_client.get("/api/cases/open?mine=1", follow_redirects=False)
-    assert mine.status_code == 200
-    assert "Mine — PM1 case" in mine.text
-    assert "Theirs — PM2 case" not in mine.text
-    assert "pf-chip--active" in mine.text
-
-    # Back to all open — PM2's case returns.
-    back = await web_client.get("/api/cases/open", follow_redirects=False)
-    assert "Theirs — PM2 case" in back.text
-
-
-# ---------------------------------------------------------------------------
-# Recently closed — at most five, newest first, excerpt
-# ---------------------------------------------------------------------------
-
-
-async def test_recently_closed_caps_at_five_with_excerpt(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-) -> None:
-    pm1, email, password = seeded_user
-    for i in range(6):
-        await _seed_case(
-            app_engine,
-            opened_by=pm1,
-            title=f"Closed case {i}",
-            opened_at=_T0 + timedelta(hours=i),
-            close_note=f"Resolution note number {i} for the archive.",
-            closed_at=_T0 + timedelta(hours=i, minutes=30),
+    handed = await _seed_case(app_engine, opened_by=pm1, title="Handed over", opened_at=_T0)
+    await _seed_case(app_engine, opened_by=pm1, title="Kept", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).hand_over(
+            handed.id, to_user_id=pm2, by=pm1, now=_T0 + timedelta(hours=1)
         )
 
     await _login(web_client, email, password)
-    response = await web_client.get("/api/cases/recently-closed", follow_redirects=False)
-    assert response.status_code == 200
-    body = response.text
 
-    # Six closed, only five shown; the oldest (case 0) is dropped. Count by
-    # the once-per-row id span (``pf-case-row`` is a substring of
-    # ``pf-case-row--closed`` and would double-count).
-    assert body.count("pf-case-row__id") == 5
-    assert "Closed case 0" not in body
-    assert "Closed case 5" in body
-    # The closing-note excerpt is rendered.
-    assert "Resolution note number 5" in body
+    mine = (await web_client.get("/api/cases/list?mine=1")).text
+    assert _row_badges(mine) == ["CASE-0002"]
+    assert 'name="mine" value="1" checked' in mine
+
+    everyone = (await web_client.get("/api/cases/list")).text
+    assert sorted(_row_badges(everyone)) == ["CASE-0001", "CASE-0002"]
+    handed_row = cs_block(everyone, "row", data_pf_cs_case="CASE-0001")
+    assert cs_text(handed_row, "owner") == "M. Otten"
 
 
-# ---------------------------------------------------------------------------
-# Archive — title / note search, idle whitespace, collapsed panel
-# ---------------------------------------------------------------------------
-
-
-async def test_archive_search_title_note_and_idle(
+async def test_search_reads_the_file_and_never_attachment_names(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
+    """CS3a-06: a thread title is found; an attachment's filename is not; blank is no search."""
     pm1, email, password = seeded_user
-    await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Alpha Rebalancing Review",
-        opened_at=_T0,
-        close_note="closed uneventfully",
-    )
-    await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Ordinary title",
-        opened_at=_T0 + timedelta(hours=1),
-        close_note="watched the zzbetazz closely",
+    with_thread = await _seed_case(app_engine, opened_by=pm1, title="Threaded", opened_at=_T0)
+    with_file = await _seed_case(app_engine, opened_by=pm1, title="Filed", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseThreadRepository(session).add(
+            with_thread.id, title="zzkeypersonzz clause", now=_T0 + timedelta(minutes=5)
+        )
+    await _seed_attachment(
+        app_engine, case_id=with_file.id, uploaded_by=pm1, filename="zzsecretsheetzz.pdf"
     )
 
     await _login(web_client, email, password)
 
-    # Bare load (no q) — the collapsed search panel.
-    panel = await web_client.get("/api/cases/archive", follow_redirects=False)
-    assert panel.status_code == 200
-    assert "Search all closed cases" in panel.text
+    hit = (await web_client.get("/api/cases/list?q=zzkeypersonzz")).text
+    assert _row_badges(hit) == ["CASE-0001"]
 
-    # Title match.
-    by_title = await web_client.get("/api/cases/archive?q=Alpha", follow_redirects=False)
-    assert "Alpha Rebalancing Review" in by_title.text
-    assert "Ordinary title" not in by_title.text
+    miss = (await web_client.get("/api/cases/list?q=zzsecretsheetzz")).text
+    assert cs_count(miss, "row") == 0
+    assert cs_text(miss, "empty").startswith("No cases match")
 
-    # Closing-note match.
-    by_note = await web_client.get("/api/cases/archive?q=zzbetazz", follow_redirects=False)
-    assert "Ordinary title" in by_note.text
-    assert "Alpha Rebalancing Review" not in by_note.text
+    blank = (await web_client.get("/api/cases/list?q=%20%20")).text
+    assert sorted(_row_badges(blank)) == ["CASE-0001", "CASE-0002"]
 
-    # Whitespace query — the idle state, never "no results".
-    idle = await web_client.get("/api/cases/archive?q=%20%20", follow_redirects=False)
-    assert idle.status_code == 200
-    assert "Type a title or closing-note fragment" in idle.text
-    assert "No closed cases match" not in idle.text
+
+async def test_row_columns_read_the_file(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3a-07: sub line, stand (labelled subject), threads, next · due, owner, updated."""
+    pm1, email, password = seeded_user
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    finding_id = await _seed_finding(app_engine, opened_by=pm1)
+    case = await _seed_case(
+        app_engine, opened_by=pm1, title="From a finding", opened_at=now, finding_id=finding_id
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).update_working_file(
+            case.id, due_on=today + timedelta(days=20), now=now
+        )
+        threads = CaseThreadRepository(session)
+        first = await threads.add(case.id, title="Is the ceiling binding?", now=now)
+        await threads.add(case.id, title="Can we rebalance?", now=now)
+        await threads.update(first.id, status="confirmed", now=now)
+        await CasePointRepository(session).add(
+            case.id, text="Call the GP", due_on=today + timedelta(days=3), now=now
+        )
+
+    await _login(web_client, email, password)
+    body = (await web_client.get("/api/cases/list", follow_redirects=False)).text
+    row = cs_block(body, "row", data_pf_cs_case="CASE-0001")
+
+    assert cs_text(row, "sub").startswith("From finding · Private equity · noteworthy ·")
+    stand = cs_text(row, "stand")
+    assert stand and stand != "—"
+    assert stand.startswith("Private equity")
+    assert "saa:" not in stand
+    assert cs_text(row, "threads") == "2 · 1 confirmed"
+    next_block = cs_block(row, "next")
+    assert cs_text(next_block).startswith("Call the GP · ")
+    assert "is-soon" in next_block
+    assert cs_text(row, "owner") == "S. Behrens"
+    assert cs_text(row, "updated").startswith("today")
+
+
+async def test_closed_filter_pages_by_before(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS3a-08: a full Closed page offers "Show older"; the next page completes it."""
+    monkeypatch.setattr(cases_module, "_CLOSED_PAGE_SIZE", 2)
+    pm1, email, password = seeded_user
+    for i in range(3):
+        await _seed_case(
+            app_engine,
+            opened_by=pm1,
+            title=f"Closed {i}",
+            opened_at=_T0,
+            close_note="done",
+            closed_at=_T0 + timedelta(hours=i + 1),
+        )
+
+    await _login(web_client, email, password)
+    first = (await web_client.get("/api/cases/list?state=closed")).text
+    assert _row_badges(first) == ["CASE-0003", "CASE-0002"]
+    # The hook names the loader row; the button inside it carries the request.
+    older = re.search(r'hx-get="([^"]+)"', cs_block(first, "older"))
+    assert older is not None and "before=" in older.group(1)
+    older_href = older.group(1)
+
+    second = await web_client.get(html.unescape(older_href))
+    assert second.status_code == 200
+    assert _row_badges(second.text) == ["CASE-0001"]
+    assert cs_count(second.text, "older") == 0
+
+    refused = await web_client.get(
+        "/api/cases/list", params={"state": "open", "before": _T0.isoformat()}
+    )
+    assert refused.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -725,12 +824,13 @@ async def test_new_case_form_renders(
     assert 'hx-post="/api/cases/new"' in body
 
 
-async def test_create_case_writes_one_opened_entry_and_appears(
+async def test_create_case_lands_in_its_file(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
+    """CS3a-09: a created case answers ``HX-Redirect`` to its file; one ``opened`` entry."""
     pm1, email, password = seeded_user
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
@@ -745,17 +845,10 @@ async def test_create_case_writes_one_opened_entry_and_appears(
         follow_redirects=False,
     )
     assert response.status_code == 200
-    body = response.text
-    # The re-rendered open list carries the new row (CASE-0001) out of band.
-    assert 'id="cases-open-list"' in body
-    assert "hx-swap-oob" in body
-    assert "CASE-0001" in body
-    assert "Prepare advisory-board position" in body
 
-    # Exactly one case, with exactly one 'opened' entry attributed to the PM.
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         repo = CaseRepository(session)
-        cases = await repo.list_open()
+        cases = await repo.list_cases()
         assert len(cases) == 1
         created = cases[0]
         assert created.title == "Prepare advisory-board position"
@@ -763,6 +856,7 @@ async def test_create_case_writes_one_opened_entry_and_appears(
         assert created.opened_by == pm1
         entries = await repo.list_entries(created.id)
 
+    assert response.headers.get("HX-Redirect") == f"/cases/{created.id}"
     assert [e.kind for e in entries] == ["opened"]
     assert entries[0].actor == "pm"
     assert entries[0].actor_user_id == pm1
@@ -820,22 +914,24 @@ async def test_detail_manual_open_case_head_description_origin_and_actions(
     )
 
     await _login(web_client, email, password)
-    response = await web_client.get(f"/cases/{case.id}", follow_redirects=False)
+    response = await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)
     assert response.status_code == 200
     body = response.text
 
     # Head: badge, title, open state, Cases nav active.
     assert "CASE-0001" in body
     assert "Prepare advisory-board position" in body
-    assert "state--open" in body
-    assert 'data-area="cases"' in body
+    assert cs("state", state="open") in body
+    # The Cases nav marker is the shell's, so it is on the page, not the file.
+    page = await web_client.get(f"/cases/{case.id}", follow_redirects=False)
+    assert 'data-area="cases"' in page.text
     # The manual description stands in for the origin embed (no finding).
     assert "Fund II continuation vehicle" in body
     assert "Originating finding" not in body
     assert "At case opening" not in body
     # C3b: the Actions block and composer slot are present on an open case.
     assert 'id="case-composer-slot"' in body
-    assert "pf-case-actions" in body
+    assert cs("actions") in body
     assert "Add note" in body
     assert "Pin document" in body
     assert "Record decision" in body
@@ -887,7 +983,7 @@ async def test_detail_from_finding_origin_embed_with_and_without_materiality(
 
     await _login(web_client, email, password)
 
-    a_body = (await web_client.get(f"/cases/{with_mat.id}", follow_redirects=False)).text
+    a_body = (await web_client.get(f"/api/cases/{with_mat.id}", follow_redirects=False)).text
     # Origin embed: band chip, subject_key, finding text, basis.
     assert "Originating finding" in a_body
     assert "Critical" in a_body
@@ -898,7 +994,7 @@ async def test_detail_from_finding_origin_embed_with_and_without_materiality(
     assert "At case opening" in a_body
     assert "headroom -118,400 EUR" in a_body
 
-    b_body = (await web_client.get(f"/cases/{without_mat.id}", follow_redirects=False)).text
+    b_body = (await web_client.get(f"/api/cases/{without_mat.id}", follow_redirects=False)).text
     assert "Originating finding" in b_body
     assert "anlv:17" in b_body
     # Without a materiality payload the block is absent — no placeholder.
@@ -955,7 +1051,7 @@ async def test_detail_timeline_entries_render_ascending_with_actor_chips(
     )
 
     await _login(web_client, email, password)
-    body = (await web_client.get(f"/cases/{case.id}", follow_redirects=False)).text
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
 
     # note + decision_record payload contracts.
     assert "Called the depot bank for the final terms." in body
@@ -1040,7 +1136,7 @@ async def test_a_pinned_scenario_snapshot_renders_the_anatomy(
     )
 
     await _login(web_client, email, password)
-    body = (await web_client.get(f"/cases/{case.id}", follow_redirects=False)).text
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     collapsed = " ".join(body.split())
 
     assert "Scenario snapshot pinned" in body
@@ -1125,7 +1221,7 @@ async def test_a_pinned_chart_snapshot_renders_the_frozen_figure(
                     now=_T0 + timedelta(hours=3),
                 )
 
-        body = (await web_client.get(f"/cases/{case.id}", follow_redirects=False)).text
+        body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
 
         assert "Chart snapshot pinned" in body
         assert "the trajectory the committee asked about" in body
@@ -1164,11 +1260,13 @@ async def test_the_open_detail_offers_capture_scenario_the_closed_does_not(
     )
     await _login(web_client, email, password)
 
-    open_body = (await web_client.get(f"/cases/{open_case.id}", follow_redirects=False)).text
+    open_body = (await web_client.get(f"/api/cases/{open_case.id}", follow_redirects=False)).text
     assert "Capture scenario" in open_body
     assert f'href="/planning-desk?case={open_case.id}"' in open_body
 
-    closed_body = (await web_client.get(f"/cases/{closed_case.id}", follow_redirects=False)).text
+    closed_body = (
+        await web_client.get(f"/api/cases/{closed_case.id}", follow_redirects=False)
+    ).text
     assert "Capture scenario" not in closed_body
 
 
@@ -1189,73 +1287,76 @@ async def test_detail_closed_case_shows_closing_note_and_no_composers(
     )
 
     await _login(web_client, email, password)
-    body = (await web_client.get(f"/cases/{case.id}", follow_redirects=False)).text
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
 
     # Closed state visible in the head and the rail; the closed entry carries
     # the closing note (mandatory close artifact, written by close()).
-    assert "state--closed" in body
+    assert cs("state", state="closed") in body
     assert "Case closed" in body
     assert "Breach resolved by reclassification, no transaction required." in body
     # Still nothing interactive — no composer slot, no actions, no composers.
     assert 'id="case-composer-slot"' not in body
-    assert "pf-case-actions" not in body
+    assert cs("actions") not in body
     assert "Add note" not in body
     assert "Close case" not in body
 
 
-async def test_detail_unknown_and_foreign_ids_are_404(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """Unknown id and a foreign-tenant id both resolve to the 404 idiom."""
-    _pm1, email, password = seeded_user
-    foreign_id = await _seed_foreign_tenant_case(fresh_superuser_engine, app_engine)
-
-    await _login(web_client, email, password)
-
-    unknown = await web_client.get(f"/cases/{uuid4()}", follow_redirects=False)
-    assert unknown.status_code == 404
-
-    foreign = await web_client.get(f"/cases/{foreign_id}", follow_redirects=False)
-    assert foreign.status_code == 404
-
-
-async def test_list_surfaces_link_rows_to_detail(
+async def test_file_partial_writes_the_crumb_and_moves_the_page(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """Open, recently-closed and archive rows all link to /cases/{id}."""
+    """CS3a-10: the file writes the crumb and the state, and holds what the page held."""
     pm1, email, password = seeded_user
     open_case = await _seed_case(
         app_engine,
         opened_by=pm1,
-        title="Open one",
+        title="Manual open case",
+        description="Fund II continuation vehicle — reinvestment question.",
         opened_at=_T0,
     )
     closed_case = await _seed_case(
         app_engine,
         opened_by=pm1,
-        title="Closed one",
-        opened_at=_T0 + timedelta(hours=1),
-        close_note="Closed for the archive search.",
-        closed_at=_T0 + timedelta(hours=2),
+        title="Closed case",
+        opened_at=_T0,
+        close_note="Documented and closed.",
+        closed_at=_T0 + timedelta(hours=1),
     )
-
     await _login(web_client, email, password)
 
-    open_body = (await web_client.get("/api/cases/open", follow_redirects=False)).text
-    assert f'href="/cases/{open_case.id}"' in open_body
+    body = (await web_client.get(f"/api/cases/{open_case.id}", follow_redirects=False)).text
+    crumb = cs_block(body, "crumb", data_pf_cs_case="CASE-0001")
+    assert 'hx-get="/api/cases/list"' in crumb
+    assert 'hx-push-url="/cases"' in crumb
+    assert 'hx-swap-oob="outerHTML"' in crumb
+    assert cs("state", state="open") in body
+    cs_block(body, "outline-item", data_pf_cs_name="question")
+    cs_block(body, "outline-item", data_pf_cs_name="record")
+    assert "Opened" in cs_text(body, "facts")
+    assert cs_count(body, "action") == 6
+    for kind in ("note", "pin", "capture", "consult", "decision", "close"):
+        cs_block(body, "action", data_pf_cs_kind=kind)
+    assert cs("composer-slot") in body
+    assert "Fund II continuation vehicle" in body
+    assert "/watch-desk#journal" not in body
 
-    closed_body = (await web_client.get("/api/cases/recently-closed", follow_redirects=False)).text
-    assert f'href="/cases/{closed_case.id}"' in closed_body
+    closed = (await web_client.get(f"/api/cases/{closed_case.id}", follow_redirects=False)).text
+    assert cs("actions") not in closed
+    assert cs("state", state="closed") in closed
+    facts = cs_text(closed, "facts")
+    assert "Closed" in facts
+    assert "View in Journal ↗" in facts
 
-    archive_body = (
-        await web_client.get("/api/cases/archive?q=Closed", follow_redirects=False)
-    ).text
-    assert f'href="/cases/{closed_case.id}"' in archive_body
+
+def test_cases_module_registered() -> None:
+    """CS3a-11: the Area's one Module registers and constructs (ADR-0058)."""
+    classes = registry.list_by_area("cases")
+    assert {cls.module_name for cls in classes} == {"cases"}
+    assert len(classes) == 1
+    config = get_config()
+    for cls in classes:
+        cls(config)
 
 
 # ---------------------------------------------------------------------------
@@ -1551,11 +1652,12 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
 
     # The reloaded page renders closed: chip, closing note, no composers/actions.
     page = await web_client.get(f"/cases/{case.id}", follow_redirects=False)
-    pbody = page.text
-    assert "state--closed" in pbody
+    assert page.status_code == 200
+    pbody = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert cs("state", state="closed") in pbody
     assert "Resolved by reclassification; no action." in pbody
     assert 'id="case-composer-slot"' not in pbody
-    assert "pf-case-actions" not in pbody
+    assert cs("actions") not in pbody
 
     # Closing again → calm error idiom.
     again = await web_client.post(
@@ -1681,8 +1783,8 @@ async def test_pin_strips_path_and_download_header_is_sanitised(
 
 
 # ---------------------------------------------------------------------------
-# C4 — the fifth resolution's origin chip, Cases→Journal deep links, and the
-# chunked upload ceiling (rider 1)
+# C4 — the fifth resolution's origin chip and the chunked upload ceiling
+# (rider 1); the Cases→Journal deep links are CS3a-04 / CS3a-10 now
 # ---------------------------------------------------------------------------
 
 
@@ -1725,47 +1827,11 @@ async def test_origin_chip_renders_opened_case_label_and_tag(
     )
 
     await _login(web_client, email, password)
-    body = (await web_client.get(f"/cases/{case.id}", follow_redirects=False)).text
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
 
     assert "Opened case" in body
     assert "Opened_case" not in body  # not the |capitalize default
     assert "pf-dc-res-tag--opened_case" in body
-
-
-async def test_cases_side_journal_deep_links(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-) -> None:
-    """Recently-closed rows and the closed detail rail carry the Journal link;
-    an open case's rail does not."""
-    pm1, email, password = seeded_user
-    closed = await _seed_case(
-        app_engine,
-        opened_by=pm1,
-        title="Closed for the journal link",
-        opened_at=_T0,
-        close_note="Documented and closed.",
-        closed_at=_T0 + timedelta(hours=1),
-    )
-    open_case = await _seed_case(app_engine, opened_by=pm1, title="Still open", opened_at=_T0)
-
-    await _login(web_client, email, password)
-
-    # Recently-closed rows carry the deep link.
-    recent = (await web_client.get("/api/cases/recently-closed", follow_redirects=False)).text
-    assert "/watch-desk#journal" in recent
-    assert "View in Journal" in recent
-    # The detail link is still present (the row remains navigable).
-    assert f'href="/cases/{closed.id}"' in recent
-
-    # The closed-case detail rail carries it too.
-    closed_body = (await web_client.get(f"/cases/{closed.id}", follow_redirects=False)).text
-    assert "/watch-desk#journal" in closed_body
-
-    # An open case is not in the Journal yet — its rail carries no deep link.
-    open_body = (await web_client.get(f"/cases/{open_case.id}", follow_redirects=False)).text
-    assert "/watch-desk#journal" not in open_body
 
 
 async def test_pin_chunked_read_rejects_oversize_without_full_buffer(

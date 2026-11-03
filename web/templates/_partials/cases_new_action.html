@@ -1,0 +1,9 @@
+{# "New case" — the Cases Section's one primary action (ADR-0138 §12), rendered
+   into the view head's action slot by areas/_section.html. Opens the creation
+   form into #cs-new-slot; the form's POST lands the PM in the new case's file
+   (HX-Redirect), so nothing here refreshes a list. #}
+<button type="button" class="pf-btn pf-btn--primary"
+        data-pf-cs="new-action"
+        hx-get="/api/cases/new"
+        hx-target="#cs-new-slot"
+        hx-swap="innerHTML">New case</button>

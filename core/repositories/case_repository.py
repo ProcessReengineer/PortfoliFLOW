@@ -1076,14 +1076,22 @@ class CaseRepository(BaseRepository):
         *,
         state: str | None = None,
         owner_user_id: UUID | None = None,
+        before: datetime | None = None,
         limit: int = 200,
     ) -> list[CaseDTO]:
         """Return cases for the list filter Open · Waiting · Closed · All (ADR-0138 §12).
+
+        The Closed filter is loaded by page: pass ``before`` (exclusive) with
+        the last ``closed_at`` of the previous page and ``limit`` as the page
+        size; the next page is the closed cases with ``closed_at < before``,
+        newest first. ``before`` pages the Closed filter only.
 
         Args:
             state: ``open`` / ``waiting`` / ``closed``, or ``None`` for all.
             owner_user_id: When given, restrict to cases this user owns —
                 the *Mine* filter, a filter and never a data boundary.
+            before: With ``state='closed'`` only — return cases closed
+                strictly before this instant.
             limit: Maximum number of rows.
 
         Returns:
@@ -1093,15 +1101,21 @@ class CaseRepository(BaseRepository):
 
         Raises:
             CaseStateInvalid: If ``state`` is outside the vocabulary.
+            ValueError: If ``before`` is given with any ``state`` but
+                ``closed``.
         """
         if state is not None and state not in _VALID_STATES:
             raise CaseStateInvalid(
                 f"Invalid state {state!r}; expected one of {sorted(_VALID_STATES)} or None.",
                 field="state",
             )
+        if before is not None and state != "closed":
+            raise ValueError("before pages the Closed filter only; pass state='closed'.")
         stmt = select(*_CASE_COLUMNS)
         if state is not None:
             stmt = stmt.where(Case.state == state)
+        if before is not None:
+            stmt = stmt.where(Case.closed_at < before)
         if owner_user_id is not None:
             stmt = stmt.where(Case.owner_user_id == owner_user_id)
         if state == "waiting":
@@ -1112,6 +1126,21 @@ class CaseRepository(BaseRepository):
             stmt = stmt.order_by(Case.updated_at.desc(), Case.case_number.desc())
         result = await self._session.execute(stmt.limit(limit))
         return [CaseDTO(**row._mapping) for row in result.all()]
+
+    async def count_by_state(self) -> dict[str, int]:
+        """Return the number of cases in each state, every state present.
+
+        One ``GROUP BY`` over ``cases``; a state with no case reads 0. The
+        Cases list's counts slot (``{open} open · {waiting} waiting · {closed}
+        closed``) is its consumer. RLS scopes it to the active tenant.
+
+        Returns:
+            ``{"closed": n, "open": n, "waiting": n}``.
+        """
+        result = await self._session.execute(select(Case.state, func.count()).group_by(Case.state))
+        counts = {state: 0 for state in sorted(_VALID_STATES)}
+        counts.update({state: int(n) for state, n in result.all()})
+        return counts
 
     async def update_working_file(
         self,

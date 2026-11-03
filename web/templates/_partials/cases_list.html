@@ -1,0 +1,73 @@
+{# The Cases list (ADR-0138 §12, M-CS-2 view-cases). One partial for every
+   filter state, swapped into #cs-host — by the host's load, by the filter form
+   (change / typing) and by the crumb's back button. The Closed filter's next
+   page is cases_list_rows.html alone.
+
+   Out of band it restores the Section head after a file was open: the plain
+   title into #cases-title and the counts into #cases-asof (D-CS-B-29).
+
+   Context (web/routes/cases.py::get_case_list):
+     state        — "open" | "waiting" | "closed" | "all"
+     mine         — bool
+     q            — the stripped search text ("" when not searching)
+     rows         — projected rows in render order (D-CS-B-32)
+     waiting      — projected waiting rows for the Open view's group (else [])
+     counts       — {"open", "waiting", "closed"} ints
+     older_href   — the next Closed page's URL, or None
+     empty_text   — the empty-state sentence when rows and waiting are empty
+     journal_href — the Journal deep link closed rows carry #}
+<h2 class="pf-view__title" id="cases-title" hx-swap-oob="outerHTML">Cases</h2>
+<span class="pf-view__asof" id="cases-asof" hx-swap-oob="outerHTML" data-pf-cs="counts">{{ counts.open }} open · {{ counts.waiting }} waiting · {{ counts.closed }} closed</span>
+
+<div id="cs-list" class="pf-cases-list" data-pf-cs="list" data-pf-cs-state="{{ state }}">
+    <form class="pf-filters" data-pf-cs="filters"
+          hx-get="/api/cases/list"
+          hx-target="#cs-host"
+          hx-swap="innerHTML"
+          hx-trigger="change, submit, input changed delay:400ms from:[name='q']">
+        <div class="pf-seg" role="radiogroup" aria-label="Which cases" data-pf-cs="seg">
+            {% for value, label in (("open", "Open"), ("waiting", "Waiting"), ("closed", "Closed"), ("all", "All")) %}
+                <input type="radio" id="cs-f-{{ value }}" name="state" value="{{ value }}"{% if state == value %} checked{% endif %}>
+                <label for="cs-f-{{ value }}">{{ label }}</label>
+            {% endfor %}
+        </div>
+        <label class="pf-chip" data-pf-cs="mine">
+            <input type="checkbox" name="mine" value="1"{% if mine %} checked{% endif %}> Mine only
+        </label>
+        <div class="pf-filters__field pf-filters__field--wide">
+            <span class="pf-sr">Search cases</span>
+            <input class="pf-input" type="search" name="q" value="{{ q }}" data-pf-cs="search"
+                   placeholder="Title, counterparty, thread or decision contains …">
+        </div>
+        <span class="pf-hint">Search reads titles, threads, figures, conversations and decisions — never attachment contents.</span>
+    </form>
+
+    {% if rows or waiting %}
+        <table class="pf-table" data-pf-cs="table">
+            <thead>
+                <tr>
+                    <th>Case</th>
+                    <th>Question or task</th>
+                    <th>Where we stand</th>
+                    <th>Threads</th>
+                    <th>Next · due</th>
+                    <th>Owner</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% include "_partials/cases_list_rows.html" %}
+                {% if waiting %}
+                    <tr class="pf-table__group" data-pf-cs="group" data-pf-cs-state="waiting" data-pf-cs-count="{{ waiting|length }}">
+                        <td colspan="7">Waiting · {{ waiting|length }} <span class="pf-table__group-note">— returns to Open on its date, or earlier when the program notices something on its subject</span></td>
+                    </tr>
+                    {% for row in waiting %}
+                        {% include "_partials/cases_list_row.html" %}
+                    {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="pf-empty-state" data-pf-cs="empty">{{ empty_text }}</p>
+    {% endif %}
+</div>

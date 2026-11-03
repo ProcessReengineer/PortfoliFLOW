@@ -94,6 +94,7 @@ from core.exceptions import (
 )
 from core.models.investment import INVESTMENT_TYPES
 from core.repositories.audit_log_repository import AuditLogRepository
+from core.repositories.case_repository import CaseRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
 from core.repositories.investment_cashflow_repository import InvestmentCashflowRepository
 from core.repositories.investment_nav_repository import InvestmentNavRepository
@@ -107,6 +108,7 @@ from core.repositories.trade_ticket_repository import (
     TradeTicketEffectDTO,
     TradeTicketRepository,
 )
+from services.cases.system_lines import ticket_booked
 from services.investments.aum import CASH_TYPE
 from services.investments.holdings import first_negative_holding_date, holdings_as_of
 from services.investments.investment_service import InvestmentService
@@ -265,6 +267,9 @@ class TicketService:
         cashflows: Needed to reverse a flow that wrote a cashflow, and to
             probe a created shell for user rows. Read-only here: the deletes
             go through ``investment_service``.
+        cases: Needed to write the ``ticket_booked`` line when a booked
+            ticket carries a ``case_id`` (ADR-0138 §7, D-CS-B-23). A service
+            built without it books exactly as before and writes no line.
     """
 
     def __init__(
@@ -277,6 +282,7 @@ class TicketService:
         navs: InvestmentNavRepository | None = None,
         audit_log: AuditLogRepository | None = None,
         cashflows: InvestmentCashflowRepository | None = None,
+        cases: CaseRepository | None = None,
     ) -> None:
         self._tickets = tickets
         self._investments = investments
@@ -286,6 +292,7 @@ class TicketService:
         self._navs = navs
         self._audit_log = audit_log
         self._cashflows = cashflows
+        self._cases = cases
 
     # -- dependency guards --------------------------------------------------
 
@@ -822,6 +829,14 @@ class TicketService:
         4. Emit, dispatching on the flow (:meth:`_emit`). Every row goes
            through the one sanctioned write seam.
         5. Record the effects, then traverse the lifecycle to ``booked``.
+        6. When the ticket carries a ``case_id`` and the service holds a case
+           repository, write the ``ticket_booked`` line onto that case from
+           the booked ticket — and, if the case was waiting, lift it
+           (ADR-0138 §4, §7; D-CS-B-23). A closed or absent case receives
+           nothing. There is deliberately **no savepoint** around this step:
+           here the event *is* the business transaction, so a line that
+           cannot be written fails the booking rather than leaving a record
+           that silently misses a booking it was linked to.
 
         The dispatch is deliberately the *last* thing that happens rather
         than the first: refusing an incomplete ticket is the same refusal
@@ -830,7 +845,7 @@ class TicketService:
         would put six variants of "is this bookable" in front of one
         emission each.
 
-        **Atomicity (ADR-0128 §2).** Steps 4 to 5 run on the caller's one
+        **Atomicity (ADR-0128 §2).** Steps 4 to 6 run on the caller's one
         context-scoped session and nothing in the chain commits, so the
         emitted ledger rows, the ``trade_ticket_effects`` linkage and the
         status flip land together or not at all. There is deliberately no
@@ -906,6 +921,17 @@ class TicketService:
         updated = await self._tickets.set_status(
             ticket_id, status=STATUS_BOOKED, actor_user_id=booked_by, now=now
         )
+
+        if updated.case_id is not None and self._cases is not None:
+            # The booked DTO, so the line states ``status == 'booked'`` and a
+            # creating flow's freshly linked ``investment_id``.
+            investment_name: str | None = None
+            if self._investments is not None and updated.investment_id is not None:
+                investment = await self._investments.get_by_id(updated.investment_id)
+                investment_name = investment.name if investment is not None else None
+            await ticket_booked(
+                self._cases, ticket=updated, investment_name=investment_name, now=now
+            )
         return updated, warnings
 
     # -- emission dispatch --------------------------------------------------

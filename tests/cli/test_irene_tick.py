@@ -12,8 +12,11 @@ still owns — and what these tests cover — is the wrapper surface:
 - the superuser engine's lifecycle: constructed per run, handed to the
   runner, disposed in a ``finally`` even when the tick raises;
 - the credential gate's *ordering*: a deployment where no scope can
-  resolve a credential exits 0 without ever constructing the engine, so a
-  box with no ``DATABASE_URL_SUPERUSER`` still gets a clean no-op;
+  resolve a credential exits 0 without an engine when there is no
+  ``DATABASE_URL_SUPERUSER`` (a clean no-op), and with one wakes waiting
+  cases and skips the beat (D-CS-B-27);
+- the case wake-up runs before the beat on every engine-building run
+  (ADR-0138 §4, D-CS-B-24);
 - the exit-code mapping (``ConfigurationError`` → 2, ``PortfoliFlowError``
   → 3; everything else → 0).
 
@@ -30,7 +33,7 @@ from typer.testing import CliRunner
 import cli.irene_tick as irene_tick
 from cli import app
 from core.exceptions import ConfigurationError, PortfoliFlowError
-from services.scheduler.tick_runner import IreneTickSummary
+from services.scheduler.tick_runner import CaseWakeTickSummary, IreneTickSummary
 
 runner = CliRunner()
 
@@ -57,8 +60,14 @@ def _install(
     tick_raises: Exception | None = None,
     engine_raises: Exception | None = None,
 ) -> dict[str, Any]:
-    """Patch the wrapper's three seams and record what reached the runner."""
-    rec: dict[str, Any] = {"engine": _FakeEngine(), "calls": [], "engine_built": 0}
+    """Patch the wrapper's seams and record what reached the runner."""
+    rec: dict[str, Any] = {
+        "engine": _FakeEngine(),
+        "calls": [],
+        "wake_calls": [],
+        "order": [],
+        "engine_built": 0,
+    }
 
     monkeypatch.setattr(irene_tick, "get_web_settings", lambda: _FakeSettings(api_key))
     # The gate is the real one; steer it through ``is_vault_configured``.
@@ -68,15 +77,24 @@ def _install(
     )
 
     def _fake_engine() -> Any:
-        rec["engine_built"] += 1
+        # Counts engines actually built: a refusal (no superuser URL) builds none.
         if engine_raises is not None:
             raise engine_raises
+        rec["engine_built"] += 1
         return rec["engine"]
 
     monkeypatch.setattr(irene_tick, "superuser_engine", _fake_engine)
 
+    async def _fake_wake(engine: Any, *, now: Any = None) -> CaseWakeTickSummary:
+        rec["wake_calls"].append({"engine": engine, "now": now})
+        rec["order"].append("case_wake")
+        return CaseWakeTickSummary(tenants_seen=1, tenants_claimed=1)
+
+    monkeypatch.setattr(irene_tick, "run_case_wake_tick", _fake_wake)
+
     async def _fake_run(engine: Any, *, settings: Any, now: Any = None) -> IreneTickSummary:
         rec["calls"].append({"engine": engine, "settings": settings, "now": now})
+        rec["order"].append("irene")
         if tick_raises is not None:
             raise tick_raises
         return IreneTickSummary(due=1, beaten=1)
@@ -105,6 +123,9 @@ def test_runs_the_shared_runner_on_a_superuser_engine_and_disposes_it(
     assert call["engine"] is rec["engine"]
     assert call["settings"].openrouter_api_key == "sk-test"
     assert rec["engine"].disposed is True
+    # The case wake-up runs on the same engine, before the beat.
+    assert [c["engine"] for c in rec["wake_calls"]] == [rec["engine"]]
+    assert rec["order"] == ["case_wake", "irene"]
 
 
 def test_engine_is_disposed_even_when_the_tick_raises(monkeypatch: Any) -> None:
@@ -118,11 +139,12 @@ def test_engine_is_disposed_even_when_the_tick_raises(monkeypatch: Any) -> None:
 def test_no_vault_and_no_env_key_exits_zero_without_building_an_engine(
     monkeypatch: Any,
 ) -> None:
-    """The gate runs *before* the engine, so a keyless box never needs one.
+    """A keyless box without a superuser URL stays a clean no-op (D-CS-B-27).
 
     ``superuser_engine()`` raises ``ConfigurationError`` when
-    ``DATABASE_URL_SUPERUSER`` is unset; building it ahead of the gate
-    would turn today's tolerant no-op (exit 0) into exit 2.
+    ``DATABASE_URL_SUPERUSER`` is unset. The closed-gate branch now asks for
+    the engine (to wake cases), so the refusal is caught there: no engine,
+    no wake-up, no beat, exit 0 — not exit 2.
     """
     rec = _install(
         monkeypatch,
@@ -134,7 +156,22 @@ def test_no_vault_and_no_env_key_exits_zero_without_building_an_engine(
 
     assert result.exit_code == 0, result.output
     assert rec["engine_built"] == 0
+    assert rec["wake_calls"] == []
     assert rec["calls"] == []
+
+
+def test_keyless_box_with_a_superuser_url_wakes_cases_and_skips_the_beat(
+    monkeypatch: Any,
+) -> None:
+    """The wake-up needs no LLM: a closed gate still wakes cases (D-CS-B-24)."""
+    rec = _install(monkeypatch, api_key=None, vault_configured=False)
+    result = runner.invoke(app, ["irene-tick"])
+
+    assert result.exit_code == 0, result.output
+    assert rec["engine_built"] == 1
+    assert [c["engine"] for c in rec["wake_calls"]] == [rec["engine"]]
+    assert rec["calls"] == []
+    assert rec["engine"].disposed is True
 
 
 def test_vault_configured_without_env_key_still_reaches_the_runner(

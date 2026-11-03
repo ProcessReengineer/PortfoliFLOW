@@ -32,7 +32,11 @@ ADR-0112 §5 a fourth, and ADR-0117 §3 a fifth:
    the beat's writes, the schedule advance — runs inside
    ``tenant_context``, which drops the session to the unprivileged
    ``APP_DB_ROLE`` for the rest of that transaction (ADR-0078), so RLS
-   is enforced regardless of the role the engine connects as.
+   is enforced regardless of the role the engine connects as. The
+   runner's third step, the case wake-up (ADR-0138 §4, P-CS-2c), adds a
+   third due read of the same shape — the tenant enumeration on
+   ``irene_schedule`` behind ``find_case_tick_tenants`` — and reads and
+   lifts cases only inside ``tenant_context``.
 
 This guard parses each file structurally and asserts the engine
 touches only the table named for that path. The test does NOT cover
@@ -258,10 +262,10 @@ _TICK_SCHEDULER_SRC = _read("web", "tick_scheduler.py")
 _TICK_RUNNER_SRC = _read("services", "scheduler", "tick_runner.py")
 
 # The scheduler may hand the audit engine to these callables and nothing
-# else: the runner's two entry points (ADR-0117 §2) plus its own loop,
-# which the same assertions cover.
+# else: the runner's three entry points (ADR-0117 §2, ADR-0138 §4) plus its
+# own loop, which the same assertions cover.
 _ENGINE_SINKS: frozenset[str] = frozenset(
-    {"run_irene_tick", "run_market_data_tick", "run_tick_scheduler"}
+    {"run_case_wake_tick", "run_irene_tick", "run_market_data_tick", "run_tick_scheduler"}
 )
 
 # Attribute names that would mean the scheduler talks to Postgres itself
@@ -454,10 +458,11 @@ def test_tick_runner_uses_the_engine_directly_only_for_the_due_read() -> None:
             "transaction)."
         )
 
-    assert len(connect_targets) == 2, (
-        "Expected exactly two `engine.connect()` due reads (one per tick "
-        f"domain); found {len(connect_targets)}. The runner's shape changed — "
-        "update this regression guard."
+    assert len(connect_targets) == 3, (
+        "Expected exactly three `engine.connect()` due reads (one per tick "
+        "domain — Irene, market data and the third step, the case wake-up's "
+        f"tenant enumeration); found {len(connect_targets)}. The runner's "
+        "shape changed — update this regression guard."
     )
     assert len(tenant_scoped) >= 2, (
         "Expected each tick domain to open its per-tenant work through "
@@ -491,9 +496,10 @@ def test_tick_runner_due_read_blocks_touch_no_domain_table() -> None:
             ):
                 blocks.append("\n".join(lines[node.lineno - 1 : node.end_lineno]))
 
-    assert len(blocks) == 2, (
-        "Expected two direct-engine blocks in tick_runner.py (the two due "
-        f"reads); found {len(blocks)}. Update this regression guard."
+    assert len(blocks) == 3, (
+        "Expected three direct-engine blocks in tick_runner.py (the two due "
+        "reads and the third step's tenant enumeration on irene_schedule); "
+        f"found {len(blocks)}. Update this regression guard."
     )
 
     for block in blocks:

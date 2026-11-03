@@ -45,8 +45,13 @@ Coverage
 * TR-09: the target checks — inactive (D-P), and both valuation modes (D-Q).
 * TR-10: U-NEW creates a unitised instrument, then books as a U-BUY (D-M).
 * TR-11: MD-7's refusal never fires on a secondary sale.
-* SL-08: a booking's NAV writes no ``nav_restated`` line on a linked case
-  (D-CS-M-10, ADR-0138 §7).
+* SL-08: a booking onto a case writes exactly one ``ticket_booked`` line
+  and no ``nav_restated`` line, although its NAV effect exists (D-CS-M-10,
+  ADR-0138 §7).
+* TR-16 / TR-17 / TR-18: the ``ticket_booked`` seam's edges — a service
+  built without a case repository writes nothing (D-CS-B-23), a ticket
+  without a case writes nothing, and a waiting case is lifted in the
+  booking's own transaction (D-CS-M-4).
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from core.exceptions import TicketIncomplete, ValuationModeError
@@ -229,8 +235,12 @@ def _investment_service(session) -> InvestmentService:
     )
 
 
-def _service(session) -> TicketService:
-    """A fully wired service — every optional dependency present."""
+def _service(session, *, with_cases: bool = True) -> TicketService:
+    """A fully wired service — every optional dependency present.
+
+    ``with_cases=False`` leaves the case repository out, as a service built
+    for another concern would (D-CS-B-23).
+    """
     return TicketService(
         tickets=TradeTicketRepository(session),
         investments=InvestmentRepository(session),
@@ -238,6 +248,7 @@ def _service(session) -> TicketService:
         instrument_prices=InstrumentPriceRepository(session),
         investment_service=_investment_service(session),
         navs=InvestmentNavRepository(session),
+        cases=CaseRepository(session) if with_cases else None,
     )
 
 
@@ -357,14 +368,19 @@ async def test_tr01_secondary_sell_books_four_effects(app_engine: AsyncEngine, s
 
 
 # ---------------------------------------------------------------------------
-# SL-08: the booking's NAV is no nav_restated line (D-CS-M-10)
+# SL-08: the booking is one ticket_booked line, its NAV no nav_restated line
 # ---------------------------------------------------------------------------
 
 
 async def test_sl08_booking_nav_writes_no_nav_restated_line(
     app_engine: AsyncEngine, seed_tenant
 ) -> None:
-    """A ticket's NAV effect never passes a NAV write seam (D-CS-B-17)."""
+    """The booking's event is ``ticket_booked``; its NAV effect passes no NAV seam.
+
+    D-CS-M-10 holds: the closing NAV exists and is a ``nav`` effect, but
+    the linked case gets exactly one line — the booking's — and no
+    ``nav_restated``.
+    """
     tenant = await seed_tenant("SL-08")
     fixture = await _seed(app_engine, tenant, email="pm@sl08.example")
 
@@ -378,8 +394,8 @@ async def test_sl08_booking_nav_writes_no_nav_restated_line(
 
     async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
         service = _service(session)
-        draft = await service.create_draft(**_sell_draft_kwargs(fixture))
-        await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture), case_id=case.id)
+        booked, _ = await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
         effects = _by_type(await TradeTicketRepository(session).list_effects(draft.id))
         navs = await InvestmentNavRepository(session).list_by_investment_and_kind(
             fixture.stake.id, "actual"
@@ -388,8 +404,99 @@ async def test_sl08_booking_nav_writes_no_nav_restated_line(
 
     closing = next(row for row in navs if row.as_of_date == _TRADE_DATE)
     assert effects["nav"][0].effect_id == closing.id
-    # P-CS-2c changes this to "exactly one ticket_booked line".
+    (line,) = lines
+    assert line.payload["event"] == "ticket_booked"
+    assert line.payload["subject"] == str(booked.id)
+    assert line.payload["ticket_number"] == booked.ticket_number
+    assert line.payload["status"] == "booked"
+    assert line.payload["investment_name"] == "Legacy Buyout Fund III"
+    assert line.payload["text"].startswith(
+        f"Ticket #{booked.ticket_number} booked: secondary sell Legacy Buyout Fund III, "
+    )
+    assert line.created_at == _NOW
+
+
+# ---------------------------------------------------------------------------
+# TR-16 / TR-17 / TR-18: the ticket_booked seam's edges (D-CS-B-23, D-CS-M-4)
+# ---------------------------------------------------------------------------
+
+
+async def _open_case(app_engine: AsyncEngine, tenant: UUID, fixture: _Fixture, *, wait: bool):
+    """Open a case; set it waiting when asked."""
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(
+            title="Sell the stake", opened_by=fixture.actor.id, opened_actor="pm", now=_NOW
+        )
+        if wait:
+            case = await repo.wait(
+                case.id, wait_until=date(2026, 12, 31), by=fixture.actor.id, now=_NOW
+            )
+    return case
+
+
+async def test_tr16_a_service_without_cases_books_and_writes_no_line(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant = await seed_tenant("TR-16")
+    fixture = await _seed(app_engine, tenant, email="pm@tr16.example")
+    case = await _open_case(app_engine, tenant, fixture, wait=False)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session, with_cases=False)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture), case_id=case.id)
+        booked, _ = await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
+        lines = await CaseRepository(session).list_system_lines(case.id)
+
+    assert booked.status == "booked" and booked.case_id == case.id
     assert lines == []
+
+
+async def test_tr17_a_ticket_without_a_case_writes_no_line(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant = await seed_tenant("TR-17")
+    fixture = await _seed(app_engine, tenant, email="pm@tr17.example")
+    case = await _open_case(app_engine, tenant, fixture, wait=False)
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture))
+        booked, _ = await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
+        lines = await CaseRepository(session).list_system_lines(case.id)
+        total = (
+            await session.execute(
+                text("SELECT count(*) FROM case_entries WHERE kind = 'system_line'")
+            )
+        ).scalar_one()
+
+    assert booked.status == "booked" and booked.case_id is None
+    assert lines == []
+    assert total == 0
+
+
+async def test_tr18_booking_onto_a_waiting_case_lifts_it(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant = await seed_tenant("TR-18")
+    fixture = await _seed(app_engine, tenant, email="pm@tr18.example")
+    case = await _open_case(app_engine, tenant, fixture, wait=True)
+    assert case.state == "waiting"
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture), case_id=case.id)
+        await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
+        repo = CaseRepository(session)
+        after = await repo.get(case.id)
+        entries = await repo.list_entries(case.id, include_frozen=True)
+
+    assert after is not None and (after.state, after.wait_until) == ("open", None)
+    (line,) = [e for e in entries if e.kind == "system_line"]
+    lifted = next(e for e in entries if e.kind == "waiting_lifted")
+    assert (lifted.actor, lifted.payload["reason"]) == ("system", "event")
+    assert lifted.payload["event"]["entry_id"] == str(line.id)
+    assert lifted.created_at == line.created_at == _NOW
 
 
 # ---------------------------------------------------------------------------

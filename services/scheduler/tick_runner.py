@@ -3,13 +3,23 @@
 
 """The shared per-tick orchestration behind every tick source (ADR-0117 §2).
 
-Two entry points, one per advisory-lock domain — :func:`run_irene_tick`
-(ADR-0086) and :func:`run_market_data_tick` (ADR-0093) — each parametrised
-on the RLS-bypassing engine its **caller** supplies:
+Three entry points, one per advisory-lock domain — :func:`run_irene_tick`
+(ADR-0086), :func:`run_market_data_tick` (ADR-0093) and
+:func:`run_case_wake_tick` (ADR-0138 §4) — each parametrised on the
+RLS-bypassing engine its **caller** supplies:
 
 - ``cli/irene_tick.py`` / ``cli/market_data_tick.py`` pass
-  ``cli._db.superuser_engine()`` (and dispose of it);
+  ``cli._db.superuser_engine()`` (and dispose of it); ``irene-tick`` also
+  runs the case wake-up;
 - the built-in in-process scheduler passes the web app's audit engine.
+
+The superuser-privileged surface (ADR-0117 §3) is the cross-tenant reads
+on the two schedule tables, and nothing else: each domain reads its
+schedule table on ``engine.connect()`` and does all of its tenant work
+inside ``tenant_context``, RLS enforced. The third step's privileged
+surface is one more read on ``irene_schedule`` — the tenant enumeration
+of :func:`services.cases.wake.find_case_tick_tenants` (D-CS-B-26); the
+case table itself is read and written only inside a tenant's context.
 
 Neither host may drift from the other, so nothing here is host-specific:
 the runner never constructs an engine, never reads ``.env``, never maps an
@@ -76,6 +86,29 @@ carry the CLI's ``--tenant`` / ``--provider`` flags; **neither persists
 schedule state**, so a test run never perturbs production cadence. Flag
 *parsing* stays in the CLI — the runner only receives the values.
 
+Case wake-up tick — flow (ADR-0138 §4, D-CS-M-4, P-CS-2c):
+
+1. ``today`` is the UTC calendar day of the tick's ``now`` (D-CS-B-21). A
+   case's ``wait_until`` has no time of day, and the tenant's local
+   midnight is a few hours from UTC's at most, so "the first tick of that
+   day" is met within the tick interval; no per-tenant timezone is read.
+2. On the supplied engine, enumerate the tenants
+   (:func:`services.cases.wake.find_case_tick_tenants` — the distinct
+   tenants of ``irene_schedule``; every tenant has a seeded row). Due or
+   enabled does not matter: a wake-up needs no beat.
+3. For each tenant, open ``tenant_context``, claim the **cases-domain**
+   advisory lock (``domain="cases"``, disjoint from Irene's and market
+   data's) as the first statement, read the waiting cases due on or before
+   ``today`` (``CaseRepository.list_due_for_wake``, RLS enforced) and lift
+   each with ``reason='date'`` — a ``waiting_lifted`` milestone by
+   ``system`` and its frozen snapshot, in that tenant's one transaction.
+   A held lock means skip, not block.
+4. A single tenant's failure is caught and logged; the tick continues.
+   Idempotent by state: a lifted case is open and never due again. There
+   is no schedule row to advance — a case's ``wait_until`` is its
+   schedule. The step needs no LLM, so both hosts run it before, and
+   independent of, the Irene credential gate (D-CS-B-24).
+
 Layering: ``services/`` imports only from ``core/`` and ``services/``. The
 Irene tick's two settings reads therefore arrive as a parameter
 (:class:`IreneTickSettings`) rather than through a ``web.settings`` import.
@@ -94,11 +127,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from core.repositories._session import tenant_context
+from core.repositories.case_repository import CaseRepository
 from core.repositories.irene_schedule_repository import IreneScheduleRepository
 from core.repositories.market_data_schedule_repository import (
     MarketDataScheduleRepository,
 )
 from services.ai_service_core import ResolvedLLM, get_ai_service_core
+from services.cases.wake import find_case_tick_tenants
 from services.credential_vault import is_vault_configured
 from services.investments.credential_resolver import (
     CredentialResolver,
@@ -135,6 +170,10 @@ _DEFAULT_IRENE_MODEL = "anthropic/claude-sonnet-4.5"
 # The advisory-lock domain for market-data refreshes. Salts the tenant key
 # so a refresh claim never collides with an Irene beat's lock (ADR-0093 §0.2).
 _LOCK_DOMAIN = "market_data"
+
+# The advisory-lock domain for the case wake-up (ADR-0138 §4), disjoint from
+# Irene's and market data's, so a wake never waits on a beat or a refresh.
+_CASES_LOCK_DOMAIN = "cases"
 
 
 class IreneTickSettings(Protocol):
@@ -199,6 +238,26 @@ class MarketDataTickSummary:
     refreshed: int = 0
     skipped: int = 0
     errors: int = 0
+
+
+@dataclass(frozen=True)
+class CaseWakeTickSummary:
+    """What one case wake-up tick did (see :class:`IreneTickSummary`).
+
+    Attributes:
+        tenants_seen: Tenants the enumeration returned.
+        tenants_claimed: Tenants whose cases-domain lock was claimed and
+            whose wake-up completed.
+        tenants_skipped_locked: Tenants whose lock was already held.
+        tenants_failed: Tenants whose wake-up raised.
+        cases_lifted: Waiting cases returned to open, across tenants.
+    """
+
+    tenants_seen: int = 0
+    tenants_claimed: int = 0
+    tenants_skipped_locked: int = 0
+    tenants_failed: int = 0
+    cases_lifted: int = 0
 
 
 def _harvest_rss_items() -> list:
@@ -676,4 +735,84 @@ async def run_market_data_tick(
         refreshed=refreshed,
         skipped=skipped,
         errors=errors,
+    )
+
+
+async def run_case_wake_tick(
+    engine: AsyncEngine, *, now: datetime | None = None
+) -> CaseWakeTickSummary:
+    """Run one case wake-up: lift every waiting case whose date has come.
+
+    Args:
+        engine: The RLS-bypassing engine to run the tenant enumeration and
+            each tenant's ``tenant_context`` on. Supplied — and disposed of,
+            where that applies — by the caller.
+        now: The tick's clock, defaulting to "now" in UTC. Its UTC date is
+            the wake day (D-CS-B-21) and it stamps every lift.
+
+    Returns:
+        The tick's :class:`CaseWakeTickSummary`. A tenant-level failure is
+        counted, never raised; an infrastructure-level failure (the
+        enumeration) propagates to the caller.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    today = now.astimezone(timezone.utc).date()
+
+    claimed_count = skipped = failed = lifted_total = 0
+    async with engine.connect() as conn:
+        tenant_ids = await find_case_tick_tenants(conn)
+    _LOG.info("case-wake-tick: %d tenant(s) to look at.", len(tenant_ids))
+
+    for tenant_id in tenant_ids:
+        key = advisory_lock_key(tenant_id, domain=_CASES_LOCK_DOMAIN)
+        try:
+            # One transaction per tenant: the claim, the due read and every
+            # lift share this session. The lock is released at COMMIT /
+            # ROLLBACK; the session already runs as the app role (ADR-0078),
+            # so the case reads and writes below are RLS-enforced.
+            async with tenant_context(engine, tenant_id) as session:
+                claimed = (
+                    await session.execute(
+                        text("SELECT pg_try_advisory_xact_lock(:k)"),
+                        {"k": key},
+                    )
+                ).scalar_one()
+                if not claimed:
+                    _LOG.info(
+                        "case-wake-tick: tenant %s already claimed by another tick, skipping.",
+                        tenant_id,
+                    )
+                    skipped += 1
+                    continue
+
+                repo = CaseRepository(session)
+                due = await repo.list_due_for_wake(today=today)
+                for waiting in due:
+                    await repo.lift_wait(waiting.id, now=now, reason="date")
+                claimed_count += 1
+                lifted_total += len(due)
+                if due:
+                    _LOG.info(
+                        "case-wake-tick: tenant %s — %d waiting case(s) returned to open.",
+                        tenant_id,
+                        len(due),
+                    )
+        except Exception as exc:  # noqa: BLE001 — isolate one tenant's failure
+            failed += 1
+            _LOG.exception("case-wake-tick: tenant %s failed: %s", tenant_id, exc)
+
+    _LOG.info(
+        "case-wake-tick: %d seen, %d claimed, %d skipped, %d failed (cases lifted=%d).",
+        len(tenant_ids),
+        claimed_count,
+        skipped,
+        failed,
+        lifted_total,
+    )
+    return CaseWakeTickSummary(
+        tenants_seen=len(tenant_ids),
+        tenants_claimed=claimed_count,
+        tenants_skipped_locked=skipped,
+        tenants_failed=failed,
+        cases_lifted=lifted_total,
     )

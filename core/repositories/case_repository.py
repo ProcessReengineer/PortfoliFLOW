@@ -58,6 +58,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Text, and_, cast, exists, func, insert, or_, select, text, update
+from sqlalchemy import case as sql_case
 from sqlalchemy.exc import IntegrityError
 
 from core.exceptions import (
@@ -103,15 +104,17 @@ _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
         "system_line",
     }
 )
-# Written only by the milestone path (P-CS-1b); append_entry rejects them.
-_MILESTONE_ONLY_KINDS: frozenset[str] = frozenset(
-    {"closed", "handed_over", "waiting_set", "waiting_lifted", "frozen"}
+# Written only by the program — the milestone path (P-CS-1b) or
+# add_system_line (P-CS-2c, D-CS-B-25); append_entry rejects them.
+_PROGRAM_ONLY_KINDS: frozenset[str] = frozenset(
+    {"closed", "handed_over", "waiting_set", "waiting_lifted", "frozen", "system_line"}
 )
 _VALID_ACTORS: frozenset[str] = frozenset({"pm", "shirley", "system"})
 _VALID_FRAMINGS: frozenset[str] = frozenset({"question", "task"})
 # The kinds a milestone entry may carry (the snapshot itself is ``frozen``).
-_MILESTONE_KINDS: frozenset[str] = (_MILESTONE_ONLY_KINDS | {"opened", "decision_record"}) - {
-    "frozen"
+_MILESTONE_KINDS: frozenset[str] = (_PROGRAM_ONLY_KINDS | {"opened", "decision_record"}) - {
+    "frozen",
+    "system_line",
 }
 # Why a wait is lifted (ADR-0138 §4, D-CS-M-4): by the PM, or by the
 # program on the date or on an event.
@@ -127,6 +130,27 @@ _SYSTEM_LINE_EVENTS: frozenset[str] = frozenset(
         "job_requested",
         "job_landed",
     }
+)
+
+# The record's order (P-CS-2b finding e). Several rows of one case share an
+# instant by construction: a milestone and its ``frozen`` snapshot, and the
+# system line that woke a waiting case with the ``waiting_lifted`` pair it
+# caused — all written with the writer's one ``now``. ``created_at`` alone
+# leaves their order to the heap, and the row id is no tiebreak either: it is
+# a random UUID, so ordering by it would shuffle same-instant rows between
+# reads. Within an instant, therefore: a system line first (the event
+# precedes the milestone it woke), then the milestone, then its ``frozen``
+# snapshot; several lines of one write (the NAV seam) in subject order; and
+# only then the id, which merely makes two otherwise-equal rows stable.
+_RECORD_ORDER = (
+    CaseEntry.created_at.asc(),
+    sql_case(
+        (CaseEntry.kind == "system_line", 0),
+        (CaseEntry.kind == "frozen", 2),
+        else_=1,
+    ),
+    CaseEntry.payload["subject"].astext.asc(),
+    CaseEntry.id.asc(),
 )
 
 # The unique constraint that guarantees tenant-sequential numbering; a
@@ -688,20 +712,19 @@ class CaseRepository(BaseRepository):
     ) -> CaseEntryDTO:
         """Append a record entry to an open or waiting case (append-only).
 
-        Vocabulary is validated before any SQL runs. The milestone-only
-        kinds — ``closed``, ``handed_over``, ``waiting_set``,
-        ``waiting_lifted`` and ``frozen`` — are rejected here: they are
-        written only by the milestone path (:meth:`wait`,
-        :meth:`lift_wait`, :meth:`hand_over`, :meth:`close`). ``note``, ``pin`` and
-        ``decision_record`` stay writable until their last route writer is
-        replaced (D-CS-B-1); ``system_line`` is the system lines' kind
-        (ADR-0138 §7).
+        Vocabulary is validated before any SQL runs. The program-only
+        kinds are rejected here: ``closed``, ``handed_over``,
+        ``waiting_set``, ``waiting_lifted`` and ``frozen`` are written only
+        by the milestone path (:meth:`wait`, :meth:`lift_wait`,
+        :meth:`hand_over`, :meth:`close`), and ``system_line`` only by
+        :meth:`add_system_line` (ADR-0138 §7, D-CS-B-25). ``note``, ``pin``
+        and ``decision_record`` stay writable until their last route writer
+        is replaced (D-CS-B-1).
 
         Args:
             case_id: The case to append to.
             kind: One of ``opened`` / ``note`` / ``pin`` /
-                ``decision_record`` / ``system_line`` (the milestone-only
-                kinds are rejected).
+                ``decision_record`` (the program-only kinds are rejected).
             actor: One of ``pm`` / ``shirley`` / ``system``.
             actor_user_id: The acting user when a user acted, else ``None``.
             payload: Opaque JSONB for the entry.
@@ -712,7 +735,8 @@ class CaseRepository(BaseRepository):
 
         Raises:
             CaseEntryKindInvalid: If ``kind`` is outside the vocabulary, or is
-                a milestone-only kind (which only the milestone path writes).
+                a program-only kind (which only the milestone path or
+                :meth:`add_system_line` writes).
             CaseActorInvalid: If ``actor`` is outside the vocabulary.
             CaseStateInvalid: If no such case exists in the active tenant.
             CaseClosedError: If the case is already closed.
@@ -722,11 +746,11 @@ class CaseRepository(BaseRepository):
                 f"Invalid entry kind {kind!r}; expected one of {sorted(_VALID_ENTRY_KINDS)}.",
                 field="kind",
             )
-        if kind in _MILESTONE_ONLY_KINDS:
+        if kind in _PROGRAM_ONLY_KINDS:
             raise CaseEntryKindInvalid(
-                f"The {kind!r} entry is written only by the milestone path "
-                "(CaseRepository.close() and the milestone + freeze transaction); "
-                f"append_entry does not accept kind={kind!r}.",
+                f"The {kind!r} entry is written only by the milestone path or "
+                "add_system_line (the milestone + freeze transaction, or the one "
+                f"system-line writer); append_entry does not accept kind={kind!r}.",
                 field="kind",
             )
         if actor not in _VALID_ACTORS:
@@ -763,18 +787,17 @@ class CaseRepository(BaseRepository):
         milestone and its snapshot render as one record row, and the
         snapshot is reached through :meth:`get_frozen_for` /
         :meth:`latest_frozen`. With ``include_frozen=True`` every row is
-        returned and a snapshot follows its milestone (same ``created_at``,
-        ``frozen`` sorted last within the instant).
+        returned and a snapshot follows its milestone. Rows that share an
+        instant are ordered by :data:`_RECORD_ORDER` in both modes.
 
         Args:
             case_id: The case.
             include_frozen: Also return the ``frozen`` rows.
         """
         stmt = select(CaseEntry).where(CaseEntry.case_id == case_id)
-        if include_frozen:
-            stmt = stmt.order_by(CaseEntry.created_at.asc(), (CaseEntry.kind == "frozen").asc())
-        else:
-            stmt = stmt.where(CaseEntry.kind != "frozen").order_by(CaseEntry.created_at.asc())
+        if not include_frozen:
+            stmt = stmt.where(CaseEntry.kind != "frozen")
+        stmt = stmt.order_by(*_RECORD_ORDER)
         result = await self._session.execute(stmt)
         return [_entry_to_dto(model) for model in result.scalars().all()]
 
@@ -863,11 +886,11 @@ class CaseRepository(BaseRepository):
         )
 
     async def list_system_lines(self, case_id: UUID) -> list[CaseEntryDTO]:
-        """Return a case's system lines, oldest ``created_at`` first."""
+        """Return a case's system lines, oldest ``created_at`` first (:data:`_RECORD_ORDER`)."""
         result = await self._session.execute(
             select(CaseEntry)
             .where(CaseEntry.case_id == case_id, CaseEntry.kind == "system_line")
-            .order_by(CaseEntry.created_at.asc())
+            .order_by(*_RECORD_ORDER)
         )
         return [_entry_to_dto(model) for model in result.scalars().all()]
 
@@ -1251,6 +1274,17 @@ class CaseRepository(BaseRepository):
         The payload is ``{reason, wait_until, event}`` with the date that was
         set. The waking event's own system line is the caller's, not written
         here.
+
+        Three reasons, three callers:
+
+        * ``manual`` — the PM by hand (the "Lift" gesture, P-CS-3c).
+        * ``date`` — the shared tick runner's wake-up step
+          (:func:`services.scheduler.tick_runner.run_case_wake_tick`), on
+          the first tick of the day the wait ends.
+        * ``event`` — the system-line writer
+          (``services.cases.system_lines._write_line``), right after the
+          waking line, in the same transaction (D-CS-M-4); ``event``
+          names that line's event, subject and entry id.
 
         Args:
             case_id: The case.

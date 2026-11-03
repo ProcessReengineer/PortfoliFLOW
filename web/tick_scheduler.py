@@ -5,8 +5,8 @@
 
 One asyncio background task, started by the web lifespan alongside the
 Telegram bot, loops: sleep a fixed short interval, then run one
-market-data tick and one Irene tick through the shared runner
-(:mod:`services.scheduler.tick_runner`). Anyone who starts
+market-data tick, one case wake-up tick and one Irene tick through the
+shared runner (:mod:`services.scheduler.tick_runner`). Anyone who starts
 ``portfoliflow-web`` therefore has a working heartbeat with no OS-level
 configuration; ``TICK_SCHEDULER_ENABLED=false`` opts back out to the
 external systemd/cron tick sources, and the two may run **simultaneously**
@@ -28,7 +28,8 @@ Three properties are deliberate and each is pinned by a test:
   so the task never competes with the lifespan still bringing the process
   up (engines, bot, template environment).
 - **Per-domain isolation.** Each domain runs in its own ``try``: a raised
-  market-data tick must not starve Irene's beat, or the other way round.
+  market-data tick or case wake-up must not starve Irene's beat, or the
+  other way round.
   An infrastructure failure is logged with its traceback and the loop
   continues — the next interval retries. (The runner already isolates
   *per tenant* below this.)
@@ -38,7 +39,8 @@ Three properties are deliberate and each is pinned by a test:
   state is reported at task start and on *transitions* only. A deployment
   without an LLM key is an ordinary state under ADR-0117 (zero-config
   self-hosting is the point); it must not write a warning a minute
-  forever. The market-data domain runs regardless: it needs no LLM.
+  forever. The market-data domain and the case wake-up run regardless:
+  neither needs an LLM.
 
 Shutdown: the lifespan sets the stop event and waits a bounded grace
 period. A sleeping task stops immediately; a task mid-beat is cancelled
@@ -68,10 +70,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.datastructures import State
 
 from services.scheduler.tick_runner import (
+    CaseWakeTickSummary,
     IreneTickSettings,
     IreneTickSummary,
     MarketDataTickSummary,
     irene_credentials_reachable,
+    run_case_wake_tick,
     run_irene_tick,
     run_market_data_tick,
 )
@@ -136,6 +140,8 @@ class TickSchedulerStatus:
             of a resolvable credential.
         last_market_data_summary: The last tick's market-data summary, or
             ``None`` when that tick's market-data domain failed.
+        last_case_wake_summary: The last tick's case wake-up summary, or
+            ``None`` when that tick's case wake-up failed.
         last_error_at: When a domain last raised, or ``None`` if none has.
         consecutive_failures: Ticks in a row in which at least one domain
             raised; reset by the first tick in which neither does.
@@ -145,6 +151,7 @@ class TickSchedulerStatus:
     last_tick_at: datetime | None = None
     last_irene_summary: IreneTickSummary | None = None
     last_market_data_summary: MarketDataTickSummary | None = None
+    last_case_wake_summary: CaseWakeTickSummary | None = None
     last_error_at: datetime | None = None
     consecutive_failures: int = 0
 
@@ -352,10 +359,10 @@ async def run_tick_scheduler(
     stop_event: asyncio.Event | None = None,
     status: TickSchedulerStatus | None = None,
 ) -> None:
-    """Drive both tick domains until asked to stop (ADR-0117 §1).
+    """Drive the tick domains until asked to stop (ADR-0117 §1).
 
-    Runs one market-data tick and one Irene tick per interval, each
-    isolated from the other's failures. Returns cleanly when
+    Runs one market-data tick, one case wake-up tick and one Irene tick per
+    interval, each isolated from the others' failures. Returns cleanly when
     ``stop_event`` is set; a cancellation propagates (rolling back any
     in-flight beat) rather than being swallowed.
 
@@ -405,6 +412,18 @@ async def run_tick_scheduler(
             state.last_market_data_summary = None
             _LOG.exception(
                 "tick-scheduler: the market-data tick failed; continuing with "
+                "the Irene domain and retrying next interval."
+            )
+
+        # The case wake-up next, and unconditionally too: lifting a waiting
+        # case on its date needs no LLM (ADR-0138 §4, D-CS-B-24).
+        try:
+            state.last_case_wake_summary = await run_case_wake_tick(engine)
+        except Exception:  # noqa: BLE001 — one domain must not starve the other
+            failed = True
+            state.last_case_wake_summary = None
+            _LOG.exception(
+                "tick-scheduler: the case wake-up tick failed; continuing with "
                 "the Irene domain and retrying next interval."
             )
 

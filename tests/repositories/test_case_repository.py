@@ -35,9 +35,10 @@ Coverage
 * CR-12: the states open · waiting · closed (ADR-0138 §4, D-CS-B-2) —
   ``wait`` / ``lift_wait``, the lists, the wake-up read, close and append
   on a waiting case.
-* CR-13: the extended kind vocabulary — milestone-only kinds refused on the
-  generic path, ``system_line`` accepted, ``note`` still writable
-  (D-CS-B-1).
+* CR-13: the extended kind vocabulary — program-only kinds (the milestone
+  kinds and ``system_line``) refused on the generic path, ``system_line``
+  written through ``add_system_line``, ``note`` still writable (D-CS-B-1,
+  D-CS-B-25).
 * CR-14: ``search_working_file`` — hits across the working file, the DMS
   boundary held (ADR-0138 §11), the state filter, escaping.
 * CR-15: ``hand_over`` — the owner changes, ``opened_by`` stays.
@@ -907,24 +908,29 @@ async def test_cr13_entry_kinds(app_engine: AsyncEngine, seed_tenant) -> None:
     async with tenant_context(app_engine, tenant_id) as session:
         repo = CaseRepository(session)
         case = await repo.create(title="Kinds", opened_by=user_id, opened_actor="pm", now=_T0)
-        for milestone_kind in ("frozen", "handed_over", "waiting_set", "waiting_lifted", "closed"):
-            with pytest.raises(CaseEntryKindInvalid):
+        # The milestone kinds and, since D-CS-B-25, the system line are the
+        # program's: refused on the generic path ...
+        program_only = ("frozen", "handed_over", "waiting_set", "waiting_lifted", "closed")
+        for program_kind in (*program_only, "system_line"):
+            with pytest.raises(CaseEntryKindInvalid, match="add_system_line"):
                 await repo.append_entry(
                     case.id,
-                    kind=milestone_kind,
+                    kind=program_kind,
                     actor="pm",
                     actor_user_id=user_id,
                     payload={},
                     now=_T0,
                 )
-        line = await repo.append_entry(
+        # ... and the system line is written through its one writer.
+        line = await repo.add_system_line(
             case.id,
-            kind="system_line",
-            actor="system",
-            actor_user_id=None,
-            payload={"event": "nav_restated"},
+            event="nav_restated",
+            subject="cr13",
+            text="NAV restated.",
+            payload={},
             now=_T0 + timedelta(minutes=1),
         )
+        assert line is not None
         note = await repo.append_entry(
             case.id,
             kind="note",

@@ -3,9 +3,9 @@
 
 """Loop and shutdown semantics of the built-in tick scheduler (ADR-0117 §1).
 
-Fully offline by construction: both runner entry points are monkeypatched
+Fully offline by construction: the three runner entry points are monkeypatched
 at the ``web.tick_scheduler`` module level and the engine is an opaque
-sentinel, because everything below the two calls is the shared runner's
+sentinel, because everything below the three calls is the shared runner's
 own contract and is pinned in ``tests/services/scheduler/``. What is
 asserted here is only what this module decides — *when* a tick runs, what
 survives a failing one, how the credential gate is reported, and how the
@@ -27,7 +27,11 @@ from typing import Any
 import pytest
 
 import web.tick_scheduler as tick_scheduler
-from services.scheduler.tick_runner import IreneTickSummary, MarketDataTickSummary
+from services.scheduler.tick_runner import (
+    CaseWakeTickSummary,
+    IreneTickSummary,
+    MarketDataTickSummary,
+)
 from web.tick_scheduler import (
     TickSchedulerHandle,
     TickSchedulerStatus,
@@ -55,6 +59,7 @@ class _Recorder:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.market_data_error: Exception | None = None
+        self.case_wake_error: Exception | None = None
         self.irene_error: Exception | None = None
         self.block_forever = False
 
@@ -66,6 +71,12 @@ class _Recorder:
             raise self.market_data_error
         return MarketDataTickSummary(due=1, refreshed=1)
 
+    async def case_wake(self, engine: Any, **kwargs: Any) -> CaseWakeTickSummary:
+        self.calls.append("case_wake")
+        if self.case_wake_error is not None:
+            raise self.case_wake_error
+        return CaseWakeTickSummary(tenants_seen=2, tenants_claimed=2, cases_lifted=1)
+
     async def irene(self, engine: Any, **kwargs: Any) -> IreneTickSummary:
         self.calls.append("irene")
         if self.irene_error is not None:
@@ -75,9 +86,10 @@ class _Recorder:
 
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
-    """Replace both runner entry points with a recording double."""
+    """Replace the three runner entry points with a recording double."""
     rec = _Recorder()
     monkeypatch.setattr(tick_scheduler, "run_market_data_tick", rec.market_data)
+    monkeypatch.setattr(tick_scheduler, "run_case_wake_tick", rec.case_wake)
     monkeypatch.setattr(tick_scheduler, "run_irene_tick", rec.irene)
     return rec
 
@@ -116,11 +128,13 @@ async def test_the_first_tick_waits_one_full_interval(recorder: _Recorder) -> No
         await stop_tick_scheduler(handle)
 
 
-async def test_each_interval_runs_market_data_then_irene(recorder: _Recorder) -> None:
-    """Both domains run per tick, sequentially, market data first.
+async def test_each_interval_runs_market_data_then_case_wake_then_irene(
+    recorder: _Recorder,
+) -> None:
+    """All three steps run per tick, sequentially: market data, case wake-up, Irene.
 
-    Market data first is deliberate: it needs no LLM, so it is the domain
-    that keeps working on a deployment with no credential at all.
+    The two LLM-free steps first is deliberate: they keep working on a
+    deployment with no credential at all (ADR-0138 §4, D-CS-B-24).
     """
     handle = start_tick_scheduler(_ENGINE, _FakeSettings())
     try:
@@ -128,9 +142,10 @@ async def test_each_interval_runs_market_data_then_irene(recorder: _Recorder) ->
     finally:
         await stop_tick_scheduler(handle)
 
-    # Whole ticks only — the loop never starts Irene before market data.
-    pairs = [recorder.calls[i : i + 2] for i in range(0, len(recorder.calls) - 1, 2)]
-    assert all(pair == ["market_data", "irene"] for pair in pairs), recorder.calls
+    # Whole ticks only — the loop never starts Irene before the other two.
+    triples = [recorder.calls[i : i + 3] for i in range(0, len(recorder.calls) - 2, 3)]
+    assert triples, recorder.calls
+    assert all(t == ["market_data", "case_wake", "irene"] for t in triples), recorder.calls
 
 
 async def test_a_failing_market_data_tick_never_starves_irene(
@@ -150,6 +165,26 @@ async def test_a_failing_market_data_tick_never_starves_irene(
     assert recorder.calls.count("market_data") >= 2, "The loop stopped retrying."
     failures = [r for r in caplog.records if "market-data tick failed" in r.getMessage()]
     assert failures, "The market-data failure was swallowed silently."
+    assert failures[0].exc_info is not None, "The failure was logged without a traceback."
+
+
+async def test_a_failing_case_wake_never_starves_irene(
+    recorder: _Recorder,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raised case wake-up is logged with its traceback; Irene still runs."""
+    recorder.case_wake_error = RuntimeError("wake-up blew up (test)")
+
+    with caplog.at_level(logging.ERROR, logger="portfoliflow.web.tick_scheduler"):
+        handle = start_tick_scheduler(_ENGINE, _FakeSettings())
+        try:
+            await _run_until(lambda: recorder.calls.count("irene") >= 2)
+        finally:
+            await stop_tick_scheduler(handle)
+
+    assert recorder.calls.count("case_wake") >= 2, "The loop stopped retrying."
+    failures = [r for r in caplog.records if "case wake-up tick failed" in r.getMessage()]
+    assert failures, "The case wake-up failure was swallowed silently."
     assert failures[0].exc_info is not None, "The failure was logged without a traceback."
 
 
@@ -262,7 +297,7 @@ async def test_the_handle_carries_the_status_the_loop_writes(recorder: _Recorder
     assert handle.status.last_tick_at >= handle.status.started_at
 
 
-async def test_a_completed_tick_records_both_domain_summaries(recorder: _Recorder) -> None:
+async def test_a_completed_tick_records_all_domain_summaries(recorder: _Recorder) -> None:
     """The summaries the runner returns are kept, not discarded."""
     status = TickSchedulerStatus()
     stop = asyncio.Event()
@@ -276,6 +311,9 @@ async def test_a_completed_tick_records_both_domain_summaries(recorder: _Recorde
         await asyncio.wait_for(task, timeout=2.0)
 
     assert status.last_market_data_summary == MarketDataTickSummary(due=1, refreshed=1)
+    assert status.last_case_wake_summary == CaseWakeTickSummary(
+        tenants_seen=2, tenants_claimed=2, cases_lifted=1
+    )
     assert status.last_irene_summary == IreneTickSummary(due=1, beaten=1, findings_written=2)
     assert status.last_error_at is None
     assert status.consecutive_failures == 0

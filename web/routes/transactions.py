@@ -735,6 +735,7 @@ def _build_ticket_service(session: AsyncSession) -> TicketService:
         navs=navs,
         cashflows=cashflows,
         audit_log=AuditLogRepository(session),
+        cases=CaseRepository(session),
     )
 
 

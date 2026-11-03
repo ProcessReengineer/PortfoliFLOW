@@ -512,19 +512,22 @@ async def test_st08_system_lines_only(
     async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
         case = await _bare_case(session, user_id)
         repo = CaseRepository(session)
+        subject = f"{equity_id}:2026-10-31"
         payload = {
             "event": "nav_restated",
+            "subject": subject,
             "text": "NAV restated for Alpha.",
             "investment_id": str(equity_id),
         }
-        line = await repo.append_entry(
+        line = await repo.add_system_line(
             case.id,
-            kind="system_line",
-            actor="system",
-            actor_user_id=None,
-            payload=payload,
+            event="nav_restated",
+            subject=subject,
+            text="NAV restated for Alpha.",
+            payload={"investment_id": str(equity_id)},
             now=_now(),
         )
+        assert line is not None
         for kind in ("note", "pin"):
             await repo.append_entry(
                 case.id,

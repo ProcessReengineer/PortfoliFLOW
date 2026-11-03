@@ -9,14 +9,28 @@ acting user, a machine-readable payload and one fixed template text.
 
 **The event vocabulary.** ``subject_within_ceiling`` · ``nav_restated`` ·
 ``press_cluster`` · ``ticket_booked`` · ``job_requested`` · ``job_landed``.
-The first two are written here (P-CS-2b); the other four are reserved as
-constants and written by P-CS-2c. ``waiting_lifted`` is a milestone, not a
-line.
+All but ``press_cluster`` have their template and writer here (P-CS-2b,
+P-CS-2c); ``press_cluster`` stays a reserved constant until MC rules on its
+subject (Q-CS-B-2). ``waiting_lifted`` is a milestone, not a line.
 
 **The one writer.** Every line goes through
 :meth:`core.repositories.case_repository.CaseRepository.add_system_line`,
 called from this module and from nowhere else. A closed case receives
 nothing; a closed case in a target set is skipped, never raised on.
+
+**The write-and-wake rule** (ADR-0138 §4, D-CS-M-4, D-CS-B-22). Every
+writer goes through one private path, ``_write_line``: it writes the line
+and, when a line was written **and** the case is waiting, lifts the wait in
+the same transaction —
+:meth:`~core.repositories.case_repository.CaseRepository.lift_wait` with
+``reason='event'`` and the line's event, subject and entry id. Line first,
+lift second, so the lift's frozen snapshot shows the line. A deduplicated
+write writes nothing and lifts nothing. ``_write_line`` hands back the case
+as it stands after the write, and a writer that writes several lines to
+one case carries that forward, so a second line on a just-lifted case never
+acts on a stale ``waiting`` state. Wake events are not configurable: every
+event of the vocabulary wakes. (The date wake is the tick runner's, not a
+line: :func:`services.scheduler.tick_runner.run_case_wake_tick`.)
 
 **The dedup rule.** One line per ``(event, subject)`` per case, checked by
 the repository before the insert. A restated NAV for the same investment
@@ -40,6 +54,15 @@ holds one of the templates below.
   it never produces a ``nav_restated`` line (D-CS-M-10); its event is
   ``ticket_booked``. Plan rows and computed rows (``basis = 'computed'``)
   are not reported NAVs and are never captured.
+* ``ticket_booked`` — :meth:`services.transactions.ticket_service.TicketService.book`,
+  once the ticket is ``booked``, when the ticket carries a ``case_id``
+  (D-CS-B-23).
+* ``job_requested`` / ``job_landed`` — the proposal endpoint, when a Shirley
+  job for the case is started and when its proposal package is stored in
+  ``case_proposals`` (ADR-0138 §7, §8). The helpers are here; their caller
+  arrives with P-CS-5b (D-CS-M-12).
+* ``press_cluster`` — reserved; no template and no writer until Q-CS-B-2 is
+  ruled.
 """
 
 from __future__ import annotations
@@ -53,22 +76,26 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.exceptions import CaseClosedError
-from core.repositories.case_repository import CaseEntryDTO, CaseRepository
+from core.exceptions import CaseClosedError, CaseStateInvalid
+from core.repositories.case_repository import CaseDTO, CaseEntryDTO, CaseRepository
 from core.repositories.case_working_file_repository import CaseInvestmentRepository
 from core.repositories.investment_nav_repository import InvestmentNavRepository
 from core.repositories.investment_repository import InvestmentRepository
+from core.repositories.trade_ticket_repository import TradeTicketDTO
 from services.money_format import format_money_compact
 
 logger = logging.getLogger(__name__)
 
 EVENT_SUBJECT_WITHIN_CEILING = "subject_within_ceiling"
 EVENT_NAV_RESTATED = "nav_restated"
-# Reserved here; their writers land in P-CS-2c.
-EVENT_PRESS_CLUSTER = "press_cluster"
 EVENT_TICKET_BOOKED = "ticket_booked"
 EVENT_JOB_REQUESTED = "job_requested"
 EVENT_JOB_LANDED = "job_landed"
+# Reserved: no template and no writer until MC rules on its subject (Q-CS-B-2).
+EVENT_PRESS_CLUSTER = "press_cluster"
+
+#: The longest request text a ``job_requested`` line quotes, ellipsis included.
+REQUEST_TEXT_CLIP = 120
 
 #: The limit families — a subject with a ceiling. Every other family is a
 #: signal with a threshold the tenant chose (D-CS-B-19).
@@ -231,6 +258,84 @@ def nav_restated_line(
     return subject, text, payload
 
 
+def ticket_booked_line(ticket: TradeTicketDTO, *, investment_name: str | None) -> Line:
+    """Compose the ``ticket_booked`` line of a booked ticket.
+
+    The amount is the ticket's net amount through
+    :func:`services.money_format.format_money_compact`, which prefixes the
+    currency itself; a ticket without a net amount (a commitment) leaves the
+    amount clause out.
+
+    Args:
+        ticket: The ticket as booking left it (``status == 'booked'``).
+        investment_name: The traded investment's name, or ``None`` when it
+            is unknown.
+
+    Returns:
+        ``(subject, text, payload)`` — the subject is the ticket id, so a
+        ticket is booked onto a case once.
+    """
+    name = investment_name or "—"
+    head = f"Ticket #{ticket.ticket_number} booked: {ticket.kind} {ticket.direction} {name}"
+    trade_date = ticket.trade_date.isoformat()
+    if ticket.net_amount is None:
+        text = f"{head}, trade date {trade_date}."
+    else:
+        amount = format_money_compact(float(ticket.net_amount), ticket.currency)
+        text = f"{head}, {amount}, trade date {trade_date}."
+    payload: dict[str, Any] = {
+        "ticket_id": str(ticket.id),
+        "ticket_number": ticket.ticket_number,
+        "kind": ticket.kind,
+        "direction": ticket.direction,
+        "status": ticket.status,
+        "investment_id": None if ticket.investment_id is None else str(ticket.investment_id),
+        "investment_name": investment_name,
+        "trade_date": trade_date,
+        "net_amount": _str_or_none(ticket.net_amount),
+        "currency": ticket.currency,
+        "booked_at": None if ticket.booked_at is None else ticket.booked_at.isoformat(),
+    }
+    return str(ticket.id), text, payload
+
+
+def job_requested_line(*, proposal_id: UUID, request_text: str) -> Line:
+    """Compose the ``job_requested`` line of a Shirley job.
+
+    The quoted request is clipped to :data:`REQUEST_TEXT_CLIP` characters,
+    ellipsis included; the payload keeps it whole.
+
+    Args:
+        proposal_id: The proposal the job will land in.
+        request_text: What Shirley was asked.
+
+    Returns:
+        ``(subject, text, payload)`` — the subject is the proposal id.
+    """
+    asked = request_text.strip()
+    if len(asked) > REQUEST_TEXT_CLIP:
+        asked = asked[: REQUEST_TEXT_CLIP - 1].rstrip() + "…"
+    text = f"Shirley was asked: “{asked}” — working on it."
+    payload: dict[str, Any] = {"proposal_id": str(proposal_id), "request_text": request_text}
+    return str(proposal_id), text, payload
+
+
+def job_landed_line(*, proposal_id: UUID, item_count: int) -> Line:
+    """Compose the ``job_landed`` line of a stored proposal package.
+
+    Args:
+        proposal_id: The proposal that landed.
+        item_count: How many items it carries.
+
+    Returns:
+        ``(subject, text, payload)`` — the subject is the proposal id.
+    """
+    noun = "item" if item_count == 1 else "items"
+    text = f"Shirley's proposal landed: {item_count} {noun} to review."
+    payload: dict[str, Any] = {"proposal_id": str(proposal_id), "item_count": item_count}
+    return str(proposal_id), text, payload
+
+
 # ---------------------------------------------------------------------------
 # The NAV diff (pure)
 # ---------------------------------------------------------------------------
@@ -267,18 +372,62 @@ def nav_changes(before: NavSeries, after: NavSeries) -> list[tuple[date, Decimal
 # ---------------------------------------------------------------------------
 
 
-async def _write(
-    repo: CaseRepository, case_id: UUID, *, event: str, line: Line, now: datetime
-) -> CaseEntryDTO | None:
-    """Write one composed line; a case closed meanwhile is skipped."""
-    subject, text, payload = line
+async def _write_line(
+    cases: CaseRepository,
+    case: CaseDTO,
+    *,
+    event: str,
+    subject: str,
+    text: str,
+    payload: dict[str, Any],
+    now: datetime,
+) -> tuple[CaseEntryDTO | None, CaseDTO]:
+    """Write one line and, if it woke a waiting case, lift the wait (D-CS-B-22).
+
+    The one write-and-wake path of every writer. The line is written first;
+    when a row was written and ``case`` is waiting, the wait is lifted with
+    ``reason='event'`` at the same ``now``, in the caller's transaction, so
+    the lift's snapshot shows the line. A deduplicated write (``None``)
+    never lifts. A case closed meanwhile is skipped; a case that stopped
+    waiting meanwhile (lifted by the wake-up tick or by hand since ``case``
+    was read) keeps the line and is not lifted twice.
+
+    Args:
+        cases: The tenant-scoped case repository.
+        case: The case as the writer last read it.
+        event: The system-line event.
+        subject: The dedup subject within ``event``.
+        text: The template text.
+        payload: The event's extras.
+        now: The line's (and the lift's) time.
+
+    Returns:
+        ``(line, case_after)`` — the written line or ``None``, and the case
+        as it stands after the write (the lifted case after a lift).
+    """
     try:
-        return await repo.add_system_line(
-            case_id, event=event, subject=subject, text=text, payload=payload, now=now
+        line = await cases.add_system_line(
+            case.id, event=event, subject=subject, text=text, payload=payload, now=now
         )
     except CaseClosedError:
-        logger.info("system-lines: case %s is closed — %s line skipped.", case_id, event)
-        return None
+        logger.info("system-lines: case %s is closed — %s line skipped.", case.id, event)
+        return None, case
+    if line is None or case.state != "waiting":
+        return line, case
+    try:
+        lifted = await cases.lift_wait(
+            case.id,
+            now=now,
+            reason="event",
+            event={"event": event, "subject": subject, "entry_id": str(line.id)},
+        )
+    except CaseStateInvalid:
+        # Lifted since the writer read it (another transaction committed
+        # first). The line stands; the case is open already.
+        logger.info("system-lines: case %s was no longer waiting — no event lift.", case.id)
+        current = await cases.get(case.id)
+        return line, current if current is not None else case
+    return line, lifted
 
 
 async def subject_within_ceiling(
@@ -301,8 +450,8 @@ async def subject_within_ceiling(
     Targets the open or waiting cases whose origin finding is on
     ``subject_key`` and resolved ``opened_case``. A limit family uses the
     ceiling template and needs ``coverage_pct``; any other family uses the
-    threshold template. The state of a waiting case is left alone (the
-    event-driven lift is P-CS-2c's).
+    threshold template. A waiting case is lifted by its line
+    (``_write_line``, D-CS-M-4).
 
     Args:
         session: A tenant-scoped session.
@@ -353,7 +502,16 @@ async def subject_within_ceiling(
                 threshold=threshold,
                 unit=unit,
             )
-        entry = await _write(repo, case.id, event=EVENT_SUBJECT_WITHIN_CEILING, line=line, now=now)
+        subject, text, payload = line
+        entry, _ = await _write_line(
+            repo,
+            case,
+            event=EVENT_SUBJECT_WITHIN_CEILING,
+            subject=subject,
+            text=text,
+            payload=payload,
+            now=now,
+        )
         if entry is not None:
             written.append(entry)
     return written
@@ -394,6 +552,10 @@ async def nav_restated(
 ) -> list[CaseEntryDTO]:
     """Write one ``nav_restated`` line per linking case and as-of.
 
+    A waiting case is lifted by its first line; the lifted case is carried
+    into the next as-of's write, so the later lines find it open
+    (D-CS-B-22).
+
     Args:
         session: A tenant-scoped session.
         investment_id: The investment whose reported NAVs changed.
@@ -414,8 +576,11 @@ async def nav_restated(
     repo = CaseRepository(session)
     written: list[CaseEntryDTO] = []
     for case_id in case_ids:
+        case = await repo.get(case_id)
+        if case is None:
+            continue
         for as_of, previous_value, nav_value in changes:
-            line = nav_restated_line(
+            subject, text, payload = nav_restated_line(
                 investment_id=investment_id,
                 investment_name=name,
                 currency=currency,
@@ -423,7 +588,15 @@ async def nav_restated(
                 previous_value=previous_value,
                 nav_value=nav_value,
             )
-            entry = await _write(repo, case_id, event=EVENT_NAV_RESTATED, line=line, now=now)
+            entry, case = await _write_line(
+                repo,
+                case,
+                event=EVENT_NAV_RESTATED,
+                subject=subject,
+                text=text,
+                payload=payload,
+                now=now,
+            )
             if entry is not None:
                 written.append(entry)
     return written
@@ -462,6 +635,119 @@ async def nav_restated_after(
     return written
 
 
+async def ticket_booked(
+    cases: CaseRepository,
+    *,
+    ticket: TradeTicketDTO,
+    investment_name: str | None,
+    now: datetime,
+) -> CaseEntryDTO | None:
+    """Write the ``ticket_booked`` line of a booked ticket to its case.
+
+    A booking never fails because of its case: a ticket without a case, a
+    case that is absent (another tenant's id, under RLS) or closed writes
+    nothing. A waiting case is lifted by the line.
+
+    Args:
+        cases: The case repository on the booking's session.
+        ticket: The ticket as booking left it.
+        investment_name: The traded investment's name, or ``None``.
+        now: The line's time — the booking's ``now``.
+
+    Returns:
+        The line written, or ``None``.
+    """
+    if ticket.case_id is None:
+        return None
+    case = await cases.get(ticket.case_id)
+    if case is None or case.state == "closed":
+        return None
+    subject, text, payload = ticket_booked_line(ticket, investment_name=investment_name)
+    line, _ = await _write_line(
+        cases,
+        case,
+        event=EVENT_TICKET_BOOKED,
+        subject=subject,
+        text=text,
+        payload=payload,
+        now=now,
+    )
+    return line
+
+
+async def job_requested(
+    cases: CaseRepository,
+    *,
+    case: CaseDTO,
+    proposal_id: UUID,
+    request_text: str,
+    now: datetime,
+) -> CaseEntryDTO | None:
+    """Write the ``job_requested`` line: Shirley was asked to work on the case.
+
+    One line per proposal id. An asked job is an event on the case, so a
+    waiting case is lifted by it. The caller is the proposal endpoint
+    (P-CS-5b, D-CS-M-12).
+
+    Args:
+        cases: The tenant-scoped case repository.
+        case: The case the job is for.
+        proposal_id: The proposal the job will land in.
+        request_text: What Shirley was asked.
+        now: The line's time.
+
+    Returns:
+        The line written, or ``None`` (already written, or the case closed).
+    """
+    subject, text, payload = job_requested_line(proposal_id=proposal_id, request_text=request_text)
+    line, _ = await _write_line(
+        cases,
+        case,
+        event=EVENT_JOB_REQUESTED,
+        subject=subject,
+        text=text,
+        payload=payload,
+        now=now,
+    )
+    return line
+
+
+async def job_landed(
+    cases: CaseRepository,
+    *,
+    case: CaseDTO,
+    proposal_id: UUID,
+    item_count: int,
+    now: datetime,
+) -> CaseEntryDTO | None:
+    """Write the ``job_landed`` line: the proposal package is in ``case_proposals``.
+
+    One line per proposal id; a waiting case is lifted by it. The caller is
+    the proposal endpoint (P-CS-5b, D-CS-M-12).
+
+    Args:
+        cases: The tenant-scoped case repository.
+        case: The case the proposal belongs to.
+        proposal_id: The proposal stored.
+        item_count: How many items it carries.
+        now: The line's time.
+
+    Returns:
+        The line written, or ``None`` (already written, or the case closed).
+    """
+    subject, text, payload = job_landed_line(proposal_id=proposal_id, item_count=item_count)
+    line, _ = await _write_line(
+        cases,
+        case,
+        event=EVENT_JOB_LANDED,
+        subject=subject,
+        text=text,
+        payload=payload,
+        now=now,
+    )
+    return line
+
+
 __all__ = [
     "CHANGE_NEW",
     "CHANGE_RESTATED",
@@ -472,7 +758,12 @@ __all__ = [
     "EVENT_SUBJECT_WITHIN_CEILING",
     "EVENT_TICKET_BOOKED",
     "LIMIT_FAMILIES",
+    "REQUEST_TEXT_CLIP",
     "NavSeries",
+    "job_landed",
+    "job_landed_line",
+    "job_requested",
+    "job_requested_line",
     "limit_within_ceiling_line",
     "linked_investment_ids",
     "nav_changes",
@@ -482,4 +773,6 @@ __all__ = [
     "signal_within_threshold_line",
     "snapshot_actual_series",
     "subject_within_ceiling",
+    "ticket_booked",
+    "ticket_booked_line",
 ]

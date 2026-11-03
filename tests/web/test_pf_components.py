@@ -241,6 +241,15 @@ _EXPECTED_CLASSES = (
     "pf-journal__kind",
     "pf-journal__kind--briefing",
     "pf-journal__actor",
+    # Cases (ADR-0138 §12, P-CS-3d): families the working file introduced,
+    # moved here from the M-CS-2 mock — provenance chip, outline, thread,
+    # record, checklist and the add line.
+    "pf-src",
+    "pf-toc",
+    "pf-thread",
+    "pf-record",
+    "pf-checklist",
+    "pf-addline",
 )
 
 
@@ -592,3 +601,56 @@ def test_the_watch_desk_partials_draw_no_native_number_field() -> None:
         if 'type="number"' in path.read_text(encoding="utf-8")
     )
     assert not offenders, f"R10 is not held in {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# The third Area that has swept itself (DC-CS-B, P-CS-3d)
+# ---------------------------------------------------------------------------
+
+
+_CS_PARTIALS = _REPO_ROOT / "web" / "templates" / "_partials"
+_ONE_LINE_RULE = re.compile(r"[^{}\s][^{}]*\{[^{}]*\}")
+
+
+def test_the_cases_partials_carry_no_legacy_class() -> None:
+    """Strand CS-3 ends with every Cases surface on the vocabulary.
+
+    P-CS-3a through P-CS-3c2 rebuilt the list and the file on `pf-*` and the
+    M-CS-2 families; P-CS-3d moved the generic ones into pf_components.css
+    and retired the origin embed's band and resolution tags, the last two
+    `pf-dc-*` classes, onto `pf-state`. No stylesheet defines a `pf-dc-`
+    class any more, so one here would be a rule with no stylesheet behind
+    it. Ids are HTMX targets and route contracts, not classes, and are
+    deliberately excluded, as for the Watch Desk.
+    """
+    offenders = {
+        path.name: sorted(set(_WD_LEGACY_CLASS.findall(path.read_text(encoding="utf-8"))))
+        for path in sorted(_CS_PARTIALS.glob("cases_*.html"))
+        if _WD_LEGACY_CLASS.search(path.read_text(encoding="utf-8"))
+    }
+    assert offenders == {}, offenders
+
+
+def test_the_cases_stylesheet_is_scoped_residue() -> None:
+    """Its residue is scoped rules over shared families, and nothing else.
+
+    Every rule is one line, `selector { declarations }`, scoped to the Area
+    root, and no `pf-dc-` selector survives; the groups' comments name what
+    retires them, a record question (`Q-UX-S-CS-n`) or the prompt that
+    replaces the markup. Comments are stripped first, as for the Watch Desk
+    sheet.
+    """
+    source = _CSS_DIR / "components" / "cases.css"
+    stripped = re.sub(r"/\*.*?\*/", "", source.read_text(encoding="utf-8"), flags=re.S)
+    assert ".pf-dc-" not in stripped, [line for line in stripped.splitlines() if ".pf-dc-" in line]
+    lines = [line for line in stripped.splitlines() if line.strip()]
+    assert lines, "the sheet declares nothing at all"
+    spread = [line for line in lines if not _ONE_LINE_RULE.fullmatch(line)]
+    assert not spread, f"not one rule per line: {spread}"
+    selectors = [
+        part.strip()
+        for group in re.findall(r"(?m)^([^{};]+?)\s*\{", stripped)
+        for part in group.split(",")
+    ]
+    for selector in selectors:
+        assert selector.startswith(".pf-cases"), selector

@@ -114,8 +114,8 @@
     {% endif %}
 
     {% if is_mutable %}
-        <div class="pf-case__adders">
-            <form class="pf-case__add" data-pf-cs="figure-add"
+        <div class="pf-addline--pair">
+            <form class="pf-addline" data-pf-cs="figure-add"
                   hx-post="/api/cases/{{ case_id }}/figures"
                   hx-target="#cs-figures"
                   hx-swap="outerHTML">
@@ -145,7 +145,7 @@
                 </label>
                 <button type="submit" class="pf-btn">Add figure</button>
             </form>
-            <form class="pf-case__add" data-pf-cs="figure-add-book"
+            <form class="pf-addline" data-pf-cs="figure-add-book"
                   hx-post="/api/cases/{{ case_id }}/figures"
                   hx-target="#cs-figures"
                   hx-swap="outerHTML">

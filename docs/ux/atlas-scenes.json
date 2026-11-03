@@ -80,107 +80,164 @@
     "shot": "shirley-stage"
   },
   {
-    "name": "cases-detail",
+    "name": "cases-list",
     "area": "cases",
     "start": "/cases",
     "session": "tenant",
     "steps": [
-      {"wait": "#cases-open-list"},
-      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+      {"wait": "#cs-list"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"]:has-text(\"Atlas seed case\")",
                   "steps": [
-                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"click": "[data-pf-cs=\"new-action\"]"},
                     {"wait": ".pf-cases__new-form"},
                     {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
-                  ]}},
-      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
-      {"wait": ".pf-case-detail"}
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"}
+                  ]}}
     ],
-    "shot": "case-detail"
+    "shot": "cases-list"
   },
   {
-    "name": "cases-composer-note",
+    "name": "cases-file",
     "area": "cases",
     "start": "/cases",
     "session": "tenant",
     "steps": [
-      {"wait": "#cases-open-list"},
-      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+      {"wait": "#cs-list"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"]:has-text(\"Atlas seed case\")",
                   "steps": [
-                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"click": "[data-pf-cs=\"new-action\"]"},
                     {"wait": ".pf-cases__new-form"},
                     {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"}
                   ]}},
-      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
-      {"wait": ".pf-case-detail"},
-      {"click": ".pf-case-actions button:has-text(\"Add note\")"},
-      {"wait": ".pf-case-composer__title:has-text(\"Add note\")"}
+      {"click": "[data-pf-cs=\"row\"]:has-text(\"Atlas seed case\") a"},
+      {"wait": "[data-pf-cs=\"file\"]"}
     ],
-    "shot": "case-composer-note"
+    "shot": "case-file"
   },
   {
-    "name": "cases-composer-pin",
+    "name": "cases-file-waiting",
     "area": "cases",
     "start": "/cases",
     "session": "tenant",
     "steps": [
-      {"wait": "#cases-open-list"},
-      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+      {"wait": "#cs-list"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"]:has-text(\"Atlas waiting case\")",
                   "steps": [
-                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"click": "[data-pf-cs=\"new-action\"]"},
                     {"wait": ".pf-cases__new-form"},
-                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas waiting case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"action\"][data-pf-cs-kind=\"wait\"]"},
+                    {"wait": "[name=\"wait_until\"]"},
+                    {"fill": {"selector": "[name=\"wait_until\"]", "value": "2030-01-15"}},
+                    {"click": "#case-composer-slot button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"state\"][data-pf-cs-state=\"waiting\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"}
                   ]}},
-      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
-      {"wait": ".pf-case-detail"},
-      {"click": ".pf-case-actions button:has-text(\"Pin document\")"},
-      {"wait": ".pf-case-composer__title:has-text(\"Pin document\")"}
+      {"click": "[data-pf-cs=\"row\"]:has-text(\"Atlas waiting case\") a"},
+      {"wait": "[data-pf-cs=\"file\"]"}
     ],
-    "shot": "case-composer-pin"
+    "shot": "case-file-waiting"
   },
   {
-    "name": "cases-composer-decision",
+    "name": "cases-list-closed",
     "area": "cases",
     "start": "/cases",
     "session": "tenant",
     "steps": [
-      {"wait": "#cases-open-list"},
-      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+      {"wait": "#cs-list"},
+      {"click": "label[for=\"cs-f-closed\"]"},
+      {"wait": "#cs-list[data-pf-cs=\"list\"][data-pf-cs-state=\"closed\"]"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"][data-pf-cs-state=\"closed\"]:has-text(\"Atlas closed case\")",
                   "steps": [
-                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"click": "[data-pf-cs=\"new-action\"]"},
                     {"wait": ".pf-cases__new-form"},
-                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
-                  ]}},
-      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
-      {"wait": ".pf-case-detail"},
-      {"click": ".pf-case-actions button:has-text(\"Record decision\")"},
-      {"wait": ".pf-case-composer__title:has-text(\"Record decision\")"}
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas closed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"action\"][data-pf-cs-kind=\"close\"]"},
+                    {"wait": "[name=\"closing_note\"]"},
+                    {"fill": {"selector": "[name=\"closing_note\"]", "value": "Closed by the atlas."}},
+                    {"click": "#case-composer-slot input[name=\"confirm\"]"},
+                    {"click": "#case-composer-slot button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"state\"][data-pf-cs-state=\"closed\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"},
+                    {"click": "label[for=\"cs-f-closed\"]"},
+                    {"wait": "#cs-list[data-pf-cs=\"list\"][data-pf-cs-state=\"closed\"]"}
+                  ]}}
     ],
-    "shot": "case-composer-decision"
+    "shot": "cases-list-closed"
   },
   {
-    "name": "cases-composer-close",
+    "name": "cases-file-closed",
     "area": "cases",
     "start": "/cases",
     "session": "tenant",
     "steps": [
-      {"wait": "#cases-open-list"},
-      {"ensure": {"selector": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")",
+      {"wait": "#cs-list"},
+      {"click": "label[for=\"cs-f-closed\"]"},
+      {"wait": "#cs-list[data-pf-cs=\"list\"][data-pf-cs-state=\"closed\"]"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"][data-pf-cs-state=\"closed\"]:has-text(\"Atlas closed case\")",
                   "steps": [
-                    {"click": ".pf-area__header .pf-cases__new-btn"},
+                    {"click": "[data-pf-cs=\"new-action\"]"},
                     {"wait": ".pf-cases__new-form"},
-                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas seed case"}},
-                    {"click": ".pf-cases__new-form button[type=\"submit\"]"}
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas closed case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"action\"][data-pf-cs-kind=\"close\"]"},
+                    {"wait": "[name=\"closing_note\"]"},
+                    {"fill": {"selector": "[name=\"closing_note\"]", "value": "Closed by the atlas."}},
+                    {"click": "#case-composer-slot input[name=\"confirm\"]"},
+                    {"click": "#case-composer-slot button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"state\"][data-pf-cs-state=\"closed\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"},
+                    {"click": "label[for=\"cs-f-closed\"]"},
+                    {"wait": "#cs-list[data-pf-cs=\"list\"][data-pf-cs-state=\"closed\"]"}
                   ]}},
-      {"click": "#cases-open-list .pf-case-row:has-text(\"Atlas seed case\")"},
-      {"wait": ".pf-case-detail"},
-      {"click": ".pf-case-actions button:has-text(\"Close case\")"},
-      {"wait": ".pf-case-composer--close"}
+      {"click": "[data-pf-cs=\"row\"][data-pf-cs-state=\"closed\"]:has-text(\"Atlas closed case\") a"},
+      {"wait": "[data-pf-cs=\"block\"][data-pf-cs-name=\"stand\"]"}
     ],
-    "shot": "case-composer-close"
+    "shot": "case-file-closed"
+  },
+  {
+    "name": "cases-file-as",
+    "area": "cases",
+    "start": "/cases",
+    "session": "tenant",
+    "steps": [
+      {"wait": "#cs-list"},
+      {"ensure": {"selector": "[data-pf-cs=\"row\"]:has-text(\"Atlas waiting case\")",
+                  "steps": [
+                    {"click": "[data-pf-cs=\"new-action\"]"},
+                    {"wait": ".pf-cases__new-form"},
+                    {"fill": {"selector": ".pf-cases__new-form input[name=\"title\"]", "value": "Atlas waiting case"}},
+                    {"click": ".pf-cases__new-form button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"file\"]"},
+                    {"click": "[data-pf-cs=\"action\"][data-pf-cs-kind=\"wait\"]"},
+                    {"wait": "[name=\"wait_until\"]"},
+                    {"fill": {"selector": "[name=\"wait_until\"]", "value": "2030-01-15"}},
+                    {"click": "#case-composer-slot button[type=\"submit\"]"},
+                    {"wait": "[data-pf-cs=\"state\"][data-pf-cs-state=\"waiting\"]"},
+                    {"click": "[data-pf-cs=\"crumb\"] .pf-crumb__back"},
+                    {"wait": "#cs-list"}
+                  ]}},
+      {"click": "[data-pf-cs=\"row\"]:has-text(\"Atlas waiting case\") a"},
+      {"wait": "[data-pf-cs=\"file\"]"},
+      {"click": "[data-pf-cs=\"file-as\"]"},
+      {"wait": ".pf-frozen"}
+    ],
+    "shot": "case-file-as"
   },
   {
     "name": "transactions-composer-order",
@@ -458,23 +515,6 @@
       {"wait": "#dc-watchpoint-list [data-pf-wd=\"history\"]"}
     ],
     "shot": "watchpoint-history"
-  },
-  {
-    "name": "cases-archive-search",
-    "area": "cases",
-    "start": "/cases",
-    "session": "tenant",
-    "section": "archive",
-    "note": "results stay empty until a case titled \"Atlas …\" has been closed; the no-match state is the shot then",
-    "steps": [
-      {"wait": ".pf-archive__summary"},
-      {"ensure": {"selector": "details.pf-archive[open]",
-                  "steps": [{"click": ".pf-archive__summary"}]}},
-      {"fill": {"selector": ".pf-archive__input", "value": "Atlas"}},
-      {"click": ".pf-archive__form button[type=\"submit\"]"},
-      {"wait": "#cases-archive-results :is(.pf-case-list, .pf-empty-state)"}
-    ],
-    "shot": "archive-search"
   },
   {
     "name": "transactions-blotter-cancel-open",

@@ -4,7 +4,7 @@
    affordances. Rendered only when the case carries a finding.
 
    Band and resolution reuse the Watch Desk tag classes
-   (pf-dc-band-tag / pf-dc-res-tag) rather than inventing new ones.
+   (pf-state) rather than inventing new ones.
 
    Context: origin — {band, subject_key, surfaced, trigger, finding, basis,
    resolution, materiality_lines}. #}
@@ -15,12 +15,12 @@
     </span>
 
     <span class="pf-origin__meta">
-        <span class="pf-dc-band-tag pf-dc-band-tag--{{ origin.band }}">
+        <span class="pf-state pf-state--{{ origin.band }}">
             {{ origin.band|capitalize }}
         </span>
         <span class="mono">{{ origin.subject_key }}</span>
         {% if origin.surfaced %}· surfaced {{ origin.surfaced }}{% endif %}
-        <span class="pf-dc-res-tag pf-dc-res-tag--{{ origin.resolution }}">
+        <span class="pf-state pf-state--{{ origin.resolution }}">
             {{ origin.resolution_label }}
         </span>
     </span>

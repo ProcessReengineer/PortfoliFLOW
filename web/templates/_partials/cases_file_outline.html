@@ -16,18 +16,18 @@
 
    Context: outline — [{name, label, count_label, empty, href, reveal_href}],
    head (state, owner, due, wait_until), oob (optional). #}
-<nav id="cs-outline" class="pf-case__toc" aria-label="Sections of this case" data-pf-cs="outline"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
+<nav id="cs-outline" class="pf-toc" aria-label="Sections of this case" data-pf-cs="outline"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
     {% for item in outline %}
         {% if item.empty and item.reveal_href %}
             <a href="{{ item.href }}" class="is-empty" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}"
-               hx-get="{{ item.reveal_href }}" hx-target="#cs-{{ item.name }}" hx-swap="outerHTML">{{ item.label }} <span class="n">+</span></a>
+               hx-get="{{ item.reveal_href }}" hx-target="#cs-{{ item.name }}" hx-swap="outerHTML">{{ item.label }} <span class="pf-toc__n">+</span></a>
         {% elif item.empty %}
             <a href="{{ item.href }}" class="is-empty" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}">{{ item.label }}</a>
         {% else %}
-            <a href="{{ item.href }}" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}">{{ item.label }}{% if item.count_label %} <span class="n">{{ item.count_label }}</span>{% endif %}</a>
+            <a href="{{ item.href }}" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}">{{ item.label }}{% if item.count_label %} <span class="pf-toc__n">{{ item.count_label }}</span>{% endif %}</a>
         {% endif %}
     {% endfor %}
-    <div class="toc-foot">
+    <div class="pf-toc__foot">
         <span class="pf-state pf-state--{{ head.state }}">{{ head.state|capitalize }}</span>
         <span class="pf-hint">Owner {{ head.owner }}</span>
         {% if head.due %}<span class="pf-hint">Due {{ head.due }}</span>{% endif %}

@@ -95,7 +95,7 @@
 
     {% if is_mutable %}
         {% if block.empty %}<p class="pf-hint" data-pf-cs="conversations-empty">No conversation yet — add the first below.</p>{% endif %}
-        <form class="pf-case__add" data-pf-cs="conversation-add"
+        <form class="pf-addline" data-pf-cs="conversation-add"
               hx-post="/api/cases/{{ case_id }}/conversations"
               hx-target="#cs-conversations"
               hx-swap="outerHTML">

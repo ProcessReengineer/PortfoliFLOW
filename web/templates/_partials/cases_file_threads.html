@@ -107,7 +107,7 @@
 
     {% if is_mutable %}
         {% if block.empty %}<p class="pf-hint" data-pf-cs="threads-empty">No thread yet — add the first below.</p>{% endif %}
-        <form class="pf-case__add" data-pf-cs="thread-add"
+        <form class="pf-addline" data-pf-cs="thread-add"
               hx-post="/api/cases/{{ case_id }}/threads"
               hx-target="#cs-threads"
               hx-swap="outerHTML">

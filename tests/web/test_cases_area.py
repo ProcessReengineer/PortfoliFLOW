@@ -1798,7 +1798,7 @@ async def test_origin_chip_renders_opened_case_label_and_tag(
 
     assert "Opened case" in body
     assert "Opened_case" not in body  # not the |capitalize default
-    assert "pf-dc-res-tag--opened_case" in body
+    assert "pf-state--opened_case" in body
 
 
 async def test_pin_chunked_read_rejects_oversize_without_full_buffer(

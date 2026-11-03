@@ -523,3 +523,140 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
 .pf-journal__kind { font-size: var(--ui-font-scale-xs); color: var(--ui-text-tertiary); text-transform: uppercase; letter-spacing: .06em; }
 .pf-journal__kind--briefing { color: var(--ui-text-secondary); }
 .pf-journal__actor { font-size: var(--ui-font-scale-sm); color: var(--ui-text-secondary); }
+
+/* Cases (ADR-0138 §12): families the working file introduced — P-CS-3d */
+
+/* ---- pf-src: provenance chip — where a figure or a kept artefact came from, dot plus word.
+        Source: M-CS-2 (the mock's provenance chips); used by Cases — Where we stand, Figures, the frozen file. */
+.pf-src { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border: 1px solid var(--ui-border-default); border-radius: 9px; color: var(--ui-text-secondary); font-size: 11px; white-space: nowrap; vertical-align: middle; }
+.pf-src::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--src, var(--ui-text-tertiary)); }
+.pf-src--live { --src: var(--ui-semantic-positive); }
+.pf-src--typed { --src: var(--ui-text-secondary); }
+.pf-src--doc { --src: var(--ui-semantic-info); }
+.pf-src--call { --src: var(--ui-semantic-warn); }
+.pf-src--kept { --src: var(--ui-accent-primary); }
+/* The mock's --ext dot is a literal no token carries; the muted semantic stands in. */
+.pf-src--ext { --src: var(--ui-semantic-muted); }
+.pf-src--frozen { --src: var(--ui-text-disabled); }
+
+/* ---- pf-toc: a sticky outline of the blocks beside a long view, an item per anchor; the offset is the view head's 72 px.
+        Source: M-CS-2 (pf-case__toc, renamed); used by Cases — the file's outline. */
+.pf-toc { position: sticky; top: 72px; display: flex; flex-direction: column; gap: 2px; padding-top: var(--ui-space-2); }
+.pf-toc a { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: var(--ui-radius-sm); color: var(--ui-text-tertiary); text-decoration: none; font-size: var(--ui-font-scale-sm); }
+.pf-toc a:hover { color: var(--ui-text-primary); background: var(--ui-background-secondary); }
+.pf-toc__n { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+.pf-toc a.is-empty { color: var(--ui-text-disabled); }
+.pf-toc a.is-empty:hover { color: var(--ui-text-secondary); }
+.pf-toc__foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: var(--ui-space-4); padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border-soft); }
+
+/* ---- pf-blk: a titled block of a long view — title, a quiet sub line, tools on the right; --empty invites the first entry.
+        Source: M-CS-2 (the file's blocks); used by Cases — every block of the file. */
+.pf-blk { display: flex; flex-direction: column; gap: var(--ui-space-3); scroll-margin-top: 96px; }
+.pf-blk[hidden] { display: none; }
+.pf-blk__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-3); }
+.pf-blk__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-semibold); white-space: nowrap; }
+.pf-blk__sub { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-blk__tools { display: flex; gap: var(--ui-space-2); margin-left: auto; }
+.pf-blk--empty { padding: 10px 12px; border: 1px dashed var(--ui-border-default); border-radius: var(--ui-radius-sm); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
+.pf-blk--empty a { color: var(--ui-text-secondary); }
+
+/* ---- pf-saved: the quiet "saved" stamp an autosaving view writes after each save.
+        Source: M-CS-2; used by Cases — the file's head. */
+.pf-saved { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+
+/* ---- pf-thread: one line of inquiry as a disclosure — the question, its state and dates, then its body and conclusion.
+        Source: M-CS-2 (b-threads); used by Cases — Threads. The conclusion carries an inset positive rule, not the mock's icon column. */
+.pf-thread { border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
+.pf-thread > summary { display: flex; align-items: center; gap: var(--ui-space-3); padding: 12px 16px; list-style: none; cursor: pointer; }
+.pf-thread > summary::-webkit-details-marker { display: none; }
+.pf-thread > summary::before { content: "›"; color: var(--ui-text-tertiary); transition: transform var(--ui-motion-duration); }
+.pf-thread[open] > summary::before { transform: rotate(90deg); }
+.pf-thread__q { flex: 1; min-width: 0; margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-medium); }
+.pf-thread__meta { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
+.pf-thread__body { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: 4px 16px 16px 36px; }
+.pf-thread__concl { padding: 10px 12px; border-radius: var(--ui-radius-sm); background: var(--ui-background-section); box-shadow: inset 2px 0 0 var(--ui-semantic-positive); }
+.pf-thread__concl p { margin: 0; color: var(--ui-text-primary); }
+.pf-thread__form { display: flex; flex-direction: column; gap: var(--ui-space-3); }
+.pf-thread__tools { display: flex; justify-content: flex-end; }
+
+/* ---- pf-kept: an artefact kept in a file — its provenance chip, its title and an action on the right.
+        Source: M-CS-2 (kept artefacts); used by Cases from P-CS-4a (Keep) — no template draws it yet. */
+.pf-kept { display: flex; flex-direction: column; gap: 6px; }
+.pf-kept__head { display: flex; align-items: center; gap: var(--ui-space-2); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-kept__head strong { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-kept__head .pf-btn { margin-left: auto; }
+
+/* ---- pf-quote: a quoted passage with its attribution — Shirley's words, a document's sentence.
+        Source: M-CS-2; used by Cases — the consultation pin's excerpt. */
+.pf-quote { margin: 0; padding: 10px 14px; border-left: 2px solid var(--ui-semantic-info); background: var(--ui-background-section); color: var(--ui-text-primary); font-style: italic; }
+.pf-quote cite { display: block; margin-top: 6px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-style: normal; }
+.pf-quote cite a { color: var(--ui-text-secondary); }
+
+/* ---- pf-conv: a conversation row — when and with whom on the left, what was said and promised on the right.
+        Source: M-CS-2 (b-conversations), laid out so an editable row's form lends the grid its fields; used by Cases — Conversations. */
+.pf-conv { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); grid-template-areas: "when text" "who text"; grid-template-rows: auto 1fr; gap: var(--ui-space-2) var(--ui-space-4); padding: var(--ui-space-3) 0; border-top: 1px solid var(--ui-border-soft); }
+.pf-conv__form { display: contents; }
+.pf-conv__when { grid-area: when; display: flex; flex-direction: column; gap: 6px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-conv__who { grid-area: who; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); }
+.pf-conv__text { grid-area: text; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; }
+.pf-conv__tools { display: flex; justify-content: flex-end; }
+
+/* ---- pf-checklist: a list of things to do — done box, text, who, due, ticket; a done item keeps its place, struck through.
+        Source: M-CS-2 (the mock's pf-check, renamed: the shared pf-check is one checkbox label, §2.5.1); used by Cases — Open points. */
+.pf-checklist { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.pf-checklist__item { display: flex; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-2) 0; border-top: 1px solid var(--ui-border-soft); }
+.pf-checklist__form { display: contents; }
+.pf-checklist__text { flex: 1 1 auto; min-width: 0; color: var(--ui-text-primary); }
+.pf-checklist__item.is-done .pf-checklist__text { color: var(--ui-text-tertiary); text-decoration: line-through; }
+.pf-checklist__who, .pf-checklist__due { flex: 0 0 auto; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-checklist__due.is-soon, .pf-checklist__due.is-soon .pf-input { color: var(--ui-semantic-warn); }
+.pf-checklist__ticket { flex: 0 0 auto; font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-checklist__ticket a { color: var(--ui-text-primary); text-underline-offset: 3px; }
+.pf-checklist__mark { flex: 0 0 16px; color: var(--ui-semantic-positive); }
+
+/* ---- pf-addline: the add row at a block's foot — a wrapping row of fields ending in its button; --pair sets two side by side.
+        Source: M-CS-2 (the mock's quiet add line), drawn as a form row; folds P-CS-3b2's add form into P-CS-3c's; used by Cases — every block that adds. */
+.pf-addline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
+.pf-addline .pf-field { flex: 1 1 160px; }
+.pf-addline .pf-addline__main { flex: 1 1 280px; }
+.pf-addline--pair { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--ui-space-4); }
+.pf-addline--pair > .pf-addline { flex: 1 1 360px; }
+
+/* ---- pf-record: the record of a file — milestones and what the program wrote, oldest first; a milestone's frozen file opens under it.
+        Source: M-CS-2 (b-record); used by Cases — the Record block. Its rows still draw the timeline's frame; __row is the mock's one line. */
+.pf-record { display: flex; flex-direction: column; }
+.pf-record__row { display: grid; grid-template-columns: 150px 150px minmax(0, 1fr) auto; align-items: baseline; gap: var(--ui-space-4); padding: 10px 0; border-bottom: 1px solid var(--ui-border-soft); }
+.pf-record__row .pf-btn { justify-self: end; }
+.pf-record__file { margin-top: var(--ui-space-2); border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); }
+.pf-record__file:empty { display: none; }
+
+/* ---- pf-stand: where a matter stands, in a row cell — one line over a quiet small one.
+        Source: M-CS-2 (view-cases); used by Cases — the list's Where we stand. */
+.pf-stand { display: flex; flex-direction: column; gap: 2px; }
+.pf-stand small { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+
+/* ---- pf-due: a next or due date; is-soon reads warn within seven days.
+        Source: M-CS-2 (view-cases); used by Cases — the list's Next · due. */
+.pf-due.is-soon { color: var(--ui-semantic-warn); }
+
+/* ---- pf-kind: a small kind tag beside a title — "task".
+        Source: M-CS-2 (v2 additions); used by Cases — the list row's framing. */
+.pf-kind { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 3px; background: var(--ui-background-section); color: var(--ui-text-tertiary); font-size: 11px; letter-spacing: .02em; vertical-align: middle; }
+
+/* ---- pf-table additions: a group heading row, the older-page row and a row's title link.
+        Source: M-CS-2 (view-cases' Waiting group); used by Cases — the list. */
+.pf-table__group td { padding: 18px 12px 6px; border-bottom: 1px solid var(--ui-border-default); background: none; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-medium); text-transform: uppercase; letter-spacing: .06em; }
+.pf-table__group-note { font-weight: var(--ui-font-weight-regular); text-transform: none; letter-spacing: normal; }
+.pf-table__older td { padding: var(--ui-space-2) 12px; text-align: center; }
+.pf-table__link { color: var(--ui-text-primary); text-decoration: none; }
+.pf-table__link:hover, .pf-table__link:focus { color: var(--ui-text-primary); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---- pf-figtable: a table of figures — values right-aligned in tabular digits, a pending value italic and quiet, inputs that keep a usable width.
+        Source: M-CS-2 (the figures table); used by Cases — Where we stand, Figures, the frozen file. pf-num's alignment is pf-table's own. */
+.pf-figtable td, .pf-figtable th { white-space: nowrap; }
+.pf-figtable .pf-num { font-variant-numeric: tabular-nums; }
+.pf-figtable .is-pending { color: var(--ui-text-tertiary); font-style: italic; }
+.pf-figtable form { margin: 0; }
+.pf-figtable td .pf-input, .pf-figtable td .pf-select { min-width: 8rem; }
+.pf-figtable td .pf-src + .pf-select, .pf-figtable td .pf-src + .pf-input, .pf-figtable td .pf-select + .pf-input { margin-left: var(--ui-space-2); }
+.pf-figtable td .pf-select, .pf-figtable td .pf-src ~ .pf-input { width: auto; }

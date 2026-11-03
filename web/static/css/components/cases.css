@@ -1,1222 +1,83 @@
-/* Cases area (ADR-0107).
+/* Cases (ADR-0138 §12) — P-CS-3d's scoped residue.
  *
- * Translates the Cases-area mockup (v2; working material, no longer in the
- * tree) for everything the Cases area has shipped: the C2 list surfaces
- * (open / recently-closed / archive + the New-case form), the C3a detail read
- * view (head, origin embed, timeline, rail), and the C3b composers.
- *
- * Scoping. `.pf-cases` is the single scoping root: it rides on both the area
- * body (`_partials/areas/_cases_body.html`) and the detail `<section>`
- * (`cases_detail.html`), and every HTMX-swapped partial lands inside one of
- * them — so prefixing every selector with `.pf-cases` reaches all Cases
- * markup and nothing else. Detail-only chrome (origin, timeline, rail,
- * composers) lives under the same root; the `.pf-case-detail` root co-exists
- * with `.pf-cases` on that page, so no second prefix is needed.
- *
- * Tokens. Colours and fonts come from `--ui-*`. Two deviations from the mock
- * are deliberate and mirror components/watch_desk.css:
- *   - the mock's hard-coded neutrals `#E6E6E6` / `#D6D6D6` map to
- *     `--ui-text-secondary` — `--ui-text-primary` is the crimson accent in
- *     this theme, and secondary stays legible on the light theme; the
- *     open/closed and title/body hierarchies are carried by font-weight, not
- *     hue (as DC did for its tile values);
- *   - mono text uses the app stack `var(--ui-font-family-mono)`, not the mock's
- *     "JetBrains Mono" (which the app does not ship).
- * The mock's mock-local `--pf-bg-surface` (#121212) is NOT reintroduced: its
- * only consumer is the shared `.pf-section`, already owned by layout.css, and
- * every Cases surface reads an existing `--ui-background-*` token.
- *
- * Not here. The shared shell (`.pf-area*`, `.pf-section*`, the lazy skeleton,
- * `.pf-empty-state`) is owned by layout.css / empty_states.css. The Watch Desk
- * band / resolution chips reused in the origin embed (`.pf-dc-band-tag*`,
- * `.pf-dc-res-tag*`) stay styled by watch_desk.css — never restyled.
- *
- * Rule groups read in render order, area top to detail bottom: controls,
- * list surfaces, forms (New-case + fields, shared with composers), archive,
- * detail head, detail grid, origin embed, timeline, rail, composers. */
-
-/* --- Controls: buttons + chips ------------------------------------- */
-
-/* The mock's `.pf-btn` is unstyled app-wide; the detail actions/composers use
- * it, the list surfaces use `.pf-cases__new-btn` — same visual, two names. */
-.pf-cases .pf-btn,
-.pf-cases .pf-cases__new-btn {
-    background: var(--ui-background-secondary);
-    color: var(--ui-text-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    cursor: pointer;
-}
-
-.pf-cases .pf-btn:hover,
-.pf-cases .pf-cases__new-btn:hover {
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-cases .pf-btn--primary,
-.pf-cases .pf-cases__new-btn--primary {
-    background: var(--ui-accent-primary);
-    color: var(--ui-accent-on-accent);
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-cases .pf-btn--primary:hover,
-.pf-cases .pf-cases__new-btn--primary:hover {
-    background: var(--ui-accent-primary-hover);
-}
-
-/* Filter chips (open list). Chips are <a> in the shipped markup, so the
- * hover underline from base.css is suppressed. */
-.pf-cases .pf-chip {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 999px;
-    padding: 3px 12px;
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-    background: var(--ui-background-secondary);
-    cursor: pointer;
-    text-decoration: none;
-}
-
-.pf-cases .pf-chip:hover {
-    border-color: var(--ui-accent-primary);
-    text-decoration: none;
-}
-
-.pf-cases .pf-chip--active {
-    border-color: var(--ui-accent-primary);
-    color: var(--ui-accent-primary);
-}
-
-/* --- List surfaces (C2) -------------------------------------------- */
-
-.pf-cases .pf-cases__filters {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
-/* Wrap around filters + list (open) or the list alone (recently closed):
- * space its own children, since it is a single child of the section. */
-.pf-cases .pf-cases__list-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.pf-cases .pf-case-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-/* Rows are <a>: no underline, and the row's own text colours win over the
- * inherited link accent. */
-.pf-cases .pf-case-row {
-    display: grid;
-    grid-template-columns: 100px 1fr 140px 160px;
-    gap: 14px;
-    align-items: center;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 12px 16px;
-    text-decoration: none;
-}
-
-.pf-cases .pf-case-row:hover {
-    border-color: var(--ui-accent-primary);
-    cursor: pointer;
-    text-decoration: none;
-}
-
-.pf-cases .pf-case-row__id {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.8rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .pf-case-row__main {
-    min-width: 0;
-}
-
-.pf-cases .pf-case-row__title {
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    font-size: 0.92rem;
-}
-
-.pf-cases .pf-case-row__origin {
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-}
-
-/* Shipped-only "From finding" chip, in place of the mock's inline prose.
- * A small restrained tag, in the DC band-tag spirit. */
-.pf-cases .pf-case-row__origin-badge {
-    display: inline-block;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 3px;
-    padding: 0 6px;
-    font-size: 0.7rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .pf-case-row__meta {
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-    text-align: right;
-}
-
-/* Closed rows wrap their id/title/state in a `display:contents` detail link
- * (so its children stay grid items of `.pf-case-row`), leaving the meta
- * column free to carry a real, non-nested Journal deep link (ADR-0107, C4). */
-.pf-cases .pf-case-row__link {
-    display: contents;
-    text-decoration: none;
-}
-
-.pf-cases .pf-case-row--closed .pf-case-row__meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-}
-
-/* One Journal deep-link idiom — the recently-closed meta and the closed-case
- * detail rail. A calm "informational" link, never an alarm colour. */
-.pf-cases .pf-journal-link {
-    font-size: 0.72rem;
-    color: var(--ui-semantic-info);
-    text-decoration: none;
-    white-space: nowrap;
-}
-
-.pf-cases .pf-journal-link:hover {
-    text-decoration: underline;
-}
-
-/* Muted closed variant: the distinction rides on weight, since both the
- * open (#E6E6E6) and closed (#B0B0B0) mock titles collapse to secondary. */
-.pf-cases .pf-case-row--closed .pf-case-row__title {
-    color: var(--ui-text-secondary);
-    font-weight: 500;
-}
-
-.pf-cases .owner {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 0.72rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .owner::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 2px;
-    background: var(--ui-semantic-muted);
-}
-
-/* State chip — shared by list rows and the detail head. `justify-self` is a
- * no-op in the head's flex row, active in the row grid. */
-.pf-cases .state {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    border-radius: 999px;
-    padding: 2px 10px;
-    border: 1px solid transparent;
-    justify-self: start;
-}
-
-.pf-cases .state::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.pf-cases .state--open {
-    color: var(--ui-semantic-info);
-    border-color: color-mix(in srgb, var(--ui-semantic-info) 45%, transparent);
-}
-
-.pf-cases .state--closed {
-    color: var(--ui-semantic-success);
-    border-color: color-mix(in srgb, var(--ui-semantic-success) 45%, transparent);
-}
-
-/* --- Forms: New-case + fields (shared with composers) -------------- */
-
-/* The mock carries no forms; the New-case form and every composer share one
- * framed-panel look on the dark theme. */
-.pf-cases .pf-cases__new-form,
-.pf-cases .pf-case-composer {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    background: var(--ui-background-section);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    padding: 16px 18px;
-}
-
-.pf-cases .pf-cases__new-form-title,
-.pf-cases .pf-case-composer__title {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-}
-
-/* Inline validation error — the codebase error idiom (cf. .pf-dc-error). */
-.pf-cases .pf-cases__new-form-error,
-.pf-cases .pf-case-composer__error {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--ui-semantic-error);
-}
-
-.pf-cases .pf-cases__new-form-actions,
-.pf-cases .pf-case-composer__actions {
-    display: flex;
-    gap: 8px;
-}
-
-.pf-cases .pf-cases__field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.pf-cases .pf-cases__field-label {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-cases__field-optional {
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--ui-text-disabled);
-}
-
-/* One field frame for text inputs, textareas, and the file input — and the
- * archive search inputs, which share it. */
-.pf-cases .pf-cases__field-input,
-.pf-cases .pf-archive__input {
-    background: var(--ui-background-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    color: var(--ui-text-secondary);
-    padding: 6px 10px;
-    font: inherit;
-    font-size: 0.82rem;
-}
-
-/* Border-only accent on focus; the base focus-visible ring is left intact. */
-.pf-cases .pf-cases__field-input:focus,
-.pf-cases .pf-archive__input:focus {
-    border-color: var(--ui-accent-primary);
-}
-
-.pf-cases textarea.pf-cases__field-input {
-    resize: vertical;
-}
-
-/* --- Archive (C2): collapsed disclosure + search ------------------- */
-
-.pf-cases .pf-archive {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-}
-
-.pf-cases .pf-archive__summary {
-    cursor: pointer;
-    padding: 10px 14px;
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
-    list-style: none;
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-}
-
-.pf-cases .pf-archive__summary::-webkit-details-marker {
-    display: none;
-}
-
-.pf-cases .pf-archive__chevron {
-    color: var(--ui-text-disabled);
-    font-size: 0.7rem;
-}
-
-.pf-cases .pf-archive[open] .pf-archive__chevron {
-    transform: rotate(90deg);
-    display: inline-block;
-}
-
-.pf-cases .pf-archive__body {
-    padding: 4px 14px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    border-top: 1px solid var(--ui-border-default);
-}
-
-.pf-cases .pf-archive__form {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
-.pf-cases .pf-archive__input--wide {
-    flex: 1;
-    min-width: 220px;
-}
-
-/* Idle prompt (initial + whitespace query) and the DMS-boundary hint —
- * both calm and muted; the no-match case rides the shared .pf-empty-state. */
-.pf-cases .pf-archive__idle {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-archive__hint,
-.pf-cases .pf-case-composer__hint {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--ui-text-disabled);
-}
-
-/* --- Detail head (C3a) --------------------------------------------- */
-
-.pf-cases .pf-case-detail__back {
-    font-size: 0.8rem;
-    color: var(--ui-text-secondary);
-    text-decoration: none;
-}
-
-.pf-cases .pf-case-detail__back:hover {
-    color: var(--ui-accent-primary);
-    text-decoration: none;
-}
-
-.pf-cases .pf-case-head {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.pf-cases .pf-case-head__row {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.pf-cases .pf-case-head__id {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.85rem;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-case-head__title {
-    margin: 0;
-    font-size: 1.15rem;
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-}
-
-.pf-cases .pf-case-head__meta {
-    font-size: 0.8rem;
-    color: var(--ui-text-disabled);
-}
-
-/* --- Detail grid + main column ------------------------------------- */
-
-.pf-cases .pf-case-grid {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 20px;
-    align-items: start;
-}
-
-.pf-cases .pf-case-main {
-    min-width: 0;
-}
-
-/* Composer slot: only claims space once an action has opened a composer. */
-.pf-cases .pf-case-composer-slot:not(:empty) {
-    margin-bottom: 16px;
-}
-
-/* Empty New-case slot must not consume a flex gap in the area body. */
-.pf-cases #cases-new-case-slot:empty {
-    display: none;
-}
-
-/* Rail below main on narrow viewports — the sibling breakpoint. */
-@media (max-width: 900px) {
-    .pf-cases .pf-case-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* --- Origin embed (C3a): the read-only finding record --------------- */
-
-.pf-cases .pf-origin {
-    border: 1px solid var(--ui-border-default);
-    border-left: 3px solid var(--ui-accent-primary);
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--ui-accent-primary) 5%, var(--ui-background-section));
-    padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-/* Manual-case description: no finding, so a calmer neutral frame — the accent
- * left border and tint are dropped. */
-.pf-cases .pf-origin--manual {
-    border-left-color: var(--ui-border-default);
-    background: var(--ui-background-section);
-}
-
-.pf-cases .pf-origin__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-    flex-wrap: wrap;
-}
-
-.pf-cases .pf-origin__label .lock {
-    color: var(--ui-semantic-muted);
-    text-transform: none;
-    letter-spacing: 0;
-}
-
-/* Band / subject / surfaced / resolution line — the container only; the
- * Watch Desk band and resolution chips inside stay styled by watch_desk.css. */
-.pf-cases .pf-origin__meta {
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-    flex-wrap: wrap;
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .pf-origin__trigger {
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    font-size: 0.95rem;
-}
-
-.pf-cases .pf-origin__finding {
-    margin: 0;
-    font-size: 0.88rem;
-}
-
-.pf-cases .pf-origin__materiality {
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-    background: var(--ui-background-primary);
-    border-radius: 4px;
-    padding: 6px 10px;
-}
-
-/* "At case opening" — the presentation strings frozen at opening, in their
- * own inset panel (the mock's distinct frozen-materiality treatment). */
-.pf-cases .pf-origin__opening {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-top: 2px;
-    background: var(--ui-background-primary);
-    border-radius: 4px;
-    padding: 8px 10px;
-}
-
-.pf-cases .pf-origin__opening-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-origin__opening-line {
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-}
-
-/* --- Timeline (C3a / C3b): the append-only spine -------------------- */
-
-.pf-cases .pf-tl {
-    display: flex;
-    flex-direction: column;
-    margin-top: 16px;
-}
-
-.pf-cases .pf-tl__entry {
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 16px;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--ui-border-default);
-}
-
-.pf-cases .pf-tl__entry:last-child {
-    border-bottom: none;
-}
-
-.pf-cases .pf-tl__when {
-    font-size: 0.78rem;
-    color: var(--ui-text-disabled);
-    padding-top: 2px;
-}
-
-.pf-cases .pf-tl__body {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-}
-
-.pf-cases .pf-tl__head {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.pf-cases .pf-tl__kind {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .pf-tl__text {
-    margin: 0;
-    font-size: 0.88rem;
-}
-
-.pf-cases .pf-tl__text em {
-    color: var(--ui-text-secondary);
-    font-style: normal;
-}
-
-/* Closed entry: a quiet success tint on its kind label, echoing the closing
- * block below it — emphasis, not alarm. */
-.pf-cases .pf-tl__entry[data-kind="closed"] .pf-tl__kind {
-    color: var(--ui-semantic-success);
-}
-
-/* Actor chips — three distinct treatments. */
-.pf-cases .actor {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 0.68rem;
-    border-radius: 999px;
-    padding: 1px 9px;
-    border: 1px solid var(--ui-border-default);
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .actor--pm {
-    border-color: color-mix(in srgb, var(--ui-accent-primary) 45%, transparent);
-    color: var(--ui-accent-primary);
-}
-
-.pf-cases .actor--shirley {
-    border-color: color-mix(in srgb, var(--ui-semantic-info) 45%, transparent);
-    color: var(--ui-semantic-info);
-}
-
-.pf-cases .actor--system {
-    color: var(--ui-semantic-muted);
-}
-
-/* Pin anatomy: curation comment + attached artifact. */
-.pf-cases .pf-pin {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.pf-cases .pf-pin__comment {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--ui-text-secondary);
-    border-left: 2px solid var(--ui-border-default);
-    padding-left: 10px;
-}
-
-.pf-cases .pf-pin__comment::before {
-    content: "Pinned because — ";
-    color: var(--ui-text-disabled);
-    font-size: 0.75rem;
-}
-
-.pf-cases .pf-artifact {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    background: var(--ui-background-primary);
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 0.82rem;
-}
-
-.pf-cases .pf-artifact__title {
-    color: var(--ui-text-secondary);
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.pf-cases .pf-artifact__row {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.pf-cases .pf-artifact__row dt {
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-artifact__row dd {
-    margin: 0;
-    color: var(--ui-text-secondary);
-    text-align: right;
-}
-
-/* Document pin: file line laid out in a row — icon, then title + size. */
-.pf-cases .pf-artifact--doc {
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-}
-
-.pf-cases .pf-artifact--doc .icon {
-    color: var(--ui-semantic-muted);
-    font-size: 1rem;
-}
-
-/* Decision record — optional, structured, board-grade. */
-.pf-cases .pf-decision {
-    border: 1px solid color-mix(in srgb, var(--ui-semantic-warning) 40%, transparent);
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--ui-semantic-warning) 4%, var(--ui-background-primary));
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 0.85rem;
-}
-
-.pf-cases .pf-decision__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-semantic-warning);
-}
-
-.pf-cases .pf-decision dl {
-    margin: 0;
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 4px 12px;
-}
-
-.pf-cases .pf-decision dt {
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-decision dd {
-    margin: 0;
-    color: var(--ui-text-secondary);
-}
-
-/* Closing note — the mandatory close artifact. */
-.pf-cases .pf-closing {
-    border: 1px solid color-mix(in srgb, var(--ui-semantic-success) 40%, transparent);
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--ui-semantic-success) 4%, var(--ui-background-primary));
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 0.85rem;
-}
-
-.pf-cases .pf-closing__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-semantic-success);
-}
-
-.pf-cases .pf-closing p {
-    margin: 0;
-    color: var(--ui-text-secondary);
-}
-
-/* --- Rail (C3a): status + linked objects + actions ----------------- */
-
-.pf-cases .pf-rail {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.pf-cases .pf-rail__box {
-    border: 1px solid var(--ui-border-default);
-    border-radius: 5px;
-    background: var(--ui-background-section);
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.pf-cases .pf-rail__label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-rail__list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 0.82rem;
-}
-
-.pf-cases .pf-rail__list li {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-.pf-cases .pf-rail__list .k {
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-rail__list .v {
-    color: var(--ui-text-secondary);
-    text-align: right;
-}
-
-.pf-cases .pf-case-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-/* --- Composers (C3b) ----------------------------------------------- */
-
-/* Mono size row, linked-objects mono, artifact size — one bare-.mono rule.
- * (The DC monitor's `.mono` is scoped separately and out of this tree.) */
-.pf-cases .mono {
-    font-family: var(--ui-font-family-mono);
-    font-size: 0.8rem;
-    color: var(--ui-text-secondary);
-}
-
-/* Close dialog: consequential, accented — not alarm-red. */
-.pf-cases .pf-case-composer--close {
-    border-left: 3px solid var(--ui-accent-primary);
-}
-
-.pf-cases .pf-case-composer__warn {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--ui-accent-primary);
-    background: color-mix(in srgb, var(--ui-accent-primary) 6%, transparent);
-    border-radius: 4px;
-    padding: 8px 10px;
-}
-
-.pf-cases .pf-case-composer__confirm {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-}
-
-/* --- Scenario-snapshot pin anatomy (ADR-0107 C5) ------------------- */
-
-/* The frozen Planning Desk record — a stack of parameter chips, KPI pairs, the
- * two feet, a headroom count and the stored query. Reuses .pf-artifact /
- * .pf-artifact__row from the shared pin anatomy above. */
-.pf-cases .pf-artifact--scenario {
-    gap: 8px;
-}
-
-/* The parameter chips as a compact line — labels only, the frozen record's
- * "parameters" line (the mock shows text, not the Desk's coloured chips). */
-.pf-cases .pf-snap__chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-}
-
-.pf-cases .pf-snap__chip {
-    font-size: 0.72rem;
-    padding: 1px 8px;
-    border-radius: 999px;
-    color: var(--ui-text-secondary);
-    background: var(--ui-background-secondary);
-    border: 1px solid var(--ui-border-default);
-}
-
-.pf-cases .pf-snap__baseline {
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--ui-text-disabled);
-    font-style: italic;
-}
-
-/* KPI pairs and the two feet share the .pf-artifact__row dt/dd layout; the dd
- * lays its base → scenario → delta run out in a row. */
-.pf-cases .pf-snap__kpis,
-.pf-cases .pf-snap__feet {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.pf-cases .pf-snap__kpi dd,
-.pf-cases .pf-snap__foot dd {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.pf-cases .pf-snap__base {
-    color: var(--ui-text-disabled);
-    text-decoration: line-through;
-    text-decoration-color: var(--ui-border-default);
-}
-
-.pf-cases .pf-snap__scen {
-    color: var(--ui-text-primary);
-    font-weight: 600;
-}
-
-.pf-cases .pf-snap__arrow {
-    color: var(--ui-text-disabled);
-}
-
-/* Frozen delta tones — the projected pos/neg/zero, reusing the semantic
- * colours; no recomputation, the tone is the snapshot's own. */
-.pf-cases .pf-snap-delta {
-    font-size: 0.76rem;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.pf-cases .pf-snap-delta--pos {
-    color: var(--ui-semantic-success);
-}
-
-.pf-cases .pf-snap-delta--neg {
-    color: var(--ui-semantic-error);
-}
-
-.pf-cases .pf-snap-delta--zero {
-    color: var(--ui-semantic-muted);
-}
-
-/* The stored query — documentation, monospace text, never a link (decision 2).
- * Wraps and scrolls rather than forcing the timeline wide. */
-.pf-cases .pf-snap__query {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.pf-cases .pf-snap__query-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ui-text-disabled);
-}
-
-.pf-cases .pf-snap__query code {
-    display: block;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-    font-size: 0.72rem;
-    color: var(--ui-text-secondary);
-    background: var(--ui-background-secondary);
-    border: 1px solid var(--ui-border-default);
-    border-radius: 4px;
-    padding: 6px 8px;
-}
-
-/* Chart snapshot (ADR-0114) — the fourth pin anatomy. The figure is re-plotted
- * from the frozen spec, so the container must carry its own size: Plotly cannot
- * derive one from content the way an <img> does. Same 16:9 rhythm as the chat
- * figure and the Front-Office tiles, with the narrow-viewport min-height. */
-.pf-cases .pf-artifact--chart {
-    gap: 8px;
-}
-
-.pf-cases .pf-chartsnap {
-    width: 100%;
-    border: 1px solid var(--ui-border-default);
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.pf-cases .pf-chartsnap__plot {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    min-height: 200px;
-}
-
-.pf-cases .pf-chartsnap__caption {
-    font-size: 0.78rem;
-    color: var(--ui-text-secondary);
-}
-
-/* Consultation excerpt (ADR-0107 C6) — a sibling of the pin anatomies above.
- * Reuses .pf-artifact for the framed block; the excerpt is a quoted passage
- * attributed to Shirley (the info-toned rule echoes the actor--shirley chip),
- * the curation comment stays the .pf-pin__comment above it. */
-.pf-cases .pf-artifact--consultation .pf-quote {
-    margin: 0;
-    padding: 2px 0 2px 12px;
-    border-left: 2px solid color-mix(in srgb, var(--ui-semantic-info) 55%, transparent);
-    font-size: 0.85rem;
-    color: var(--ui-text-primary);
-    white-space: pre-wrap;
-}
-
-/* Band and resolution tags on the case detail and its origin embed (moved from components/watch_desk.css with P-UX-A6-s1; the Journal left them with A6-j). Strand A-3 retires them onto pf-state. */
-.pf-cases .pf-dc-band-tag,
-.pf-cases .pf-dc-res-tag {
-    display: inline-block;
-    font-size: 0.72rem;
-    padding: 1px 7px;
-    border-radius: 3px;
-    border: 1px solid var(--ui-border-default);
-    color: var(--ui-text-secondary);
-}
-
-.pf-cases .pf-dc-band-tag--critical {
-    border-color: var(--ui-accent-primary);
-    color: var(--ui-accent-primary);
-}
-
-.pf-cases .pf-dc-band-tag--noteworthy {
-    border-color: var(--ui-semantic-warning);
-    color: var(--ui-semantic-warning);
-}
-
-.pf-cases .pf-dc-res-tag--opened_case,
-.pf-cases .pf-dc-res-tag--closed {
-    border-color: var(--ui-semantic-info);
-    color: var(--ui-semantic-info);
-}
-
-.pf-cases a.pf-dc-res-tag {
-    text-decoration: none;
-}
-
-.pf-cases a.pf-dc-res-tag:hover {
-    background: color-mix(in srgb, var(--ui-semantic-info) 10%, transparent);
-}
-
-/* P-CS-3a — M-CS-2 families, provisional; P-CS-3d decides generic vs scoped */
-
-/* States the Cases list and file render (the generic pf-state carries the dot). */
+ * The Cases Section is drawn from pf_components.css: the list on pf-table,
+ * pf-filters, pf-seg and pf-chip, the file's blocks on pf-blk, and the
+ * families the working file introduced (pf-src, pf-toc, pf-thread, pf-record,
+ * pf-checklist, pf-addline and the rest), which P-CS-3d moved there from the
+ * M-CS-2 mock. What remains here, in the watch_desk.css model, is scoped
+ * residue only: every rule is `.pf-cases`-scoped, one line each, tokens only,
+ * and each group names what retires it — a record question (`Q-UX-S-CS-n`)
+ * or the prompt that replaces its markup. The ADR-0107 list, archive, rail
+ * and detail-head rules left with P-CS-3d; so did the Area's overrides of the
+ * button family and of the filter chip, and the band and resolution tags of
+ * the retired `pf-dc` vocabulary (ui-standards §5 items 5, 15 and 14;
+ * P-CS-6a's docs pass closes them). Geometry no token carries stays literal,
+ * as in pf_components.css. */
+
+/* --- Scoped residue: Cases states of the shared pf-state family ---------------
+ * Record question Q-UX-S-CS-1: ui-standards §2.6.1 names seven states plus
+ * --dormant; the case (open · waiting · closed) and its threads (open ·
+ * confirmed · parked · refuted) need these, and M-CS-2 draws a pending one.
+ * Scoped per §8 rule 2 until the UX Board admits them (then they move into
+ * pf_components.css and this group goes); the Watch Desk's Q-UX-S-A6-1 is
+ * the same question. The dot rides the --dot property pf-state reads; a
+ * waiting or parked state is a hollow warn ring. */
 .pf-cases .pf-state--open { --dot: var(--ui-semantic-info); }
 .pf-cases .pf-state--closed { color: var(--ui-text-tertiary); --dot: var(--ui-text-tertiary); }
 .pf-cases .pf-state--confirmed { --dot: var(--ui-semantic-positive); }
-.pf-cases .pf-state--pending { color: var(--ui-text-secondary); }
+.pf-cases .pf-state--refuted { --dot: var(--ui-text-tertiary); }
+.pf-cases .pf-state--pending, .pf-cases .pf-state--waiting, .pf-cases .pf-state--parked { color: var(--ui-text-secondary); }
 .pf-cases .pf-state--pending::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
-.pf-cases .pf-state--waiting { color: var(--ui-text-secondary); }
-.pf-cases .pf-state--waiting::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-semantic-warn); }
+.pf-cases .pf-state--waiting::before, .pf-cases .pf-state--parked::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-semantic-warn); }
 
-/* The list (view-cases). */
+/* --- Scoped residue: the originating finding's band and resolution -----------
+ * Record question Q-UX-S-CS-1 as well (ui-standards §5 item 14): the origin
+ * embed and the file's Finding fact drew the last two `pf-dc` tags; they are
+ * pf-state now, dot plus word (§2.6.1), in the tones the Watch Desk scopes
+ * under Q-UX-S-A6-1. A finding's --open and --closed read the case's own
+ * tones above; acted, dismissed and acknowledged keep pf-state's default. */
+.pf-cases .pf-state--informational, .pf-cases .pf-state--opened_case { --dot: var(--ui-semantic-info); }
+.pf-cases .pf-state--noteworthy { color: var(--ui-semantic-warn); --dot: var(--ui-semantic-warn); }
+.pf-cases .pf-state--critical { color: var(--ui-semantic-negative); --dot: var(--ui-semantic-negative); }
+
+/* --- Scoped residue: the list (M-CS-2 view-cases) -----------------------------
+ * Record question Q-UX-S-CS-2: pf-table top-aligns its cells and pf-filters
+ * has no wide field; the list centres its rows and gives the search the
+ * mock's 320 px. The record names no in-text navigational link tone either
+ * (base.css paints every link the accent), so the Journal deep link keeps the
+ * calm info tone it had. */
 .pf-cases .pf-cases-list .pf-table td { vertical-align: middle; }
 .pf-cases .pf-filters__field--wide { min-width: 320px; }
-.pf-cases .pf-table__link { color: var(--ui-text-primary); text-decoration: none; }
-.pf-cases .pf-table__link:hover { text-decoration: underline; text-underline-offset: 3px; }
-.pf-cases .pf-stand { display: flex; flex-direction: column; gap: 2px; }
-.pf-cases .pf-stand small { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
-.pf-cases .pf-due.is-soon { color: var(--ui-semantic-warn); }
-.pf-cases .pf-kind { display: inline-flex; align-items: center; height: 18px; margin-left: var(--ui-space-2); padding: 0 7px; border-radius: 3px; background: var(--ui-background-section); color: var(--ui-text-tertiary); font-size: 11px; letter-spacing: .02em; vertical-align: middle; }
-.pf-cases .pf-src { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--ui-border-default); color: var(--ui-text-secondary); font-size: 11px; white-space: nowrap; vertical-align: middle; }
-.pf-cases .pf-src::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--src, var(--ui-text-tertiary)); }
-.pf-cases .pf-src--live { --src: var(--ui-semantic-positive); }
-.pf-cases .pf-src--typed { --src: var(--ui-text-secondary); }
-.pf-cases .pf-src--doc { --src: var(--ui-semantic-info); }
-.pf-cases .pf-src--kept { --src: var(--ui-accent-primary); }
-.pf-cases .pf-src--call { --src: var(--ui-semantic-warn); }
-.pf-cases .pf-src--frozen { --src: var(--ui-text-disabled); }
-.pf-cases .pf-table__group td { padding: 18px 12px 6px; border-bottom: 1px solid var(--ui-border-default); color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-medium); text-transform: uppercase; letter-spacing: .06em; background: none; }
-.pf-cases .pf-table__group-note { text-transform: none; letter-spacing: normal; font-weight: var(--ui-font-weight-regular); }
-.pf-cases .pf-table__older td { padding: var(--ui-space-2) 12px; text-align: center; }
+.pf-cases .pf-journal-link { color: var(--ui-semantic-info); white-space: nowrap; }
 
-/* The file (view-case / view-closed). The outline's sticky offset is the
-   sticky view head's fixed min-height (layout.css .pf-view__head: 72px). */
+/* --- Scoped residue: the file's frame (M-CS-2 view-case / view-closed) --------
+ * Record question Q-UX-S-CS-3: the record has no working-file anatomy — the
+ * outline column beside the file, the head with its facts and actions, the
+ * question form, the note slots and the plain lists the blocks hold. The
+ * mock names them pf-case*; until the UX Board admits a file anatomy they
+ * stay Cases'. No narrow-width collapse: §5 item 4, no container queries. */
 .pf-cases .pf-case { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--ui-space-5); align-items: start; }
-.pf-cases .pf-case__toc { position: sticky; top: 72px; display: flex; flex-direction: column; gap: 2px; padding-top: var(--ui-space-2); }
-.pf-cases .pf-case__toc a { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-radius: var(--ui-radius-sm); color: var(--ui-text-tertiary); text-decoration: none; font-size: var(--ui-font-scale-sm); }
-.pf-cases .pf-case__toc a:hover { color: var(--ui-text-primary); background: var(--ui-background-secondary); }
-.pf-cases .pf-case__toc a .n { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
-.pf-cases .pf-case__toc a.is-empty { color: var(--ui-text-disabled); }
-.pf-cases .pf-case__toc a.is-empty .n { color: var(--ui-text-disabled); }
-.pf-cases .pf-case__toc a.is-empty:hover { color: var(--ui-text-secondary); }
-.pf-cases .pf-case__toc .toc-foot { margin-top: var(--ui-space-4); padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border-soft); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .pf-cases .pf-case__file { display: flex; flex-direction: column; gap: var(--ui-space-6); max-width: 980px; }
 .pf-cases .pf-case__head { display: flex; flex-direction: column; gap: var(--ui-space-3); padding-bottom: var(--ui-space-4); border-bottom: 1px solid var(--ui-border-soft); }
 .pf-cases .pf-case__headrow { display: flex; align-items: center; gap: var(--ui-space-4); }
 .pf-cases .pf-case__headrow .pf-facts { flex: 1; margin: 0; }
 .pf-cases .pf-case__actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
-.pf-cases .pf-blk { display: flex; flex-direction: column; gap: var(--ui-space-3); scroll-margin-top: 96px; }
-.pf-cases .pf-blk__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-3); }
-.pf-cases .pf-blk__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-semibold); white-space: nowrap; }
-.pf-cases .pf-blk__sub { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-sm); }
-.pf-cases .pf-blk__tools { margin-left: auto; display: flex; gap: var(--ui-space-2); }
-.pf-cases .pf-saved { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
-
-/* P-CS-3b — M-CS-2 families, provisional */
-
-/* The question block: the form is a column, the meta fields one wrapping row
-   (pf-field is a grid cell elsewhere; here a flex item). pf-blk__tools,
-   pf-saved and the pf-src tones are P-CS-3a's, above. */
+.pf-cases .pf-case__action-form { display: contents; }
 .pf-cases .pf-case__question { display: flex; flex-direction: column; gap: var(--ui-space-3); }
 .pf-cases .pf-case__meta { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-3) var(--ui-space-4); }
 .pf-cases .pf-case__meta .pf-field { flex: 0 1 220px; }
-.pf-cases .pf-prose { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); line-height: 1.55; white-space: pre-wrap; }
 .pf-cases .pf-case__note:empty { display: none; }
-.pf-cases .pf-case__documents,
-.pf-cases .pf-case__lines { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-case__documents, .pf-cases .pf-case__lines { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--ui-font-scale-sm); }
 .pf-cases .pf-case__documents a { color: var(--ui-text-primary); text-underline-offset: 3px; }
 
-/* Figure tables — Where we stand's investments now, Figures in P-CS-3b2. */
-.pf-cases .pf-figtable td,
-.pf-cases .pf-figtable th { white-space: nowrap; }
-.pf-cases .pf-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pf-cases .pf-figtable form { margin: 0; }
-
-/* P-CS-3b2 — M-CS-2 families, provisional */
-
-/* Threads: one <details> per thread; the summary is the title, the state chip
-   and the dates, the body the thread's form (or, closed, its prose and
-   conclusion). The mockup's view-case b-threads, transcribed on tokens. */
-.pf-cases .pf-thread { border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
-.pf-cases .pf-thread > summary { list-style: none; display: flex; align-items: center; gap: var(--ui-space-3); padding: 12px 16px; cursor: pointer; }
-.pf-cases .pf-thread > summary::-webkit-details-marker { display: none; }
-.pf-cases .pf-thread > summary::before { content: "›"; color: var(--ui-text-tertiary); transition: transform var(--ui-motion-duration); }
-.pf-cases .pf-thread[open] > summary::before { transform: rotate(90deg); }
-.pf-cases .pf-thread__q { flex: 1; min-width: 0; margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-medium); }
-.pf-cases .pf-thread__meta { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
-.pf-cases .pf-thread__body { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: 4px 16px 16px 36px; }
-.pf-cases .pf-thread__concl { padding: 10px 12px; border-radius: var(--ui-radius-sm); background: var(--ui-background-section); box-shadow: inset 2px 0 0 var(--ui-semantic-positive); }
-.pf-cases .pf-thread__concl p { margin: 0; color: var(--ui-text-primary); }
-
-/* Authored: the thread's form is a column; its tools a right-aligned row. */
-.pf-cases .pf-thread__form { display: flex; flex-direction: column; gap: var(--ui-space-3); }
-.pf-cases .pf-thread__tools { display: flex; justify-content: flex-end; }
-
-/* The two thread states P-CS-3a did not tone (open and confirmed are above). */
-.pf-cases .pf-state--parked { color: var(--ui-text-secondary); }
-.pf-cases .pf-state--parked::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-semantic-warn); }
-.pf-cases .pf-state--refuted { --dot: var(--ui-text-tertiary); }
-
-/* Figures: a pending value is italic and quiet; the external source chip on
-   a token (the mockup's literal colour is not a token). */
-.pf-cases .pf-figtable .is-pending { color: var(--ui-text-tertiary); font-style: italic; }
-.pf-cases .pf-src--ext { --src: var(--ui-semantic-muted); }
-
-/* Authored: inputs inside the figures table keep a usable width; the source
-   chip and its select or note sit on one line. */
-.pf-cases .pf-figtable td .pf-input,
-.pf-cases .pf-figtable td .pf-select { min-width: 8rem; }
-.pf-cases .pf-figtable td .pf-src + .pf-select,
-.pf-cases .pf-figtable td .pf-src + .pf-input,
-.pf-cases .pf-figtable td .pf-select + .pf-input { margin-left: var(--ui-space-2); }
-.pf-cases .pf-figtable td .pf-select,
-.pf-cases .pf-figtable td .pf-src ~ .pf-input { width: auto; }
-
-/* Authored: the add forms — one per list block, two side by side under
-   Figures (pf-case__adders), each a wrapping row of fields ending in its
-   button. */
-.pf-cases .pf-case__adders { display: flex; flex-wrap: wrap; gap: var(--ui-space-4); align-items: flex-start; }
-.pf-cases .pf-case__adders > .pf-case__add { flex: 1 1 360px; }
-.pf-cases .pf-case__add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
-.pf-cases .pf-case__add .pf-field { flex: 1 1 160px; }
-
-/* P-CS-3c — M-CS-2 families, provisional */
-
-/* Conversations: one pf-conv row per conversation — the stamp column (when,
-   then with whom) on the left, what was said and what was promised on the
-   right. An editable row's form is display: contents, so its fields sit in
-   the row's grid. Authored on tokens. */
-.pf-cases .pf-conv { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); grid-template-areas: "when text" "who text"; grid-template-rows: auto 1fr; gap: var(--ui-space-2) var(--ui-space-4); padding: var(--ui-space-3) 0; border-top: 1px solid var(--ui-border-soft); }
-.pf-cases .pf-conv__form { display: contents; }
-.pf-cases .pf-conv__when { grid-area: when; display: flex; flex-direction: column; gap: 6px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
-.pf-cases .pf-conv__who { grid-area: who; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); }
-.pf-cases .pf-conv__text { grid-area: text; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; }
-.pf-cases .pf-conv__tools { display: flex; justify-content: flex-end; }
-
-/* Open points: the generic pf-check (pf_components.css) is one checkbox
-   label; the M-CS-2 checklist is a column of items, so the list restates its
-   box here, scoped. Each item is a row: done box, text, owner, due, ticket;
-   a done item keeps its place, struck through; a due date within seven days
-   reads warn, as the list's Next · due does. */
-.pf-cases .pf-check { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; cursor: auto; }
-.pf-cases .pf-check__item { display: flex; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-2) 0; border-top: 1px solid var(--ui-border-soft); }
-.pf-cases .pf-check__form { display: contents; }
-.pf-cases .pf-check__text { flex: 1 1 auto; min-width: 0; color: var(--ui-text-primary); }
-.pf-cases .pf-check__who,
-.pf-cases .pf-check__due { flex: 0 0 auto; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
-.pf-cases .pf-check__due.is-soon,
-.pf-cases .pf-check__due.is-soon .pf-input { color: var(--ui-semantic-warn); }
-.pf-cases .pf-check__item.is-done .pf-check__text { color: var(--ui-text-tertiary); text-decoration: line-through; }
-
-/* Authored: the ticket cell and the closed list's done mark. */
-.pf-cases .pf-check__ticket { flex: 0 0 auto; font-size: var(--ui-font-scale-sm); white-space: nowrap; }
-.pf-cases .pf-check__ticket a { color: var(--ui-text-primary); text-underline-offset: 3px; }
-.pf-cases .pf-check__mark { flex: 0 0 16px; color: var(--ui-semantic-positive); }
-
-/* The Decision: the recorded decisions as quiet cards with a positive rule
-   (the thread conclusion's anatomy), the draft's options as rows — the
-   chosen one carries the accent rule as well as its checked radio. */
+/* --- Scoped residue: prose and the Decision (authored in P-CS-3b and P-CS-3c) --
+ * Record question Q-UX-S-CS-4: M-CS-2 draws prose that is typed into in place
+ * and the options as a pf-options list; the build keeps prose a read-only
+ * paragraph beside a pf-textarea and draws the Decision draft as a form of
+ * option rows, a recorded decision as a quiet card with a positive rule (the
+ * thread conclusion's anatomy). Until the record admits either, both stay
+ * here. */
+.pf-cases .pf-prose { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); line-height: 1.55; white-space: pre-wrap; }
 .pf-cases .pf-decision { display: flex; flex-direction: column; gap: var(--ui-space-3); }
 .pf-cases .pf-decision__options { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .pf-cases .pf-decision__option { display: flex; align-items: center; gap: var(--ui-space-2); padding: 6px 10px; border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); }
@@ -1225,30 +86,13 @@
 .pf-cases .pf-decision__recorded { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--ui-radius-sm); background: var(--ui-background-section); box-shadow: inset 2px 0 0 var(--ui-semantic-positive); }
 .pf-cases .pf-decision__recorded p { margin: 0; }
 .pf-cases .pf-decision__line { color: var(--ui-text-primary); }
+.pf-cases .pf-decision__record { display: flex; justify-content: flex-end; }
 
-/* Authored: an add line — one row of fields ending in its button (Open
-   points' text · owner · due, the decision's Add option). */
-.pf-cases .pf-addline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
-.pf-cases .pf-addline .pf-field { flex: 0 1 200px; }
-.pf-cases .pf-addline .pf-addline__main { flex: 1 1 280px; }
-
-/* P-CS-3c2 — provisional */
-
-/* The Record (M-CS-2 b-record / c-record): the timeline's rows, oldest first.
-   A milestone's "File as …" closes its head row (the mock's row-end button);
-   the frozen file opens under the row in the slot, a bordered inset that
-   takes no room while empty. The actor chip says who, so the mock's .who
-   column is the chip; .what is the milestone's one line. */
-.pf-cases .pf-record { display: flex; flex-direction: column; }
-.pf-cases .pf-record .pf-tl { margin-top: 0; }
-.pf-cases .pf-record .pf-tl__head > .pf-btn { margin-left: auto; }
-.pf-cases .pf-record .what { color: var(--ui-text-primary); }
-.pf-cases .pf-record__note { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
-.pf-cases .pf-record__file { margin-top: var(--ui-space-2); border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); }
-.pf-cases .pf-record__file:empty { display: none; }
-
-/* The frozen file, read-only (the mock's pf-frozen posture): a quiet ground
-   with the frozen rule, one block per section of the file. */
+/* --- Scoped residue: the frozen file (M-CS-2 pf-frozen) -----------------------
+ * Record question Q-UX-S-CS-5: a read-only reading of a working file frozen
+ * at a milestone is Cases' alone — "File as …" opens it under its row in the
+ * Record. It is a compact transcript, not the live blocks (P-CS-3c2 F-2,
+ * open for walk 1); until the record admits a frozen posture it stays here. */
 .pf-cases .pf-frozen { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: var(--ui-space-3) var(--ui-space-4); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); box-shadow: inset 2px 0 0 var(--ui-text-disabled); font-size: var(--ui-font-scale-sm); }
 .pf-cases .pf-frozen p { margin: 0; }
 .pf-cases .pf-frozen__head { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); }
@@ -1256,7 +100,106 @@
 .pf-cases .pf-frozen__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
 .pf-cases .pf-frozen__thread { display: flex; flex-direction: column; gap: 4px; padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border-soft); }
 
-/* The actions row grows (D-CS-B-76): Resume now posts from a small form that
-   lays its button out as one of the row's; Record decision closes the draft. */
-.pf-cases .pf-case__action-form { display: contents; }
-.pf-cases .pf-decision__record { display: flex; justify-content: flex-end; }
+/* --- Scoped residue: the origin embed (ADR-0107 C3a) and the mono helper ------
+ * Record question Q-UX-S-CS-6: the case's read-only record of the finding it
+ * was opened from is not R8's pf-finding — no options, no acts (ADR-0107 §3)
+ * — and the record names no pf-mono family (the Transactions sweep found the
+ * same). Until the UX Board decides whether the embed is a quiet pf-finding,
+ * both stay here. */
+.pf-cases .pf-origin { display: flex; flex-direction: column; gap: 6px; padding: var(--ui-space-3) var(--ui-space-4); border: 1px solid var(--ui-border-default); border-left: 3px solid var(--ui-accent-primary); border-radius: var(--ui-radius-sm); background: color-mix(in srgb, var(--ui-accent-primary) 5%, var(--ui-background-section)); }
+.pf-cases .pf-origin__label, .pf-cases .pf-origin__opening-label { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); text-transform: uppercase; letter-spacing: .06em; }
+.pf-cases .pf-origin__label { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-2); }
+.pf-cases .pf-origin__label .lock { color: var(--ui-semantic-muted); text-transform: none; letter-spacing: 0; }
+.pf-cases .pf-origin__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-2); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-origin__trigger { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
+.pf-cases .pf-origin__finding { margin: 0; font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-origin__materiality, .pf-cases .pf-origin__opening { padding: 6px 10px; border-radius: var(--ui-radius-sm); background: var(--ui-background-primary); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-origin__opening { display: flex; flex-direction: column; gap: 2px; }
+.pf-cases .mono { color: var(--ui-text-secondary); font-family: var(--ui-font-family-mono); font-size: var(--ui-font-scale-xs); }
+
+/* --- Scoped residue: the timeline under the Record (ADR-0107 C3a–C6, ADR-0114) -
+ * Retired by P-CS-4a / P-CS-4b: the Record's rows keep the timeline's two-
+ * column frame (P-CS-3c2 D-7 and F-1; the mock's one-line pf-record__row is
+ * in pf_components.css, unused yet), with the actor chips, the four pin
+ * anatomies (document, scenario snapshot, consultation, chart snapshot), the
+ * legacy two-key decision — scoped to the timeline body, so the file's own
+ * pf-decision no longer reaches it (P-CS-3c2 F-4) — and the closing note.
+ * 4a moves the pins into Keep and 4b renders the kept classes; then this
+ * group goes. */
+.pf-cases .pf-tl { display: flex; flex-direction: column; }
+.pf-cases .pf-tl__entry { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--ui-space-4); padding: var(--ui-space-3) 0; border-bottom: 1px solid var(--ui-border-default); }
+.pf-cases .pf-tl__entry:last-child { border-bottom: none; }
+.pf-cases .pf-tl__when { padding-top: 2px; color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-tl__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pf-cases .pf-tl__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ui-space-2); }
+.pf-cases .pf-tl__head > .pf-btn { margin-left: auto; }
+.pf-cases .pf-tl__kind { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); text-transform: uppercase; letter-spacing: .06em; }
+.pf-cases .pf-tl__entry[data-kind="closed"] .pf-tl__kind { color: var(--ui-semantic-success); }
+.pf-cases .pf-tl__text { margin: 0; font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-tl__text.what { color: var(--ui-text-primary); }
+.pf-cases .pf-record__note { color: var(--ui-text-secondary); }
+.pf-cases .actor { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border: 1px solid var(--ui-border-default); border-radius: 999px; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .actor--pm { border-color: color-mix(in srgb, var(--ui-accent-primary) 45%, transparent); color: var(--ui-accent-primary); }
+.pf-cases .actor--shirley { border-color: color-mix(in srgb, var(--ui-semantic-info) 45%, transparent); color: var(--ui-semantic-info); }
+.pf-cases .actor--system { color: var(--ui-semantic-muted); }
+.pf-cases .pf-pin { display: flex; flex-direction: column; gap: 6px; }
+.pf-cases .pf-pin__comment { margin: 0; padding-left: 10px; border-left: 2px solid var(--ui-border-default); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-pin__comment::before { content: "Pinned because — "; color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-artifact { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-primary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-artifact--doc { flex-direction: row; align-items: center; gap: 10px; }
+.pf-cases .pf-artifact--doc .icon { color: var(--ui-semantic-muted); font-size: var(--ui-font-scale-lg); }
+.pf-cases .pf-artifact--scenario, .pf-cases .pf-artifact--chart { gap: var(--ui-space-2); }
+.pf-cases .pf-artifact__title { color: var(--ui-text-secondary); font-weight: var(--ui-font-weight-semibold); }
+.pf-cases .pf-artifact__row { display: flex; justify-content: space-between; gap: var(--ui-space-3); }
+.pf-cases .pf-artifact__row dt { color: var(--ui-text-disabled); }
+.pf-cases .pf-artifact__row dd { margin: 0; color: var(--ui-text-secondary); text-align: right; }
+.pf-cases .pf-artifact--consultation .pf-quote { white-space: pre-wrap; }
+.pf-cases .pf-snap__chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pf-cases .pf-snap__chip { padding: 1px 8px; border: 1px solid var(--ui-border-default); border-radius: 999px; background: var(--ui-background-secondary); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-snap__baseline { margin: 0; color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); font-style: italic; }
+.pf-cases .pf-snap__kpis, .pf-cases .pf-snap__feet { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.pf-cases .pf-snap__kpi dd, .pf-cases .pf-snap__foot dd { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.pf-cases .pf-snap__base { color: var(--ui-text-disabled); text-decoration: line-through; text-decoration-color: var(--ui-border-default); }
+.pf-cases .pf-snap__scen { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-semibold); }
+.pf-cases .pf-snap__arrow { color: var(--ui-text-disabled); }
+.pf-cases .pf-snap-delta { font-size: var(--ui-font-scale-xs); font-weight: var(--ui-font-weight-semibold); white-space: nowrap; }
+.pf-cases .pf-snap-delta--pos { color: var(--ui-semantic-success); }
+.pf-cases .pf-snap-delta--neg { color: var(--ui-semantic-error); }
+.pf-cases .pf-snap-delta--zero { color: var(--ui-semantic-muted); }
+.pf-cases .pf-snap__query { display: flex; flex-direction: column; gap: 3px; }
+.pf-cases .pf-snap__query-label, .pf-cases .pf-decision__label, .pf-cases .pf-closing__label { font-size: var(--ui-font-scale-xs); text-transform: uppercase; letter-spacing: .06em; }
+.pf-cases .pf-snap__query-label { color: var(--ui-text-disabled); }
+.pf-cases .pf-snap__query code { display: block; overflow-x: auto; padding: 6px 8px; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); white-space: pre-wrap; word-break: break-all; }
+.pf-cases .pf-chartsnap { width: 100%; overflow: hidden; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); }
+.pf-cases .pf-chartsnap__plot { width: 100%; min-height: 200px; aspect-ratio: 16 / 9; }
+.pf-cases .pf-chartsnap__caption { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-tl__body > .pf-decision, .pf-cases .pf-closing { display: flex; flex-direction: column; gap: 6px; padding: var(--ui-space-3) 14px; border-radius: var(--ui-radius-sm); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-tl__body > .pf-decision { border: 1px solid color-mix(in srgb, var(--ui-semantic-warning) 40%, transparent); background: color-mix(in srgb, var(--ui-semantic-warning) 4%, var(--ui-background-primary)); }
+.pf-cases .pf-tl__body > .pf-decision dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.pf-cases .pf-tl__body > .pf-decision dt { color: var(--ui-text-disabled); }
+.pf-cases .pf-tl__body > .pf-decision dd { margin: 0; color: var(--ui-text-secondary); }
+.pf-cases .pf-decision__label { color: var(--ui-semantic-warning); }
+.pf-cases .pf-closing { border: 1px solid color-mix(in srgb, var(--ui-semantic-success) 40%, transparent); background: color-mix(in srgb, var(--ui-semantic-success) 4%, var(--ui-background-primary)); }
+.pf-cases .pf-closing__label { color: var(--ui-semantic-success); }
+.pf-cases .pf-closing p { margin: 0; color: var(--ui-text-secondary); }
+
+/* --- Scoped residue: the composer frame (ADR-0107 C3b, P-CS-3a, P-CS-3c2) -----
+ * Retired by P-CS-4a: the composers that open in the file's slot and the
+ * New-case form share one framed panel, and the pin and close composers
+ * still draw their own field classes (pf-cases__field*). 4a replaces the pin
+ * composer and 3b's form classes are revisited then; this group goes. The
+ * empty slot takes no gap in the head. */
+.pf-cases .pf-case-composer-slot:empty { display: none; }
+.pf-cases .pf-case-composer, .pf-cases .pf-cases__new-form { display: flex; flex-direction: column; gap: var(--ui-space-3); padding: var(--ui-space-4); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-section); }
+.pf-cases .pf-case-composer--close { border-left: 3px solid var(--ui-accent-primary); }
+.pf-cases .pf-case-composer__title, .pf-cases .pf-cases__new-form-title { margin: 0; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-lg); font-weight: var(--ui-font-weight-semibold); }
+.pf-cases .pf-case-composer__error, .pf-cases .pf-cases__new-form-error { margin: 0; color: var(--ui-semantic-error); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-case-composer__hint { margin: 0; color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-case-composer__warn { margin: 0; padding: var(--ui-space-2) 10px; border-radius: var(--ui-radius-sm); background: color-mix(in srgb, var(--ui-accent-primary) 6%, transparent); color: var(--ui-accent-primary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-case-composer__confirm { display: flex; align-items: center; gap: var(--ui-space-2); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-case-composer__actions, .pf-cases .pf-cases__new-form-actions { display: flex; gap: var(--ui-space-2); }
+.pf-cases .pf-cases__field { display: flex; flex-direction: column; gap: 5px; }
+.pf-cases .pf-cases__field-label { color: var(--ui-text-disabled); font-size: var(--ui-font-scale-xs); text-transform: uppercase; letter-spacing: .06em; }
+.pf-cases .pf-cases__field-input { padding: 6px 10px; border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); color: var(--ui-text-secondary); font: inherit; font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-cases__field-input:focus { border-color: var(--ui-accent-primary); }
+.pf-cases textarea.pf-cases__field-input { resize: vertical; }

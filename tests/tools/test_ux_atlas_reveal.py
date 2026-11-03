@@ -559,6 +559,10 @@ class TestScenesCarryASection:
         assert [scene["name"] for scene in scenes] == ["transactions-blotter"]
 
 
+#: The titles the shipped Cases scenes seed (P-CS-3d): open, waiting and closed.
+_SEED_TITLES = ("Atlas seed case", "Atlas waiting case", "Atlas closed case")
+
+
 class TestShippedScenesFile:
     """The scenes file the repository ships."""
 
@@ -590,33 +594,38 @@ class TestShippedScenesFile:
         assert sections["transactions-history"] == "history"
 
     def test_every_cases_scene_seeds_through_ensure(self) -> None:
-        """Every Cases scene that needs the seed case creates it through one ``ensure``.
+        """Every Cases scene that needs a seed case creates it through one ``ensure``.
 
         Before P-UX-1c each of the five scenes created its own "Atlas seed
-        case", so every run added five rows to the tenant. The contract is
-        structural rather than a count of the title's mentions: the scene has
-        exactly one ``ensure``, and the only ``fill`` of the title sits inside
-        it — a creation step outside it would run on every run again.
+        case", so every run added five rows to the tenant. Since P-CS-3d the
+        six scenes share three seeds — open, waiting and closed — so a scene is
+        selected by any seed title or by an ``ensure``. The contract is
+        structural rather than a count of a title's mentions: the scene has
+        exactly one ``ensure``, the selector looks for the seed title its
+        ``fill`` writes, and that title is filled nowhere outside it — a
+        creation step outside it would run on every run again.
         """
         seeded = [
             scene
             for scene in load_scenes(DEFAULT_SCENES, ["cases"])
-            if "Atlas seed case" in json.dumps(scene["steps"])
+            if any(title in json.dumps(scene["steps"]) for title in _SEED_TITLES)
+            or any("ensure" in step for step in scene["steps"])
         ]
-        assert len(seeded) >= 5, "the five Cases scenes reach a case detail"
+        assert len(seeded) >= 5, "the Cases scenes reach a seeded case"
 
         for scene in seeded:
             ensures = [step for step in scene["steps"] if "ensure" in step]
             assert len(ensures) == 1, f"{scene['name']}: {len(ensures)} ensure steps"
             inner = ensures[0]["ensure"]["steps"]
-            assert "Atlas seed case" in ensures[0]["ensure"]["selector"]
-            assert any(step.get("fill", {}).get("value") == "Atlas seed case" for step in inner), (
-                f"{scene['name']}: the seed title is not filled inside the ensure"
-            )
+            titles = [
+                step["fill"]["value"]
+                for step in inner
+                if step.get("fill", {}).get("value") in _SEED_TITLES
+            ]
+            assert len(titles) == 1, f"{scene['name']}: the seed title is not filled inside it"
+            assert titles[0] in ensures[0]["ensure"]["selector"]
             outer_fills = [
-                step
-                for step in scene["steps"]
-                if step.get("fill", {}).get("value") == "Atlas seed case"
+                step for step in scene["steps"] if step.get("fill", {}).get("value") == titles[0]
             ]
             assert not outer_fills, f"{scene['name']}: the seed title is filled outside it"
 
@@ -672,7 +681,7 @@ class FakePage:
         self.calls.append(("wait_ms", str(ms)))
 
 
-SEED_ROW = '#cases-open-list .pf-case-row:has-text("Atlas seed case")'
+SEED_ROW = '[data-pf-cs="row"]:has-text("Atlas seed case")'
 
 
 def seed_ensure() -> dict[str, Any]:
@@ -685,7 +694,7 @@ def seed_ensure() -> dict[str, Any]:
         "ensure": {
             "selector": SEED_ROW,
             "steps": [
-                {"click": ".pf-cases__new-btn"},
+                {"click": '[data-pf-cs="new-action"]'},
                 {"wait": ".pf-cases__new-form"},
                 {"fill": {"selector": "input[name=title]", "value": "Atlas seed case"}},
                 {"click": "button[type=submit]"},
@@ -719,7 +728,7 @@ class TestApplyStepEnsure:
         page = FakePage()
         apply_step(page, seed_ensure())  # type: ignore[arg-type]
         assert page.calls == [
-            ("click", ".pf-cases__new-btn"),
+            ("click", '[data-pf-cs="new-action"]'),
             ("wait", ".pf-cases__new-form"),
             ("fill", "input[name=title]"),
             ("click", "button[type=submit]"),
@@ -955,11 +964,11 @@ class TestSceneSelection:
         # its check would return EXIT_NO_BROWSER instead of raising.
         monkeypatch.setattr(ux_atlas, "playwright_api", None)
         with pytest.raises(SystemExit) as caught:
-            main(["--scene", "cases-detial"])
+            main(["--scene", "cases-fiel"])
         assert caught.value.code == 2
         err = capsys.readouterr().err
-        assert "unknown scene(s): cases-detial" in err
-        assert "cases-detail" in err
+        assert "unknown scene(s): cases-fiel" in err
+        assert "cases-file" in err
 
     def test_main_reports_a_scene_outside_the_area(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -973,7 +982,7 @@ class TestSceneSelection:
     def test_scene_and_no_scenes_contradict(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ux_atlas, "playwright_api", None)
         with pytest.raises(SystemExit) as caught:
-            main(["--no-scenes", "--scene", "cases-detail"])
+            main(["--no-scenes", "--scene", "cases-file"])
         assert caught.value.code == 2
 
     def test_scenes_only_and_no_scenes_are_exclusive(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -988,4 +997,4 @@ class TestSceneSelection:
         # With the package gone the next gate is the missing-package exit, which
         # is only reached once the selection has passed.
         monkeypatch.setattr(ux_atlas, "playwright_api", None)
-        assert main(["--scene", "cases-detail", "--scenes-only"]) == ux_atlas.EXIT_NO_BROWSER
+        assert main(["--scene", "cases-file", "--scenes-only"]) == ux_atlas.EXIT_NO_BROWSER

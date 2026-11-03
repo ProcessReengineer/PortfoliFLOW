@@ -32,7 +32,7 @@
     <div><dt>Opened</dt><dd>{{ head.opened_stamp }} · {{ head.opened_by }}</dd></div>
     {% if head.counterparty %}<div data-pf-cs="fact" data-pf-cs-name="counterparty"><dt>Counterparty</dt><dd>{{ head.counterparty }}</dd></div>{% endif %}
     {% if head.due %}<div data-pf-cs="fact" data-pf-cs-name="due"><dt>Due</dt><dd>{{ head.due }}</dd></div>{% endif %}
-    {% if linked_finding %}<div><dt>Finding</dt><dd><span class="mono">{{ linked_finding.subject_key }}</span> <span class="pf-dc-band-tag pf-dc-band-tag--{{ linked_finding.band }}">{{ linked_finding.band|capitalize }}</span></dd></div>{% endif %}
+    {% if linked_finding %}<div><dt>Finding</dt><dd><span class="mono">{{ linked_finding.subject_key }}</span> <span class="pf-state pf-state--{{ linked_finding.band }}">{{ linked_finding.band|capitalize }}</span></dd></div>{% endif %}
     <div data-pf-cs="fact" data-pf-cs-name="linked"><dt>Linked</dt><dd>{{ linked_label }}</dd></div>
     {% if show_attachments %}{% include "_partials/cases_detail_attachments_row.html" %}{% endif %}
     {% if head.closed_stamp %}<div><dt>Closed</dt><dd>{{ head.closed_stamp }} · {{ head.closed_by }}</dd></div>{% endif %}

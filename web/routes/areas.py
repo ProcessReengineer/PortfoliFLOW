@@ -53,6 +53,7 @@ from web.auth import require_session
 from web.routes.chat import resolve_active_brief_banner
 from web.routes.data_import import load_data_import_section_context
 from web.routes.market_data import load_market_data_section_context
+from web.routes.transactions import prefill_query
 from web.shell import is_htmx_request, landing_section_for, section_index_for
 
 logger = logging.getLogger(__name__)
@@ -347,6 +348,8 @@ async def case_view(
 @router.get("/transactions", response_class=HTMLResponse)
 async def transactions_view(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
     htmx: bool = Depends(is_htmx_request),
 ) -> HTMLResponse:
@@ -358,6 +361,11 @@ async def transactions_view(
     handler is a thin shell render with no DB access, exactly like
     :func:`cases_view`. Every role reads the Area; owner gating of ticket
     mutations is a concern of the S4 write routes.
+
+    ``case`` / ``point`` are a Case's *Create ticket →* (P-CS-3c,
+    D-CS-B-64): both optional, shape-checked only — still no DB access —
+    and handed to the static chooser as ``prefill_query``, which every tile
+    appends to the composer it opens.
     """
     user_email = await _resolve_user_email(request, session)
     return _render_area(
@@ -367,6 +375,7 @@ async def transactions_view(
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,
+        extra_context={"prefill_query": prefill_query(case, point)},
     )
 
 

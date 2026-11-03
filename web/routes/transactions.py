@@ -166,10 +166,13 @@ whitelist without a translation layer:
 ``settle_confirm``, ``set_inactive``, ``case_id``, ``source``, ``note``,
 ``currency``.
 
-Three names carry no column. ``ticket_id`` is the composer's own memory of
-which row it is editing — absent means "not saved yet" (MD-2) — and
+Four names carry no column. ``ticket_id`` is the composer's own memory of
+which row it is editing — absent means "not saved yet" (MD-2) —,
 ``cash_name`` / ``cash_opening_balance`` belong to the MD-3 mini-form, which
-rides inside the composer's form because HTML has no nested forms.
+rides inside the composer's form because HTML has no nested forms, and
+``point_id`` (P-CS-3c) is the open point a Case's *Create ticket →* opened the
+composer from: the first gesture writes the new ticket's id back onto it
+(:func:`_ensure_draft`), and the Provenance block reads *From open point: …*.
 
 The R-SEC-SELL composer adds ``gross_amount`` — the stated proceeds a
 reported stake has in place of units × price — and ``fraction``, MD-18's
@@ -202,11 +205,13 @@ for the operator's walk.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import date as _date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any, cast
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
@@ -217,6 +222,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from core.decimal_input import parse_decimal, was_interpreted
 from core.exceptions import (
+    CaseClosedError,
+    CasePointLinked,
     CurrencyMismatchError,
     DuplicateCashPositionError,
     NonNegativeHoldingsError,
@@ -232,7 +239,11 @@ from core.repositories._session import tenant_context
 from core.repositories.anlv_category_repository import AnlVCategoryRepository
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.audit_log_repository import AuditLogRepository
-from core.repositories.case_repository import CaseRepository
+from core.repositories.case_repository import CaseDTO, CaseRepository
+from core.repositories.case_working_file_repository import (
+    CasePointDTO,
+    CasePointRepository,
+)
 from core.repositories.fx_rate_repository import FxRateRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
 from core.repositories.investment_cashflow_repository import (
@@ -357,6 +368,7 @@ from services.transactions.validation import (
 from web.auth import require_session, verify_csrf
 from web.permissions import require_role
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -963,6 +975,7 @@ class _ComposerForm:
         settle_confirm: Annotated[str | None, Form()] = None,
         set_inactive: Annotated[str | None, Form()] = None,
         case_id: Annotated[str, Form()] = "",
+        point_id: Annotated[str, Form()] = "",
         source: Annotated[str, Form()] = "",
         note: Annotated[str, Form()] = "",
         ticket_id: Annotated[str, Form()] = "",
@@ -1003,6 +1016,7 @@ class _ComposerForm:
         self.settle_confirmed = settle_confirm is not None
         self.set_inactive = set_inactive is not None
         self.case_id = _uuid_or_none(case_id)
+        self.point_id = _uuid_or_none(point_id)
         self.source = _clean(source)
         self.note = _clean(note)
         self.ticket_id = _uuid_or_none(ticket_id)
@@ -1152,7 +1166,7 @@ class _ComposerForm:
         return {key: value for key, value in pairs.items() if value}
 
 
-def _empty_form() -> _ComposerForm:
+def _empty_form(case_id: str | None = None, point_id: str | None = None) -> _ComposerForm:
     """Return the composer's opening state — every field at its default.
 
     The ``GET`` order-form render needs a form object and has no request body
@@ -1160,8 +1174,72 @@ def _empty_form() -> _ComposerForm:
     hand-listed "initial state" is what keeps the empty composer's disabled
     actions and placeholder ledger block the *same* answer the recalculation
     endpoint gives, from the same code.
+
+    P-CS-3c (D-CS-B-64): a composer opened from a Case's *Create ticket →*
+    arrives with the case and the open point prefilled. Both are raw query
+    strings, parsed like every other id on this form (:func:`_uuid_or_none`
+    — malformed reads as absent).
+
+    Args:
+        case_id: The ``case`` query value, or ``None``.
+        point_id: The ``point`` query value, or ``None``.
     """
-    return _ComposerForm()
+    return _ComposerForm(case_id=case_id or "", point_id=point_id or "")
+
+
+def prefill_query(case: str | None, point: str | None) -> str:
+    """The ``?case=…&point=…`` a prefilled chooser appends to its tiles (D-CS-B-64).
+
+    A Case's *Create ticket →* opens ``/transactions?case=<id>&point=<id>``;
+    the chooser carries the pair on to whichever composer the operator picks,
+    which then opens with the case selected and the point remembered. Each
+    value is shape-checked (:func:`_uuid_or_none`) and a malformed one is
+    dropped, so the query never carries text the composer would not parse.
+    The chooser rendered by *Close* / *Discard* carries none.
+
+    Args:
+        case: The ``case`` query value, or ``None``.
+        point: The ``point`` query value, or ``None``.
+
+    Returns:
+        ``""`` or a query string starting with ``?``.
+    """
+    params = {
+        name: str(value)
+        for name, value in (("case", _uuid_or_none(case)), ("point", _uuid_or_none(point)))
+        if value is not None
+    }
+    return f"?{urlencode(params)}" if params else ""
+
+
+async def _pickable_cases(db: AsyncSession) -> list[CaseDTO]:
+    """The cases the Provenance picker offers: open, then waiting (D-CS-B-65).
+
+    A ticket against a waiting case wakes it when it books (P-CS-2c), so a
+    waiting case is a legitimate target and the picker offers it, marked
+    *· waiting*; a closed case is not. Two state-filtered reads — open by
+    ``updated_at``, then the waiting ones by ``wait_until`` — the composition
+    of the Cases list's own *Open* filter, rather than one unfiltered read
+    whose row cap would apply before the closed cases were dropped.
+    """
+    cases = CaseRepository(db)
+    return [*await cases.list_cases(state="open"), *await cases.list_cases(state="waiting")]
+
+
+async def _prefill_point(db: AsyncSession, form: _ComposerForm) -> CasePointDTO | None:
+    """The open point the composer remembers, when it is one of the selected case's.
+
+    The Provenance block reads *From open point: …* only for a point the
+    write-back would link (:func:`_link_point`): it exists in this tenant and
+    belongs to ``form.case_id``. Picking another case therefore drops the
+    line on the next render, as it drops the link.
+    """
+    if form.point_id is None or form.case_id is None:
+        return None
+    point = await CasePointRepository(db).get(form.point_id)
+    if point is None or point.case_id != form.case_id:
+        return None
+    return point
 
 
 def _transient_ticket(
@@ -2477,7 +2555,8 @@ async def _composer_context(
         investments = [row for row in await InvestmentRepository(db).list_active() if pickable(row)]
         asset_classes = []
         anlv_categories = []
-    cases = await CaseRepository(db).list_open()
+    cases = await _pickable_cases(db)
+    point = await _prefill_point(db, form)
     derived = await _derived_context(
         db,
         session=session,
@@ -2541,6 +2620,8 @@ async def _composer_context(
         "entered": form.entered,
         "readings": form.readings,
         "case_id": form.case_id,
+        "point_id": form.point_id,
+        "point_text": point.text if point is not None else None,
         "ticket_id": str(ticket.id) if ticket is not None else None,
         "ticket_number": ticket.ticket_number if ticket is not None else None,
         "ticket_status": ticket.status if ticket is not None else None,
@@ -2805,6 +2886,7 @@ async def _wizard_context(
     )
     asset_classes = await AssetClassRepository(db).list_all()
     anlv_categories = await AnlVCategoryRepository(db).list_all()
+    point = await _prefill_point(db, form)
     return {
         "csrf_token": session.csrf_token,
         "flow": FLOW_NEW_INSTRUMENT,
@@ -2814,11 +2896,13 @@ async def _wizard_context(
         "investment_types": _CLASSIFIABLE_TYPES,
         "asset_classes": asset_classes,
         "anlv_categories": anlv_categories,
-        "cases": await CaseRepository(db).list_open(),
+        "cases": await _pickable_cases(db),
         "trade_date": form.trade_date,
         "entered": form.entered,
         "readings": form.readings,
         "case_id": form.case_id,
+        "point_id": form.point_id,
+        "point_text": point.text if point is not None else None,
         "ticket_id": str(ticket.id) if ticket is not None else None,
         "ticket_number": ticket.ticket_number if ticket is not None else None,
         "ticket_status": ticket.status if ticket is not None else None,
@@ -2886,9 +2970,65 @@ _WIZARD_CURRENCY_REQUIRED: str = (
 )
 
 
+async def _link_point(
+    db: AsyncSession, *, session: SessionDTO, form: _ComposerForm, ticket: TradeTicketDTO
+) -> None:
+    """Write the new ticket's id back onto the open point it was created from (D-CS-B-64).
+
+    ADR-0138 §5: a point that creates a ticket links to it, once
+    (``case_points.ticket_id``; the ticket's own ``case_id`` is the
+    back-link). Runs on the session the ticket service wrote with, so the
+    ticket and its point link commit together — a ticket never exists
+    without its link when both were asked for.
+
+    Nothing here refuses the gesture: the ticket stands whatever the point
+    says. The link is skipped, and the reason logged, for an unknown point, a
+    point of another case than the one the ticket carries, a point already
+    linked (checked first, and ``CasePointLinked`` caught for the race), or a
+    point whose case has closed meanwhile.
+    """
+    point_id = cast(UUID, form.point_id)
+    points = CasePointRepository(db)
+    point = await points.get(point_id)
+    reason: str | None = None
+    if point is None:
+        reason = "unknown point"
+    elif form.case_id is None or point.case_id != form.case_id:
+        reason = "a point of another case"
+    elif point.ticket_id is not None:
+        reason = "point already linked"
+    else:
+        try:
+            await points.link_ticket(point_id, ticket_id=ticket.id, now=_now())
+        except CasePointLinked:
+            reason = "point already linked"
+        except CaseClosedError:
+            reason = "the point's case is closed"
+    if reason is not None:
+        logger.info(
+            "transactions point link skipped (%s): tenant=%s user=%s ticket=%s point=%s case=%s",
+            reason,
+            session.tenant_id,
+            session.user_id,
+            ticket.id,
+            point_id,
+            form.case_id,
+        )
+        return
+    logger.info(
+        "transactions point linked: tenant=%s user=%s ticket=%s point=%s case=%s",
+        session.tenant_id,
+        session.user_id,
+        ticket.id,
+        point_id,
+        form.case_id,
+    )
+
+
 async def _ensure_draft(
     service: TicketService,
     *,
+    db: AsyncSession,
     session: SessionDTO,
     form: _ComposerForm,
     investment: InvestmentDTO | None,
@@ -2967,8 +3107,17 @@ async def _ensure_draft(
     than refused — the surface never offered the choice, so there is no user
     error to report.
 
+    **The open point's write-back lives here too** (P-CS-3c, D-CS-B-64),
+    because this is the one place a ticket row first exists for a form: a
+    composer opened from a Case's *Create ticket →* carries ``point_id``, and
+    the created ticket's id is written onto that point in the same
+    transaction (:func:`_link_point`). An update writes no link — the row
+    already had its first gesture.
+
     Args:
         service: The wired ticket service.
+        db: The tenant-scoped session ``service`` writes with — the
+            point link's repository shares it.
         session: The authenticated session; supplies the acting user.
         form: The parsed body.
         investment: The resolved traded investment, or ``None`` on the
@@ -3017,12 +3166,15 @@ async def _ensure_draft(
     if spec.creating:
         fields["master_data"] = form.master_data(currency=currency)
     if form.ticket_id is None:
-        return await service.create_draft(
+        ticket = await service.create_draft(
             kind=spec.kind,
             created_by=session.user_id,
             now=_now(),
             **fields,
         )
+        if form.point_id is not None:
+            await _link_point(db, session=session, form=form, ticket=ticket)
+        return ticket
     return await service.update_draft(form.ticket_id, **fields)
 
 
@@ -3193,6 +3345,7 @@ async def post_draft(
             try:
                 ticket = await _ensure_draft(
                     service,
+                    db=db,
                     session=session,
                     form=form,
                     investment=investment,
@@ -3348,6 +3501,7 @@ async def _advance(
             try:
                 ticket = await _ensure_draft(
                     service,
+                    db=db,
                     session=session,
                     form=form,
                     investment=investment,
@@ -3743,6 +3897,8 @@ async def post_cash_position(
 @router.get("/api/transactions/order-form", response_class=HTMLResponse)
 async def get_order_form(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return the U-BUY / U-SELL composer (M-1), empty and ready to type into.
@@ -3756,16 +3912,25 @@ async def get_order_form(
     :func:`_composer_context` every gesture uses — so the disabled actions and
     the placeholder ledger block are the server's own answer rather than a
     separately written "initial state" that could come to disagree with it.
+
+    ``case`` / ``point`` are the prefill a Case's *Create ticket →* carries
+    through the chooser (D-CS-B-64): the case selected in Provenance, the
+    point remembered for the write-back on the first gesture. The same two
+    parameters open every composer below.
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        context = await _composer_context(db, session=session, form=_empty_form())
+        context = await _composer_context(
+            db, session=session, form=_empty_form(case_id=case, point_id=point)
+        )
     return _render(request, _composer_template(""), context)
 
 
 @router.get("/api/transactions/secondary-sale-form", response_class=HTMLResponse)
 async def get_secondary_sale_form(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return the R-SEC-SELL composer (M-3), empty and ready to type into.
@@ -3789,7 +3954,10 @@ async def get_secondary_sale_form(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _composer_context(
-            db, session=session, form=_empty_form(), flow=FLOW_SECONDARY_SALE
+            db,
+            session=session,
+            form=_empty_form(case_id=case, point_id=point),
+            flow=FLOW_SECONDARY_SALE,
         )
     return _render(request, _composer_template(FLOW_SECONDARY_SALE), context)
 
@@ -3797,6 +3965,8 @@ async def get_secondary_sale_form(
 @router.get("/api/transactions/commitment-form", response_class=HTMLResponse)
 async def get_commitment_form(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return the R-COMMIT composer (M-3), empty and ready to type into.
@@ -3816,7 +3986,10 @@ async def get_commitment_form(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _composer_context(
-            db, session=session, form=_empty_form(), flow=FLOW_COMMITMENT
+            db,
+            session=session,
+            form=_empty_form(case_id=case, point_id=point),
+            flow=FLOW_COMMITMENT,
         )
     return _render(request, _composer_template(FLOW_COMMITMENT), context)
 
@@ -3824,6 +3997,8 @@ async def get_commitment_form(
 @router.get("/api/transactions/secondary-buy-form", response_class=HTMLResponse)
 async def get_secondary_buy_form(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return the R-SEC-BUY composer (M-3), empty and ready to type into.
@@ -3845,7 +4020,10 @@ async def get_secondary_buy_form(
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         context = await _composer_context(
-            db, session=session, form=_empty_form(), flow=FLOW_SECONDARY_BUY
+            db,
+            session=session,
+            form=_empty_form(case_id=case, point_id=point),
+            flow=FLOW_SECONDARY_BUY,
         )
     return _render(request, _composer_template(FLOW_SECONDARY_BUY), context)
 
@@ -3868,6 +4046,8 @@ async def _render_wizard(
     db: AsyncSession,
     ticket: TradeTicketDTO | None,
     step_raw: str = "",
+    case: str | None = None,
+    point: str | None = None,
 ) -> HTMLResponse:
     """Render the M-2 wizard over a ticket, or fresh — both ways in.
 
@@ -3887,6 +4067,9 @@ async def _render_wizard(
         ticket: The draft to resume, or ``None`` for a fresh wizard.
         step_raw: An explicit step, or ``""`` to derive it from the draft
             with :func:`_resume_step` (MD-10).
+        case: A fresh wizard's prefilled case (D-CS-B-64), or ``None``.
+        point: A fresh wizard's prefilled open point, or ``None``. A resume
+            reads its case off the ticket and takes no prefill.
 
     Returns:
         The wizard at one step.
@@ -3894,7 +4077,12 @@ async def _render_wizard(
     form = (
         _form_from_ticket(ticket, csrf_token=session.csrf_token, flow=FLOW_NEW_INSTRUMENT)
         if ticket is not None
-        else _ComposerForm(flow=FLOW_NEW_INSTRUMENT, direction=DIRECTION_BUY)
+        else _ComposerForm(
+            flow=FLOW_NEW_INSTRUMENT,
+            direction=DIRECTION_BUY,
+            case_id=case or "",
+            point_id=point or "",
+        )
     )
     asked = _step_or_first(step_raw) if step_raw else _resume_step(ticket)
     context = await _wizard_context(db, session=session, form=form, ticket=ticket, step=asked)
@@ -3906,6 +4094,8 @@ async def get_wizard(
     request: Request,
     ticket_id: str = "",
     step: str = "",
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Open the M-2 new-instrument wizard, fresh or on a saved draft (MD-10).
@@ -3931,6 +4121,8 @@ async def get_wizard(
         request: The live request.
         ticket_id: The draft to reopen, or empty for a fresh wizard.
         step: The step to render, or empty to derive it from the draft.
+        case: A fresh wizard's prefilled case (D-CS-B-64).
+        point: A fresh wizard's prefilled open point (D-CS-B-64).
         session: The authenticated session.
 
     Returns:
@@ -3953,7 +4145,9 @@ async def get_wizard(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"No new-instrument ticket {wanted} in this tenant.",
                 )
-        return await _render_wizard(request, session=session, db=db, ticket=ticket, step_raw=step)
+        return await _render_wizard(
+            request, session=session, db=db, ticket=ticket, step_raw=step, case=case, point=point
+        )
 
 
 @router.post("/api/transactions/resolve-identifier", response_class=HTMLResponse)
@@ -4053,6 +4247,8 @@ async def post_resolve_identifier(
 @router.get("/api/transactions/chooser", response_class=HTMLResponse)
 async def get_chooser(
     request: Request,
+    case: str | None = None,
+    point: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return the MD-1 flow chooser — what Close and Discard go back to.
@@ -4066,6 +4262,10 @@ async def get_chooser(
     composer has to put the plain section heading back where the composer left
     a crumb (§2.1.6), and the same partial rendered as the area's static markup
     must not carry a second ``id="new-title"``.
+
+    ``case`` / ``point`` carry a Case's prefill on to the tiles
+    (:func:`prefill_query`, D-CS-B-64); *Close* and *Discard* send neither,
+    so the chooser they return to is a plain one.
     """
     return _render(
         request,
@@ -4074,6 +4274,7 @@ async def get_chooser(
             "csrf_token": session.csrf_token,
             "oob": True,
             "active_area": "transactions",
+            "prefill_query": prefill_query(case, point),
         },
     )
 

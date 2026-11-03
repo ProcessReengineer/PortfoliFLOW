@@ -34,6 +34,17 @@ survives the P-CS-3d restyle.
 * CS3b2-09 — the title field and the crumb that follows it.
 * CS3b2-10/11 — cross-case and closed refusals; a closed case read-only.
 * CS3b2-12 — the outline counts.
+* CS3c-01 — Conversations, Open points and Decision hidden while empty,
+  revealed by the outline's +, in the ADR's order.
+* CS3c-02 — Conversations: add, the text autosave, the re-rendering stamp
+  column, the refusals, the delete.
+* CS3c-03/04 — Open points: owner, due (is-soon), done, the refusals, the
+  delete; the heading follows the framing (Questions to ask).
+* CS3c-05 — a point's ticket cell: Create ticket → and a linked ticket.
+* CS3c-06/07 — the Decision draft: options, chosen, renumbering, the autosave;
+  the recorded decisions and a new draft after one.
+* CS3c-08/09 — cross-case, closed and waiting; a closed case read-only.
+* CS3c-10 — the outline counts of the three.
 
 The file tests below (origin embed, timeline, pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -66,15 +77,20 @@ from core.repositories.case_attachment_repository import (
 )
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseConversationDTO,
+    CaseConversationRepository,
+    CaseDecisionRepository,
     CaseFigureDTO,
     CaseFigureRepository,
     CaseInvestmentRepository,
+    CasePointDTO,
     CasePointRepository,
     CaseThreadDTO,
     CaseThreadRepository,
 )
 from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
+from core.repositories.trade_ticket_repository import TradeTicketDTO, TradeTicketRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
 
 import modules  # noqa: F401 — importing the package populates the ModuleRegistry
@@ -3275,10 +3291,21 @@ async def test_outline_counts_follow_the_blocks(
     threads_item = cs_block(outline, "outline-item", data_pf_cs_name="threads")
     assert wd_attr(threads_item, "class") is None
     assert wd_attr(threads_item, "hx-get") is None
+    # P-CS-3c (D-CS-B-67) places Conversations, Open points and Decision before Record.
+    order = [
+        "question",
+        "stand",
+        "threads",
+        "figures",
+        "conversations",
+        "points",
+        "decision",
+        "record",
+    ]
     names = [wd_attr(item, "data-pf-cs-name") for item in cs_blocks(outline, "outline-item")]
-    assert names == ["question", "stand", "threads", "figures", "record"]
+    assert names == order
     blocks = [wd_attr(block, "data-pf-cs-name") for block in cs_blocks(body, "block")]
-    assert blocks == ["question", "stand", "threads", "figures", "record"]
+    assert blocks == order
 
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         threads = await CaseThreadRepository(session).list_for_case(case.id)
@@ -3295,3 +3322,889 @@ async def test_outline_counts_follow_the_blocks(
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     assert wd_attr(cs_block(body, "block", data_pf_cs_name="threads"), "hidden") == ""
     assert wd_attr(cs_block(body, "block", data_pf_cs_name="figures"), "hidden") is None
+
+
+# ---------------------------------------------------------------------------
+# P-CS-3c — the editable file II: Conversations, Open points, the Decision
+# draft (CS3c-01 … CS3c-10)
+# ---------------------------------------------------------------------------
+
+_FILE_ORDER = [
+    "question",
+    "stand",
+    "threads",
+    "figures",
+    "conversations",
+    "points",
+    "decision",
+    "record",
+]
+
+
+async def _seed_conversation(
+    app_engine: AsyncEngine, user_id: UUID, case_id: UUID, **fields: Any
+) -> CaseConversationDTO:
+    """Add one conversation through the repository (under RLS)."""
+    fields.setdefault("held_on", date(2026, 7, 20))
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseConversationRepository(session).add(
+            case_id, now=_T0 + timedelta(hours=1), **fields
+        )
+
+
+async def _conversation_now(
+    app_engine: AsyncEngine, user_id: UUID, conversation_id: UUID
+) -> CaseConversationDTO | None:
+    """Re-read one conversation; ``None`` once deleted."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseConversationRepository(session).get(conversation_id)
+
+
+async def _seed_point(
+    app_engine: AsyncEngine, user_id: UUID, case_id: UUID, *, text: str, **fields: Any
+) -> CasePointDTO:
+    """Add one open point through the repository (under RLS)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CasePointRepository(session).add(
+            case_id, text=text, now=_T0 + timedelta(hours=1), **fields
+        )
+
+
+async def _point_now(app_engine: AsyncEngine, user_id: UUID, point_id: UUID) -> CasePointDTO | None:
+    """Re-read one point; ``None`` once deleted."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CasePointRepository(session).get(point_id)
+
+
+async def _seed_ticket(app_engine: AsyncEngine, user_id: UUID, case_id: UUID) -> TradeTicketDTO:
+    """A draft ticket on ``case_id``, straight through ``TradeTicketRepository.create_draft``.
+
+    The shape a mid-wizard U-NEW draft has (no investment yet, MD-12) — the
+    smallest row the schema accepts; the Transactions composer tests create
+    theirs through the gestures, which need a book this module does not seed.
+    """
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await TradeTicketRepository(session).create_draft(
+            kind="order",
+            direction="buy",
+            currency="EUR",
+            trade_date=date(2026, 7, 21),
+            created_by=user_id,
+            case_id=case_id,
+            now=_T0,
+        )
+
+
+async def _record_decision(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    case_id: UUID,
+    *,
+    options: list[dict[str, str]],
+    chosen_key: str,
+    rationale: str,
+    now: datetime,
+    decided_by: str | None = None,
+    decided_at: date | None = None,
+) -> None:
+    """Complete a draft and record it through the repositories (the 3c2 seam, here as setup)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        await CaseDecisionRepository(session).upsert_draft(
+            case_id,
+            now=now,
+            options=options,
+            chosen_key=chosen_key,
+            rationale=rationale,
+            decided_by=decided_by,
+            decided_at=decided_at,
+        )
+        await CaseRepository(session).record_decision(case_id, recorded_by=user_id, now=now)
+
+
+def _option_rows(block: str) -> list[tuple[str | None, str | None, str | None]]:
+    """Each decision option as ``(stored key, text, kind)`` in row order."""
+    rows = []
+    for option in cs_blocks(block, "decision-option"):
+        key = re.search(r'name="option_key" value="([^"]*)"', option)
+        option_text = re.search(r'name="option_text" value="([^"]*)"', option)
+        rows.append(
+            (
+                key.group(1) if key else None,
+                html.unescape(option_text.group(1)) if option_text else None,
+                wd_attr(option, "data-pf-cs-kind"),
+            )
+        )
+    return rows
+
+
+async def test_three_sections_hide_reveal_and_order_in_the_outline(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3c-01: a fresh case → three hidden placeholders, grey + entries in ADR order; reveal."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fresh", opened_at=_T0)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    outline = cs_block(body, "outline")
+    assert [wd_attr(i, "data-pf-cs-name") for i in cs_blocks(outline, "outline-item")] == (
+        _FILE_ORDER
+    )
+    assert [wd_attr(b, "data-pf-cs-name") for b in cs_blocks(body, "block")] == _FILE_ORDER
+
+    sections = (
+        (
+            "conversations",
+            "Conversations +",
+            "conversation-add",
+            "conversations-empty",
+            "No conversation yet — add the first below.",
+        ),
+        ("points", "Open points +", "point-add", "points-empty", "No open point yet."),
+        (
+            "decision",
+            "Decision +",
+            "decision-add-option",
+            "decision-empty",
+            "No draft yet — add the first option.",
+        ),
+    )
+    for name, label, add_hook, empty_hook, empty_text in sections:
+        placeholder = cs_block(body, "block", data_pf_cs_name=name)
+        assert wd_attr(placeholder, "id") == f"cs-{name}"
+        assert wd_attr(placeholder, "hidden") == ""
+        assert wd_attr(placeholder, "data-pf-cs-state") == "empty"
+        assert cs_text(placeholder) == ""
+        assert f'id="cs-stamp-{name}"' not in body
+
+        item = cs_block(outline, "outline-item", data_pf_cs_name=name)
+        assert wd_attr(item, "class") == "is-empty"
+        assert cs_text(item) == label
+        assert wd_attr(item, "hx-get") == f"/api/cases/{case.id}/sections/{name}?reveal=1"
+        assert wd_attr(item, "hx-target") == f"#cs-{name}"
+
+        revealed = await web_client.get(f"/api/cases/{case.id}/sections/{name}?reveal=1")
+        assert revealed.status_code == 200
+        block = cs_block(revealed.text, "block", data_pf_cs_name=name)
+        assert wd_attr(block, "hidden") is None
+        assert wd_attr(block, "data-pf-cs-state") is None
+        assert "autofocus" in cs_block(block, add_hook)
+        assert cs_text(block, empty_hook) == empty_text
+        assert f'id="cs-stamp-{name}"' in block
+        assert f'id="cs-note-{name}"' in block
+        assert "hx-swap-oob" not in revealed.text
+
+        plain = await web_client.get(f"/api/cases/{case.id}/sections/{name}")
+        assert wd_attr(cs_block(plain.text, "block", data_pf_cs_name=name), "hidden") == ""
+
+
+async def test_conversation_add_autosave_rerender_remove(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-02: add → a Call row; texts autosave; held on / channel re-render; refusals; delete."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Calls", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/conversations"
+
+    response = await _post_form(
+        web_client,
+        path,
+        csrf,
+        held_on="2026-07-20",
+        with_whom="  J. Doe, Fund V IR  ",
+        what_was_said="  The fee review closes in Q3.  ",
+    )
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="conversations")
+    assert wd_attr(block, "hidden") is None
+    row = cs_block(block, "conversation")
+    assert cs_text(row, "conversation-when") == "20 Jul 2026 · Call"
+    assert wd_attr(cs_block(row, "conversation-who"), "value") == "J. Doe, Fund V IR"
+    assert cs_text(row, "conversation-said") == "The fee review closes in Q3."
+    assert "autofocus" in cs_block(row, "conversation-promised")
+    assert 'hx-swap="none"' in cs_block(row, "conversation-form")
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="conversations") == (
+        "Conversations 1"
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        stored = await CaseConversationRepository(session).list_for_case(case.id)
+    assert [(c.held_on, c.channel, c.with_whom) for c in stored] == [
+        (date(2026, 7, 20), "call", "J. Doe, Fund V IR")
+    ]
+    conversation = stored[0]
+
+    # A second, earlier call lands below the first: the block lists by position.
+    response = await _post_form(web_client, path, csrf, held_on="2026-07-01", with_whom="CFO")
+    assert response.status_code == 200
+    rows = cs_blocks(response.text, "conversation")
+    assert [cs_text(r, "conversation-when") for r in rows] == [
+        "20 Jul 2026 · Call",
+        "01 Jul 2026 · Call",
+    ]
+    second_id = UUID(wd_attr(rows[1], "id").removeprefix("cs-conversation-"))  # type: ignore[union-attr]
+
+    # The texts autosave out of band: the bundle alone, the row written.
+    before = await _case_now(app_engine, pm1, case.id)
+    row_path = f"{path}/{conversation.id}"
+    response = await _post_form(
+        web_client,
+        row_path,
+        csrf,
+        with_whom="J. Doe",
+        what_was_said="Fees are under review.",
+        what_was_promised="  The side letter by Friday.  ",
+        stamp=before.updated_at.isoformat(),
+    )
+    assert response.status_code == 200
+    assert cs("block") not in response.text
+    assert "Saved ·" in cs_text(response.text, "saved")
+    after = await _case_now(app_engine, pm1, case.id)
+    assert f'id="cs-stamp-conversations" value="{after.updated_at.isoformat()}"' in response.text
+    stored_one = await _conversation_now(app_engine, pm1, conversation.id)
+    assert stored_one is not None
+    assert (stored_one.with_whom, stored_one.what_was_said, stored_one.what_was_promised) == (
+        "J. Doe",
+        "Fees are under review.",
+        "The side letter by Friday.",
+    )
+    response = await _post_form(web_client, row_path, csrf, what_was_promised="")
+    assert response.status_code == 200
+    stored_one = await _conversation_now(app_engine, pm1, conversation.id)
+    assert stored_one is not None and stored_one.what_was_promised is None
+
+    # Channel and duration re-render the block; the stamp column follows.
+    response = await _post_form(
+        web_client, f"{row_path}?rerender=1", csrf, channel="meeting", duration_minutes="20"
+    )
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="conversations")
+    first = cs_blocks(block, "conversation")[0]
+    assert cs_text(first, "conversation-when") == "20 Jul 2026 · Meeting · 20 min"
+    stored_one = await _conversation_now(app_engine, pm1, conversation.id)
+    assert stored_one is not None
+    assert (stored_one.channel, stored_one.duration_minutes) == ("meeting", 20)
+
+    # Refusals: 400 with the reason in the note slot, nothing saved.
+    refusals = (
+        (
+            {"held_on": "31-02-2026"},
+            "'31-02-2026' is not a date — write the day it was held as YYYY-MM-DD.",
+        ),
+        ({"held_on": ""}, "'' is not a date — write the day it was held as YYYY-MM-DD."),
+        (
+            {"duration_minutes": "twenty"},
+            "'twenty' is not a duration — write whole minutes, or leave it empty.",
+        ),
+        (
+            {"channel": "fax"},
+            "Invalid channel 'fax'; expected one of ['call', 'meeting', 'other'].",
+        ),
+    )
+    for fields, refusal in refusals:
+        refused = await _post_form(web_client, f"{row_path}?rerender=1", csrf, **fields)
+        assert refused.status_code == 400, fields
+        assert refused.headers.get("HX-Reswap") == "none"
+        assert 'id="cs-note-conversations"' in refused.text
+        assert cs_text(refused.text, "note") == refusal
+    stored_one = await _conversation_now(app_engine, pm1, conversation.id)
+    assert stored_one is not None
+    assert (stored_one.held_on, stored_one.channel, stored_one.duration_minutes) == (
+        date(2026, 7, 20),
+        "meeting",
+        20,
+    )
+
+    # Remove: a hard delete, no confirm; the last one leaves the placeholder.
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    remove = cs_block(cs_blocks(body, "conversation")[0], "conversation-remove")
+    assert wd_attr(remove, "hx-confirm") is None
+    response = await _post_form(web_client, f"{row_path}/remove", csrf)
+    assert response.status_code == 200
+    assert cs_count(response.text, "conversation") == 1
+    assert await _conversation_now(app_engine, pm1, conversation.id) is None
+    assert (await _post_form(web_client, f"{row_path}/remove", csrf)).status_code == 404
+    response = await _post_form(web_client, f"{path}/{second_id}/remove", csrf)
+    assert response.status_code == 200
+    placeholder = cs_block(response.text, "block", data_pf_cs_name="conversations")
+    assert wd_attr(placeholder, "hidden") == ""
+    item = cs_block(response.text, "outline-item", data_pf_cs_name="conversations")
+    assert wd_attr(item, "class") == "is-empty"
+
+
+async def test_points_add_owner_due_done_and_remove(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-03: owner by name, is-soon, the done box re-renders, the refusals, the delete."""
+    pm1, email, password = seeded_user
+    pm2 = await _seed_extra_user(
+        fresh_superuser_engine, email="pm2@example.com", display_name="M. Ruiz"
+    )
+    case = await _seed_case(app_engine, opened_by=pm1, title="Points", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/points"
+    today = datetime.now(timezone.utc).date()
+    soon, later = today + timedelta(days=3), today + timedelta(days=60)
+
+    response = await _post_form(
+        web_client,
+        path,
+        csrf,
+        text="  Ask Fund V for the hedge policy  ",
+        owner_user_id=str(pm2),
+        due_on=soon.isoformat(),
+    )
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="points")
+    assert cs_text(block, "points-title") == "Open points"
+    item = cs_block(block, "point", data_pf_cs_state="open")
+    assert wd_attr(cs_block(item, "point-text"), "value") == "Ask Fund V for the hedge policy"
+    owner = cs_block(item, "point-owner")
+    assert f'<option value="{pm2}" selected>M. Ruiz</option>' in owner
+    assert '<option value="">— nobody yet —</option>' in owner
+    assert f'<option value="{pm1}">S. Behrens</option>' in owner
+    assert "is-soon" in wd_attr(cs_block(item, "point-due"), "class")  # type: ignore[operator]
+    assert f'value="{soon.isoformat()}"' in cs_block(item, "point-due")
+    assert "autofocus" in cs_block(block, "point-add")
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="points") == "Open points 1"
+
+    response = await _post_form(
+        web_client, path, csrf, text="Read the side letter", due_on=later.isoformat()
+    )
+    assert response.status_code == 200
+    items = cs_blocks(response.text, "point")
+    assert len(items) == 2
+    assert "is-soon" not in (wd_attr(cs_block(items[1], "point-due"), "class") or "")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        stored = await CasePointRepository(session).list_for_case(case.id)
+    first = next(p for p in stored if p.text == "Ask Fund V for the hedge policy")
+    second = next(p for p in stored if p.text == "Read the side letter")
+    assert (first.owner_user_id, first.due_on, second.owner_user_id) == (pm2, soon, None)
+
+    # The done box re-renders the block: struck through, kept in place.
+    row_path = f"{path}/{first.id}"
+    form = {"text": first.text, "owner_user_id": str(pm2), "due_on": soon.isoformat()}
+    response = await _post_form(web_client, f"{row_path}?rerender=1", csrf, done="1", **form)
+    assert response.status_code == 200
+    items = cs_blocks(response.text, "point")
+    assert [wd_attr(i, "data-pf-cs-state") for i in items] == ["done", "open"]
+    assert "is-done" in (wd_attr(items[0], "class") or "")
+    assert "checked" in cs_block(items[0], "point-done")
+    assert "is-soon" not in (wd_attr(cs_block(items[0], "point-due"), "class") or "")
+    done = await _point_now(app_engine, pm1, first.id)
+    assert done is not None and done.done_at is not None
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="points") == "Open points 1"
+
+    # The text autosave never touches done: no box in the body does not reopen it.
+    form["text"] = "Ask for the policy"
+    response = await _post_form(web_client, row_path, csrf, **form)
+    assert response.status_code == 200
+    assert cs("block") not in response.text
+    kept = await _point_now(app_engine, pm1, first.id)
+    assert kept is not None and kept.done_at == done.done_at
+    assert kept.text == "Ask for the policy"
+
+    # Unticked on the re-render path: open again.
+    response = await _post_form(web_client, f"{row_path}?rerender=1", csrf, **form)
+    assert response.status_code == 200
+    assert wd_attr(cs_blocks(response.text, "point")[0], "data-pf-cs-state") == "open"
+    reopened = await _point_now(app_engine, pm1, first.id)
+    assert reopened is not None and reopened.done_at is None
+
+    # The owner may be cleared; a user of no tenant this session sees is refused.
+    response = await _post_form(web_client, row_path, csrf, owner_user_id="")
+    assert response.status_code == 200
+    cleared = await _point_now(app_engine, pm1, first.id)
+    assert cleared is not None and cleared.owner_user_id is None
+    refusals = (
+        (path, {"text": "x", "owner_user_id": str(uuid4())}, "Choose a user of this tenant."),
+        (path, {"text": "x", "owner_user_id": "nobody"}, "Choose a user of this tenant."),
+        (row_path, {"owner_user_id": str(uuid4())}, "Choose a user of this tenant."),
+        (path, {"text": "   "}, "The text must not be empty."),
+        (row_path, {"text": ""}, "The text must not be empty."),
+        (
+            path,
+            {"text": "x", "due_on": "2026-13-01"},
+            "'2026-13-01' is not a date — write the due date as YYYY-MM-DD.",
+        ),
+    )
+    for target, fields, refusal in refusals:
+        refused = await _post_form(web_client, target, csrf, **fields)
+        assert refused.status_code == 400, fields
+        assert refused.headers.get("HX-Reswap") == "none"
+        assert cs_text(refused.text, "note") == refusal
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert len(await CasePointRepository(session).list_for_case(case.id)) == 2
+    unchanged = await _point_now(app_engine, pm1, first.id)
+    assert unchanged is not None and unchanged.text == "Ask for the policy"
+
+    # Remove: a hard delete, no confirm.
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    remove = cs_block(cs_blocks(body, "point")[1], "point-remove")
+    assert wd_attr(remove, "hx-confirm") is None
+    response = await _post_form(web_client, f"{path}/{second.id}/remove", csrf)
+    assert response.status_code == 200
+    assert cs_count(response.text, "point") == 1
+    assert await _point_now(app_engine, pm1, second.id) is None
+
+
+async def test_points_heading_follows_framing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-04: Open points on a question, Questions to ask on a task — block and outline."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Framing", opened_at=_T0)
+    await _seed_point(app_engine, pm1, case.id, text="Ask the GP")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="points")
+    assert cs_text(block, "points-title") == "Open points"
+    assert "what has to happen, who, by when" in cs_text(block)
+    assert cs_text(body, "outline-item", data_pf_cs_name="points") == "Open points 1"
+
+    response = await _post_question(web_client, case.id, csrf, rerender=True, framing="task")
+    assert response.status_code == 200
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="points") == "Questions to ask 1"
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="points")
+    assert cs_text(block, "points-title") == "Questions to ask"
+    assert "what to ask, whom, by when" in cs_text(block)
+    assert "New question" in cs_text(block, "point-add")
+    assert cs_text(body, "outline-item", data_pf_cs_name="points") == "Questions to ask 1"
+
+
+async def test_point_ticket_link_and_linked_ticket_render(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-05: Create ticket → carries case and point; a linked ticket reads Ticket #n · draft."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Ticketed", opened_at=_T0)
+    point = await _seed_point(app_engine, pm1, case.id, text="Buy the hedge")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    cell = cs_block(cs_block(body, "point"), "point-ticket")
+    assert f'href="/transactions?case={case.id}&point={point.id}"' in html.unescape(cell)
+    assert cs_text(cell) == "Create ticket →"
+
+    # Seeded through TradeTicketRepository and linked through the repository.
+    ticket = await _seed_ticket(app_engine, pm1, case.id)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CasePointRepository(session).link_ticket(point.id, ticket_id=ticket.id, now=_T0)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    item = cs_block(body, "point")
+    cell = cs_block(item, "point-ticket")
+    assert cs_text(cell) == f"Ticket #{ticket.ticket_number} · draft"
+    assert 'href="/transactions#blotter"' in cell
+    assert "Create ticket" not in item
+    assert cs("point-remove") not in item
+
+    # A linked point is the provenance chain's forward half: it cannot be removed.
+    refused = await _post_form(web_client, f"/api/cases/{case.id}/points/{point.id}/remove", csrf)
+    assert refused.status_code == 400
+    assert cs_text(refused.text, "note") == (
+        f"Point {point.id} is linked to ticket {ticket.id}; it cannot be deleted (ADR-0138 §5)."
+    )
+    assert await _point_now(app_engine, pm1, point.id) is not None
+
+
+async def test_decision_draft_options_chosen_rationale_autosave(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-06: options keyed o1…; the chosen radio; renumbering on remove; the autosave."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Decide", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/decision-draft"
+
+    async def draft_now() -> Any:
+        async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+            return await CaseDecisionRepository(session).get_draft(case.id)
+
+    async def post(rerender: bool, **fields: Any):
+        suffix = "?rerender=1" if rerender else ""
+        return await web_client.post(
+            f"{path}{suffix}", data={"csrf_token": csrf, **fields}, follow_redirects=False
+        )
+
+    response = await post(True, option_text=["Hold", "Sell half"], add_option="1")
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert _option_rows(block) == [
+        ("o1", "Hold", None),
+        ("o2", "Sell half", None),
+        ("o3", "", None),
+    ]
+    assert "autofocus" in cs_blocks(block, "decision-option")[2]
+    assert "autofocus" not in cs_blocks(block, "decision-option")[0]
+    draft = await draft_now()
+    assert draft.options == [
+        {"key": "o1", "text": "Hold"},
+        {"key": "o2", "text": "Sell half"},
+        {"key": "o3", "text": ""},
+    ]
+    assert draft.chosen_key is None
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="decision") == "Decision draft"
+
+    every = {"option_key": ["o1", "o2", "o3"], "option_text": ["Hold", "Sell half", "Sell all"]}
+    response = await post(True, chosen_key="o2", **every)
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert _option_rows(block) == [
+        ("o1", "Hold", None),
+        ("o2", "Sell half", "chosen"),
+        ("o3", "Sell all", None),
+    ]
+    assert "checked" in cs_block(block, "decision-option", data_pf_cs_kind="chosen")
+    assert (await draft_now()).chosen_key == "o2"
+
+    # The texts autosave out of band.
+    before = await _case_now(app_engine, pm1, case.id)
+    response = await post(
+        False,
+        chosen_key="o2",
+        rationale="  Fees outweigh the hedge.  ",
+        decided_by=" IC ",
+        decided_at="2026-07-25",
+        stamp=before.updated_at.isoformat(),
+        **every,
+    )
+    assert response.status_code == 200
+    assert cs("block") not in response.text
+    assert "Saved ·" in cs_text(response.text, "saved")
+    draft = await draft_now()
+    assert (draft.rationale, draft.decided_by, draft.decided_at, draft.chosen_key) == (
+        "Fees outweigh the hedge.",
+        "IC",
+        date(2026, 7, 25),
+        "o2",
+    )
+
+    # Removing the chosen option renumbers and clears the choice, with a note.
+    response = await post(True, chosen_key="o2", remove_option="o2", **every)
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert _option_rows(block) == [("o1", "Hold", None), ("o2", "Sell all", None)]
+    assert cs_text(block, "note") == "The chosen option was removed — choose again."
+    draft = await draft_now()
+    assert draft.options == [{"key": "o1", "text": "Hold"}, {"key": "o2", "text": "Sell all"}]
+    assert draft.chosen_key is None
+    assert draft.rationale == "Fees outweigh the hedge."
+
+    # Removing another option: the chosen key follows its option.
+    both = {"option_key": ["o1", "o2"], "option_text": ["Hold", "Sell all"]}
+    response = await post(True, chosen_key="o2", remove_option="o1", **both)
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert _option_rows(block) == [("o1", "Sell all", "chosen")]
+    assert cs("note") not in block
+    draft = await draft_now()
+    assert (draft.options, draft.chosen_key) == ([{"key": "o1", "text": "Sell all"}], "o1")
+
+    # Refusals: 400 with the reason, nothing saved.
+    refused = await post(False, decided_at="25-07-2026")
+    assert refused.status_code == 400
+    assert refused.headers.get("HX-Reswap") == "none"
+    assert cs_text(refused.text, "note") == (
+        "'25-07-2026' is not a date — write the decision date as YYYY-MM-DD."
+    )
+    refused = await post(True, chosen_key="o9")
+    assert refused.status_code == 400
+    assert cs_text(refused.text, "note") == "chosen_key 'o9' names no option."
+    draft = await draft_now()
+    assert (draft.chosen_key, draft.decided_at) == ("o1", date(2026, 7, 25))
+
+
+async def test_decision_block_lists_recorded_and_offers_a_new_draft(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-07: a recorded decision reads read-only; Start a new draft writes a second row."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Recorded", opened_at=_T0)
+    await _record_decision(
+        app_engine,
+        pm1,
+        case.id,
+        options=[{"key": "a", "text": "Hold"}, {"key": "b", "text": "Sell half"}],
+        chosen_key="b",
+        rationale="Fees outweigh the hedge.",
+        decided_by="IC",
+        decided_at=date(2026, 7, 22),
+        now=_T0 + timedelta(days=1),
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="decision")
+    assert wd_attr(block, "hidden") is None
+    recorded = cs_block(block, "decision-recorded")
+    assert cs_text(recorded).startswith("Recorded 22 Jul 2026 09:00 · Sell half")
+    assert "Fees outweigh the hedge." in cs_text(recorded)
+    assert "Decided by IC on 22 Jul 2026" in cs_text(recorded)
+    assert cs("decision-draft") not in block
+    assert cs_text(block, "decision-new") == "Start a new draft"
+    assert cs("decision-empty") not in block
+    assert cs_text(body, "outline-item", data_pf_cs_name="decision") == "Decision 1 recorded"
+
+    response = await _post_form(
+        web_client, f"/api/cases/{case.id}/decision-draft?rerender=1", csrf, add_option="1"
+    )
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert cs_count(block, "decision-recorded") == 1
+    assert _option_rows(cs_block(block, "decision-draft")) == [("o1", "", None)]
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="decision") == (
+        "Decision 1 recorded · draft"
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        decisions = CaseDecisionRepository(session)
+        assert len(await decisions.list_recorded(case.id)) == 1
+        assert await decisions.get_draft(case.id) is not None
+    async with fresh_superuser_engine.connect() as conn:
+        count = await conn.execute(
+            text("SELECT COUNT(*) FROM case_decisions WHERE case_id = :id"), {"id": str(case.id)}
+        )
+        assert count.scalar_one() == 2
+
+    # A second recorded decision lists newest first.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseDecisionRepository(session).upsert_draft(
+            case.id,
+            now=_T0 + timedelta(days=2),
+            options=[{"key": "o1", "text": "Sell all"}],
+            chosen_key="o1",
+            rationale="The hedge failed again.",
+        )
+        await CaseRepository(session).record_decision(
+            case.id, recorded_by=pm1, now=_T0 + timedelta(days=2)
+        )
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="decision")
+    lines = [cs_text(r) for r in cs_blocks(block, "decision-recorded")]
+    assert lines[0].startswith("Recorded 23 Jul 2026 09:00 · Sell all")
+    assert lines[1].startswith("Recorded 22 Jul 2026 09:00 · Sell half")
+    assert cs_text(body, "outline-item", data_pf_cs_name="decision") == "Decision 2 recorded"
+
+
+async def test_cross_case_closed_and_waiting_refusals_for_the_three(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-08: another case's row → 404; closed → the calm error, nothing written; waiting writes."""
+    pm1, email, password = seeded_user
+    case_a = await _seed_case(app_engine, opened_by=pm1, title="Case A", opened_at=_T0)
+    case_b = await _seed_case(app_engine, opened_by=pm1, title="Case B", opened_at=_T0)
+    conversation = await _seed_conversation(app_engine, pm1, case_a.id, with_whom="A's GP")
+    point = await _seed_point(app_engine, pm1, case_a.id, text="A's point")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    crossing = (
+        (f"/api/cases/{case_b.id}/conversations/{conversation.id}", {"with_whom": "x"}),
+        (f"/api/cases/{case_b.id}/conversations/{conversation.id}/remove", {}),
+        (f"/api/cases/{case_b.id}/points/{point.id}", {"text": "x"}),
+        (f"/api/cases/{case_b.id}/points/{point.id}/remove", {}),
+        (f"/api/cases/{case_a.id}/conversations/{uuid4()}", {"with_whom": "x"}),
+        (f"/api/cases/{case_a.id}/points/{uuid4()}", {"text": "x"}),
+        (f"/api/cases/{uuid4()}/conversations", {"with_whom": "x"}),
+        (f"/api/cases/{uuid4()}/points", {"text": "x"}),
+        (f"/api/cases/{uuid4()}/decision-draft", {"add_option": "1"}),
+    )
+    for path, fields in crossing:
+        response = await _post_form(web_client, path, csrf, **fields)
+        assert response.status_code == 404, path
+    stored_conversation = await _conversation_now(app_engine, pm1, conversation.id)
+    assert stored_conversation is not None and stored_conversation.with_whom == "A's GP"
+    stored_point = await _point_now(app_engine, pm1, point.id)
+    assert stored_point is not None and stored_point.text == "A's point"
+
+    closed = await _seed_case(
+        app_engine, opened_by=pm1, title="Closed", opened_at=_T0, close_note="done"
+    )
+    for path, fields, section in (
+        (f"/api/cases/{closed.id}/conversations", {"with_whom": "Late"}, "conversations"),
+        (f"/api/cases/{closed.id}/points", {"text": "Late"}, "points"),
+        (f"/api/cases/{closed.id}/decision-draft", {"add_option": "1"}, "decision"),
+    ):
+        response = await _post_form(web_client, path, csrf, **fields)
+        assert response.status_code == 200
+        assert f'id="cs-note-{section}"' in response.text
+        assert "closed cases are read-only" in cs_text(response.text, "note")
+        assert cs("block") not in response.text
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseConversationRepository(session).list_for_case(closed.id) == []
+        assert await CasePointRepository(session).list_for_case(closed.id) == []
+        assert await CaseDecisionRepository(session).get_draft(closed.id) is None
+
+    waiting = await _seed_case(app_engine, opened_by=pm1, title="Waiting", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).wait(
+            waiting.id, wait_until=date(2026, 12, 1), by=pm1, now=_T0 + timedelta(hours=2)
+        )
+    response = await _post_form(
+        web_client, f"/api/cases/{waiting.id}/conversations", csrf, with_whom="While we wait"
+    )
+    assert response.status_code == 200
+    cs_block(response.text, "conversation")
+    response = await _post_form(web_client, f"/api/cases/{waiting.id}/points", csrf, text="Chase")
+    assert response.status_code == 200
+    cell = cs_block(cs_block(response.text, "point"), "point-ticket")
+    assert cs_text(cell) == "Create ticket →"
+    response = await _post_form(
+        web_client, f"/api/cases/{waiting.id}/decision-draft?rerender=1", csrf, add_option="1"
+    )
+    assert response.status_code == 200
+    cs_block(response.text, "decision-draft")
+
+
+async def test_closed_case_renders_the_three_read_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3c-09: a closed case shows the three blocks without a form, texts present, no ticket link."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Closing", opened_at=_T0)
+    await _seed_conversation(
+        app_engine,
+        pm1,
+        case.id,
+        channel="meeting",
+        with_whom="J. Doe",
+        what_was_said="Fees are under review.",
+        what_was_promised="The side letter.",
+        duration_minutes=45,
+    )
+    await _seed_point(app_engine, pm1, case.id, text="Ask the GP", due_on=date(2026, 8, 1))
+    await _record_decision(
+        app_engine,
+        pm1,
+        case.id,
+        options=[{"key": "o1", "text": "Hold"}],
+        chosen_key="o1",
+        rationale="Nothing to do.",
+        now=_T0 + timedelta(days=1),
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).close(
+            case.id, closed_by=pm1, closing_note="Settled.", now=_T0 + timedelta(days=2)
+        )
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    for name in ("conversations", "points", "decision"):
+        block = cs_block(body, "block", data_pf_cs_name=name)
+        assert wd_attr(block, "hidden") is None, name
+        assert "<form" not in block and "<input" not in block, name
+        assert "<textarea" not in block and "<select" not in block, name
+        assert f'id="cs-stamp-{name}"' not in block, name
+        item = cs_block(body, "outline-item", data_pf_cs_name=name)
+        assert wd_attr(item, "hx-get") is None, name
+
+    conversations = cs_block(body, "block", data_pf_cs_name="conversations")
+    assert cs_text(conversations, "conversation-when") == "20 Jul 2026 · Meeting · 45 min"
+    assert cs_text(conversations, "conversation-who") == "J. Doe"
+    assert cs_text(conversations, "conversation-said") == "Fees are under review."
+    assert "The side letter." in cs_text(conversations, "conversation-promised")
+
+    points = cs_block(body, "block", data_pf_cs_name="points")
+    assert cs_text(points, "point-text") == "Ask the GP"
+    assert cs_text(points, "point-due") == "01 Aug 2026"
+    assert "Create ticket" not in points
+    assert cs("point-ticket") not in points
+
+    decision = cs_block(body, "block", data_pf_cs_name="decision")
+    assert cs_text(decision, "decision-recorded").startswith("Recorded 22 Jul 2026 09:00 · Hold")
+    assert cs("decision-new") not in decision
+
+
+async def test_outline_counts_for_the_three(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c-10: Conversations n, Open points (the open count), Decision draft / n recorded."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Counts", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await _post_form(
+        web_client, f"/api/cases/{case.id}/conversations", csrf, with_whom="GP"
+    )
+    assert response.status_code == 200
+    for point_text in ("One", "Two"):
+        response = await _post_form(
+            web_client, f"/api/cases/{case.id}/points", csrf, text=point_text
+        )
+        assert response.status_code == 200
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        first = (await CasePointRepository(session).list_for_case(case.id))[0]
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/points/{first.id}?rerender=1",
+        csrf,
+        text=first.text,
+        done="1",
+    )
+    assert response.status_code == 200
+    response = await _post_form(
+        web_client, f"/api/cases/{case.id}/decision-draft?rerender=1", csrf, add_option="1"
+    )
+    assert response.status_code == 200
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    outline = cs_block(body, "outline")
+    assert cs_text(outline, "outline-item", data_pf_cs_name="conversations") == "Conversations 1"
+    assert cs_text(outline, "outline-item", data_pf_cs_name="points") == "Open points 1"
+    assert cs_text(outline, "outline-item", data_pf_cs_name="decision") == "Decision draft"
+    for name in ("conversations", "points", "decision"):
+        item = cs_block(outline, "outline-item", data_pf_cs_name=name)
+        assert wd_attr(item, "class") is None, name
+        assert wd_attr(item, "hx-get") is None, name
+
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseDecisionRepository(session).upsert_draft(
+            case.id,
+            now=_T0 + timedelta(days=1),
+            options=[{"key": "o1", "text": "Hold"}],
+            chosen_key="o1",
+            rationale="Nothing to do.",
+        )
+        await CaseRepository(session).record_decision(
+            case.id, recorded_by=pm1, now=_T0 + timedelta(days=1)
+        )
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert cs_text(body, "outline-item", data_pf_cs_name="decision") == "Decision 1 recorded"

@@ -1,0 +1,126 @@
+{# Conversations (ADR-0138 §3, D-CS-B-62) — calls and meetings: who, when,
+   what was said, what was promised. Hidden while the case has none
+   (D-CS-B-67): the block is then an empty placeholder carrying
+   #cs-conversations, so the outline's "+" (?reveal=1) has a target; revealed,
+   it renders visible with its add form focused.
+
+   One pf-conv row per conversation, in position order: on the left the stamp
+   column — "dd Mon YYYY · Call · 20 min" — and with whom, on the right what
+   was said and what was promised. On an open or waiting case each row is a
+   form (display: contents, so its fields sit in the row's grid): the texts
+   autosave on change with hx-swap="none" (the OOB bundle answers); held on,
+   channel and duration re-render the block (?rerender=1), so the stamp
+   column follows; Remove re-renders the block, no confirm. The form's stamp
+   is the block's #cs-stamp-conversations (hx-include). The add form at the
+   foot: held on (today, UTC), channel, with whom, what was said.
+
+   A closed case renders the rows read-only, no form.
+
+   The note slot renders `block.note` itself: a re-render replaces the slot
+   the bundle's out-of-band note has just filled (htmx 1.9 swaps OOB first).
+
+   Context: case_id, csrf_token, is_mutable, stamp, conversations —
+   {conversations: [{id, held_on, channel, when, with_whom, what_was_said,
+   what_was_promised, duration}], empty, reveal, focus_id, note,
+   channels: [{value, label}], today}. #}
+{% set block = conversations %}
+{% if block.empty and not block.reveal %}
+<section class="pf-blk" id="cs-conversations" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="conversations"></section>
+{% else %}
+<section class="pf-blk" id="cs-conversations" data-pf-cs="block" data-pf-cs-name="conversations">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Conversations</h3>
+        <span class="pf-blk__sub">calls and meetings — who, when, what was said, what was promised</span>
+    </div>
+    {% if is_mutable %}<input type="hidden" name="stamp" id="cs-stamp-conversations" value="{{ stamp }}">{% endif %}
+
+    {% for row in block.conversations %}
+        {% set rerender_url = "/api/cases/" ~ case_id ~ "/conversations/" ~ row.id ~ "?rerender=1" %}
+        <article class="pf-conv" id="cs-conversation-{{ row.id }}" data-pf-cs="conversation">
+            {% if is_mutable %}
+                <form class="pf-conv__form" data-pf-cs="conversation-form"
+                      hx-post="/api/cases/{{ case_id }}/conversations/{{ row.id }}"
+                      hx-trigger="change[target.name=='with_whom'||target.name=='what_was_said'||target.name=='what_was_promised'], submit"
+                      hx-swap="none"
+                      hx-include="#cs-stamp-conversations"
+                      hx-sync="this:queue last">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="pf-conv__when">
+                        <span data-pf-cs="conversation-when">{{ row.when }}</span>
+                        <input class="pf-input" type="date" name="held_on" value="{{ row.held_on }}" aria-label="Held on"
+                               hx-post="{{ rerender_url }}" hx-trigger="change" hx-target="#cs-conversations"
+                               hx-swap="outerHTML" hx-sync="closest form:queue last">
+                        <select class="pf-select" name="channel" aria-label="Channel"
+                                hx-post="{{ rerender_url }}" hx-trigger="change" hx-target="#cs-conversations"
+                                hx-swap="outerHTML" hx-sync="closest form:queue last">
+                            {% for option in block.channels %}<option value="{{ option.value }}"{% if option.value == row.channel %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+                        </select>
+                        <input class="pf-input pf-input--num" type="text" inputmode="numeric" name="duration_minutes"
+                               value="{{ row.duration }}" aria-label="Duration in minutes" placeholder="min" autocomplete="off"
+                               hx-post="{{ rerender_url }}" hx-trigger="change" hx-target="#cs-conversations"
+                               hx-swap="outerHTML" hx-sync="closest form:queue last">
+                    </div>
+                    <div class="pf-conv__who">
+                        <input class="pf-input" type="text" name="with_whom" value="{{ row.with_whom }}" aria-label="With whom"
+                               placeholder="with whom" autocomplete="off" data-pf-cs="conversation-who">
+                    </div>
+                    <div class="pf-conv__text">
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-label">What was said</span>
+                            <textarea class="pf-textarea" name="what_was_said" rows="3" data-pf-cs="conversation-said">{{ row.what_was_said }}</textarea>
+                        </label>
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-label">What was promised <span class="pf-optional">(optional)</span></span>
+                            <textarea class="pf-textarea" name="what_was_promised" rows="2" data-pf-cs="conversation-promised"
+                                      {% if block.focus_id == row.id %}autofocus{% endif %}>{{ row.what_was_promised }}</textarea>
+                        </label>
+                        <div class="pf-conv__tools">
+                            <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="conversation-remove"
+                                    hx-post="/api/cases/{{ case_id }}/conversations/{{ row.id }}/remove"
+                                    hx-target="#cs-conversations"
+                                    hx-swap="outerHTML">Remove</button>
+                        </div>
+                    </div>
+                </form>
+            {% else %}
+                <div class="pf-conv__when" data-pf-cs="conversation-when">{{ row.when }}</div>
+                <div class="pf-conv__who" data-pf-cs="conversation-who">{{ row.with_whom }}</div>
+                <div class="pf-conv__text">
+                    {% if row.what_was_said %}<p class="pf-prose" data-pf-cs="conversation-said">{{ row.what_was_said }}</p>{% endif %}
+                    {% if row.what_was_promised %}<p class="pf-prose" data-pf-cs="conversation-promised"><span class="pf-label">Promised</span> {{ row.what_was_promised }}</p>{% endif %}
+                </div>
+            {% endif %}
+        </article>
+    {% endfor %}
+
+    {% if is_mutable %}
+        {% if block.empty %}<p class="pf-hint" data-pf-cs="conversations-empty">No conversation yet — add the first below.</p>{% endif %}
+        <form class="pf-case__add" data-pf-cs="conversation-add"
+              hx-post="/api/cases/{{ case_id }}/conversations"
+              hx-target="#cs-conversations"
+              hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="pf-field">
+                <span class="pf-label">Held on</span>
+                <input class="pf-input" type="date" name="held_on" value="{{ block.today }}"{% if block.reveal %} autofocus{% endif %}>
+            </label>
+            <label class="pf-field">
+                <span class="pf-label">Channel</span>
+                <select class="pf-select" name="channel">
+                    {% for option in block.channels %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="pf-field">
+                <span class="pf-label">With whom</span>
+                <input class="pf-input" type="text" name="with_whom" autocomplete="off">
+            </label>
+            <label class="pf-field pf-field--full">
+                <span class="pf-label">What was said</span>
+                <textarea class="pf-textarea" name="what_was_said" rows="2"></textarea>
+            </label>
+            <button type="submit" class="pf-btn">Add conversation</button>
+        </form>
+    {% endif %}
+    <div id="cs-note-conversations" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
+</section>
+{% endif %}

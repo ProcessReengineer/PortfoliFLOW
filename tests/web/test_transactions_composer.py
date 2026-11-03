@@ -38,12 +38,20 @@ What is pinned here:
   act on is the same book the read surface derives from, and two seedings of
   "the M-1 book" would be two books.
 
+* **The Case prefill** (P-CS-3c, D-CS-B-64/65) — the picker offers open and
+  waiting cases; ``/transactions?case=…&point=…`` carries the pair through
+  the chooser into the composer, and the first gesture links the new ticket
+  to the open point in the same transaction — once, and only to a point of
+  the ticket's case.
+
 Not here: the wizard and reported flows (S4b / S4c), or the blotter and
 history surfaces (S5).
 """
 
 from __future__ import annotations
 
+import html
+import logging
 import os
 import re
 from collections.abc import AsyncGenerator
@@ -62,6 +70,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from core.repositories._session import tenant_context
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.case_repository import CaseRepository
+from core.repositories.case_working_file_repository import CasePointRepository
 from core.repositories.instrument_price_repository import InstrumentPriceRepository
 from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.position_transaction_repository import PositionTransactionRepository
@@ -309,6 +318,56 @@ async def _seed_case(user_id: UUID, title: str) -> None:
         await engine.dispose()
 
 
+def _app_engine() -> AsyncEngine:
+    """A NullPool app-role engine for one seeding helper — the module's idiom, typed."""
+    assert DATABASE_URL is not None
+    return create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+
+
+async def _seed_case_in_state(user_id: UUID, title: str, *, state: str) -> UUID:
+    """Open one case and move it to ``waiting`` or ``closed`` through the repository."""
+    engine = _app_engine()
+    now = datetime.now(timezone.utc)
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            cases = CaseRepository(session)
+            case = await cases.create(title=title, opened_by=user_id, now=now)
+            if state == "waiting":
+                await cases.wait(
+                    case.id, wait_until=now.date() + timedelta(days=30), by=user_id, now=now
+                )
+            elif state == "closed":
+                await cases.close(case.id, closed_by=user_id, closing_note="Done.", now=now)
+            return case.id
+    finally:
+        await engine.dispose()
+
+
+async def _seed_case_with_point(user_id: UUID, title: str, point_text: str) -> tuple[UUID, UUID]:
+    """Open one case with one open point — what a Case's *Create ticket →* starts from."""
+    engine = _app_engine()
+    now = datetime.now(timezone.utc)
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            case = await CaseRepository(session).create(title=title, opened_by=user_id, now=now)
+            point = await CasePointRepository(session).add(case.id, text=point_text, now=now)
+            return case.id, point.id
+    finally:
+        await engine.dispose()
+
+
+async def _point_ticket(user_id: UUID, point_id: UUID) -> UUID | None:
+    """The ticket id written back onto an open point, or ``None``."""
+    engine = _app_engine()
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            point = await CasePointRepository(session).get(point_id)
+            assert point is not None
+            return point.ticket_id
+    finally:
+        await engine.dispose()
+
+
 async def _count(engine: AsyncEngine, table: str) -> int:
     async with engine.begin() as conn:
         result = await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
@@ -485,14 +544,24 @@ async def test_order_form_lists_open_cases(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The Provenance block offers the tenant's open cases."""
+    """The Provenance block offers the tenant's open cases.
+
+    Extended by P-CS-3c (D-CS-B-65): a waiting case is offered too, marked
+    *· waiting* — a ticket against it wakes it when it books (P-CS-2c) — and
+    a closed case never is.
+    """
     user_id, email, password = seeded_user
     await _seed_case(user_id, "Equity overweight vs. SAA band")
+    await _seed_case_in_state(user_id, "Waiting on the GP's letter", state="waiting")
+    await _seed_case_in_state(user_id, "Settled long ago", state="closed")
     await _login_and_csrf(web_client, email, password)
 
     body = (await web_client.get("/api/transactions/order-form")).text
     assert "No case" in _flat(body)
     assert "Equity overweight vs. SAA band" in _flat(body)
+    assert "Equity overweight vs. SAA band · waiting" not in _flat(body)
+    assert "Waiting on the GP's letter · waiting" in html.unescape(_flat(body))
+    assert "Settled long ago" not in body
 
 
 async def test_order_form_starts_gated_and_unsaved(
@@ -1899,3 +1968,144 @@ async def test_text_that_carries_no_number_says_so(
         "not read as a number</span>"
     )
     assert "<dd>—</dd>" in response.text, "an unreadable field derives nothing, as it always did"
+
+
+# ---------------------------------------------------------------------------
+# P-CS-3c — a ticket from an open point (D-CS-B-64)
+# ---------------------------------------------------------------------------
+
+_TRANSACTIONS_LOGGER = "web.routes.transactions"
+
+
+def _skip_reasons(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The reasons of every skipped point link this test logged, in order."""
+    reasons: list[str] = []
+    for record in caplog.records:
+        message = record.getMessage()
+        if record.name == _TRANSACTIONS_LOGGER and "point link skipped (" in message:
+            reasons.append(message.split("point link skipped (", 1)[1].split(")", 1)[0])
+    return reasons
+
+
+async def test_transactions_prefill_from_a_point_links_the_ticket_on_first_save(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    superuser_engine: AsyncEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Create ticket → arrives prefilled; the first save links the point, once (D-CS-B-64)."""
+    user_id, email, password = seeded_user
+    investment_id, cash_id = await _standard_book(user_id)
+    case_id, point_id = await _seed_case_with_point(
+        user_id, "Hedge the USD sleeve", "Buy the hedge"
+    )
+    csrf = await _login_and_csrf(web_client, email, password)
+    caplog.set_level(logging.INFO, logger=_TRANSACTIONS_LOGGER)
+    paths = ("order-form", "wizard", "commitment-form", "secondary-buy-form", "secondary-sale-form")
+    query = f"?case={case_id}&point={point_id}"
+
+    # The area page hands the pair to every chooser tile; a malformed value is dropped.
+    page = await web_client.get(f"/transactions{query}", follow_redirects=False)
+    assert page.status_code == 200
+    chooser = html.unescape(chooser_markup(_new_section(page.text)))
+    for path in paths:
+        assert f'hx-get="/api/transactions/{path}{query}"' in chooser, path
+    page = await web_client.get(f"/transactions?case=not-a-case&point={point_id}")
+    chooser = html.unescape(chooser_markup(_new_section(page.text)))
+    assert f'hx-get="/api/transactions/order-form?point={point_id}"' in chooser
+    # The chooser endpoint passes the pair through; Close / Discard send none.
+    chooser = html.unescape((await web_client.get(f"/api/transactions/chooser{query}")).text)
+    assert f'hx-get="/api/transactions/order-form{query}"' in chooser
+    plain = (await web_client.get("/api/transactions/chooser")).text
+    for path in paths:
+        assert f'hx-get="/api/transactions/{path}"' in plain, path
+
+    # Every composer opens with the case selected and the point carried.
+    for path in paths:
+        body = (await web_client.get(f"/api/transactions/{path}{query}")).text
+        assert f'<input type="hidden" name="point_id" value="{point_id}">' in body, path
+        if path == "wizard":
+            # Step 1 shows no Provenance: the case and the point ride as hidden fields.
+            assert f'<input type="hidden" name="case_id" value="{case_id}">' in body
+            continue
+        assert re.search(rf'<option value="{case_id}"\s+selected>', body), path
+        assert "From open point: Buy the hedge" in _flat(body), path
+
+    # The first persisting gesture creates the ticket and links the point.
+    form = _gesture_form(
+        investment_id=str(investment_id),
+        cash_investment_id=str(cash_id),
+        csrf_token=csrf,
+        case_id=str(case_id),
+        point_id=str(point_id),
+    )
+    first = await web_client.post("/api/transactions/draft", data=form)
+    assert first.status_code == 200
+    rows = await _tickets(superuser_engine)
+    assert len(rows) == 1
+    ticket_id = rows[0][0]
+    assert await _point_ticket(user_id, point_id) == ticket_id
+    assert f'name="point_id" value="{point_id}"' in first.text
+    assert "From open point: Buy the hedge" in _flat(first.text)
+    assert _skip_reasons(caplog) == []
+
+    # Saving the same ticket again is an update: no second link is attempted.
+    again = await web_client.post(
+        "/api/transactions/draft", data={**form, "ticket_id": str(ticket_id), "units": "500"}
+    )
+    assert again.status_code == 200
+    assert len(await _tickets(superuser_engine)) == 1
+    assert _skip_reasons(caplog) == []
+
+    # A second ticket from the same point: the ticket exists, the point keeps the first.
+    second = await web_client.post("/api/transactions/draft", data=form)
+    assert second.status_code == 200
+    assert len(await _tickets(superuser_engine)) == 2
+    assert await _point_ticket(user_id, point_id) == ticket_id
+    assert _skip_reasons(caplog) == ["point already linked"]
+
+
+async def test_transactions_prefill_ignores_a_foreign_or_unknown_point(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    superuser_engine: AsyncEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A point of another case, or an unknown one, never blocks the ticket and is never linked."""
+    user_id, email, password = seeded_user
+    investment_id, cash_id = await _standard_book(user_id)
+    case_a, point_a = await _seed_case_with_point(user_id, "Case A", "A's point")
+    case_b, _ = await _seed_case_with_point(user_id, "Case B", "B's point")
+    csrf = await _login_and_csrf(web_client, email, password)
+    caplog.set_level(logging.INFO, logger=_TRANSACTIONS_LOGGER)
+
+    # Opened on B with A's point, the composer says nothing about the point.
+    body = (
+        await web_client.get(f"/api/transactions/order-form?case={case_b}&point={point_a}")
+    ).text
+    assert "From open point" not in body
+    assert re.search(rf'<option value="{case_b}"\s+selected>', body)
+
+    def form(case_id: str, point_id: str) -> dict[str, str]:
+        return _gesture_form(
+            investment_id=str(investment_id),
+            cash_investment_id=str(cash_id),
+            csrf_token=csrf,
+            case_id=case_id,
+            point_id=point_id,
+        )
+
+    for case_id, point_id in (
+        (str(case_b), str(point_a)),  # a point of another case
+        (str(case_a), str(uuid4())),  # an unknown point
+        ("", str(point_a)),  # no case at all
+    ):
+        response = await web_client.post("/api/transactions/draft", data=form(case_id, point_id))
+        assert response.status_code == 200, (case_id, point_id)
+    assert len(await _tickets(superuser_engine)) == 3
+    assert await _point_ticket(user_id, point_a) is None
+    assert _skip_reasons(caplog) == [
+        "a point of another case",
+        "unknown point",
+        "a point of another case",
+    ]

@@ -1180,3 +1180,54 @@
 .pf-cases .pf-case__adders > .pf-case__add { flex: 1 1 360px; }
 .pf-cases .pf-case__add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
 .pf-cases .pf-case__add .pf-field { flex: 1 1 160px; }
+
+/* P-CS-3c — M-CS-2 families, provisional */
+
+/* Conversations: one pf-conv row per conversation — the stamp column (when,
+   then with whom) on the left, what was said and what was promised on the
+   right. An editable row's form is display: contents, so its fields sit in
+   the row's grid. Authored on tokens. */
+.pf-cases .pf-conv { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); grid-template-areas: "when text" "who text"; grid-template-rows: auto 1fr; gap: var(--ui-space-2) var(--ui-space-4); padding: var(--ui-space-3) 0; border-top: 1px solid var(--ui-border-soft); }
+.pf-cases .pf-conv__form { display: contents; }
+.pf-cases .pf-conv__when { grid-area: when; display: flex; flex-direction: column; gap: 6px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-cases .pf-conv__who { grid-area: who; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-medium); }
+.pf-cases .pf-conv__text { grid-area: text; display: flex; flex-direction: column; gap: var(--ui-space-2); min-width: 0; }
+.pf-cases .pf-conv__tools { display: flex; justify-content: flex-end; }
+
+/* Open points: the generic pf-check (pf_components.css) is one checkbox
+   label; the M-CS-2 checklist is a column of items, so the list restates its
+   box here, scoped. Each item is a row: done box, text, owner, due, ticket;
+   a done item keeps its place, struck through; a due date within seven days
+   reads warn, as the list's Next · due does. */
+.pf-cases .pf-check { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; cursor: auto; }
+.pf-cases .pf-check__item { display: flex; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-2) 0; border-top: 1px solid var(--ui-border-soft); }
+.pf-cases .pf-check__form { display: contents; }
+.pf-cases .pf-check__text { flex: 1 1 auto; min-width: 0; color: var(--ui-text-primary); }
+.pf-cases .pf-check__who,
+.pf-cases .pf-check__due { flex: 0 0 auto; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-cases .pf-check__due.is-soon,
+.pf-cases .pf-check__due.is-soon .pf-input { color: var(--ui-semantic-warn); }
+.pf-cases .pf-check__item.is-done .pf-check__text { color: var(--ui-text-tertiary); text-decoration: line-through; }
+
+/* Authored: the ticket cell and the closed list's done mark. */
+.pf-cases .pf-check__ticket { flex: 0 0 auto; font-size: var(--ui-font-scale-sm); white-space: nowrap; }
+.pf-cases .pf-check__ticket a { color: var(--ui-text-primary); text-underline-offset: 3px; }
+.pf-cases .pf-check__mark { flex: 0 0 16px; color: var(--ui-semantic-positive); }
+
+/* The Decision: the recorded decisions as quiet cards with a positive rule
+   (the thread conclusion's anatomy), the draft's options as rows — the
+   chosen one carries the accent rule as well as its checked radio. */
+.pf-cases .pf-decision { display: flex; flex-direction: column; gap: var(--ui-space-3); }
+.pf-cases .pf-decision__options { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pf-cases .pf-decision__option { display: flex; align-items: center; gap: var(--ui-space-2); padding: 6px 10px; border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); }
+.pf-cases .pf-decision__option .pf-input { flex: 1 1 auto; min-width: 0; }
+.pf-cases .pf-decision__option.is-chosen { border-color: var(--ui-accent-primary); box-shadow: inset 2px 0 0 var(--ui-accent-primary); }
+.pf-cases .pf-decision__recorded { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--ui-radius-sm); background: var(--ui-background-section); box-shadow: inset 2px 0 0 var(--ui-semantic-positive); }
+.pf-cases .pf-decision__recorded p { margin: 0; }
+.pf-cases .pf-decision__line { color: var(--ui-text-primary); }
+
+/* Authored: an add line — one row of fields ending in its button (Open
+   points' text · owner · due, the decision's Add option). */
+.pf-cases .pf-addline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
+.pf-cases .pf-addline .pf-field { flex: 0 1 200px; }
+.pf-cases .pf-addline .pf-addline__main { flex: 1 1 280px; }

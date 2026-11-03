@@ -1,10 +1,11 @@
 {# The section stamps, out of band (D-CS-B-45): one hidden ``stamp`` input per
-   section of the file — question · stand · threads · figures, one loop over
-   section_names — each replacing the one its block carries, so the next save
-   of any section sends the case's current updated_at. Rendered only inside
-   the OOB bundle (cases_file_oob.html); a block that is a hidden placeholder
-   (Threads, Figures while empty, D-CS-B-57) carries no stamp, so its input
-   finds no target and is dropped.
+   section of the file — question · stand · threads · figures ·
+   conversations · points · decision, one loop over section_names — each
+   replacing the one its block carries, so the next save of any section sends
+   the case's current updated_at. Rendered only inside the OOB bundle
+   (cases_file_oob.html); a block that is a hidden placeholder (Threads,
+   Figures, Conversations, Open points, Decision while empty, D-CS-B-57)
+   carries no stamp, so its input finds no target and is dropped.
 
    Context: section_names, stamp. #}
 {% for name in section_names %}

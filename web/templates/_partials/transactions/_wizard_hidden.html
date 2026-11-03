@@ -16,8 +16,8 @@
    same thing to `master_data()` (both omit the key), and emitting all of them
    keeps this template free of a second rule about which absences matter.
 
-   Context: entered, trade_date, case_id, cash_investment_id via `derived`'s
-   candidates, settle_confirmed, set via `visible`. #}
+   Context: entered, trade_date, case_id, point_id, cash_investment_id via
+   `derived`'s candidates, settle_confirmed, set via `visible`. #}
 {% set carried = [
     ("currency", entered.currency),
     ("md_identifier_scheme", entered.md_identifier_scheme),
@@ -54,4 +54,10 @@
 {% endif %}
 {% if "case_id" not in visible and case_id %}
     <input type="hidden" name="case_id" value="{{ case_id }}">
+{% endif %}
+{# The open point a Case's "Create ticket →" opened the wizard from (P-CS-3c,
+   D-CS-B-64). No step shows it, so it rides on every step — the first
+   Continue is the gesture that creates the ticket and links the point. #}
+{% if point_id %}
+    <input type="hidden" name="point_id" value="{{ point_id }}">
 {% endif %}

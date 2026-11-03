@@ -149,10 +149,12 @@
                         {% for case in cases %}
                             <option value="{{ case.id }}"
                                     {% if case_id and case.id == case_id %}selected{% endif %}>
-                                Case #{{ case.case_number }} — {{ case.title }}
+                                Case #{{ case.case_number }} — {{ case.title }}{% if case.state == "waiting" %} · waiting{% endif %}
                             </option>
                         {% endfor %}
                     </select>
+                    {% if point_id %}<input type="hidden" name="point_id" value="{{ point_id }}">{% endif %}
+                    {% if point_text %}<span class="pf-hint">From open point: {{ point_text }}</span>{% endif %}
                 </div>
                 <div class="pf-field">
                     <label class="pf-label" for="tx-source">Source <span class="pf-optional">(optional)</span></label>

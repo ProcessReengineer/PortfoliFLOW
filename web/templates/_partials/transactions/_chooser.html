@@ -26,8 +26,14 @@
    area's static markup, a second `id="new-title"` would collide with the
    head's own.
 
-   Context: oob, active_area (both set by the chooser endpoint only). The
-   chooser is otherwise static markup, which is what keeps
+   A Case's "Create ticket →" (P-CS-3c, D-CS-B-64) opens the area as
+   /transactions?case=…&point=…; `prefill_query` carries that pair on to
+   whichever tile is picked, and is empty otherwise (Close and Discard come
+   back to a plain chooser).
+
+   Context: oob, active_area (both set by the chooser endpoint only),
+   prefill_query (the area page and the chooser endpoint; "" or "?case=…").
+   The chooser is otherwise static markup, which is what keeps
    web/routes/areas.py a no-DB shell render — everything needing the
    database sits behind the HTMX endpoints below. #}
 {% if oob %}
@@ -37,7 +43,7 @@
 <ul class="pf-flows">
     <li>
         <button class="pf-flow" type="button" data-flow="U-BUY / U-SELL"
-                hx-get="/api/transactions/order-form"
+                hx-get="/api/transactions/order-form{{ prefill_query }}"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">
             <span class="pf-flow__name">Buy or sell units</span>
@@ -47,7 +53,7 @@
     </li>
     <li>
         <button class="pf-flow" type="button" data-flow="U-NEW"
-                hx-get="/api/transactions/wizard"
+                hx-get="/api/transactions/wizard{{ prefill_query }}"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">
             <span class="pf-flow__name">Buy a new instrument</span>
@@ -57,7 +63,7 @@
     </li>
     <li>
         <button class="pf-flow" type="button" data-flow="R-COMMIT"
-                hx-get="/api/transactions/commitment-form"
+                hx-get="/api/transactions/commitment-form{{ prefill_query }}"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">
             <span class="pf-flow__name">New commitment</span>
@@ -67,7 +73,7 @@
     </li>
     <li>
         <button class="pf-flow" type="button" data-flow="R-SEC-BUY"
-                hx-get="/api/transactions/secondary-buy-form"
+                hx-get="/api/transactions/secondary-buy-form{{ prefill_query }}"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">
             <span class="pf-flow__name">Buy a stake (secondary)</span>
@@ -77,7 +83,7 @@
     </li>
     <li>
         <button class="pf-flow" type="button" data-flow="R-SEC-SELL"
-                hx-get="/api/transactions/secondary-sale-form"
+                hx-get="/api/transactions/secondary-sale-form{{ prefill_query }}"
                 hx-target="#tx-composer-host"
                 hx-swap="innerHTML">
             <span class="pf-flow__name">Sell a stake (secondary)</span>

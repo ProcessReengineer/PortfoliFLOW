@@ -1,0 +1,133 @@
+{# The Decision (ADR-0138 §14, D-CS-B-66) — options, the chosen one, the
+   rationale; a draft until recorded, and a case may record more than one
+   (D-CS-M-3). Hidden while the case has neither a draft nor a recorded
+   decision (D-CS-B-67): the block is then an empty placeholder carrying
+   #cs-decision, so the outline's "+" (?reveal=1) has a target.
+
+   The recorded decisions first, newest first, read-only. Then the draft as
+   one form posting to …/decision-draft (the one upsert): per option a hidden
+   option_key (the stored key, so the chosen key follows its option when the
+   route renumbers o1, o2, …), the chosen radio and the text, and Remove
+   option; an Add option line; the rationale, decided by (free text) and
+   decided at. The texts autosave on change with hx-swap="none" (the OOB
+   bundle answers); the chosen radio, Add option and Remove option re-render
+   the block (?rerender=1). No "Record decision" here — recording is
+   P-CS-3c2's milestone path; the composer's button keeps writing the legacy
+   entry until then (D-CS-B-1).
+
+   Without a draft an open or waiting case offers "Start a new draft" (after
+   a recorded decision) or, revealed and empty, the hint and "Add option" —
+   small forms posting add_option=1, which creates the draft. A closed case
+   renders everything read-only; a draft left at close reads "Draft — not
+   recorded".
+
+   The note slot renders `block.note` itself (see cases_file_conversations.html).
+
+   Context: case_id, csrf_token, is_mutable, stamp, decision — {recorded:
+   [{recorded, chosen, rationale, decided_by, decided_at}], draft: {id,
+   options: [{key, text, chosen}], rationale, decided_by, decided_at} | none,
+   empty, reveal, focus_key, note}. #}
+{% set block = decision %}
+{% set draft_url = "/api/cases/" ~ case_id ~ "/decision-draft" %}
+{% if block.empty and not block.reveal %}
+<section class="pf-blk" id="cs-decision" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="decision"></section>
+{% else %}
+<section class="pf-blk" id="cs-decision" data-pf-cs="block" data-pf-cs-name="decision">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Decision</h3>
+        <span class="pf-blk__sub">options, the chosen one, the rationale — a draft until recorded</span>
+    </div>
+    {% if is_mutable %}<input type="hidden" name="stamp" id="cs-stamp-decision" value="{{ stamp }}">{% endif %}
+
+    {% for recorded in block.recorded %}
+        <div class="pf-decision__recorded" data-pf-cs="decision-recorded">
+            <p class="pf-decision__line"><span class="pf-hint">{{ recorded.recorded }}</span> · <strong>{{ recorded.chosen }}</strong></p>
+            {% if recorded.rationale %}<p class="pf-prose">{{ recorded.rationale }}</p>{% endif %}
+            {% if recorded.decided_by or recorded.decided_at %}
+                <p class="pf-hint">Decided{% if recorded.decided_by %} by {{ recorded.decided_by }}{% endif %}{% if recorded.decided_at %} on {{ recorded.decided_at }}{% endif %}</p>
+            {% endif %}
+        </div>
+    {% endfor %}
+
+    {% if block.draft and is_mutable %}
+        <form class="pf-decision" data-pf-cs="decision-draft"
+              hx-post="{{ draft_url }}"
+              hx-trigger="change[target.name=='option_text'||target.name=='rationale'||target.name=='decided_by'||target.name=='decided_at'], submit"
+              hx-swap="none"
+              hx-include="#cs-stamp-decision"
+              hx-sync="this:queue last">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="pf-field pf-field--full">
+                <span class="pf-label" id="cs-decision-options-label">Options</span>
+                <div class="pf-decision__options" role="radiogroup" aria-labelledby="cs-decision-options-label">
+                    {% for option in block.draft.options %}
+                        <div class="pf-decision__option{% if option.chosen %} is-chosen{% endif %}" data-pf-cs="decision-option"{% if option.chosen %} data-pf-cs-kind="chosen"{% endif %}>
+                            <input type="hidden" name="option_key" value="{{ option.key }}">
+                            <input type="radio" name="chosen_key" value="{{ option.key }}" aria-label="Choose option {{ loop.index }}"
+                                   {% if option.chosen %}checked{% endif %}
+                                   hx-post="{{ draft_url }}?rerender=1"
+                                   hx-trigger="change"
+                                   hx-target="#cs-decision"
+                                   hx-swap="outerHTML"
+                                   hx-sync="closest form:queue last">
+                            <input class="pf-input" type="text" name="option_text" value="{{ option.text }}"
+                                   aria-label="Option {{ loop.index }}" autocomplete="off" placeholder="an option"
+                                   {% if block.focus_key == option.key %}autofocus{% endif %}>
+                            <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="decision-option-remove"
+                                    hx-post="{{ draft_url }}?rerender=1"
+                                    hx-vals='{{ {"remove_option": option.key}|tojson }}'
+                                    hx-target="#cs-decision"
+                                    hx-swap="outerHTML"
+                                    hx-sync="closest form:queue last">Remove option</button>
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="pf-addline" data-pf-cs="decision-add-option">
+                    <button type="button" class="pf-btn pf-btn--sm"
+                            hx-post="{{ draft_url }}?rerender=1"
+                            hx-vals='{"add_option": "1"}'
+                            hx-target="#cs-decision"
+                            hx-swap="outerHTML"
+                            hx-sync="closest form:queue last">Add option</button>
+                </div>
+            </div>
+            <label class="pf-field pf-field--full">
+                <span class="pf-label">Rationale</span>
+                <textarea class="pf-textarea" name="rationale" rows="3" data-pf-cs="decision-rationale">{{ block.draft.rationale }}</textarea>
+            </label>
+            <div class="pf-case__meta">
+                <label class="pf-field">
+                    <span class="pf-label">Decided by <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="decided_by" value="{{ block.draft.decided_by }}" autocomplete="off"
+                           placeholder="the committee" data-pf-cs="decision-decided-by">
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Decided at <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="date" name="decided_at" value="{{ block.draft.decided_at }}" data-pf-cs="decision-decided-at">
+                </label>
+            </div>
+        </form>
+    {% elif block.draft %}
+        <div class="pf-decision" data-pf-cs="decision-draft">
+            <p class="pf-hint">Draft — not recorded</p>
+            <ul class="pf-decision__options">
+                {% for option in block.draft.options %}
+                    <li class="pf-decision__option{% if option.chosen %} is-chosen{% endif %}" data-pf-cs="decision-option"{% if option.chosen %} data-pf-cs-kind="chosen"{% endif %}>{{ option.text }}</li>
+                {% endfor %}
+            </ul>
+            {% if block.draft.rationale %}<p class="pf-prose">{{ block.draft.rationale }}</p>{% endif %}
+        </div>
+    {% elif is_mutable %}
+        {% if not block.recorded %}<p class="pf-hint" data-pf-cs="decision-empty">No draft yet — add the first option.</p>{% endif %}
+        <form class="pf-addline" data-pf-cs="{% if block.recorded %}decision-new{% else %}decision-add-option{% endif %}"
+              hx-post="{{ draft_url }}?rerender=1"
+              hx-target="#cs-decision"
+              hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="add_option" value="1">
+            <button type="submit" class="pf-btn pf-btn--sm"{% if block.reveal %} autofocus{% endif %}>{% if block.recorded %}Start a new draft{% else %}Add option{% endif %}</button>
+        </form>
+    {% endif %}
+    <div id="cs-note-decision" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
+</section>
+{% endif %}

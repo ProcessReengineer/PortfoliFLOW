@@ -1,0 +1,124 @@
+{# Open points (ADR-0138 §3, §5, D-CS-B-63) — what has to happen, who, by
+   when; on a task (framing = task) the same list reads "Questions to ask"
+   (D-CS-M-1). Hidden while the case has none (D-CS-B-67): the block is then
+   an empty placeholder carrying #cs-points, so the outline's "+"
+   (?reveal=1) has a target; revealed, it renders visible with its add line
+   focused.
+
+   A pf-check list in position order. Each item is a form on an open or
+   waiting case: the done box re-renders the block (?rerender=1) — the point
+   struck through (is-done), not moved; the text, the owner (the tenant's
+   users by display name, "— nobody yet —" allowed) and the due date
+   autosave on change with hx-swap="none" (the OOB bundle answers). The due
+   date reads is-soon within seven days, as the list does. The ticket cell:
+   a point without a ticket offers "Create ticket →" into the Transactions
+   composer with the case and the point prefilled (D-CS-B-64); a linked
+   ticket reads "Ticket #n · status" and links to the Blotter (History once
+   booked or cancelled — no list row has an address of its own). A linked
+   point cannot be removed (ADR-0138 §5), so it offers no Remove. The add
+   line at the foot: text · owner · due.
+
+   A closed case renders the points read-only, no form and no ticket link to
+   create.
+
+   The note slot renders `block.note` itself (see cases_file_conversations.html).
+
+   Context: case_id, csrf_token, is_mutable, stamp, points — {title, sub,
+   add_label, points: [{id, text, done, state, owner_id, owner_label, due_on, due_label,
+   is_soon, ticket: {label, href} | none, create_ticket_href}], empty,
+   reveal, note, users: [{id, name}]}. #}
+{% set block = points %}
+{% if block.empty and not block.reveal %}
+<section class="pf-blk" id="cs-points" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="points"></section>
+{% else %}
+<section class="pf-blk" id="cs-points" data-pf-cs="block" data-pf-cs-name="points">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title" data-pf-cs="points-title">{{ block.title }}</h3>
+        <span class="pf-blk__sub">{{ block.sub }}</span>
+    </div>
+    {% if is_mutable %}<input type="hidden" name="stamp" id="cs-stamp-points" value="{{ stamp }}">{% endif %}
+
+    {% if block.points %}
+        <ul class="pf-check" data-pf-cs="points-list">
+            {% for point in block.points %}
+                <li class="pf-check__item{% if point.done %} is-done{% endif %}" id="cs-point-{{ point.id }}" data-pf-cs="point" data-pf-cs-state="{{ point.state }}">
+                    {% if is_mutable %}
+                        <form class="pf-check__form" data-pf-cs="point-form"
+                              hx-post="/api/cases/{{ case_id }}/points/{{ point.id }}"
+                              hx-trigger="change[target.name=='text'||target.name=='owner_user_id'||target.name=='due_on'], submit"
+                              hx-swap="none"
+                              hx-include="#cs-stamp-points"
+                              hx-sync="this:queue last">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="checkbox" name="done" value="1" aria-label="Done" data-pf-cs="point-done"
+                                   {% if point.done %}checked{% endif %}
+                                   hx-post="/api/cases/{{ case_id }}/points/{{ point.id }}?rerender=1"
+                                   hx-trigger="change"
+                                   hx-target="#cs-points"
+                                   hx-swap="outerHTML"
+                                   hx-sync="closest form:queue last">
+                            <input class="pf-input pf-check__text" type="text" name="text" value="{{ point.text }}"
+                                   aria-label="Point" autocomplete="off" data-pf-cs="point-text">
+                            <span class="pf-check__who">
+                                <select class="pf-select" name="owner_user_id" aria-label="Owner" data-pf-cs="point-owner">
+                                    <option value="">— nobody yet —</option>
+                                    {% for user in block.users %}<option value="{{ user.id }}"{% if user.id == point.owner_id %} selected{% endif %}>{{ user.name }}</option>{% endfor %}
+                                </select>
+                            </span>
+                            <span class="pf-check__due{% if point.is_soon %} is-soon{% endif %}" data-pf-cs="point-due">
+                                <input class="pf-input" type="date" name="due_on" value="{{ point.due_on }}" aria-label="Due">
+                            </span>
+                            <span class="pf-check__ticket" data-pf-cs="point-ticket">
+                                {%- if point.ticket -%}
+                                    <a href="{{ point.ticket.href }}">{{ point.ticket.label }}</a>
+                                {%- elif point.create_ticket_href -%}
+                                    <a href="{{ point.create_ticket_href }}">Create ticket →</a>
+                                {%- endif -%}
+                            </span>
+                            {% if not point.ticket %}
+                                <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="point-remove"
+                                        hx-post="/api/cases/{{ case_id }}/points/{{ point.id }}/remove"
+                                        hx-target="#cs-points"
+                                        hx-swap="outerHTML">Remove</button>
+                            {% endif %}
+                        </form>
+                    {% else %}
+                        <span class="pf-check__mark" aria-hidden="true">{% if point.done %}✓{% endif %}</span>
+                        <span class="pf-check__text" data-pf-cs="point-text">{{ point.text }}</span>
+                        {% if point.owner_label %}<span class="pf-check__who" data-pf-cs="point-owner">{{ point.owner_label }}</span>{% endif %}
+                        {% if point.due_label %}<span class="pf-check__due" data-pf-cs="point-due">{{ point.due_label }}</span>{% endif %}
+                        {% if point.ticket %}<span class="pf-check__ticket" data-pf-cs="point-ticket"><a href="{{ point.ticket.href }}">{{ point.ticket.label }}</a></span>{% endif %}
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    {% if is_mutable %}
+        {% if block.empty %}<p class="pf-hint" data-pf-cs="points-empty">No open point yet.</p>{% endif %}
+        <form class="pf-addline" data-pf-cs="point-add"
+              hx-post="/api/cases/{{ case_id }}/points"
+              hx-target="#cs-points"
+              hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="pf-field pf-addline__main">
+                <span class="pf-label">{{ block.add_label }}</span>
+                <input class="pf-input" type="text" name="text" autocomplete="off"{% if block.reveal %} autofocus{% endif %}>
+            </label>
+            <label class="pf-field">
+                <span class="pf-label">Owner <span class="pf-optional">(optional)</span></span>
+                <select class="pf-select" name="owner_user_id">
+                    <option value="">— nobody yet —</option>
+                    {% for user in block.users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="pf-field">
+                <span class="pf-label">Due <span class="pf-optional">(optional)</span></span>
+                <input class="pf-input" type="date" name="due_on">
+            </label>
+            <button type="submit" class="pf-btn">Add</button>
+        </form>
+    {% endif %}
+    <div id="cs-note-points" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
+</section>
+{% endif %}

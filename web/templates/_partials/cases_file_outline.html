@@ -1,9 +1,12 @@
-{# The file's outline (ADR-0138 §3, D-CS-B-50): the sections that exist, in
-   ADR order — The question · Where we stand (live / at close) · Threads
-   (count) · Figures (count) · Record (count). Refreshed out of band by every
-   save (rendered with ``oob`` inside cases_file_oob.html); in the first
-   render it carries no hx-swap-oob, since htmx 1.9 swaps nested OOB elements
-   too and #cs-outline is not yet in the page. An entry for a hidden-when-empty
+{# The file's outline (ADR-0138 §3, D-CS-B-50, D-CS-B-67): the sections that
+   exist, in ADR order — The question · Where we stand (live / at close) ·
+   Threads (count) · Figures (count) · Conversations (count) · Open points
+   (the open count; "Questions to ask" on a task, the label _outline sets by
+   framing) · Decision ("draft" / "n recorded") · Record (count). Refreshed
+   out of band by every save (rendered with ``oob`` inside
+   cases_file_oob.html); in the first render it carries no hx-swap-oob, since
+   htmx 1.9 swaps nested OOB elements too and #cs-outline is not yet in the
+   page. An entry for a hidden-when-empty
    section renders ``is-empty``; on an open or waiting case it carries "+" and
    reveals its block through the section endpoint (?reveal=1) into the
    block's placeholder (D-CS-B-57). A closed case has nothing to add: the

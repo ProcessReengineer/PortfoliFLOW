@@ -8,14 +8,15 @@
    bundle every save refreshes them from — the actions and the composer slot.
    Then the blocks in ADR order, each its own partial so the first render and
    a block's re-render cannot drift (D-CS-B-49): The question, Where we stand,
-   Threads and Figures (each an empty, hidden placeholder while it holds
-   nothing, D-CS-B-57), and the Record (the timeline partial, as P-CS-3a left
-   it). The crumb below is restated in the OOB bundle (cases_file_oob.html),
+   Threads, Figures, Conversations, Open points (Questions to ask on a task)
+   and the Decision (each of the last five an empty, hidden placeholder while
+   it holds nothing, D-CS-B-57, D-CS-B-67), and the Record (the timeline
+   partial, as P-CS-3a left it). The crumb below is restated in the OOB bundle (cases_file_oob.html),
    which rewrites it after every save so the head follows a rename.
 
    The actions render on an open or waiting case (is_mutable): Link
    investment… and Attach document… write the working file; the P-CS-3a
-   composers keep their open gate (is_open) until P-CS-3c.
+   composers keep their open gate (is_open) until P-CS-3c2.
 
    Context: see load_case_file_context in web/routes/cases.py. #}
 <h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
@@ -60,6 +61,9 @@
         {% include "_partials/cases_file_stand.html" %}
         {% include "_partials/cases_file_threads.html" %}
         {% include "_partials/cases_file_figures.html" %}
+        {% include "_partials/cases_file_conversations.html" %}
+        {% include "_partials/cases_file_points.html" %}
+        {% include "_partials/cases_file_decision.html" %}
 
         <section class="pf-blk" id="cs-record" data-pf-cs="block" data-pf-cs-name="record">
             <div class="pf-blk__head"><h3 class="pf-blk__title">Record</h3></div>

@@ -16,10 +16,12 @@ editable in place: The question (prose, counterparty, due date, framing), the
 investment links and documents, and Where we stand composed live (or *At
 close* from the frozen snapshot). P-CS-3b2 adds the title (the crumb follows),
 Threads and Figures — both hidden while empty and revealed from the outline's
-``+``; a ``book`` figure is read live through ``book_values_for``. The four
-composers (Add note / Pin document / Record decision / Close case), the
-attachment download pipeline with its caps and the pin timeline anatomy are
-unchanged.
+``+``; a ``book`` figure is read live through ``book_values_for``. P-CS-3c
+adds Conversations, Open points (*Questions to ask* on a task) with *Create
+ticket →* into the Transactions composer, and the Decision draft — all three
+hidden when empty. The four composers (Add note / Pin document / Record
+decision / Close case), the attachment download pipeline with its caps and the
+pin timeline anatomy are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -149,8 +151,8 @@ Endpoints
   Unknown or foreign ids resolve to ``None`` under RLS and are mapped to 404,
   the entity-detail idiom (``web/routes/investments.py``).
 * ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
-  (``question`` · ``stand`` · ``threads`` · ``figures``; ``reveal=1`` for the
-  outline's ``+``).
+  (``question`` · ``stand`` · ``threads`` · ``figures`` · ``conversations`` ·
+  ``points`` · ``decision``; ``reveal=1`` for the outline's ``+``).
 * ``POST /api/cases/{case_id}/question`` — the question's autosave
   (D-CS-B-44): the title, prose, counterparty, due date and framing, last
   write wins with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1``
@@ -165,17 +167,29 @@ Endpoints
 * ``POST /api/cases/{case_id}/figures`` · ``…/figures/{figure_id}`` ·
   ``…/figures/{figure_id}/remove`` — add a typed or a ``book`` figure, update
   one (a ``book`` row its label and note only) and delete one (D-CS-B-54).
+* ``POST /api/cases/{case_id}/conversations`` · ``…/conversations/{id}`` ·
+  ``…/conversations/{id}/remove`` — add, update (by presence) and delete a
+  conversation (D-CS-B-62).
+* ``POST /api/cases/{case_id}/points`` · ``…/points/{id}`` ·
+  ``…/points/{id}/remove`` — add, update (text · owner · due; ``done`` on the
+  re-render path) and delete an open point while no ticket is linked
+  (D-CS-B-63).
+* ``POST /api/cases/{case_id}/decision-draft`` — the decision draft's one
+  upsert: options, the chosen one, rationale, decided by and at; ``add_option``
+  / ``remove_option`` as structural intents (D-CS-B-66). Recording it is
+  P-CS-3c2's; the legacy ``POST …/decision`` composer is untouched.
 * The composer, write, download and close routes below. The working file
   writes on an open **or waiting** case; the P-CS-3a composers keep their
-  ``open`` gate until P-CS-3c.
+  ``open`` gate until P-CS-3c2.
 
 The OOB bundle (``_partials/cases_file_oob.html``) is what every save of the
 working file answers with: the crumb ``#cases-title``, ``#cs-saved``,
 ``#cs-facts``, ``#cs-outline``, the section stamps and ``#cs-note-<section>``.
 A text autosave swaps nothing in place (``hx-swap="none"``) and receives the
 bundle alone; a structural change (title, framing, link, attach, a thread's
-title or status, a figure's source, any add or remove) re-renders its block,
-followed by the bundle.
+title or status, a figure's source, a conversation's date, channel or
+duration, a point's done box, a decision option added, removed or chosen, any
+add or remove) re-renders its block, followed by the bundle.
 
 Reads use ``session = Depends(require_session)``; the write also takes
 ``_ = Depends(verify_csrf)`` and opens a ``tenant_context`` so it is
@@ -203,7 +217,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from starlette.datastructures import UploadFile
 
 from core.config import get_config
-from core.exceptions import CaseClosedError, CaseStateInvalid, CaseWorkingFileInvalid
+from core.exceptions import (
+    CaseClosedError,
+    CasePointLinked,
+    CaseStateInvalid,
+    CaseWorkingFileInvalid,
+)
 from core.repositories._session import tenant_context
 from core.repositories.case_attachment_repository import (
     CaseAttachmentRepository,
@@ -214,6 +233,10 @@ from core.repositories.case_repository import (
     CaseRepository,
 )
 from core.repositories.case_working_file_repository import (
+    CaseConversationDTO,
+    CaseConversationRepository,
+    CaseDecisionDTO,
+    CaseDecisionRepository,
     CaseFigureDTO,
     CaseFigureRepository,
     CaseInvestmentRepository,
@@ -227,6 +250,7 @@ from core.repositories.irene_finding_repository import (
     IreneFindingDTO,
     IreneFindingRepository,
 )
+from core.repositories.trade_ticket_repository import TradeTicketRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
 from services.cases.stand import (
@@ -237,6 +261,7 @@ from services.cases.stand import (
     headline_for,
 )
 from services.money_format import format_money_compact
+from services.transactions.constants import STATUS_BOOKED, STATUS_CANCELLED
 from services.watch_desk.family_status import FIGURE_UNIT_DAYS, FIGURE_UNIT_RATIO
 from web.auth import require_session, verify_csrf
 from web.routes.watch_desk import JOURNAL_DEEP_LINK, resolution_label
@@ -1019,8 +1044,17 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
 # ---------------------------------------------------------------------------
 
 #: The blocks the section endpoint renders and the stamps partial carries, in
-#: ADR order (D-CS-B-49, D-CS-B-59). P-CS-3c appends its blocks after "figures".
-_SECTION_NAMES: tuple[str, ...] = ("question", "stand", "threads", "figures")
+#: ADR order (D-CS-B-49, D-CS-B-59, D-CS-B-67). Record is not a section
+#: endpoint; it follows "decision" in the file and the outline.
+_SECTION_NAMES: tuple[str, ...] = (
+    "question",
+    "stand",
+    "threads",
+    "figures",
+    "conversations",
+    "points",
+    "decision",
+)
 
 #: One block partial per section name.
 _SECTION_TEMPLATES: dict[str, str] = {
@@ -1097,6 +1131,30 @@ _FIGURE_SOURCE_TEXT = (
 )
 _BOOK_ROW_TEXT = "A figure from the book takes only its label and note — its value is read live."
 
+#: A conversation's channel → its label, in the select's order (D-CS-B-62).
+_CHANNEL_LABELS: dict[str, str] = {"call": "Call", "meeting": "Meeting", "other": "Other"}
+
+#: ``framing`` → the Open points heading and its sub (D-CS-B-63, D-CS-M-1): a
+#: task's points are the questions to ask.
+_POINTS_TITLES: dict[str, str] = {"question": "Open points", "task": "Questions to ask"}
+_POINTS_SUBS: dict[str, str] = {
+    "question": "what has to happen, who, by when",
+    "task": "what to ask, whom, by when",
+}
+
+#: The fields a point row's form may carry besides ``done`` (D-CS-B-63).
+_POINT_FIELDS: tuple[str, ...] = ("text", "owner_user_id", "due_on")
+
+#: A linked ticket's statuses that list it under History, not the Blotter.
+_TERMINAL_TICKET_STATUSES: frozenset[str] = frozenset({STATUS_BOOKED, STATUS_CANCELLED})
+
+_HELD_ON_TEXT = "{raw!r} is not a date — write the day it was held as YYYY-MM-DD."
+_DURATION_TEXT = "{raw!r} is not a duration — write whole minutes, or leave it empty."
+_POINT_DUE_TEXT = "{raw!r} is not a date — write the due date as YYYY-MM-DD."
+_DECIDED_AT_TEXT = "{raw!r} is not a date — write the decision date as YYYY-MM-DD."
+_OWNER_TEXT = "Choose a user of this tenant."
+_CHOSEN_REMOVED_TEXT = "The chosen option was removed — choose again."
+
 
 def _framing(case: CaseDTO) -> str:
     """The case's framing, ``question`` when unset."""
@@ -1130,16 +1188,38 @@ def _note(text: str, tone: str = "info") -> dict[str, str]:
     return {"text": text, "tone": tone}
 
 
-def _outline(
-    case: CaseDTO, *, record_count: int, threads_count: int, figures_count: int
-) -> list[dict[str, Any]]:
-    """The outline's entries, in ADR order, for the sections that exist (D-CS-B-50).
+def _decision_count_label(recorded: int, *, has_draft: bool) -> str:
+    """The Decision entry's count: ``n recorded`` · ``draft`` (either, both, or ``""``)."""
+    parts: list[str] = []
+    if recorded:
+        parts.append(f"{recorded} recorded")
+    if has_draft:
+        parts.append("draft")
+    return " · ".join(parts)
 
-    Threads and Figures are hidden when empty (D-CS-B-57): their entry has
-    ``empty`` set and renders grey. On an open or waiting case it carries
-    ``+`` and reveals the block through ``reveal_href``; a closed case has
-    nothing to add, so its empty entry is grey alone (``reveal_href`` is
-    ``None``). A non-empty entry reads its count.
+
+def _outline(
+    case: CaseDTO,
+    *,
+    record_count: int,
+    threads_count: int,
+    figures_count: int,
+    conversations_count: int = 0,
+    points_open: int = 0,
+    points_total: int = 0,
+    decision_label: str = "",
+) -> list[dict[str, Any]]:
+    """The outline's entries, in ADR order, for the sections that exist (D-CS-B-50, D-CS-B-67).
+
+    The question · Where we stand · Threads · Figures · Conversations · Open
+    points (*Questions to ask* on a task) · Decision · Record. Threads,
+    Figures, Conversations, Open points and Decision are hidden when empty
+    (D-CS-B-57): their entry has ``empty`` set and renders grey. On an open or
+    waiting case it carries ``+`` and reveals the block through
+    ``reveal_href``; a closed case has nothing to add, so its empty entry is
+    grey alone (``reveal_href`` is ``None``). A non-empty entry reads its
+    count — Open points the **open** count (a done point still lists it),
+    Decision ``draft`` / ``n recorded`` (:func:`_decision_count_label`).
     """
     is_mutable = case.state in _MUTABLE_STATES
 
@@ -1179,6 +1259,27 @@ def _outline(
             revealable=is_mutable,
             empty=figures_count == 0,
         ),
+        entry(
+            "conversations",
+            "Conversations",
+            str(conversations_count),
+            revealable=is_mutable,
+            empty=conversations_count == 0,
+        ),
+        entry(
+            "points",
+            _POINTS_TITLES[_framing(case)],
+            str(points_open),
+            revealable=is_mutable,
+            empty=points_total == 0,
+        ),
+        entry(
+            "decision",
+            "Decision",
+            decision_label,
+            revealable=is_mutable,
+            empty=not decision_label,
+        ),
         entry("record", "Record", str(record_count), revealable=False),
     ]
 
@@ -1189,10 +1290,11 @@ async def _frame_context(
     """What the file renders around its blocks, and what every save refreshes.
 
     The head (the crumb reads its badge and title), the facts (with the
-    linked count and the attachments row), the outline (with the Threads and
-    Figures counts), the stamp, the record's entries and the action hrefs.
-    The OOB bundle (``cases_file_oob.html``) renders from exactly this, so the
-    first render and a save's refresh cannot drift.
+    linked count and the attachments row), the outline (with the Threads,
+    Figures, Conversations, Open points and Decision counts), the stamp, the
+    record's entries and the action hrefs. The OOB bundle
+    (``cases_file_oob.html``) renders from exactly this, so the first render
+    and a save's refresh cannot drift.
     """
     entries = await CaseRepository(db_session).list_entries(case.id)
 
@@ -1209,6 +1311,13 @@ async def _frame_context(
     links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
     threads_count = len(await CaseThreadRepository(db_session).list_for_case(case.id))
     figures_count = len(await CaseFigureRepository(db_session).list_for_case(case.id))
+    conversations_count = len(await CaseConversationRepository(db_session).list_for_case(case.id))
+    points = await CasePointRepository(db_session).list_for_case(case.id)
+    decisions = CaseDecisionRepository(db_session)
+    decision_label = _decision_count_label(
+        len(await decisions.list_recorded(case.id)),
+        has_draft=await decisions.get_draft(case.id) is not None,
+    )
 
     opened_text = _opened_text(case, finding)
     is_open = case.state == "open"
@@ -1230,6 +1339,10 @@ async def _frame_context(
             record_count=len(entries),
             threads_count=threads_count,
             figures_count=figures_count,
+            conversations_count=conversations_count,
+            points_open=sum(1 for point in points if point.done_at is None),
+            points_total=len(points),
+            decision_label=decision_label,
         ),
         "entries": [
             _project_entry(entry, owner_names, opened_text=opened_text) for entry in entries
@@ -1818,6 +1931,225 @@ async def _figures_context(
     }
 
 
+# --- Conversations, Open points, the Decision draft (P-CS-3c) --------------
+
+
+def _conversation_when(conversation: CaseConversationDTO) -> str:
+    """``dd Mon YYYY · Call · 20 min`` — a conversation's stamp column (D-CS-B-62)."""
+    parts = [
+        _day(conversation.held_on),
+        _CHANNEL_LABELS.get(conversation.channel, conversation.channel.capitalize()),
+    ]
+    if conversation.duration_minutes is not None:
+        parts.append(f"{conversation.duration_minutes} min")
+    return " · ".join(parts)
+
+
+async def _conversations_context(
+    db_session: AsyncSession, case: CaseDTO, *, reveal: bool
+) -> dict[str, Any]:
+    """Conversations (D-CS-B-62): ``{conversations[{id, held_on, channel, when, with_whom,
+    what_was_said, what_was_promised, duration}], empty, reveal, focus_id, note,
+    channels[{value, label}], today}``.
+
+    The case's conversations in ``position`` order — the repository lists the
+    newest ``held_on`` first, the block lists them in the order they were
+    added, so an added row lands above the add form at the foot. A closed case
+    reads the same rows (its working file is read-only). ``focus_id`` (a
+    conversation just added) and ``note`` (a note the block must carry itself
+    when it is re-rendered, since the bundle's out-of-band note lands in the
+    slot the re-render replaces) are set by the write routes. ``today`` (UTC)
+    is the add form's default *held on*.
+    """
+    conversations = sorted(
+        await CaseConversationRepository(db_session).list_for_case(case.id),
+        key=lambda conversation: conversation.position,
+    )
+    return {
+        "conversations": [
+            {
+                "id": str(conversation.id),
+                "held_on": conversation.held_on.isoformat(),
+                "channel": conversation.channel,
+                "when": _conversation_when(conversation),
+                "with_whom": conversation.with_whom,
+                "what_was_said": conversation.what_was_said,
+                "what_was_promised": conversation.what_was_promised or "",
+                "duration": (
+                    ""
+                    if conversation.duration_minutes is None
+                    else str(conversation.duration_minutes)
+                ),
+            }
+            for conversation in conversations
+        ],
+        "empty": not conversations,
+        "reveal": reveal,
+        "focus_id": None,
+        "note": None,
+        "channels": [{"value": value, "label": label} for value, label in _CHANNEL_LABELS.items()],
+        "today": _now().date().isoformat(),
+    }
+
+
+async def _points_context(
+    db_session: AsyncSession, case: CaseDTO, *, reveal: bool
+) -> dict[str, Any]:
+    """Open points (D-CS-B-63): ``{title, sub, add_label, points[{id, text, done, state,
+    owner_id, owner_label, due_on, due_label, is_soon, ticket, create_ticket_href}], empty,
+    reveal, note, users[{id, name}]}``.
+
+    The heading is *Open points*, or *Questions to ask* on a task (D-CS-M-1).
+    The points in ``position`` order — a ticked point keeps its place, struck
+    through, until it is removed. The tenant's users are read once
+    (``list_all``), the active ones offered as owners by display name, an
+    inactive owner kept so the select still says who it is. A linked ticket
+    is read per point (``TradeTicketRepository.get``) and reads *Ticket #n ·
+    status*, linking to the Blotter (or History, once booked or cancelled) —
+    no row of either list has an address of its own. A point without a
+    ticket on an open or waiting case offers *Create ticket →*
+    (``create_ticket_href``, D-CS-B-64). ``is_soon``: undone and due within
+    seven days of today (UTC), overdue included — the list's rule.
+    """
+    points = sorted(
+        await CasePointRepository(db_session).list_for_case(case.id),
+        key=lambda point: point.position,
+    )
+    is_mutable = case.state in _MUTABLE_STATES
+    users = await UserRepository(db_session).list_all()
+    names = {user.id: user.display_name or user.email for user in users}
+    owners = {point.owner_user_id for point in points if point.owner_user_id is not None}
+    tickets = TradeTicketRepository(db_session)
+    today = _now().date()
+    framing = _framing(case)
+
+    rows: list[dict[str, Any]] = []
+    for point in points:
+        ticket: dict[str, str] | None = None
+        if point.ticket_id is not None:
+            linked = await tickets.get(point.ticket_id)
+            ticket = {
+                "label": (
+                    f"Ticket #{linked.ticket_number} · {linked.status}"
+                    if linked is not None
+                    else "Ticket"
+                ),
+                "href": (
+                    "/transactions#history"
+                    if linked is not None and linked.status in _TERMINAL_TICKET_STATUSES
+                    else "/transactions#blotter"
+                ),
+            }
+        done = point.done_at is not None
+        owner = point.owner_user_id
+        rows.append(
+            {
+                "id": str(point.id),
+                "text": point.text,
+                "done": done,
+                "state": "done" if done else "open",
+                "owner_id": str(owner) if owner is not None else "",
+                "owner_label": names.get(owner, str(owner)) if owner is not None else "",
+                "due_on": point.due_on.isoformat() if point.due_on is not None else "",
+                "due_label": _day(point.due_on) if point.due_on is not None else "",
+                "is_soon": (
+                    not done
+                    and point.due_on is not None
+                    and point.due_on - today <= timedelta(days=_SOON_DAYS)
+                ),
+                "ticket": ticket,
+                "create_ticket_href": (
+                    "/transactions?" + urlencode({"case": str(case.id), "point": str(point.id)})
+                    if is_mutable and point.ticket_id is None
+                    else None
+                ),
+            }
+        )
+
+    return {
+        "title": _POINTS_TITLES[framing],
+        "sub": _POINTS_SUBS[framing],
+        "add_label": "New question" if framing == "task" else "New point",
+        "points": rows,
+        "empty": not rows,
+        "reveal": reveal,
+        "note": None,
+        "users": [
+            {"id": str(user.id), "name": names[user.id]}
+            for user in sorted(users, key=lambda user: names[user.id].lower())
+            if user.is_active or user.id in owners
+        ],
+    }
+
+
+def _decision_options(decision: CaseDecisionDTO) -> list[dict[str, Any]]:
+    """A decision's options as ``{key, text, chosen}``, read defensively off the JSONB."""
+    options: list[dict[str, Any]] = []
+    for option in decision.options:
+        if not isinstance(option, dict):
+            continue
+        key = str(option.get("key") or "")
+        options.append(
+            {
+                "key": key,
+                "text": str(option.get("text") or ""),
+                "chosen": bool(key) and key == decision.chosen_key,
+            }
+        )
+    return options
+
+
+def _project_recorded(decision: CaseDecisionDTO) -> dict[str, str]:
+    """One recorded decision, read-only (D-CS-B-66)."""
+    chosen = next((o["text"] for o in _decision_options(decision) if o["chosen"]), "")
+    recorded_at = cast(datetime, decision.recorded_at).astimezone(timezone.utc)
+    return {
+        "recorded": f"Recorded {recorded_at:%d %b %Y %H:%M}",
+        "chosen": chosen,
+        "rationale": decision.rationale or "",
+        "decided_by": decision.decided_by or "",
+        "decided_at": _day(decision.decided_at) if decision.decided_at is not None else "",
+    }
+
+
+async def _decision_context(
+    db_session: AsyncSession, case: CaseDTO, *, reveal: bool
+) -> dict[str, Any]:
+    """The Decision (D-CS-B-66): ``{recorded[{recorded, chosen, rationale, decided_by,
+    decided_at}], draft {id, options[{key, text, chosen}], rationale, decided_by,
+    decided_at} | None, empty, reveal, focus_key, note}``.
+
+    The recorded decisions first, newest first (the repository lists them
+    oldest first), read-only; then the case's draft, if there is one — the
+    options, the chosen one, the rationale, decided by and at. A draft may be
+    incomplete: the repository refuses only *recording* it without a chosen
+    option and a rationale (D-CS-B-10), and recording is P-CS-3c2's. A case
+    with neither is ``empty``. ``focus_key`` (an option just added) and
+    ``note`` are set by the write route.
+    """
+    decisions = CaseDecisionRepository(db_session)
+    draft = await decisions.get_draft(case.id)
+    recorded = list(reversed(await decisions.list_recorded(case.id)))
+    return {
+        "recorded": [_project_recorded(decision) for decision in recorded],
+        "draft": (
+            {
+                "id": str(draft.id),
+                "options": _decision_options(draft),
+                "rationale": draft.rationale or "",
+                "decided_by": draft.decided_by or "",
+                "decided_at": draft.decided_at.isoformat() if draft.decided_at else "",
+            }
+            if draft is not None
+            else None
+        ),
+        "empty": draft is None and not recorded,
+        "reveal": reveal,
+        "focus_key": None,
+        "note": None,
+    }
+
+
 async def load_section_context(
     db_session: AsyncSession,
     case: CaseDTO,
@@ -1832,10 +2164,12 @@ async def load_section_context(
     The shared keys (``csrf_token``, ``case_id``, ``is_mutable``, ``stamp``,
     ``reveal``) plus one key named after the section: ``question`` (see
     :func:`_question_context`), ``stand`` (see :func:`_stand_context`),
-    ``threads`` (see :func:`_threads_context`) or ``figures`` (see
-    :func:`_figures_context`). :func:`load_case_file_context` composes the
-    file from the same calls, so the first render and a block's re-render
-    cannot drift.
+    ``threads`` (see :func:`_threads_context`), ``figures`` (see
+    :func:`_figures_context`), ``conversations`` (see
+    :func:`_conversations_context`), ``points`` (see :func:`_points_context`)
+    or ``decision`` (see :func:`_decision_context`).
+    :func:`load_case_file_context` composes the file from the same calls, so
+    the first render and a block's re-render cannot drift.
 
     Args:
         db_session: A tenant-scoped session.
@@ -1869,6 +2203,12 @@ async def load_section_context(
         context["threads"] = await _threads_context(db_session, case, reveal=reveal)
     elif name == "figures":
         context["figures"] = await _figures_context(db_session, case, stand=stand, reveal=reveal)
+    elif name == "conversations":
+        context["conversations"] = await _conversations_context(db_session, case, reveal=reveal)
+    elif name == "points":
+        context["points"] = await _points_context(db_session, case, reveal=reveal)
+    elif name == "decision":
+        context["decision"] = await _decision_context(db_session, case, reveal=reveal)
     else:
         raise ValueError(f"Unknown section {name!r}; expected one of {', '.join(_SECTION_NAMES)}.")
     return context
@@ -1885,7 +2225,8 @@ async def load_case_file_context(
     ``linked_finding``, ``linked_label``, ``attachments_count`` /
     ``attachments_cap`` / ``show_attachments``, ``journal_href``,
     ``capture_scenario_href``, ``consult_shirley_href``. Then one key per
-    section (``question``, ``stand``, ``threads``, ``figures``) from
+    section (``question``, ``stand``, ``threads``, ``figures``,
+    ``conversations``, ``points``, ``decision``) from
     :func:`load_section_context`.
 
     An open or waiting case is composed **once** here (D-CS-B-11, D-CS-B-55):
@@ -1894,9 +2235,9 @@ async def load_case_file_context(
 
     The write actions of P-CS-3a's composers (note, pin, decision, close,
     capture, consult) are offered on an *open* case only (``is_open``); the
-    working file — the question, links, documents, threads and figures — on
-    an open or waiting one (``is_mutable``, D-CS-B-52). A closed case renders
-    read-only.
+    working file — the question, links, documents, threads, figures,
+    conversations, open points and the decision draft — on an open or
+    waiting one (``is_mutable``, D-CS-B-52). A closed case renders read-only.
 
     Args:
         db_session: A tenant-scoped session.
@@ -3126,6 +3467,634 @@ async def post_case_figure_remove(
         session.user_id,
         case_id,
         figure_id,
+    )
+    return _render_parts(request, parts)
+
+
+# ---------------------------------------------------------------------------
+# The editable file's writes (P-CS-3c): Conversations, Open points and the
+# Decision draft, on the 3b2 helpers — ``_writable_case``, ``_case_<row>``,
+# ``_answer_parts``, ``_note_refusal``, ``_stale_note`` on the update routes.
+# A text autosave answers the bundle alone; a structural change (add, remove,
+# a conversation's date, channel or duration, a point's done box, an option
+# added, removed or chosen) re-renders its block, followed by the bundle. A
+# re-rendered block carries its own note: the bundle's out-of-band note lands
+# in the slot the re-render then replaces (htmx 1.9 swaps OOB content first).
+# ---------------------------------------------------------------------------
+
+
+async def _case_conversation(
+    db: AsyncSession, case_id: UUID, conversation_id: UUID
+) -> CaseConversationDTO:
+    """The conversation ``conversation_id`` of ``case_id``; another case's or an unknown id → 404."""
+    conversation = await CaseConversationRepository(db).get(conversation_id)
+    if conversation is None or conversation.case_id != case_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    return conversation
+
+
+async def _case_point(db: AsyncSession, case_id: UUID, point_id: UUID) -> CasePointDTO:
+    """The open point ``point_id`` of ``case_id``; another case's or an unknown id → 404."""
+    point = await CasePointRepository(db).get(point_id)
+    if point is None or point.case_id != case_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Point not found.")
+    return point
+
+
+def _parse_held_on(raw: str) -> date:
+    """A conversation's day, ``YYYY-MM-DD`` strictly; ``ValueError`` otherwise, empty included."""
+    held_on = _parse_due(raw)
+    if held_on is None:
+        raise ValueError(raw)
+    return held_on
+
+
+def _parse_minutes(raw: str) -> int | None:
+    """Whole minutes (up to five ASCII digits), ``None`` when empty; ``ValueError`` otherwise."""
+    if not raw:
+        return None
+    if not (raw.isascii() and raw.isdigit() and len(raw) <= 5):
+        raise ValueError(raw)
+    return int(raw)
+
+
+async def _tenant_user(db: AsyncSession, raw: str) -> UUID | None:
+    """A point's owner: a user of the active tenant, ``None`` when blank (D-CS-B-63).
+
+    Raises:
+        ValueError: If ``raw`` is not a user id this tenant can see — RLS
+            hides another tenant's users, so they read as unknown.
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    user_id = UUID(text)
+    if await UserRepository(db).get_by_id(user_id) is None:
+        raise ValueError(text)
+    return user_id
+
+
+def _renumber_options(
+    keys: list[str],
+    texts: list[str],
+    *,
+    remove: str | None,
+    add: bool,
+    chosen: str | None,
+) -> tuple[list[dict[str, str]], str | None, bool]:
+    """The draft's options as posted, renumbered ``o1``, ``o2``, … in row order (D-CS-B-66).
+
+    ``keys`` are the rows' stored keys (the form's hidden ``option_key``),
+    paired with ``texts`` by position; when the two lists do not pair up the
+    rows read positionally (``o1`` …). ``remove`` drops the row keyed so,
+    ``add`` appends an empty row. The chosen key follows its option through
+    the renumbering.
+
+    Returns:
+        ``(options, chosen_key, chosen_removed)``: the ``{key, text}`` list;
+        the chosen key renumbered — ``None`` when nothing was chosen or the
+        chosen option was the one removed (``chosen_removed`` is then
+        ``True``), else as sent when it names no row, so the repository
+        refuses it in its own words.
+    """
+    if len(keys) != len(texts) or not all(keys):
+        keys = [f"o{index}" for index in range(1, len(texts) + 1)]
+    rows: list[tuple[str | None, str]] = list(zip(keys, texts, strict=True))
+    if remove is not None:
+        rows = [row for row in rows if row[0] != remove]
+    if add:
+        rows.append((None, ""))
+    options = [{"key": f"o{index}", "text": text} for index, (_, text) in enumerate(rows, 1)]
+    renamed = {key: f"o{index}" for index, (key, _) in enumerate(rows, 1) if key is not None}
+    if chosen is None:
+        return options, None, False
+    if chosen in renamed:
+        return options, renamed[chosen], False
+    if remove is not None and chosen == remove:
+        return options, None, True
+    return options, chosen, False
+
+
+@router.post("/api/cases/{case_id}/conversations", response_class=HTMLResponse)
+async def post_case_conversation_add(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Add a conversation (D-CS-B-62): held on, channel, with whom, what was said.
+
+    ``held_on`` is ``YYYY-MM-DD`` — empty is today (UTC), anything else →
+    400 with ``_HELD_ON_TEXT``; ``channel`` *call* when not sent (the
+    repository refuses one outside *call · meeting · other*, verbatim);
+    ``what_was_promised`` and ``duration_minutes`` optional. Answers the
+    block — the new row's *what was promised* focused — and the bundle.
+    """
+    form = await _request_form(request)
+    raw_held = str(form.get("held_on") or "").strip()
+    try:
+        held_on = _parse_held_on(raw_held) if raw_held else _now().date()
+    except ValueError:
+        return _note_refusal(
+            request,
+            "conversations",
+            _HELD_ON_TEXT.format(raw=raw_held),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    raw_minutes = str(form.get("duration_minutes") or "").strip()
+    try:
+        duration = _parse_minutes(raw_minutes)
+    except ValueError:
+        return _note_refusal(
+            request,
+            "conversations",
+            _DURATION_TEXT.format(raw=raw_minutes),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="conversations", action="conversation add"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        try:
+            conversation = await CaseConversationRepository(db).add(
+                case_id,
+                held_on=held_on,
+                now=_now(),
+                channel=str(form.get("channel") or "").strip() or "call",
+                with_whom=str(form.get("with_whom") or "").strip(),
+                what_was_said=str(form.get("what_was_said") or "").strip(),
+                what_was_promised=_optional_text(form, "what_was_promised"),
+                duration_minutes=duration,
+            )
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "conversations", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "conversations", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "conversations",
+            rerender=True,
+            note=None,
+            block_keys={"focus_id": str(conversation.id)},
+        )
+
+    logger.info(
+        "cases conversation add: tenant=%s user=%s case=%s conversation=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        conversation.id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/conversations/{conversation_id}", response_class=HTMLResponse)
+async def post_case_conversation(
+    request: Request,
+    case_id: UUID,
+    conversation_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Update a conversation (D-CS-B-62), partial by presence.
+
+    ``held_on`` strict ``YYYY-MM-DD`` (anything else, empty included → 400,
+    nothing saved); ``channel`` validated by the repository (its refusal →
+    400 verbatim); ``with_whom`` and ``what_was_said`` stripped;
+    ``what_was_promised`` stripped, ``None`` when empty; ``duration_minutes``
+    whole minutes or empty for none (anything else → 400).
+
+    Answers the bundle alone (the text autosave); ``rerender=1`` (held on,
+    channel and duration — the row's stamp column reads them) answers the
+    block too. Last write wins with a note (D-CS-B-45). Another case's or an
+    unknown conversation → 404.
+    """
+    form = await _request_form(request)
+    values: dict[str, Any] = {}
+    if "held_on" in form:
+        raw_held = str(form.get("held_on") or "").strip()
+        try:
+            values["held_on"] = _parse_held_on(raw_held)
+        except ValueError:
+            return _note_refusal(
+                request,
+                "conversations",
+                _HELD_ON_TEXT.format(raw=raw_held),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+    if "channel" in form:
+        values["channel"] = str(form.get("channel") or "").strip()
+    if "with_whom" in form:
+        values["with_whom"] = str(form.get("with_whom") or "").strip()
+    if "what_was_said" in form:
+        values["what_was_said"] = str(form.get("what_was_said") or "").strip()
+    if "what_was_promised" in form:
+        values["what_was_promised"] = _optional_text(form, "what_was_promised")
+    if "duration_minutes" in form:
+        raw_minutes = str(form.get("duration_minutes") or "").strip()
+        try:
+            values["duration_minutes"] = _parse_minutes(raw_minutes)
+        except ValueError:
+            return _note_refusal(
+                request,
+                "conversations",
+                _DURATION_TEXT.format(raw=raw_minutes),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="conversations", action="conversation update"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_conversation(db, case_id, conversation_id)
+        note = _stale_note(case, form.get("stamp"))
+        try:
+            await CaseConversationRepository(db).update(conversation_id, now=_now(), **values)
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "conversations", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except CaseClosedError:
+            return _note_refusal(request, "conversations", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "conversations",
+            rerender=rerender,
+            note=note,
+            block_keys={"note": note},
+        )
+
+    logger.info(
+        "cases conversation update: tenant=%s user=%s case=%s conversation=%s fields=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        conversation_id,
+        ",".join(sorted(values)),
+    )
+    return _render_parts(request, parts)
+
+
+@router.post(
+    "/api/cases/{case_id}/conversations/{conversation_id}/remove", response_class=HTMLResponse
+)
+async def post_case_conversation_remove(
+    request: Request,
+    case_id: UUID,
+    conversation_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Delete a conversation (D-CS-B-62): no confirm, a hard delete (snapshots embed by value).
+
+    Answers the block without the row — the hidden placeholder when it was
+    the last — and the bundle. Another case's or an unknown conversation → 404.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="conversations", action="conversation remove"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_conversation(db, case_id, conversation_id)
+        try:
+            await CaseConversationRepository(db).delete(conversation_id, now=_now())
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "conversations", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "conversations", rerender=True, note=None)
+
+    logger.info(
+        "cases conversation remove: tenant=%s user=%s case=%s conversation=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        conversation_id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/points", response_class=HTMLResponse)
+async def post_case_point_add(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Add an open point (D-CS-B-63): text · owner · due.
+
+    The text is required — the repository's refusal answers 400 verbatim.
+    ``owner_user_id`` blank or a user of this tenant (else 400 *Choose a user
+    of this tenant.*); ``due_on`` ``YYYY-MM-DD`` or empty (else 400). Answers
+    the block, the add line focused for the next point, and the bundle.
+    """
+    form = await _request_form(request)
+    raw_due = str(form.get("due_on") or "").strip()
+    try:
+        due_on = _parse_due(raw_due) if raw_due else None
+    except ValueError:
+        return _note_refusal(
+            request,
+            "points",
+            _POINT_DUE_TEXT.format(raw=raw_due),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="points", action="point add"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        try:
+            owner = await _tenant_user(db, str(form.get("owner_user_id") or ""))
+        except ValueError:
+            return _note_refusal(
+                request, "points", _OWNER_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            point = await CasePointRepository(db).add(
+                case_id,
+                text=str(form.get("text") or ""),
+                now=_now(),
+                owner_user_id=owner,
+                due_on=due_on,
+            )
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "points", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "points", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db, case_id, session, "points", rerender=True, note=None, block_keys={"reveal": True}
+        )
+
+    logger.info(
+        "cases point add: tenant=%s user=%s case=%s point=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        point.id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/points/{point_id}", response_class=HTMLResponse)
+async def post_case_point(
+    request: Request,
+    case_id: UUID,
+    point_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Update an open point (D-CS-B-63): text · owner · due by presence, and done.
+
+    ``text`` as sent (the repository strips it and refuses an empty one →
+    400 verbatim); ``owner_user_id`` blank or a user of this tenant (else 400
+    *Choose a user of this tenant.*); ``due_on`` ``YYYY-MM-DD`` or empty for
+    none (else 400). ``done`` is the checkbox and is read on the
+    ``rerender=1`` path only, where the box posts: present → ``mark_done``,
+    absent → ``mark_open`` — each only when it changes the point, so a
+    re-tick keeps the first ``done_at``. The text autosave never touches it.
+
+    Answers the bundle alone (text, owner and due autosave); ``rerender=1``
+    answers the block too, the point struck through (``is-done``) or not.
+    Last write wins with a note (D-CS-B-45). Another case's or an unknown
+    point → 404.
+    """
+    form = await _request_form(request)
+    values: dict[str, Any] = {}
+    if "text" in form:
+        values["text"] = str(form.get("text") or "")
+    if "due_on" in form:
+        raw_due = str(form.get("due_on") or "").strip()
+        try:
+            values["due_on"] = _parse_due(raw_due) if raw_due else None
+        except ValueError:
+            return _note_refusal(
+                request,
+                "points",
+                _POINT_DUE_TEXT.format(raw=raw_due),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="points", action="point update"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        point = await _case_point(db, case_id, point_id)
+        if "owner_user_id" in form:
+            try:
+                values["owner_user_id"] = await _tenant_user(
+                    db, str(form.get("owner_user_id") or "")
+                )
+            except ValueError:
+                return _note_refusal(
+                    request, "points", _OWNER_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+                )
+        note = _stale_note(case, form.get("stamp"))
+        points = CasePointRepository(db)
+        done: bool | None = None
+        try:
+            if values:
+                await points.update(point_id, now=_now(), **values)
+            if rerender:
+                if "done" in form and point.done_at is None:
+                    done = True
+                    await points.mark_done(point_id, now=_now())
+                elif "done" not in form and point.done_at is not None:
+                    done = False
+                    await points.mark_open(point_id, now=_now())
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "points", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except CaseClosedError:
+            return _note_refusal(request, "points", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db, case_id, session, "points", rerender=rerender, note=note, block_keys={"note": note}
+        )
+
+    logger.info(
+        "cases point update: tenant=%s user=%s case=%s point=%s fields=%s done=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        point_id,
+        ",".join(sorted(values)),
+        done,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/points/{point_id}/remove", response_class=HTMLResponse)
+async def post_case_point_remove(
+    request: Request,
+    case_id: UUID,
+    point_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Delete an open point (D-CS-B-63): no confirm, a hard delete while no ticket is linked.
+
+    A point a ticket was created from is the forward half of the provenance
+    chain (ADR-0138 §5): the repository's ``CasePointLinked`` refusal answers
+    400 verbatim and nothing is deleted (the block offers no *Remove* on such
+    a point). Answers the block — the hidden placeholder when it was the
+    last — and the bundle. Another case's or an unknown point → 404.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="points", action="point remove"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_point(db, case_id, point_id)
+        try:
+            await CasePointRepository(db).delete(point_id, now=_now())
+        except CasePointLinked as exc:
+            return _note_refusal(
+                request, "points", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "points", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "points", rerender=True, note=None)
+
+    logger.info(
+        "cases point remove: tenant=%s user=%s case=%s point=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        point_id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/decision-draft", response_class=HTMLResponse)
+async def post_case_decision_draft(
+    request: Request,
+    case_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Save the decision draft (D-CS-B-66) — the one upsert for the whole draft form.
+
+    The options are the posted rows (``option_key`` + ``option_text``, in
+    row order), renumbered ``o1``, ``o2``, … by :func:`_renumber_options`;
+    ``add_option=1`` appends an empty row (focused on the re-render),
+    ``remove_option=<key>`` drops one. ``chosen_key`` follows its option;
+    when the chosen option is the one removed it is cleared, with the note
+    *The chosen option was removed — choose again.* ``rationale`` and
+    ``decided_by`` stripped, ``None`` when empty; ``decided_at``
+    ``YYYY-MM-DD`` or empty (else 400). Everything is written by presence
+    through ``upsert_draft``, which creates the case's draft when there is
+    none — after a recorded decision that is a second decision (D-CS-M-3) —
+    and refuses a malformed option list or a chosen key naming no option
+    (400 verbatim). The draft may stay incomplete; recording it is P-CS-3c2's.
+
+    Answers the bundle alone (option texts, rationale, decided by and at
+    autosave); ``rerender=1`` (add, remove, the chosen radio) answers the
+    block too. Last write wins with a note when a draft existed (D-CS-B-45).
+    """
+    form = await _request_form(request)
+    add_option = bool(str(form.get("add_option") or "").strip())
+    remove_key = str(form.get("remove_option") or "").strip() or None
+    values: dict[str, Any] = {}
+    if "rationale" in form:
+        values["rationale"] = _optional_text(form, "rationale")
+    if "decided_by" in form:
+        values["decided_by"] = _optional_text(form, "decided_by")
+    if "decided_at" in form:
+        raw_decided = str(form.get("decided_at") or "").strip()
+        try:
+            values["decided_at"] = _parse_due(raw_decided) if raw_decided else None
+        except ValueError:
+            return _note_refusal(
+                request,
+                "decision",
+                _DECIDED_AT_TEXT.format(raw=raw_decided),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="decision", action="decision draft"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        decisions = CaseDecisionRepository(db)
+        draft = await decisions.get_draft(case_id)
+        note = _stale_note(case, form.get("stamp")) if draft is not None else None
+        chosen: str | None = (
+            str(form.get("chosen_key") or "").strip() or None
+            if "chosen_key" in form
+            else (draft.chosen_key if draft is not None else None)
+        )
+        focus_key: str | None = None
+        if "option_text" in form or add_option or remove_key is not None:
+            options, chosen, chosen_removed = _renumber_options(
+                [str(key).strip() for key in form.getlist("option_key")],
+                [str(text).strip() for text in form.getlist("option_text")],
+                remove=remove_key,
+                add=add_option,
+                chosen=chosen,
+            )
+            values["options"] = options
+            values["chosen_key"] = chosen
+            if chosen_removed:
+                note = _note(_CHOSEN_REMOVED_TEXT)
+            if add_option and options:
+                focus_key = options[-1]["key"]
+        elif "chosen_key" in form:
+            values["chosen_key"] = chosen
+        try:
+            await decisions.upsert_draft(case_id, now=_now(), **values)
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "decision", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "decision", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "decision",
+            rerender=rerender,
+            note=note,
+            block_keys={"note": note, "focus_key": focus_key},
+        )
+
+    logger.info(
+        "cases decision draft: tenant=%s user=%s case=%s fields=%s created=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        ",".join(sorted(values)),
+        draft is None,
     )
     return _render_parts(request, parts)
 

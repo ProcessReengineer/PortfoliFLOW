@@ -18,6 +18,9 @@
    A closed case renders the rows read-only from the snapshot frozen at
    close, whose `book` rows carry the value frozen then.
 
+   The note slot renders `block.note` itself when the block is re-rendered
+   (see cases_file_conversations.html; the 3c report's F-3c-5).
+
    Context: case_id, csrf_token, is_mutable, stamp, figures — {figures:
    [{id, label, value, pending, source, editable_source, chip_css,
    chip_label, ref_label, note, as_of, is_book, live}], empty, reveal,
@@ -169,6 +172,6 @@
             </form>
         </div>
     {% endif %}
-    <div id="cs-note-figures" class="pf-case__note" data-pf-cs="note-slot"></div>
+    <div id="cs-note-figures" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
 </section>
 {% endif %}

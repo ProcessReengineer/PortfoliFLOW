@@ -1,0 +1,45 @@
+{# Hand-over composer (ADR-0138 §13, D-CS-B-70). Opened into #case-composer-slot
+   by the actions row's "Hand over to…" on an open or waiting case; offers the
+   tenant's active users except the current owner, by name, and an optional
+   note; posts to /api/cases/{id}/hand-over. On success the route changes the
+   owner — the handed_over milestone with the file frozen; opened_by stays as
+   history — and answers HX-Redirect. On a refusal it re-renders this form
+   with ``error`` (Choose a user to hand over to.).
+
+   Context: case_id, csrf_token, candidates — [{id, name}], note (echoed on
+   error), error (optional). #}
+<form class="pf-case-composer" data-pf-cs="composer" data-pf-cs-kind="handover"
+      hx-post="/api/cases/{{ case_id }}/hand-over"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Hand over to…</h3>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert" data-pf-cs="composer-error">{{ error }}</p>
+    {% endif %}
+    {% if candidates %}
+        <p class="pf-case-composer__hint">
+            The case becomes theirs; the file is frozen as you leave it.
+        </p>
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">To</span>
+            <select class="pf-select" name="to_user_id" required autofocus data-pf-cs="handover-to">
+                {% for candidate in candidates %}<option value="{{ candidate.id }}">{{ candidate.name }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">Note <span class="pf-optional">(optional)</span></span>
+            <textarea class="pf-textarea" name="note" rows="2" placeholder="what they need to know"
+                      data-pf-cs="handover-note">{{ note or '' }}</textarea>
+        </label>
+    {% elif not error %}
+        <p class="pf-case-composer__hint">No other active user in this tenant to hand the case to.</p>
+    {% endif %}
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        {% if candidates %}<button type="submit" class="pf-btn pf-btn--primary">Hand over</button>{% endif %}
+    </div>
+</form>

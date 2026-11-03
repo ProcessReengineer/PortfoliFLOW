@@ -45,10 +45,21 @@ survives the P-CS-3d restyle.
   the recorded decisions and a new draft after one.
 * CS3c-08/09 — cross-case, closed and waiting; a closed case read-only.
 * CS3c-10 — the outline counts of the three.
+* CS3c2-01 — Record decision: the milestone with the file frozen, the Decision
+  and Record blocks re-rendered, the repository's refusals verbatim.
+* CS3c2-02…05 — Wait until… (the composer's dates, a past date refused),
+  Resume now, Hand over to… (Mine follows the owner) and Close case… (the
+  book values frozen; a waiting case lifted first, two distinct instants).
+* CS3c2-06/07 — the Record block (order, pairing, no frozen row, a legacy
+  case without buttons) and File as … (the file as frozen, Close, the 404s).
+* CS3c2-08 — D-CS-M-5: a kept row removed after a freeze renders in it.
+* CS3c2-09 — a lift woken by an event names the waking line.
+* CS3c2-10 — the retired note and decision composers; a waiting case pins.
 
 The file tests below (origin embed, timeline, pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
-partial, whose markup moved verbatim.
+partial, whose markup moved verbatim. The note and decision composer tests
+went with their routes (P-CS-3c2).
 """
 
 from __future__ import annotations
@@ -75,7 +86,7 @@ from core.repositories._session import tenant_context
 from core.repositories.case_attachment_repository import (
     CaseAttachmentRepository,
 )
-from core.repositories.case_repository import CaseDTO, CaseRepository
+from core.repositories.case_repository import CaseDTO, CaseEntryDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
     CaseConversationDTO,
     CaseConversationRepository,
@@ -83,6 +94,7 @@ from core.repositories.case_working_file_repository import (
     CaseFigureDTO,
     CaseFigureRepository,
     CaseInvestmentRepository,
+    CaseKeptRepository,
     CasePointDTO,
     CasePointRepository,
     CaseThreadDTO,
@@ -937,10 +949,12 @@ async def test_detail_manual_open_case_head_description_origin_and_actions(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """A manual open case: head, description block, no origin embed, four actions.
+    """A manual open case: head, description block, no origin embed, the actions.
 
     C3b arms the Actions block on an open case (this flips the C3a assertion
-    that there were none). All four actions and the composer slot are present.
+    that there were none). P-CS-3c2 retires Add note and the Record decision
+    composer (the Decision block records a decision) and adds Wait until… and
+    Hand over to…; the composer slot is present.
     """
     pm1, email, password = seeded_user
     case = await _seed_case(
@@ -970,9 +984,10 @@ async def test_detail_manual_open_case_head_description_origin_and_actions(
     # C3b: the Actions block and composer slot are present on an open case.
     assert 'id="case-composer-slot"' in body
     assert cs("actions") in body
-    assert "Add note" in body
+    assert "Add note" not in body
     assert "Pin document" in body
-    assert "Record decision" in body
+    assert "Wait until…" in body
+    assert "Hand over to…" in body
     assert "Close case" in body
 
 
@@ -1373,8 +1388,10 @@ async def test_file_partial_writes_the_crumb_and_moves_the_page(
     cs_block(body, "outline-item", data_pf_cs_name="record")
     assert "Opened" in cs_text(body, "facts")
     assert cs_count(body, "action") == 8
-    for kind in ("note", "pin", "link", "attach", "capture", "consult", "decision", "close"):
-        cs_block(body, "action", data_pf_cs_kind=kind)
+    kinds = ("pin", "link", "attach", "capture", "consult", "wait", "handover", "close")
+    assert [wd_attr(action, "data-pf-cs-kind") for action in cs_blocks(body, "action")] == list(
+        kinds
+    )
     assert cs("composer-slot") in body
     assert "Fund II continuation vehicle" in body
     assert "/watch-desk#journal" not in body
@@ -1400,102 +1417,6 @@ def test_cases_module_registered() -> None:
 # ---------------------------------------------------------------------------
 # C3b — composers, attachment pipeline, pin anatomy
 # ---------------------------------------------------------------------------
-
-
-async def test_note_appends_one_entry_and_blank_writes_nothing(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """POST /note appends one note by the session user; blank text writes nothing."""
-    pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Note case", opened_at=_T0)
-    await _login(web_client, email, password)
-    csrf = await _session_csrf(web_client, fresh_superuser_engine)
-
-    # Blank text → inline error, nothing written.
-    blank = await web_client.post(
-        f"/api/cases/{case.id}/note",
-        data={"csrf_token": csrf, "text": "   "},
-        follow_redirects=False,
-    )
-    assert blank.status_code == 200
-    assert "A note cannot be empty" in blank.text
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        entries = await CaseRepository(session).list_entries(case.id)
-    assert [e.kind for e in entries] == ["opened"]
-
-    # Success → one note entry; the timeline refreshes out of band.
-    ok = await web_client.post(
-        f"/api/cases/{case.id}/note",
-        data={"csrf_token": csrf, "text": "Called the depot bank."},
-        follow_redirects=False,
-    )
-    assert ok.status_code == 200
-    assert 'id="case-timeline"' in ok.text
-    assert "hx-swap-oob" in ok.text
-    assert "Called the depot bank." in ok.text
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        entries = await CaseRepository(session).list_entries(case.id)
-    notes = [e for e in entries if e.kind == "note"]
-    assert len(notes) == 1
-    assert notes[0].actor == "pm"
-    assert notes[0].actor_user_id == pm1
-    assert notes[0].payload == {"text": "Called the depot bank."}
-
-
-async def test_decision_requires_both_fields_then_renders_anatomy(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-    fresh_superuser_engine: AsyncEngine,
-) -> None:
-    """POST /decision requires both fields; success renders the C3a anatomy."""
-    pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Decision case", opened_at=_T0)
-    await _login(web_client, email, password)
-    csrf = await _session_csrf(web_client, fresh_superuser_engine)
-
-    # Missing rationale, then missing decision — each rejected, nothing written.
-    for payload in (
-        {"decision": "Reclassify", "rationale": "  "},
-        {"decision": "  ", "rationale": "because documented"},
-    ):
-        r = await web_client.post(
-            f"/api/cases/{case.id}/decision",
-            data={"csrf_token": csrf, **payload},
-            follow_redirects=False,
-        )
-        assert r.status_code == 200
-        assert "Both a decision and its rationale are required" in r.text
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        entries = await CaseRepository(session).list_entries(case.id)
-    assert [e.kind for e in entries] == ["opened"]
-
-    # Success → one decision_record entry; the C3a anatomy renders.
-    ok = await web_client.post(
-        f"/api/cases/{case.id}/decision",
-        data={
-            "csrf_token": csrf,
-            "decision": "Reclassify DE000NB47531 to anlv:15.",
-            "rationale": "A classification error, not an exposure decision.",
-        },
-        follow_redirects=False,
-    )
-    assert ok.status_code == 200
-    body = ok.text
-    assert "Decision of record" in body
-    assert "Reclassify DE000NB47531 to anlv:15." in body
-    assert "A classification error, not an exposure decision." in body
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        entries = await CaseRepository(session).list_entries(case.id)
-    recs = [e for e in entries if e.kind == "decision_record"]
-    assert len(recs) == 1
-    assert recs[0].payload == {
-        "decision": "Reclassify DE000NB47531 to anlv:15.",
-        "rationale": "A classification error, not an exposure decision.",
-    }
 
 
 async def test_pin_happy_path_stores_downloads_and_renders(
@@ -1652,7 +1573,7 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """Close needs a note; success closes the page; the closed case rejects writes."""
+    """Close needs a note; success freezes and closes the page; the closed case rejects writes."""
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="To close", opened_at=_T0)
     await _login(web_client, email, password)
@@ -1706,22 +1627,30 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
     assert again.status_code == 200
     assert "closed cases are read-only" in again.text
 
-    # Note + pin against the closed case → calm error, zero writes.
-    late_note = await web_client.post(
-        f"/api/cases/{case.id}/note",
-        data={"csrf_token": csrf, "text": "late note"},
-        follow_redirects=False,
-    )
-    assert "closed cases are read-only" in late_note.text
+    # A pin, a wait, a hand-over and a resume against the closed case → the
+    # calm error, zero writes.
     late_pin = await _post_pin(web_client, case.id, csrf, comment="late pin", filename="late.pdf")
     assert "closed cases are read-only" in late_pin.text
+    for path, fields in (
+        (f"/api/cases/{case.id}/wait", {"wait_until": "2099-01-01"}),
+        (f"/api/cases/{case.id}/hand-over", {"to_user_id": str(pm1)}),
+        (f"/api/cases/{case.id}/resume", {}),
+    ):
+        late = await _post_form(web_client, path, csrf, **fields)
+        assert late.status_code == 200, path
+        assert "closed cases are read-only" in late.text, path
+        assert "HX-Redirect" not in late.headers, path
 
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         entries = await CaseRepository(session).list_entries(case.id)
+        frozen = await CaseRepository(session).latest_frozen(case.id)
         att_count = await CaseAttachmentRepository(session).count_for_case(case.id)
-    # Only opened → pin → closed; the late note and late pin wrote nothing.
+    # Only opened → pin → closed; the late gestures wrote nothing.
     assert [e.kind for e in entries] == ["opened", "pin", "closed"]
     assert att_count == 1
+    # The close froze the file, Where we stand included (D-CS-B-69).
+    assert frozen is not None and frozen.payload["milestone_entry_id"] == str(entries[-1].id)
+    assert frozen.payload["file"]["where_we_stand"] is not None
 
     # Reading is never gated — the download still works on the closed case.
     dl = await web_client.get(f"/api/cases/{case.id}/attachments/{att.id}", follow_redirects=False)
@@ -2137,6 +2066,15 @@ async def test_question_autosave_last_write_wins_with_a_note(
     assert response.status_code == 200
     assert cs("note") not in response.text
     assert cs_text(response.text, "note-slot") == ""
+
+    # A re-rendered block carries the note itself — the bundle's out-of-band
+    # note lands first and the block's slot replaces it (F-3c-5).
+    response = await _post_question(
+        web_client, case.id, csrf, rerender=True, title="Two tabs, renamed", stamp=stale
+    )
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="question")
+    assert cs_text(block, "note").startswith("Saved over a newer version from ")
 
 
 async def test_question_refusals_save_nothing(
@@ -3780,6 +3718,10 @@ async def test_points_heading_follows_framing(
     response = await _post_question(web_client, case.id, csrf, rerender=True, framing="task")
     assert response.status_code == 200
     assert cs_text(response.text, "outline-item", data_pf_cs_name="points") == "Questions to ask 1"
+    # The points block rides along out of band, its heading following at once (F-3c-4).
+    points = cs_block(response.text, "block", data_pf_cs_name="points")
+    assert wd_attr(points, "hx-swap-oob") == "outerHTML"
+    assert cs_text(points, "points-title") == "Questions to ask"
 
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     block = cs_block(body, "block", data_pf_cs_name="points")
@@ -4208,3 +4150,620 @@ async def test_outline_counts_for_the_three(
         )
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     assert cs_text(body, "outline-item", data_pf_cs_name="decision") == "Decision 1 recorded"
+
+
+# ---------------------------------------------------------------------------
+# P-CS-3c2 — milestones from the file and the Record block (CS3c2-01 … 10)
+# ---------------------------------------------------------------------------
+
+
+async def _entries(app_engine: AsyncEngine, user_id: UUID, case_id: UUID) -> list[CaseEntryDTO]:
+    """The case's whole record, ``frozen`` rows included, in the record's order."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseRepository(session).list_entries(case_id, include_frozen=True)
+
+
+def _pair_of(entries: list[CaseEntryDTO], milestone: CaseEntryDTO) -> CaseEntryDTO:
+    """The one ``frozen`` row paired with ``milestone`` by its payload (D-CS-B-6)."""
+    pairs = [
+        entry
+        for entry in entries
+        if entry.kind == "frozen" and entry.payload.get("milestone_entry_id") == str(milestone.id)
+    ]
+    assert len(pairs) == 1, f"{milestone.kind}: {len(pairs)} frozen pairs"
+    return pairs[0]
+
+
+def _record(markup: str) -> str:
+    """The Record block of a rendered file or answer."""
+    return cs_block(markup, "block", data_pf_cs_name="record")
+
+
+def _record_kinds(markup: str) -> list[str | None]:
+    """The Record block's rows, as their kinds, in document order."""
+    return [wd_attr(row, "data-pf-cs-kind") for row in cs_blocks(_record(markup), "record-row")]
+
+
+async def _wait_through_the_route(
+    client: AsyncClient, csrf: str, case_id: UUID, *, days: int = 10, note: str = ""
+) -> date:
+    """Set ``case_id`` waiting through ``POST …/wait``, ``days`` ahead of today (UTC)."""
+    until = datetime.now(timezone.utc).date() + timedelta(days=days)
+    response = await _post_form(
+        client, f"/api/cases/{case_id}/wait", csrf, wait_until=until.isoformat(), note=note
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == f"/cases/{case_id}"
+    return until
+
+
+async def _strip_opening_pair(superuser_engine: AsyncEngine, case_id: UUID) -> None:
+    """Give a case the pre-b037 shape: its ``opened`` entry without a frozen pair.
+
+    ``create`` always writes the pair, so a legacy case is made by deleting it
+    through the superuser — the record of a case opened before the working file.
+    """
+    async with superuser_engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM case_entries WHERE case_id = :id AND kind = 'frozen'"),
+            {"id": str(case_id)},
+        )
+
+
+async def test_record_decision_freezes_and_rerenders_decision_and_record(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-01: Record decision writes the milestone with the file frozen; refusals write nothing."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Decide", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseDecisionRepository(session).upsert_draft(
+            case.id,
+            now=_T0 + timedelta(hours=1),
+            options=[{"key": "o1", "text": "Hold"}, {"key": "o2", "text": "Sell half"}],
+            chosen_key="o2",
+            rationale="Fees outweigh the hedge.",
+        )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    button = cs_block(cs_block(body, "decision-draft"), "decision-record")
+    assert cs_text(button) == "Record decision"
+    assert wd_attr(button, "hx-post") == f"/api/cases/{case.id}/record-decision"
+    assert "pf-btn--primary" in (wd_attr(button, "class") or "")
+
+    response = await _post_form(web_client, f"/api/cases/{case.id}/record-decision", csrf)
+    assert response.status_code == 200
+    decision = cs_block(response.text, "block", data_pf_cs_name="decision")
+    assert "Sell half" in cs_text(decision, "decision-recorded")
+    assert cs_text(decision, "decision-new") == "Start a new draft"
+    record = _record(response.text)
+    assert wd_attr(record, "hx-swap-oob") == "outerHTML"
+    row = cs_block(record, "record-row", data_pf_cs_kind="decision_record")
+    assert cs_text(row, "record-text") == "Decision recorded: Sell half — Fees outweigh the hedge."
+    assert cs_text(row, "file-as") == "File as decided"
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="decision") == (
+        "Decision 1 recorded"
+    )
+
+    entries = await _entries(app_engine, pm1, case.id)
+    (milestone,) = [entry for entry in entries if entry.kind == "decision_record"]
+    snapshot = _pair_of(entries, milestone).payload["file"]
+    assert [d["id"] for d in snapshot["decisions"]["recorded"]] == [
+        milestone.payload["decision_id"]
+    ]
+    assert snapshot["decisions"]["draft"] is None
+    assert snapshot["where_we_stand"] is not None
+
+    # An incomplete draft → 400 with the repository's words, nothing written.
+    for fields, message in (
+        (
+            {"chosen_key": None, "rationale": "Late."},
+            "A decision is recorded with a chosen option.",
+        ),
+        ({"chosen_key": "o1", "rationale": None}, "A decision is recorded with a rationale."),
+    ):
+        async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+            await CaseDecisionRepository(session).upsert_draft(
+                case.id,
+                now=_T0 + timedelta(hours=2),
+                options=[{"key": "o1", "text": "Sell all"}],
+                **fields,
+            )
+        refused = await _post_form(web_client, f"/api/cases/{case.id}/record-decision", csrf)
+        assert refused.status_code == 400
+        assert refused.headers.get("HX-Reswap") == "none"
+        assert 'id="cs-note-decision"' in refused.text
+        assert cs_text(refused.text, "note") == message
+    assert len(await _entries(app_engine, pm1, case.id)) == len(entries)
+
+
+async def test_wait_until_sets_waiting_with_a_frozen_file_and_redirects(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS3c2-02: the composer's dates; a past date refused; a wait freezes the file."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Wait", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=alpha, linked_by=pm1, now=_T0
+        )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    monkeypatch.setattr(
+        cases_module, "_now", lambda: datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+    )
+    composer = (await web_client.get(f"/api/cases/{case.id}/composer/wait")).text
+    monkeypatch.undo()
+    assert cs_text(composer, "composer").startswith("Wait until…")
+    field = cs_block(composer, "wait-until")
+    assert wd_attr(field, "value") == "2026-12-03"
+    assert wd_attr(field, "min") == "2026-11-04"
+
+    today = datetime.now(timezone.utc).date()
+    refused = await _post_form(
+        web_client, f"/api/cases/{case.id}/wait", csrf, wait_until=today.isoformat(), note="LP"
+    )
+    assert refused.status_code == 200
+    assert "HX-Redirect" not in refused.headers
+    assert cs_text(refused.text, "composer-error") == "The date must be after today."
+    assert cs_text(refused.text, "wait-note") == "LP"
+    assert (await _case_now(app_engine, pm1, case.id)).state == "open"
+
+    until = await _wait_through_the_route(web_client, csrf, case.id, note="Until the LPAC")
+    waiting = await _case_now(app_engine, pm1, case.id)
+    assert (waiting.state, waiting.wait_until) == ("waiting", until)
+    entries = await _entries(app_engine, pm1, case.id)
+    (milestone,) = [entry for entry in entries if entry.kind == "waiting_set"]
+    assert milestone.payload == {"wait_until": until.isoformat(), "note": "Until the LPAC"}
+    frozen = _pair_of(entries, milestone).payload["file"]
+    assert frozen["case"]["state"] == "waiting"
+    investments = frozen["where_we_stand"]["investments"]
+    assert [reading["investment_id"] for reading in investments] == [str(alpha)]
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert cs("state", state="waiting") in body
+    assert cs_text(body, "action", data_pf_cs_kind="resume") == "Resume now"
+    assert cs_count(body, "action", data_pf_cs_kind="wait") == 0
+    assert "Wait until…" not in cs_text(body, "actions")
+    row = cs_block(_record(body), "record-row", data_pf_cs_kind="waiting_set")
+    assert cs_text(row, "record-text") == f"Waiting until {until:%d %b %Y}"
+    assert cs_text(row, "record-note") == "Until the LPAC"
+
+
+async def test_resume_lifts_by_hand_and_records_it(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-03: Resume now lifts the wait by hand, freezes the file, and the record says so."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Resume", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _wait_through_the_route(web_client, csrf, case.id)
+
+    response = await _post_form(web_client, f"/api/cases/{case.id}/resume", csrf)
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == f"/cases/{case.id}"
+    resumed = await _case_now(app_engine, pm1, case.id)
+    assert (resumed.state, resumed.wait_until) == ("open", None)
+    entries = await _entries(app_engine, pm1, case.id)
+    (lift,) = [entry for entry in entries if entry.kind == "waiting_lifted"]
+    assert lift.payload["reason"] == "manual"
+    assert (lift.actor, lift.actor_user_id) == ("pm", pm1)
+    _pair_of(entries, lift)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    row = cs_block(_record(body), "record-row", data_pf_cs_kind="waiting_lifted")
+    assert cs_text(row, "record-text") == "Waiting lifted — by hand"
+    assert cs_text(row, "file-as") == "File as lifted"
+    assert cs_block(body, "action", data_pf_cs_kind="wait")
+
+    # Resuming an open case writes nothing and simply refreshes the page.
+    again = await _post_form(web_client, f"/api/cases/{case.id}/resume", csrf)
+    assert again.headers.get("HX-Redirect") == f"/cases/{case.id}"
+    assert len(await _entries(app_engine, pm1, case.id)) == len(entries)
+
+
+async def test_hand_over_changes_the_owner_and_records_it(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-04: Hand over to… offers the other users; the owner moves; Mine follows."""
+    pm1, email, password = seeded_user
+    pm2 = await _seed_extra_user(
+        fresh_superuser_engine, email="deputy@example.com", display_name="M. Keller"
+    )
+    case = await _seed_case(app_engine, opened_by=pm1, title="Deputy", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    composer = (await web_client.get(f"/api/cases/{case.id}/composer/handover")).text
+    select = cs_block(composer, "handover-to")
+    assert f'value="{pm2}"' in select
+    assert "M. Keller" in cs_text(select)
+    assert f'value="{pm1}"' not in select
+    assert (await web_client.get(f"/api/cases/{uuid4()}/composer/handover")).status_code == 404
+
+    for target in (str(pm1), str(uuid4()), "not-a-user"):
+        refused = await _post_form(
+            web_client, f"/api/cases/{case.id}/hand-over", csrf, to_user_id=target
+        )
+        assert refused.status_code == 200
+        assert cs_text(refused.text, "composer-error") == "Choose a user to hand over to."
+    assert (await _case_now(app_engine, pm1, case.id)).owner_user_id == pm1
+
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/hand-over",
+        csrf,
+        to_user_id=str(pm2),
+        note="You have the LPAC on Thursday.",
+    )
+    assert response.headers.get("HX-Redirect") == f"/cases/{case.id}"
+    handed = await _case_now(app_engine, pm1, case.id)
+    assert (handed.owner_user_id, handed.opened_by) == (pm2, pm1)
+    entries = await _entries(app_engine, pm1, case.id)
+    (milestone,) = [entry for entry in entries if entry.kind == "handed_over"]
+    assert milestone.payload == {
+        "from_user_id": str(pm1),
+        "to_user_id": str(pm2),
+        "note": "You have the LPAC on Thursday.",
+    }
+    assert _pair_of(entries, milestone).payload["file"]["case"]["owner_user_id"] == str(pm2)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    row = cs_block(_record(body), "record-row", data_pf_cs_kind="handed_over")
+    assert cs_text(row, "record-text") == "Handed over to M. Keller"
+    assert cs_text(row, "record-note") == "You have the LPAC on Thursday."
+    assert cs_text(row, "file-as") == "File as handed over"
+    mine = (await web_client.get("/api/cases/list?state=open&mine=1")).text
+    assert "CASE-0001" not in _row_badges(mine)
+
+
+async def test_close_freezes_book_values_and_a_waiting_case_lifts_first(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-05: a close freezes the book values; a waiting case is lifted, then closed."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    nav_text = format_money_compact(float(CALM_NAV), "EUR")
+    open_case = await _seed_case(app_engine, opened_by=pm1, title="Open", opened_at=_T0)
+    waiting_case = await _seed_case(app_engine, opened_by=pm1, title="Waiting", opened_at=_T0)
+    figure = await _seed_figure(
+        app_engine,
+        pm1,
+        open_case.id,
+        label="Alpha NAV",
+        source="book",
+        source_ref={"investment_id": str(alpha), "metric": "nav"},
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseInvestmentRepository(session).link(
+            waiting_case.id, investment_id=alpha, linked_by=pm1, now=_T0
+        )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await _post_form(
+        web_client, f"/api/cases/{open_case.id}/close", csrf, closing_note="Settled.", confirm="yes"
+    )
+    assert response.headers.get("HX-Redirect") == f"/cases/{open_case.id}"
+    entries = await _entries(app_engine, pm1, open_case.id)
+    (closed,) = [entry for entry in entries if entry.kind == "closed"]
+    frozen_figures = _pair_of(entries, closed).payload["file"]["figures"]
+    assert [(row["id"], row["value_text"]) for row in frozen_figures] == [
+        (str(figure.id), nav_text)
+    ]
+    body = (await web_client.get(f"/api/cases/{open_case.id}", follow_redirects=False)).text
+    figures = cs_block(body, "block", data_pf_cs_name="figures")
+    assert cs_text(cs_block(figures, "figure"), "figure-value") == nav_text
+
+    await _wait_through_the_route(web_client, csrf, waiting_case.id)
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{waiting_case.id}/close",
+        csrf,
+        closing_note="Redeemed after the wait.",
+        confirm="yes",
+    )
+    assert response.headers.get("HX-Redirect") == f"/cases/{waiting_case.id}"
+    assert (await _case_now(app_engine, pm1, waiting_case.id)).state == "closed"
+    entries = await _entries(app_engine, pm1, waiting_case.id)
+    assert [entry.kind for entry in entries if entry.kind != "frozen"] == [
+        "opened",
+        "waiting_set",
+        "waiting_lifted",
+        "closed",
+    ]
+    lift, close = (entry for entry in entries if entry.kind in ("waiting_lifted", "closed"))
+    assert lift.created_at < close.created_at
+    assert lift.payload["reason"] == "manual"
+    for milestone in (lift, close):
+        stand = _pair_of(entries, milestone).payload["file"]["where_we_stand"]
+        assert [reading["investment_id"] for reading in stand["investments"]] == [str(alpha)]
+
+    body = (await web_client.get(f"/api/cases/{waiting_case.id}", follow_redirects=False)).text
+    stand = cs_block(body, "block", data_pf_cs_name="stand")
+    assert cs_text(stand).startswith("At close")
+    assert nav_text in cs_text(stand, "stand-investment", data_pf_cs_name="Alpha")
+
+
+async def test_record_block_lists_newest_last_pairs_files_and_hides_frozen_rows(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-06: the rows in order, no frozen row, a File-as button on every paired milestone."""
+    pm1, email, password = seeded_user
+    pm2 = await _seed_extra_user(
+        fresh_superuser_engine, email="deputy@example.com", display_name="M. Keller"
+    )
+    case = await _seed_case(app_engine, opened_by=pm1, title="Milestones", opened_at=_T0)
+    legacy = await _seed_case(app_engine, opened_by=pm1, title="Legacy", opened_at=_T0)
+    await _strip_opening_pair(fresh_superuser_engine, legacy.id)
+    await _append_entry(
+        app_engine,
+        session_user=pm1,
+        case_id=legacy.id,
+        kind="note",
+        actor="pm",
+        actor_user_id=pm1,
+        payload={"text": "Called the GP."},
+        now=_T0 + timedelta(minutes=5),
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _wait_through_the_route(web_client, csrf, case.id)
+    await _post_form(web_client, f"/api/cases/{case.id}/resume", csrf)
+    await _post_form(web_client, f"/api/cases/{case.id}/hand-over", csrf, to_user_id=str(pm2))
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert _record_kinds(body) == ["opened", "waiting_set", "waiting_lifted", "handed_over"]
+    entries = await _entries(app_engine, pm1, case.id)
+    frozen_rows = [entry for entry in entries if entry.kind == "frozen"]
+    assert len(frozen_rows) == 4
+    assert cs_count(_record(body), "record-row", data_pf_cs_kind="frozen") == 0
+    assert cs_count(body, "file-as") == len(frozen_rows)
+    milestones = [entry for entry in entries if entry.kind != "frozen"]
+    assert [milestone.created_at for milestone in milestones] == sorted(
+        milestone.created_at for milestone in milestones
+    )
+    for milestone in milestones:
+        button = cs_block(body, "file-as", data_pf_cs_kind=milestone.kind)
+        assert wd_attr(button, "hx-get") == f"/api/cases/{case.id}/record/{milestone.id}/file"
+        assert wd_attr(button, "hx-target") == f"#cs-file-as-{milestone.id}"
+        assert f'id="cs-file-as-{milestone.id}"' in body
+    assert cs_text(body, "outline-item", data_pf_cs_name="record") == "Record 4"
+
+    legacy_body = (await web_client.get(f"/api/cases/{legacy.id}", follow_redirects=False)).text
+    assert _record_kinds(legacy_body) == ["opened", "note"]
+    assert cs_count(legacy_body, "file-as") == 0
+    assert cs_count(legacy_body, "file-as-slot") == 0
+
+
+async def test_file_as_renders_the_frozen_file_read_only_and_closes(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-07: File as waiting reads the file as it stood; Close empties; strays are 404."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    nav_text = format_money_compact(float(CALM_NAV), "EUR")
+    case = await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Frozen",
+        description="Do we subscribe to Fund V?",
+        opened_at=_T0,
+    )
+    other = await _seed_case(app_engine, opened_by=pm1, title="Other", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=alpha, linked_by=pm1, now=_T0
+        )
+    await _seed_figure(
+        app_engine, pm1, case.id, label="Target IRR", source="typed", value_text="12 %"
+    )
+    await _seed_point(app_engine, pm1, case.id, text="Ask for the fee letter")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _wait_through_the_route(web_client, csrf, case.id)
+    await _post_question(web_client, case.id, csrf, description="Rewritten after the wait.")
+
+    entries = await _entries(app_engine, pm1, case.id)
+    (wait,) = [entry for entry in entries if entry.kind == "waiting_set"]
+    response = await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file")
+    assert response.status_code == 200
+    view = cs_block(response.text, "frozen-file")
+    assert cs_text(view, "frozen-head").startswith("File as waiting · frozen ")
+    assert "<form" not in response.text
+    question = cs_text(view, "frozen-question")
+    assert "Do we subscribe to Fund V?" in question
+    assert "Rewritten after the wait." not in question
+    assert "Waiting" in cs_text(view, "frozen-case")
+    assert nav_text in cs_text(view, "frozen-investment", data_pf_cs_name="Alpha")
+    assert "12 %" in cs_text(view, "frozen-figure")
+    assert cs_text(view, "frozen-point") == "Ask for the fee letter"
+    close = cs_block(view, "frozen-close")
+    assert wd_attr(close, "hx-get") == f"/api/cases/{case.id}/record/{wait.id}/file?close=1"
+    assert wd_attr(close, "hx-target") == f"#cs-file-as-{wait.id}"
+
+    closed = await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file?close=1")
+    assert (closed.status_code, closed.text) == (200, "")
+
+    (opened,) = [entry for entry in entries if entry.kind == "opened"]
+    frozen = _pair_of(entries, opened)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        line = await CaseRepository(session).add_system_line(
+            case.id,
+            event="ticket_booked",
+            subject="ticket:7",
+            text="Ticket #7 booked against this case.",
+            payload={},
+            now=_T0 + timedelta(days=1),
+        )
+    assert line is not None
+    (other_opened,) = [
+        entry for entry in await _entries(app_engine, pm1, other.id) if entry.kind == "opened"
+    ]
+    for path in (
+        f"/api/cases/{case.id}/record/{frozen.id}/file",
+        f"/api/cases/{case.id}/record/{line.id}/file",
+        f"/api/cases/{case.id}/record/{other_opened.id}/file",
+        f"/api/cases/{case.id}/record/{uuid4()}/file",
+        f"/api/cases/{uuid4()}/record/{wait.id}/file",
+    ):
+        assert (await web_client.get(path)).status_code == 404, path
+    assert (
+        await web_client.get(f"/api/cases/{other.id}/record/{other_opened.id}/file")
+    ).status_code == 200
+
+
+async def test_a_freeze_before_a_removal_still_renders_its_artefact(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-08 (D-CS-M-5): a kept row removed after a freeze still renders in that freeze."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Kept", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Fee step-up")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        kept = await CaseKeptRepository(session).keep(
+            case.id,
+            artifact="consultation",
+            payload={"excerpt": "The step-up applies from year three."},
+            kept_by=pm1,
+            via="keep",
+            now=_T0 + timedelta(hours=2),
+            thread_id=thread.id,
+            caption="Shirley on the step-up",
+        )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _wait_through_the_route(web_client, csrf, case.id)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        removed = await CaseKeptRepository(session).remove(kept.id, now=datetime.now(timezone.utc))
+    assert removed.removed_at is not None
+
+    entries = await _entries(app_engine, pm1, case.id)
+    (wait,) = [entry for entry in entries if entry.kind == "waiting_set"]
+    view = (await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file")).text
+    thread_view = cs_block(view, "frozen-thread")
+    assert "Fee step-up" in cs_text(thread_view)
+    assert cs_text(thread_view, "frozen-kept") == "Consultation · Shirley on the step-up"
+    live = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert "Shirley on the step-up" not in live
+
+
+async def test_woken_by_reads_the_waking_line(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3c2-09: a lift on an event names the system line that woke the case."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Woken", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        repo = CaseRepository(session)
+        await repo.wait(case.id, wait_until=date(2027, 1, 1), by=pm1, now=_T0 + timedelta(hours=1))
+        line = await repo.add_system_line(
+            case.id,
+            event="ticket_booked",
+            subject="ticket:12",
+            text="Ticket #12 booked against this case.",
+            payload={},
+            now=_T0 + timedelta(hours=2),
+        )
+        assert line is not None
+        await repo.lift_wait(
+            case.id,
+            reason="event",
+            event={"event": "ticket_booked", "subject": "ticket:12", "entry_id": str(line.id)},
+            now=_T0 + timedelta(hours=2),
+        )
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert _record_kinds(body) == ["opened", "waiting_set", "system_line", "waiting_lifted"]
+    record = _record(body)
+    system = cs_block(record, "record-row", data_pf_cs_kind="system_line")
+    assert cs_text(system, "record-text") == "Ticket #12 booked against this case."
+    assert "System" in cs_text(system)
+    assert cs_count(system, "file-as") == 0
+    lift = cs_block(record, "record-row", data_pf_cs_kind="waiting_lifted")
+    assert cs_text(lift, "record-text") == (
+        "Waiting lifted — woken by: Ticket #12 booked against this case."
+    )
+    assert cs_text(lift, "file-as") == "File as lifted"
+
+
+async def test_retired_composers_are_gone_and_pin_works_on_waiting(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3c2-10: the note and decision composers are 404; a waiting case takes a pin."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Retired", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    for action in ("note", "decision"):
+        assert (await web_client.get(f"/api/cases/{case.id}/composer/{action}")).status_code == 404
+    for path, fields in (
+        (f"/api/cases/{case.id}/note", {"text": "late"}),
+        (f"/api/cases/{case.id}/decision", {"decision": "x", "rationale": "y"}),
+    ):
+        # The routes are gone: no route matches the path, so 404 (not 405).
+        assert (await _post_form(web_client, path, csrf, **fields)).status_code == 404
+
+    await _wait_through_the_route(web_client, csrf, case.id)
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert [wd_attr(action, "data-pf-cs-kind") for action in cs_blocks(body, "action")] == [
+        "pin",
+        "link",
+        "attach",
+        "capture",
+        "consult",
+        "resume",
+        "handover",
+        "close",
+    ]
+    assert wd_attr(cs_block(body, "action", data_pf_cs_kind="capture"), "href") == (
+        f"/planning-desk?case={case.id}"
+    )
+    composer = await web_client.get(f"/api/cases/{case.id}/composer/pin")
+    assert composer.status_code == 200
+    pin = await _post_pin(web_client, case.id, csrf, comment="While we wait", filename="lpa.pdf")
+    assert pin.status_code == 200
+    assert "closed cases are read-only" not in pin.text
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        attachments = await CaseAttachmentRepository(session).list_for_case(case.id)
+        entries = await CaseRepository(session).list_entries(case.id)
+    assert [attachment.filename for attachment in attachments] == ["lpa.pdf"]
+    assert entries[-1].kind == "pin"
+    assert cs_block(pin.text, "record-row", data_pf_cs_kind="pin")

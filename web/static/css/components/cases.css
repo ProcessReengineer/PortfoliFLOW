@@ -1231,3 +1231,32 @@
 .pf-cases .pf-addline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
 .pf-cases .pf-addline .pf-field { flex: 0 1 200px; }
 .pf-cases .pf-addline .pf-addline__main { flex: 1 1 280px; }
+
+/* P-CS-3c2 — provisional */
+
+/* The Record (M-CS-2 b-record / c-record): the timeline's rows, oldest first.
+   A milestone's "File as …" closes its head row (the mock's row-end button);
+   the frozen file opens under the row in the slot, a bordered inset that
+   takes no room while empty. The actor chip says who, so the mock's .who
+   column is the chip; .what is the milestone's one line. */
+.pf-cases .pf-record { display: flex; flex-direction: column; }
+.pf-cases .pf-record .pf-tl { margin-top: 0; }
+.pf-cases .pf-record .pf-tl__head > .pf-btn { margin-left: auto; }
+.pf-cases .pf-record .what { color: var(--ui-text-primary); }
+.pf-cases .pf-record__note { color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-record__file { margin-top: var(--ui-space-2); border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); }
+.pf-cases .pf-record__file:empty { display: none; }
+
+/* The frozen file, read-only (the mock's pf-frozen posture): a quiet ground
+   with the frozen rule, one block per section of the file. */
+.pf-cases .pf-frozen { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: var(--ui-space-3) var(--ui-space-4); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); box-shadow: inset 2px 0 0 var(--ui-text-disabled); font-size: var(--ui-font-scale-sm); }
+.pf-cases .pf-frozen p { margin: 0; }
+.pf-cases .pf-frozen__head { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); }
+.pf-cases .pf-frozen__block { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+.pf-cases .pf-frozen__title { margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-semibold); }
+.pf-cases .pf-frozen__thread { display: flex; flex-direction: column; gap: 4px; padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border-soft); }
+
+/* The actions row grows (D-CS-B-76): Resume now posts from a small form that
+   lays its button out as one of the row's; Record decision closes the draft. */
+.pf-cases .pf-case__action-form { display: contents; }
+.pf-cases .pf-decision__record { display: flex; justify-content: flex-end; }

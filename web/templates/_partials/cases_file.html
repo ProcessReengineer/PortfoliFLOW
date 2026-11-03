@@ -10,13 +10,16 @@
    a block's re-render cannot drift (D-CS-B-49): The question, Where we stand,
    Threads, Figures, Conversations, Open points (Questions to ask on a task)
    and the Decision (each of the last five an empty, hidden placeholder while
-   it holds nothing, D-CS-B-57, D-CS-B-67), and the Record (the timeline
-   partial, as P-CS-3a left it). The crumb below is restated in the OOB bundle (cases_file_oob.html),
+   it holds nothing, D-CS-B-57, D-CS-B-67), and the Record (cases_file_record.html,
+   D-CS-B-73). The crumb below is restated in the OOB bundle (cases_file_oob.html),
    which rewrites it after every save so the head follows a rename.
 
-   The actions render on an open or waiting case (is_mutable): Link
-   investment… and Attach document… write the working file; the P-CS-3a
-   composers keep their open gate (is_open) until P-CS-3c2.
+   The actions render on an open or waiting case (is_mutable, D-CS-B-76): Pin
+   document · Link investment… · Attach document… · Capture scenario · Consult
+   Shirley · Wait until… (open) or Resume now (waiting) · Hand over to… ·
+   Close case…. Resume now posts at once (a small form carrying the CSRF
+   token); the others open their composer in the slot. A closed case renders
+   no actions.
 
    Context: see load_case_file_context in web/routes/cases.py. #}
 <h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
@@ -40,18 +43,21 @@
             </div>
             {% if is_mutable %}
                 <div class="pf-case__actions" data-pf-cs="actions">
-                    {% if is_open %}
-                        <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="note" hx-get="/api/cases/{{ case_id }}/composer/note" hx-target="#case-composer-slot" hx-swap="innerHTML">Add note</button>
-                        <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="pin" hx-get="/api/cases/{{ case_id }}/composer/pin" hx-target="#case-composer-slot" hx-swap="innerHTML">Pin document</button>
-                    {% endif %}
+                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="pin" hx-get="/api/cases/{{ case_id }}/composer/pin" hx-target="#case-composer-slot" hx-swap="innerHTML">Pin document</button>
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="link" hx-get="/api/cases/{{ case_id }}/composer/link-investment" hx-target="#case-composer-slot" hx-swap="innerHTML">Link investment…</button>
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="attach" hx-get="/api/cases/{{ case_id }}/composer/attach" hx-target="#case-composer-slot" hx-swap="innerHTML">Attach document…</button>
+                    <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="capture" href="{{ capture_scenario_href }}">Capture scenario</a>
+                    <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="consult" href="{{ consult_shirley_href }}">Consult Shirley</a>
                     {% if is_open %}
-                        <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="capture" href="{{ capture_scenario_href }}">Capture scenario</a>
-                        <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="consult" href="{{ consult_shirley_href }}">Consult Shirley</a>
-                        <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="decision" hx-get="/api/cases/{{ case_id }}/composer/decision" hx-target="#case-composer-slot" hx-swap="innerHTML">Record decision</button>
-                        <button type="button" class="pf-btn pf-btn--primary" data-pf-cs="action" data-pf-cs-kind="close" hx-get="/api/cases/{{ case_id }}/composer/close" hx-target="#case-composer-slot" hx-swap="innerHTML">Close case…</button>
+                        <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="wait" hx-get="/api/cases/{{ case_id }}/composer/wait" hx-target="#case-composer-slot" hx-swap="innerHTML">Wait until…</button>
+                    {% else %}
+                        <form class="pf-case__action-form" hx-post="/api/cases/{{ case_id }}/resume" hx-target="#case-composer-slot" hx-swap="innerHTML">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="resume">Resume now</button>
+                        </form>
                     {% endif %}
+                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="handover" hx-get="/api/cases/{{ case_id }}/composer/handover" hx-target="#case-composer-slot" hx-swap="innerHTML">Hand over to…</button>
+                    <button type="button" class="pf-btn pf-btn--primary" data-pf-cs="action" data-pf-cs-kind="close" hx-get="/api/cases/{{ case_id }}/composer/close" hx-target="#case-composer-slot" hx-swap="innerHTML">Close case…</button>
                 </div>
                 <div id="case-composer-slot" class="pf-case-composer-slot" data-pf-cs="composer-slot"></div>
             {% endif %}
@@ -65,9 +71,6 @@
         {% include "_partials/cases_file_points.html" %}
         {% include "_partials/cases_file_decision.html" %}
 
-        <section class="pf-blk" id="cs-record" data-pf-cs="block" data-pf-cs-name="record">
-            <div class="pf-blk__head"><h3 class="pf-blk__title">Record</h3></div>
-            {% include "_partials/cases_detail_timeline.html" %}
-        </section>
+        {% include "_partials/cases_file_record.html" %}
     </div>
 </div>

@@ -11,9 +11,13 @@
    option; an Add option line; the rationale, decided by (free text) and
    decided at. The texts autosave on change with hx-swap="none" (the OOB
    bundle answers); the chosen radio, Add option and Remove option re-render
-   the block (?rerender=1). No "Record decision" here — recording is
-   P-CS-3c2's milestone path; the composer's button keeps writing the legacy
-   entry until then (D-CS-B-1).
+   the block (?rerender=1). Under the draft, "Record decision" posts to
+   …/record-decision (P-CS-3c2, D-CS-B-70): the decision_record milestone with
+   the file frozen. It sits inside the form, so it posts the form's CSRF token
+   and queues behind an autosave still in flight (hx-sync); the answer is
+   this block (the recorded card and "Start a new draft"), the Record block
+   out of band and the bundle — or the repository's refusal (no chosen
+   option, no rationale) in the note slot.
 
    Without a draft an open or waiting case offers "Start a new draft" (after
    a recorded decision) or, revealed and empty, the hint and "Add option" —
@@ -105,6 +109,13 @@
                     <span class="pf-label">Decided at <span class="pf-optional">(optional)</span></span>
                     <input class="pf-input" type="date" name="decided_at" value="{{ block.draft.decided_at }}" data-pf-cs="decision-decided-at">
                 </label>
+            </div>
+            <div class="pf-decision__record">
+                <button type="button" class="pf-btn pf-btn--primary" data-pf-cs="decision-record"
+                        hx-post="/api/cases/{{ case_id }}/record-decision"
+                        hx-target="#cs-decision"
+                        hx-swap="outerHTML"
+                        hx-sync="closest form:queue last">Record decision</button>
             </div>
         </form>
     {% elif block.draft %}

@@ -17,6 +17,9 @@
    A closed case renders the threads read-only: the prose as text, the
    conclusion, no form.
 
+   The note slot renders `block.note` itself when the block is re-rendered
+   (see cases_file_conversations.html; the 3c report's F-3c-5).
+
    Context: case_id, csrf_token, is_mutable, stamp, threads — {threads:
    [{id, title, prose, status, status_label, conclusion, dates}], empty,
    reveal, focus_id, open_id, statuses: [{value, label}]}. #}
@@ -117,6 +120,6 @@
             <button type="submit" class="pf-btn">Add thread</button>
         </form>
     {% endif %}
-    <div id="cs-note-threads" class="pf-case__note" data-pf-cs="note-slot"></div>
+    <div id="cs-note-threads" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
 </section>
 {% endif %}

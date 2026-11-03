@@ -57,7 +57,19 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Text, and_, cast, exists, func, insert, or_, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    Text,
+    and_,
+    cast,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy import case as sql_case
 from sqlalchemy.exc import IntegrityError
 
@@ -719,7 +731,8 @@ class CaseRepository(BaseRepository):
         :meth:`hand_over`, :meth:`close`), and ``system_line`` only by
         :meth:`add_system_line` (ADR-0138 §7, D-CS-B-25). ``note``, ``pin``
         and ``decision_record`` stay writable until their last route writer
-        is replaced (D-CS-B-1).
+        is replaced (D-CS-B-1) (the note and decision composers went with
+        P-CS-3c2; the set closes with P-CS-4a).
 
         Args:
             case_id: The case to append to.
@@ -940,7 +953,7 @@ class CaseRepository(BaseRepository):
 
         Newest by ``created_at``. Two freezes never share an instant: one
         milestone writes one snapshot, and a transaction that writes two
-        milestones (the lift + close of P-CS-3c) passes two ``now`` values.
+        milestones (the lift + close of P-CS-3c2) passes two ``now`` values.
         """
         result = await self._session.execute(
             select(CaseEntry)
@@ -974,7 +987,7 @@ class CaseRepository(BaseRepository):
         here.
 
         A waiting case is not closed directly: the wait is lifted first
-        (D-CS-B-2) — the close route of P-CS-3c does lift + close in one
+        (D-CS-B-2) — the close route of P-CS-3c2 does lift + close in one
         transaction, two milestones with two freezes.
 
         Args:
@@ -1054,6 +1067,23 @@ class CaseRepository(BaseRepository):
         upd = update(Case).where(Case.id == case_id).values(**values).returning(*_CASE_COLUMNS)
         row = (await self._session.execute(upd)).one()
         return CaseDTO(**row._mapping)
+
+    async def _write_case_if(
+        self, case_id: UUID, values: dict[str, Any], *, condition: ColumnElement[bool]
+    ) -> CaseDTO | None:
+        """UPDATE one case row with ``values`` where ``condition`` still holds.
+
+        The conditional sibling of :meth:`_write_case` (D-CS-B-72): ``None``
+        when the row no longer satisfies ``condition``, so nothing was written.
+        """
+        upd = (
+            update(Case)
+            .where(Case.id == case_id, condition)
+            .values(**values)
+            .returning(*_CASE_COLUMNS)
+        )
+        row = (await self._session.execute(upd)).one_or_none()
+        return CaseDTO(**row._mapping) if row is not None else None
 
     async def _require_mutable(self, case_id: UUID, *, action: str) -> CaseDTO:
         """Return the case if it is open or waiting.
@@ -1223,11 +1253,28 @@ class CaseRepository(BaseRepository):
         """Return a waiting case to ``open`` and clear ``wait_until`` (ADR-0138 §4).
 
         Column write; called by the milestone methods only (:meth:`lift_wait`).
+        **The race** (D-CS-B-72): :meth:`lift_wait` reads the case before
+        this write, and another transaction — the tick runner's date wake, a
+        system line's event wake, the PM's own lift — may lift it between the
+        two. The UPDATE therefore holds ``state = 'waiting'`` in its WHERE:
+        under READ COMMITTED a second writer waits for the first to commit,
+        re-checks the condition on the new row and matches nothing, so the
+        loser raises here and writes no second ``waiting_lifted`` milestone.
+
+        Raises:
+            CaseStateInvalid: If the case is no longer waiting at the write.
         """
-        assert case.state == "waiting", f"cannot lift a {case.state} case"
-        return await self._write_case(
-            case.id, {"state": "open", "wait_until": None, "updated_at": now}
+        lifted = await self._write_case_if(
+            case.id,
+            {"state": "open", "wait_until": None, "updated_at": now},
+            condition=Case.state == "waiting",
         )
+        if lifted is None:
+            raise CaseStateInvalid(
+                f"Case {case.id} is no longer waiting — it was lifted by the program meanwhile.",
+                field="state",
+            )
+        return lifted
 
     async def wait(
         self,
@@ -1306,7 +1353,8 @@ class CaseRepository(BaseRepository):
 
         Three reasons, three callers:
 
-        * ``manual`` — the PM by hand (the "Lift" gesture, P-CS-3c).
+        * ``manual`` — the PM by hand (*Resume now*, and the lift before
+          *Close case…* on a waiting case; P-CS-3c2).
         * ``date`` — the shared tick runner's wake-up step
           (:func:`services.scheduler.tick_runner.run_case_wake_tick`), on
           the first tick of the day the wait ends.

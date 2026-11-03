@@ -22,6 +22,8 @@
    create.
 
    The note slot renders `block.note` itself (see cases_file_conversations.html).
+   With `block.oob` the block rides out of band after a framing switch, so
+   its heading follows at once (the question route, the 3c report's F-3c-4).
 
    Context: case_id, csrf_token, is_mutable, stamp, points — {title, sub,
    add_label, points: [{id, text, done, state, owner_id, owner_label, due_on, due_label,
@@ -29,9 +31,9 @@
    reveal, note, users: [{id, name}]}. #}
 {% set block = points %}
 {% if block.empty and not block.reveal %}
-<section class="pf-blk" id="cs-points" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="points"></section>
+<section class="pf-blk" id="cs-points" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="points"{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}></section>
 {% else %}
-<section class="pf-blk" id="cs-points" data-pf-cs="block" data-pf-cs-name="points">
+<section class="pf-blk" id="cs-points" data-pf-cs="block" data-pf-cs-name="points"{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}>
     <div class="pf-blk__head">
         <h3 class="pf-blk__title" data-pf-cs="points-title">{{ block.title }}</h3>
         <span class="pf-blk__sub">{{ block.sub }}</span>

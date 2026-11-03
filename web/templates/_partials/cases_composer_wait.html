@@ -1,0 +1,41 @@
+{# Wait-until composer (ADR-0138 §4, D-CS-B-70). Opened into #case-composer-slot
+   by the actions row's "Wait until…" on an open case; posts to
+   /api/cases/{id}/wait. The date defaults to today + 30 days and must be after
+   today (UTC); the note is optional. On success the route sets the case
+   waiting — the waiting_set milestone with the file frozen — and answers
+   HX-Redirect, so the page re-renders waiting (pill, actions, list). On a
+   refusal it re-renders this form with ``error`` and the entered values.
+
+   Context: case_id, csrf_token, wait_until (the proposed or entered date),
+   min_date (tomorrow), note (echoed on error), error (optional). #}
+<form class="pf-case-composer" data-pf-cs="composer" data-pf-cs-kind="wait"
+      hx-post="/api/cases/{{ case_id }}/wait"
+      hx-target="#case-composer-slot"
+      hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Wait until…</h3>
+    <p class="pf-case-composer__hint">
+        The case leaves the Open list and returns on this date, or earlier when
+        something happens on its subject. The file is frozen as it stands.
+    </p>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert" data-pf-cs="composer-error">{{ error }}</p>
+    {% endif %}
+    <label class="pf-field">
+        <span class="pf-label">Until</span>
+        <input class="pf-input" type="date" name="wait_until" value="{{ wait_until or '' }}"{% if min_date %} min="{{ min_date }}"{% endif %}
+               required autofocus data-pf-cs="wait-until">
+    </label>
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Note <span class="pf-optional">(optional)</span></span>
+        <textarea class="pf-textarea" name="note" rows="2" placeholder="what the case waits for"
+                  data-pf-cs="wait-note">{{ note or '' }}</textarea>
+    </label>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Set waiting</button>
+    </div>
+</form>

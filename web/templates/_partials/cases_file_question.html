@@ -15,6 +15,9 @@
 
    A closed case renders the prose as text and the meta as facts, no form.
 
+   The note slot renders `question.note` itself when the block is re-rendered
+   (see cases_file_conversations.html; the 3c report's F-3c-5).
+
    Context: case_id, csrf_token, is_mutable, stamp, reveal, question —
    {title, case_title, framing, sub, origin, description, counterparty,
    due_on, due_label, managers, documents: [{filename, size, uploaded,
@@ -89,7 +92,7 @@
             <div><dt>Framing</dt><dd>{{ question.framing|capitalize }}</dd></div>
         </dl>
     {% endif %}
-    <div id="cs-note-question" class="pf-case__note" data-pf-cs="note-slot"></div>
+    <div id="cs-note-question" class="pf-case__note" data-pf-cs="note-slot">{% if question.note %}<div class="pf-note pf-note--{{ question.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ question.note.text }}</p></div>{% endif %}</div>
 
     {% if question.documents %}
         <ul class="pf-case__documents" id="cs-documents" data-pf-cs="documents" aria-label="Documents">

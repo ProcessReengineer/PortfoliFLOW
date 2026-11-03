@@ -26,6 +26,8 @@ Coverage
 * CM-08: snapshot content of a full file, field sets, JSON round-trip.
 * CM-09: the read side — non-milestone ids, the opening snapshot,
   cross-tenant invisibility.
+* CM-10: the lift race guard (D-CS-B-72) — a lift whose case stopped
+  waiting behind its read raises and writes no milestone.
 """
 
 from __future__ import annotations
@@ -793,3 +795,50 @@ async def test_cm09_read_side(app_engine: AsyncEngine, seed_tenant) -> None:
         assert await repo_b.get_frozen_for(opened.id) is None
         assert await repo_b.latest_frozen(case.id) is None
         assert await repo_b.list_entries(case.id, include_frozen=True) == []
+
+
+# ---------------------------------------------------------------------------
+# CM-10: the lift race guard (D-CS-B-72)
+# ---------------------------------------------------------------------------
+
+
+async def test_cm10_a_lost_lift_race_writes_no_milestone(
+    app_engine: AsyncEngine, seed_tenant, monkeypatch
+) -> None:
+    tenant_id = await seed_tenant("CM-10")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cm10.example")
+    case = await _open_case(app_engine, tenant_id, user_id)
+    async with tenant_context(app_engine, tenant_id) as session:
+        stale = await CaseRepository(session).wait(
+            case.id, wait_until=date(2027, 1, 1), by=user_id, now=_T0 + _MIN
+        )
+    # The program lifts it in a transaction of its own, committed first.
+    async with tenant_context(app_engine, tenant_id) as session:
+        await CaseRepository(session).lift_wait(case.id, reason="date", now=_T0 + 2 * _MIN)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        record = [
+            "opened",
+            "frozen",
+            "waiting_set",
+            "frozen",
+            "waiting_lifted",
+            "frozen",
+        ]
+        assert _kinds(await repo.list_entries(case.id, include_frozen=True)) == record
+
+        async def _read_before_the_program_lifted(case_id: Any) -> Any:
+            return stale
+
+        # lift_wait's own read still sees the case waiting: the state flipped
+        # to open behind that DTO, before the column write.
+        monkeypatch.setattr(repo, "get", _read_before_the_program_lifted)
+        with pytest.raises(CaseStateInvalid, match="lifted by the program meanwhile"):
+            await repo.lift_wait(case.id, by=user_id, now=_T0 + 3 * _MIN)
+        monkeypatch.undo()
+
+        assert _kinds(await repo.list_entries(case.id, include_frozen=True)) == record
+        current = await repo.get(case.id)
+        assert current is not None
+        assert (current.state, current.updated_at) == ("open", _T0 + 2 * _MIN)

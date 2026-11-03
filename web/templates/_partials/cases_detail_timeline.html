@@ -15,6 +15,24 @@
      closed          — "Case closed" with the closing note (payload["closing_note"],
                        written by C1's close()).
 
+   The milestones of the one milestone path (P-CS-1b, rendered since P-CS-3c2,
+   D-CS-B-73) read one line each (entry.text), with the hand-over's or the
+   wait's note beneath it when there is one:
+
+     decision_record (with payload.decision_id)
+                     — "Decision recorded: {chosen} — {rationale}"; without a
+                       decision_id the legacy two-key block above.
+     handed_over     — "Handed over to {name}".
+     waiting_set     — "Waiting until dd Mon YYYY".
+     waiting_lifted  — "Waiting lifted — by hand" / "— on the date" /
+                       "— woken by: {the waking system line's text}".
+     system_line     — the line's text verbatim (actor System, D-CS-B-20).
+
+   A milestone with a frozen pair (entry.file_href) carries "File as {word}"
+   in its head and, under the row, the slot the frozen file opens into
+   (#cs-file-as-{entry.id}, cases_file_frozen.html). A milestone without a
+   pair (a legacy case) shows no button.
+
      pin (document)  — the pin anatomy (ADR-0107 §7): the curation comment
                        plus the attached artifact — filename linking to the
                        download endpoint and its human-legible size. Only the
@@ -49,17 +67,18 @@
    through to the calm generic fallback: the head row alone (kind label + actor
    + timestamp), payload untouched, so it never breaks the page.
 
-   Closed cases render identically — reading is never gated (C3b's composers
-   are gated on the open state, but they live in the rail, not here).
+   Closed cases render identically — reading is never gated (the actions and
+   composers are gated on the open or waiting state, but they live in the
+   head, not here; "File as …" reads and so opens on a closed case too).
 
    Context:
-     entries      — list of projected entry dicts, ascending.
+     entries      — list of projected entry dicts, ascending (_project_timeline).
      timeline_oob — when true the root carries hx-swap-oob so a state-changing
-                    composer (note / decision / pin) can refresh this timeline
+                    composer (the pin composer) can refresh this timeline
                     out of band while the main swap clears the composer slot. #}
 <div id="case-timeline" class="pf-tl"{% if timeline_oob %} hx-swap-oob="true"{% endif %}>
     {% for entry in entries %}
-        <div class="pf-tl__entry" data-kind="{{ entry.kind }}">
+        <div class="pf-tl__entry" data-kind="{{ entry.kind }}" data-pf-cs="record-row" data-pf-cs-kind="{{ entry.kind }}">
             <span class="pf-tl__when">{{ entry.when }}</span>
             <div class="pf-tl__body">
                 <div class="pf-tl__head">
@@ -67,12 +86,18 @@
                     <span class="actor actor--{{ entry.actor.css }}">
                         {{ entry.actor.label }}
                     </span>
+                    {% if entry.file_href %}
+                        <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="file-as" data-pf-cs-kind="{{ entry.kind }}"
+                                hx-get="{{ entry.file_href }}" hx-target="#cs-file-as-{{ entry.id }}" hx-swap="innerHTML">File as {{ entry.file_word }}</button>
+                    {% endif %}
                 </div>
 
                 {% if entry.kind == "opened" %}
                     <p class="pf-tl__text">{{ entry.text }}</p>
                 {% elif entry.kind == "note" %}
                     <p class="pf-tl__text">{{ entry.text }}</p>
+                {% elif entry.kind == "decision_record" and entry.recorded %}
+                    <p class="pf-tl__text what" data-pf-cs="record-text">{{ entry.text }}</p>
                 {% elif entry.kind == "decision_record" %}
                     <div class="pf-decision">
                         <span class="pf-decision__label">Decision of record</span>
@@ -88,6 +113,9 @@
                         <span class="pf-closing__label">Closing note</span>
                         <p>{{ entry.closing_note }}</p>
                     </div>
+                {% elif entry.kind in ("handed_over", "waiting_set", "waiting_lifted", "system_line") %}
+                    <p class="pf-tl__text what" data-pf-cs="record-text">{{ entry.text }}</p>
+                    {% if entry.note %}<p class="pf-tl__text pf-record__note" data-pf-cs="record-note">{{ entry.note }}</p>{% endif %}
                 {% elif entry.kind == "pin" and entry.artifact == "document" %}
                     {# Pin anatomy (ADR-0107 §7): curation comment + the attached
                        document, filename linking to the download endpoint. #}
@@ -213,6 +241,7 @@
                        does not render yet: a seeded row of an unrendered kind.
                        Head row only, payload untouched. #}
                 {% endif %}
+                {% if entry.file_href %}<div id="cs-file-as-{{ entry.id }}" class="pf-record__file" data-pf-cs="file-as-slot"></div>{% endif %}
             </div>
         </div>
     {% endfor %}

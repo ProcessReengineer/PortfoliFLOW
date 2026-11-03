@@ -1,0 +1,194 @@
+{# File as … (ADR-0138 §2, D-CS-B-74) — the whole file as one milestone froze
+   it, read-only, rendered into the record row's slot (#cs-file-as-{entry_id})
+   by GET /api/cases/{id}/record/{entry_id}/file. Every key is read by name
+   off the frozen payload (_frozen_file_context in web/routes/cases.py): the
+   case head at that instant, the question's prose, Where we stand under
+   "as frozen …", the threads with their kept artefacts (references resolved,
+   removed rows included — D-CS-M-5; their full rendering is P-CS-4b's), the
+   figures with their values as frozen, the conversations, the open points
+   and the decisions, recorded and draft. Nothing here reads the book, and
+   there is no form: the frozen file is a record. "Close" empties the slot.
+
+   Context: frozen — {entry_id, head, close_href, case {title, state,
+   state_label, wait_until, counterparty, due, owner}, question_title,
+   description, stand_chip, stand (the _project_stand dict) | none,
+   stand_missing, threads [{title, status_label, prose, conclusion, kept}],
+   kept, figures, conversations, points_title, points, recorded, draft}. #}
+<div class="pf-frozen" data-pf-cs="frozen-file">
+    <div class="pf-frozen__head">
+        <span class="pf-src pf-src--frozen" data-pf-cs="frozen-head">{{ frozen.head }}</span>
+        <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="frozen-close"
+                hx-get="{{ frozen.close_href }}" hx-target="#cs-file-as-{{ frozen.entry_id }}" hx-swap="innerHTML">Close</button>
+    </div>
+
+    <div class="pf-frozen__block" data-pf-cs="frozen-case">
+        <dl class="pf-facts">
+            <div><dt>Title</dt><dd>{{ frozen.case.title }}</dd></div>
+            <div><dt>State</dt><dd><span class="pf-state pf-state--{{ frozen.case.state }}">{{ frozen.case.state_label }}</span>{% if frozen.case.wait_until %} · until {{ frozen.case.wait_until }}{% endif %}</dd></div>
+            {% if frozen.case.owner %}<div><dt>Owner</dt><dd>{{ frozen.case.owner }}</dd></div>{% endif %}
+            {% if frozen.case.counterparty %}<div><dt>Counterparty</dt><dd>{{ frozen.case.counterparty }}</dd></div>{% endif %}
+            {% if frozen.case.due %}<div><dt>Due</dt><dd>{{ frozen.case.due }}</dd></div>{% endif %}
+        </dl>
+    </div>
+
+    <div class="pf-frozen__block" data-pf-cs="frozen-question">
+        <h4 class="pf-frozen__title">{{ frozen.question_title }}</h4>
+        {% if frozen.description %}<p class="pf-prose">{{ frozen.description }}</p>{% else %}<p class="pf-hint">No prose yet.</p>{% endif %}
+    </div>
+
+    <div class="pf-frozen__block" data-pf-cs="frozen-stand">
+        <h4 class="pf-frozen__title">Where we stand <span class="pf-src pf-src--frozen">{{ frozen.stand_chip }}</span></h4>
+        {% set view = frozen.stand %}
+        {% if view is none %}
+            <p class="pf-hint">{{ frozen.stand_missing }}</p>
+        {% else %}
+            {% if view.subject %}
+                <dl class="pf-facts">
+                    <div><dt>Subject</dt><dd>{{ view.subject.label }}</dd></div>
+                    <div><dt>As frozen</dt><dd>{{ view.subject.now }}</dd></div>
+                    {% if view.subject.at_opening %}
+                        <div><dt>At case opening</dt><dd>{{ view.subject.at_opening }}</dd></div>
+                    {% elif view.subject.at_opening_lines %}
+                        <div><dt>At case opening</dt><dd>{% for line in view.subject.at_opening_lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                    {% endif %}
+                </dl>
+            {% endif %}
+            {% if view.investments %}
+                <div class="pf-scroll-x">
+                    <table class="pf-table pf-figtable">
+                        <thead>
+                            <tr>
+                                <th scope="col">Investment</th>
+                                <th scope="col">Currency</th>
+                                <th scope="col" class="pf-num">Commitment</th>
+                                <th scope="col" class="pf-num">NAV</th>
+                                <th scope="col">As of</th>
+                                <th scope="col" class="pf-num">TVPI</th>
+                                <th scope="col" class="pf-num">DPI</th>
+                                <th scope="col" class="pf-num">IRR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for inv in view.investments %}
+                                <tr data-pf-cs="frozen-investment" data-pf-cs-name="{{ inv.name }}">
+                                    <td>{{ inv.name }}</td>
+                                    <td>{{ inv.currency }}</td>
+                                    <td class="pf-num">{{ inv.commitment }}</td>
+                                    <td class="pf-num">{{ inv.nav }}</td>
+                                    <td>{{ inv.as_of }}</td>
+                                    <td class="pf-num">{{ inv.tvpi }}</td>
+                                    <td class="pf-num">{{ inv.dpi }}</td>
+                                    <td class="pf-num">{{ inv.irr }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="pf-hint">No investment linked.</p>
+            {% endif %}
+            {% if view.counterparty %}<p class="pf-hint">{{ view.counterparty }}</p>{% endif %}
+            {% if view.fx %}
+                <dl class="pf-facts">{% for line in view.fx %}<div><dt>FX</dt><dd>{{ line }}</dd></div>{% endfor %}</dl>
+            {% endif %}
+            {% if view.tickets %}
+                <ul class="pf-case__lines" aria-label="Tickets">{% for ticket in view.tickets %}<li>{{ ticket }}</li>{% endfor %}</ul>
+            {% endif %}
+            {% if view.system_lines %}
+                <ul class="pf-case__lines" aria-label="Since opening">{% for line in view.system_lines %}<li>{{ line.text }} <span class="pf-hint">· {{ line.date }}</span></li>{% endfor %}</ul>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    {% if frozen.threads or frozen.kept %}
+        <div class="pf-frozen__block" data-pf-cs="frozen-threads">
+            <h4 class="pf-frozen__title">Threads</h4>
+            {% for thread in frozen.threads %}
+                <div class="pf-frozen__thread" data-pf-cs="frozen-thread">
+                    <p class="pf-decision__line"><strong>{{ thread.title }}</strong> <span class="pf-hint">· {{ thread.status_label }}</span></p>
+                    {% if thread.prose %}<p class="pf-prose">{{ thread.prose }}</p>{% endif %}
+                    {% if thread.conclusion %}<p class="pf-hint">Conclusion: {{ thread.conclusion }}</p>{% endif %}
+                    {% if thread.kept %}
+                        <ul class="pf-case__lines" aria-label="Kept">{% for line in thread.kept %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            {% if frozen.kept %}
+                <ul class="pf-case__lines" aria-label="Kept in the file">{% for line in frozen.kept %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {% if frozen.figures %}
+        <div class="pf-frozen__block" data-pf-cs="frozen-figures">
+            <h4 class="pf-frozen__title">Figures</h4>
+            <div class="pf-scroll-x">
+                <table class="pf-table pf-figtable">
+                    <thead>
+                        <tr>
+                            <th scope="col">Figure</th>
+                            <th scope="col" class="pf-num">Value</th>
+                            <th scope="col">Source</th>
+                            <th scope="col">As of</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for figure in frozen.figures %}
+                            <tr data-pf-cs="frozen-figure">
+                                <td>{{ figure.label }}{% if figure.note %} <span class="pf-hint">· {{ figure.note }}</span>{% endif %}</td>
+                                <td class="pf-num">{% if figure.pending %}<span class="is-pending">{% if figure.is_book %}not available{% else %}pending{% endif %}</span>{% else %}{{ figure.value }}{% endif %}</td>
+                                <td><span class="pf-src pf-src--{{ figure.chip_css }}">{{ figure.chip_label }}</span>{% if figure.ref_label %} <span class="pf-hint">{{ figure.ref_label }}</span>{% endif %}</td>
+                                <td>{{ figure.as_of }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if frozen.conversations %}
+        <div class="pf-frozen__block" data-pf-cs="frozen-conversations">
+            <h4 class="pf-frozen__title">Conversations</h4>
+            {% for conversation in frozen.conversations %}
+                <div class="pf-frozen__thread" data-pf-cs="frozen-conversation">
+                    <p class="pf-hint">{{ conversation.when }} · {{ conversation.with_whom }}</p>
+                    {% if conversation.what_was_said %}<p class="pf-prose">{{ conversation.what_was_said }}</p>{% endif %}
+                    {% if conversation.what_was_promised %}<p class="pf-hint">Promised: {{ conversation.what_was_promised }}</p>{% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if frozen.points %}
+        <div class="pf-frozen__block" data-pf-cs="frozen-points">
+            <h4 class="pf-frozen__title">{{ frozen.points_title }}</h4>
+            <ul class="pf-case__lines">
+                {% for point in frozen.points %}
+                    <li data-pf-cs="frozen-point">{% if point.done %}<span aria-hidden="true">✓ </span><span class="pf-sr">Done: </span>{% endif %}{{ point.text }}{% if point.owner_label %} <span class="pf-hint">· {{ point.owner_label }}</span>{% endif %}{% if point.due_label %} <span class="pf-hint">· {{ point.due_label }}</span>{% endif %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {% if frozen.recorded or frozen.draft %}
+        <div class="pf-frozen__block" data-pf-cs="frozen-decisions">
+            <h4 class="pf-frozen__title">Decision</h4>
+            {% for recorded in frozen.recorded %}
+                <div class="pf-decision__recorded" data-pf-cs="frozen-decision">
+                    <p class="pf-decision__line"><span class="pf-hint">{{ recorded.recorded }}</span> · <strong>{{ recorded.chosen }}</strong></p>
+                    {% if recorded.rationale %}<p class="pf-prose">{{ recorded.rationale }}</p>{% endif %}
+                </div>
+            {% endfor %}
+            {% if frozen.draft %}
+                <div class="pf-decision" data-pf-cs="frozen-draft">
+                    <p class="pf-hint">Draft — not recorded</p>
+                    <ul class="pf-decision__options">
+                        {% for option in frozen.draft.options %}<li class="pf-decision__option{% if option.chosen %} is-chosen{% endif %}">{{ option.text }}</li>{% endfor %}
+                    </ul>
+                    {% if frozen.draft.rationale %}<p class="pf-prose">{{ frozen.draft.rationale }}</p>{% endif %}
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>

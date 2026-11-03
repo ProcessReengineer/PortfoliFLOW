@@ -19,9 +19,15 @@ Threads and Figures — both hidden while empty and revealed from the outline's
 ``+``; a ``book`` figure is read live through ``book_values_for``. P-CS-3c
 adds Conversations, Open points (*Questions to ask* on a task) with *Create
 ticket →* into the Transactions composer, and the Decision draft — all three
-hidden when empty. The four composers (Add note / Pin document / Record
-decision / Close case), the attachment download pipeline with its caps and the
-pin timeline anatomy are unchanged.
+hidden when empty. P-CS-3c2 takes every milestone from the file through the one
+milestone path, with the file frozen as it stands (Where we stand and the
+``book`` values injected, :func:`_freeze_args`): *Record decision* under the
+draft, *Wait until…*, *Resume now*, *Hand over to…* and *Close case…* (lift,
+then close, on a waiting case). The Record block lists the milestones, the
+system lines and the legacy entries, each milestone paired with its frozen
+snapshot, which opens read-only under *File as …*. The note and decision
+composers are retired; the pin composer, the attachment download pipeline
+with its caps and the pin timeline anatomy are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -152,7 +158,7 @@ Endpoints
   the entity-detail idiom (``web/routes/investments.py``).
 * ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
   (``question`` · ``stand`` · ``threads`` · ``figures`` · ``conversations`` ·
-  ``points`` · ``decision``; ``reveal=1`` for the outline's ``+``).
+  ``points`` · ``decision`` · ``record``; ``reveal=1`` for the outline's ``+``).
 * ``POST /api/cases/{case_id}/question`` — the question's autosave
   (D-CS-B-44): the title, prose, counterparty, due date and framing, last
   write wins with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1``
@@ -176,11 +182,17 @@ Endpoints
   (D-CS-B-63).
 * ``POST /api/cases/{case_id}/decision-draft`` — the decision draft's one
   upsert: options, the chosen one, rationale, decided by and at; ``add_option``
-  / ``remove_option`` as structural intents (D-CS-B-66). Recording it is
-  P-CS-3c2's; the legacy ``POST …/decision`` composer is untouched.
-* The composer, write, download and close routes below. The working file
-  writes on an open **or waiting** case; the P-CS-3a composers keep their
-  ``open`` gate until P-CS-3c2.
+  / ``remove_option`` as structural intents (D-CS-B-66).
+* ``POST /api/cases/{case_id}/record-decision`` — record the draft: the
+  ``decision_record`` milestone with the file frozen; answers the Decision
+  block, the Record block and the bundle (D-CS-B-70).
+* ``POST /api/cases/{case_id}/wait`` · ``…/resume`` · ``…/hand-over`` ·
+  ``…/close`` — the state and owner milestones, each with the file frozen;
+  each answers ``HX-Redirect: /cases/{id}`` (D-CS-B-70).
+* ``GET  /api/cases/{case_id}/record/{entry_id}/file`` — the file as a
+  milestone froze it, read-only, into the record row's slot (D-CS-B-74).
+* The composer, pin and download routes below. Everything writes on an open
+  **or waiting** case (D-CS-B-76); a closed case is read-only.
 
 The OOB bundle (``_partials/cases_file_oob.html``) is what every save of the
 working file answers with: the crumb ``#cases-title``, ``#cs-saved``,
@@ -240,6 +252,7 @@ from core.repositories.case_working_file_repository import (
     CaseFigureDTO,
     CaseFigureRepository,
     CaseInvestmentRepository,
+    CaseKeptRepository,
     CasePointDTO,
     CasePointRepository,
     CaseThreadDTO,
@@ -259,6 +272,7 @@ from services.cases.stand import (
     book_values_for,
     compose,
     headline_for,
+    to_snapshot,
 )
 from services.money_format import format_money_compact
 from services.transactions.constants import STATUS_BOOKED, STATUS_CANCELLED
@@ -414,6 +428,16 @@ async def _resolve_owner_names(user_repo: UserRepository, ids: Iterable[UUID]) -
 def _owner_label(owner_id: UUID, owner_names: dict[UUID, str]) -> str:
     """Return the resolved owner name, or the stringified id as a fallback."""
     return owner_names.get(owner_id, str(owner_id))
+
+
+def _parse_uuid(raw: Any) -> UUID | None:
+    """A UUID from a payload's string (or a UUID); ``None`` when absent or unreadable."""
+    if raw is None or raw == "":
+        return None
+    try:
+        return raw if isinstance(raw, UUID) else UUID(str(raw))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +819,26 @@ _ENTRY_KIND_LABELS: dict[str, str] = {
     "decision_record": "Decision record",
     "closed": "Case closed",
     "pin": "Pinned",
+    "handed_over": "Handed over",
+    "waiting_set": "Waiting set",
+    "waiting_lifted": "Waiting lifted",
+    "system_line": "System line",
+}
+
+#: A milestone kind → its word in *File as …* and in the frozen head (D-CS-B-73, D-CS-B-78).
+_FILE_AS_WORDS: dict[str, str] = {
+    "opened": "opened",
+    "handed_over": "handed over",
+    "waiting_set": "waiting",
+    "waiting_lifted": "lifted",
+    "decision_record": "decided",
+    "closed": "closed",
+}
+
+#: How a lift reads in the record, by its reason; ``event`` names the waking line (D-CS-B-73).
+_LIFT_TEXTS: dict[str, str] = {
+    "manual": "Waiting lifted — by hand",
+    "date": "Waiting lifted — on the date",
 }
 
 
@@ -910,13 +954,22 @@ def _project_entry(
     owner_names: dict[UUID, str],
     *,
     opened_text: str,
+    file_href: str | None = None,
+    waking_text: str | None = None,
 ) -> dict[str, Any]:
     """Project one timeline entry per the mock's per-kind anatomy.
 
     ``opened`` carries the origin phrasing (materiality lives in the origin
     embed, not repeated here); ``note`` the note text; ``decision_record`` the
-    two-key ``decision`` / ``rationale`` contract C3b's composer writes;
-    ``closed`` the closing note C1 already writes; ``pin`` of artifact class
+    milestone (P-CS-1b — the payload names its ``decision_id``) as
+    ``text`` *Decision recorded: {chosen} — {rationale}*, or, without a
+    ``decision_id``, the legacy two-key ``decision`` / ``rationale`` contract
+    C3b's composer wrote; ``handed_over`` *Handed over to {name}*, ``waiting_set``
+    *Waiting until {date}* (each with its optional ``note``),
+    ``waiting_lifted`` *Waiting lifted — by hand* / *— on the date* / *— woken
+    by: {waking_text}* (the text of the system line that woke the case, looked
+    up by the caller), ``system_line`` its ``payload.text`` verbatim (D-CS-B-20,
+    D-CS-B-73); ``closed`` the closing note C1 already writes; ``pin`` of artifact class
     ``document`` the pin anatomy (binding decision 4 — the comment, the
     download link and the size); ``pin`` of artifact class ``scenario_snapshot``
     the frozen Planning Desk snapshot (ADR-0107 C5 — the parameter chips, the
@@ -930,22 +983,62 @@ def _project_entry(
     raw ``artifact`` value, so the template falls to the calm generic fallback;
     the payload is never leaked. Every other kind likewise carries no projected
     body.
+
+    ``file_href`` is the milestone's *File as …* link, given by the caller
+    when the milestone has a frozen pair (D-CS-B-6); an orphan (a legacy
+    milestone) and every non-milestone carry ``None`` and render no button.
+    Every new kind also carries ``text``, which the Shirley case brief's digest
+    reads (``web/routes/chat.py``).
     """
     payload = entry.payload or {}
     kind = entry.kind
     projected: dict[str, Any] = {
+        "id": str(entry.id),
         "kind": kind,
         "kind_label": _ENTRY_KIND_LABELS.get(kind, kind.replace("_", " ").capitalize()),
         "when": _stamp(entry.created_at),
         "actor": _actor_chip(entry, owner_names),
+        "file_href": file_href,
+        "file_word": _FILE_AS_WORDS.get(kind, kind.replace("_", " ")) if file_href else "",
     }
     if kind == "opened":
         projected["text"] = opened_text
     elif kind == "note":
         projected["text"] = payload.get("text", "")
+    elif kind == "decision_record" and payload.get("decision_id"):
+        chosen = str(payload.get("chosen_text") or "")
+        rationale = str(payload.get("rationale") or "")
+        projected["recorded"] = True
+        projected["decision"] = chosen
+        projected["rationale"] = rationale
+        projected["text"] = f"Decision recorded: {chosen} — {rationale}"
     elif kind == "decision_record":
         projected["decision"] = payload.get("decision", "")
         projected["rationale"] = payload.get("rationale", "")
+    elif kind == "handed_over":
+        to_user = _parse_uuid(payload.get("to_user_id"))
+        to_name = (
+            _owner_label(to_user, owner_names)
+            if to_user is not None
+            else str(payload.get("to_user_id") or "—")
+        )
+        projected["text"] = f"Handed over to {to_name}"
+        projected["note"] = str(payload.get("note") or "")
+    elif kind == "waiting_set":
+        until = _as_date(payload.get("wait_until"))
+        projected["text"] = f"Waiting until {_day(until)}" if until is not None else "Waiting"
+        projected["note"] = str(payload.get("note") or "")
+    elif kind == "waiting_lifted":
+        reason = str(payload.get("reason") or "")
+        if reason == "event":
+            event = payload.get("event")
+            fallback = event.get("event") if isinstance(event, dict) else None
+            woken = waking_text or str(fallback or "an event").replace("_", " ")
+            projected["text"] = f"Waiting lifted — woken by: {woken}"
+        else:
+            projected["text"] = _LIFT_TEXTS.get(reason, "Waiting lifted")
+    elif kind == "system_line":
+        projected["text"] = str(payload.get("text") or "")
     elif kind == "closed":
         projected["closing_note"] = payload.get("closing_note", "")
     elif kind == "pin":
@@ -1014,38 +1107,96 @@ def _opened_text(case: CaseDTO, finding: IreneFindingDTO | None) -> str:
     return "Opened manually."
 
 
-async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dict[str, Any]]:
-    """Re-read and project a case's timeline for an OOB refresh.
+def _pair_frozen(entries: Iterable[CaseEntryDTO]) -> dict[str, CaseEntryDTO]:
+    """Each milestone's ``frozen`` snapshot, keyed by the milestone's id as text (D-CS-B-6).
 
-    Loads the entries (and the originating finding, for the ``opened``
-    phrasing), resolves actor names in one batch, and projects each entry
-    exactly as :func:`load_case_file_context` does — the single source of the
-    timeline shape the note / decision / pin composers refresh into
-    ``#case-timeline``.
+    Paired by ``payload.milestone_entry_id``, never by adjacency: rows that
+    share an instant need not be a pair, and a legacy milestone has none.
     """
-    case_repo = CaseRepository(db_session)
-    entries = await case_repo.list_entries(case.id)
+    pairs: dict[str, CaseEntryDTO] = {}
+    for entry in entries:
+        if entry.kind != "frozen":
+            continue
+        milestone_id = (entry.payload or {}).get("milestone_entry_id")
+        if milestone_id:
+            pairs[str(milestone_id)] = entry
+    return pairs
+
+
+def _record_file_href(case_id: UUID, entry_id: Any) -> str:
+    """The *File as …* read of one milestone (D-CS-B-74)."""
+    return f"/api/cases/{case_id}/record/{entry_id}/file"
+
+
+async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dict[str, Any]]:
+    """The Record block's rows, oldest first (D-CS-B-73) — also the pin result's OOB timeline.
+
+    One read of the record with its ``frozen`` rows
+    (``list_entries(include_frozen=True)``): a snapshot is never a row of its
+    own; it is attached to its milestone by ``payload.milestone_entry_id``
+    (:func:`_pair_frozen`) as the row's *File as …* link. A lift woken by an
+    event names the system line that woke it, found by
+    ``payload.event.entry_id`` in the same list. The actors, the owner and a
+    hand-over's two users are resolved in one batch; the originating finding
+    is read for the ``opened`` phrasing. The single source of the record's
+    shape: the file's first render, the Record block's re-render after a
+    milestone and the pin composer's refresh into ``#case-timeline``.
+    """
+    entries = await CaseRepository(db_session).list_entries(case.id, include_frozen=True)
+    pairs = _pair_frozen(entries)
+    listed = [entry for entry in entries if entry.kind != "frozen"]
 
     finding: IreneFindingDTO | None = None
     if case.finding_id is not None:
         finding = await IreneFindingRepository(db_session).get(case.finding_id)
 
-    actor_ids: set[UUID] = {case.opened_by}
+    actor_ids: set[UUID] = {case.opened_by, case.owner_user_id}
     if case.closed_by is not None:
         actor_ids.add(case.closed_by)
-    actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
+    for entry in listed:
+        if entry.actor_user_id is not None:
+            actor_ids.add(entry.actor_user_id)
+        if entry.kind == "handed_over":
+            for key in ("from_user_id", "to_user_id"):
+                user_id = _parse_uuid((entry.payload or {}).get(key))
+                if user_id is not None:
+                    actor_ids.add(user_id)
     owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
     opened_text = _opened_text(case, finding)
-    return [_project_entry(entry, owner_names, opened_text=opened_text) for entry in entries]
+    line_texts = {
+        str(entry.id): str((entry.payload or {}).get("text") or "")
+        for entry in listed
+        if entry.kind == "system_line"
+    }
+
+    rows: list[dict[str, Any]] = []
+    for entry in listed:
+        waking_text: str | None = None
+        event = (entry.payload or {}).get("event") if entry.kind == "waiting_lifted" else None
+        if isinstance(event, dict):
+            waking_text = line_texts.get(str(event.get("entry_id"))) or None
+        rows.append(
+            _project_entry(
+                entry,
+                owner_names,
+                opened_text=opened_text,
+                file_href=(
+                    _record_file_href(case.id, entry.id) if str(entry.id) in pairs else None
+                ),
+                waking_text=waking_text,
+            )
+        )
+    return rows
 
 
 # ---------------------------------------------------------------------------
 # The editable file (P-CS-3b) — the frame, the sections, Where we stand
 # ---------------------------------------------------------------------------
 
-#: The blocks the section endpoint renders and the stamps partial carries, in
-#: ADR order (D-CS-B-49, D-CS-B-59, D-CS-B-67). Record is not a section
-#: endpoint; it follows "decision" in the file and the outline.
+#: The autosaving blocks — the ones the stamps partial carries a stamp for — in
+#: ADR order (D-CS-B-49, D-CS-B-59, D-CS-B-67). Record follows "decision" in
+#: the file and the outline; it is written only by milestones, so it carries
+#: no stamp and is not one of these.
 _SECTION_NAMES: tuple[str, ...] = (
     "question",
     "stand",
@@ -1056,9 +1207,11 @@ _SECTION_NAMES: tuple[str, ...] = (
     "decision",
 )
 
-#: One block partial per section name.
+#: One block partial per renderable block: the seven sections and the Record,
+#: which re-renders after a milestone (D-CS-B-73).
 _SECTION_TEMPLATES: dict[str, str] = {
-    name: f"_partials/cases_file_{name}.html" for name in _SECTION_NAMES
+    **{name: f"_partials/cases_file_{name}.html" for name in _SECTION_NAMES},
+    "record": "_partials/cases_file_record.html",
 }
 
 #: The out-of-band bundle every save answers with (D-CS-B-44).
@@ -1291,10 +1444,11 @@ async def _frame_context(
 
     The head (the crumb reads its badge and title), the facts (with the
     linked count and the attachments row), the outline (with the Threads,
-    Figures, Conversations, Open points and Decision counts), the stamp, the
-    record's entries and the action hrefs. The OOB bundle
-    (``cases_file_oob.html``) renders from exactly this, so the first render
-    and a save's refresh cannot drift.
+    Figures, Conversations, Open points and Decision counts, and the Record
+    count — the listed rows, ``frozen`` snapshots excluded), the stamp and
+    the action hrefs. The OOB bundle (``cases_file_oob.html``) renders from
+    exactly this, so the first render and a save's refresh cannot drift. The
+    record's rows are the Record block's own (:func:`_project_timeline`).
     """
     entries = await CaseRepository(db_session).list_entries(case.id)
 
@@ -1305,7 +1459,6 @@ async def _frame_context(
     actor_ids: set[UUID] = {case.opened_by, case.owner_user_id}
     if case.closed_by is not None:
         actor_ids.add(case.closed_by)
-    actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
     owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
     attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
     links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
@@ -1319,7 +1472,6 @@ async def _frame_context(
         has_draft=await decisions.get_draft(case.id) is not None,
     )
 
-    opened_text = _opened_text(case, finding)
     is_open = case.state == "open"
     is_closed = case.state == "closed"
     is_mutable = case.state in _MUTABLE_STATES
@@ -1344,9 +1496,6 @@ async def _frame_context(
             points_total=len(points),
             decision_label=decision_label,
         ),
-        "entries": [
-            _project_entry(entry, owner_names, opened_text=opened_text) for entry in entries
-        ],
         # The origin finding fact (text only), when present.
         "linked_finding": (
             {"subject_key": finding.subject_key, "band": finding.band}
@@ -1361,9 +1510,12 @@ async def _frame_context(
         # Journal deep link — closed cases only (binding decision 2).
         "journal_href": JOURNAL_DEEP_LINK if is_closed else None,
         # "Capture scenario" (ADR-0107 C5) and "Consult Shirley" (ADR-0107 C6) —
-        # open cases only, plain links carrying the case as their marker.
-        "capture_scenario_href": (f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_open else None),
-        "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_open else None),
+        # open and waiting cases (D-CS-B-76), plain links carrying the case as
+        # their marker.
+        "capture_scenario_href": (
+            f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_mutable else None
+        ),
+        "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_mutable else None),
     }
 
 
@@ -1371,7 +1523,8 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
     """The question block (D-CS-B-46, D-CS-B-56): heading, title, origin, prose, meta, documents.
 
     ``title`` is the block's heading (The question / The task); ``case_title``
-    is the case's own title, the form's first field.
+    is the case's own title, the form's first field. ``note`` is set by the
+    autosave route when it re-renders the block (the 3c report's F-3c-5).
     """
     finding: IreneFindingDTO | None = None
     entries: list[CaseEntryDTO] = []
@@ -1417,6 +1570,7 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
             }
             for attachment in attachments
         ],
+        "note": None,
     }
 
 
@@ -1645,6 +1799,27 @@ async def _compose_stand(
     return await compose(ctx, case, figures=figures)
 
 
+async def _freeze_args(
+    db_session: AsyncSession, case: CaseDTO, figures: Sequence[CaseFigureDTO] | None = None
+) -> dict[str, Any]:
+    """The two inputs a milestone's freeze cannot read itself, composed once (D-CS-B-69).
+
+    Where we stand is composed for the open or waiting case as it stands
+    (:func:`_compose_stand`) and returned as ``stand`` — its
+    :func:`~services.cases.stand.to_snapshot` dict — and ``book_values`` —
+    the live values of the ``book`` figures (:func:`book_values_for`), so a
+    ``book`` figure is frozen with its value (D-CS-B-8; the 3b/3b2 reports'
+    F-3 / F-5). Every milestone route passes both into its repository call;
+    the close of a waiting case passes the one freeze to both of its
+    milestones. ``figures`` are read when not given. The caller gates the
+    state first: ``compose`` refuses a closed case.
+    """
+    if figures is None:
+        figures = await CaseFigureRepository(db_session).list_for_case(case.id)
+    stand = await _compose_stand(db_session, case, figures)
+    return {"stand": to_snapshot(stand), "book_values": book_values_for(stand, figures)}
+
+
 async def _stand_context(
     db_session: AsyncSession, case: CaseDTO, *, stand: WhereWeStand | None = None
 ) -> dict[str, Any]:
@@ -1711,7 +1886,7 @@ async def _threads_context(
     db_session: AsyncSession, case: CaseDTO, *, reveal: bool
 ) -> dict[str, Any]:
     """Threads (D-CS-B-53): ``{threads[{id, title, prose, status, status_label,
-    conclusion, dates}], empty, reveal, focus_id, open_id, statuses}``.
+    conclusion, dates}], empty, reveal, focus_id, open_id, note, statuses}``.
 
     The case's threads in ``position`` order; removed threads never render.
     A closed case reads the same rows — its working file is read-only, so they
@@ -1740,6 +1915,7 @@ async def _threads_context(
         "reveal": reveal,
         "focus_id": None,
         "open_id": None,
+        "note": None,
         "statuses": [
             {"value": value, "label": label} for value, label in _THREAD_STATUS_LABELS.items()
         ],
@@ -1870,6 +2046,7 @@ async def _closed_figures_context(
         "investments": [],
         "metrics": [],
         "sources": [],
+        "note": None,
     }
 
 
@@ -1878,7 +2055,8 @@ async def _figures_context(
 ) -> dict[str, Any]:
     """Figures (D-CS-B-54, D-CS-B-55): ``{figures[{id, label, value, pending, source,
     editable_source, chip_css, chip_label, ref_label, note, as_of, is_book, live}], empty,
-    reveal, investments[{id, name, linked}], metrics[{key, label}], sources[{value, label}]}``.
+    reveal, investments[{id, name, linked}], metrics[{key, label}], sources[{value, label}],
+    note}``.
 
     On an open or waiting case the rows are the figures table's, in
     ``position`` order; a ``book`` row's value and as-of are read live through
@@ -1928,6 +2106,7 @@ async def _figures_context(
             {"value": source, "label": _SOURCE_CHIPS[source][1]}
             for source in _FIGURE_EDITABLE_SOURCES
         ],
+        "note": None,
     }
 
 
@@ -2166,8 +2345,10 @@ async def load_section_context(
     :func:`_question_context`), ``stand`` (see :func:`_stand_context`),
     ``threads`` (see :func:`_threads_context`), ``figures`` (see
     :func:`_figures_context`), ``conversations`` (see
-    :func:`_conversations_context`), ``points`` (see :func:`_points_context`)
-    or ``decision`` (see :func:`_decision_context`).
+    :func:`_conversations_context`), ``points`` (see :func:`_points_context`),
+    ``decision`` (see :func:`_decision_context`) or ``record`` —
+    ``{entries, oob}``, the rows of :func:`_project_timeline` and whether the
+    block rides out of band after a milestone (D-CS-B-73).
     :func:`load_case_file_context` composes the file from the same calls, so
     the first render and a block's re-render cannot drift.
 
@@ -2175,7 +2356,7 @@ async def load_section_context(
         db_session: A tenant-scoped session.
         case: The case, already read (and 404-checked) by the caller.
         session: The PM's session (for the CSRF token).
-        name: One of ``_SECTION_NAMES``.
+        name: One of ``_SECTION_NAMES``, or ``record``.
         reveal: Render a hidden-when-empty block visible, its add control
             focused (the outline's ``+``).
         stand: Where we stand already composed for this request, for the
@@ -2209,8 +2390,12 @@ async def load_section_context(
         context["points"] = await _points_context(db_session, case, reveal=reveal)
     elif name == "decision":
         context["decision"] = await _decision_context(db_session, case, reveal=reveal)
+    elif name == "record":
+        context["record"] = {"entries": await _project_timeline(db_session, case), "oob": False}
     else:
-        raise ValueError(f"Unknown section {name!r}; expected one of {', '.join(_SECTION_NAMES)}.")
+        raise ValueError(
+            f"Unknown section {name!r}; expected one of {', '.join(_SECTION_TEMPLATES)}."
+        )
     return context
 
 
@@ -2221,23 +2406,21 @@ async def load_case_file_context(
 
     The frame (:func:`_frame_context`): ``csrf_token``, ``case_id``, ``head``,
     ``is_open``, ``is_mutable``, ``stamp``, ``section_names``,
-    ``saved_label`` (empty on the first render), ``outline``, ``entries``,
+    ``saved_label`` (empty on the first render), ``outline``,
     ``linked_finding``, ``linked_label``, ``attachments_count`` /
     ``attachments_cap`` / ``show_attachments``, ``journal_href``,
     ``capture_scenario_href``, ``consult_shirley_href``. Then one key per
     section (``question``, ``stand``, ``threads``, ``figures``,
-    ``conversations``, ``points``, ``decision``) from
+    ``conversations``, ``points``, ``decision``) and the ``record`` from
     :func:`load_section_context`.
 
     An open or waiting case is composed **once** here (D-CS-B-11, D-CS-B-55):
     the same :class:`WhereWeStand` feeds the stand block and the figures
     block's ``book`` values.
 
-    The write actions of P-CS-3a's composers (note, pin, decision, close,
-    capture, consult) are offered on an *open* case only (``is_open``); the
-    working file — the question, links, documents, threads, figures,
-    conversations, open points and the decision draft — on an open or
-    waiting one (``is_mutable``, D-CS-B-52). A closed case renders read-only.
+    The actions and the working file are offered on an open or waiting case
+    (``is_mutable``, D-CS-B-52, D-CS-B-76); ``is_open`` only chooses *Wait
+    until…* (open) or *Resume now* (waiting). A closed case renders read-only.
 
     Args:
         db_session: A tenant-scoped session.
@@ -2252,7 +2435,7 @@ async def load_case_file_context(
     if case.state in _MUTABLE_STATES:
         figures = await CaseFigureRepository(db_session).list_for_case(case.id)
         stand = await _compose_stand(db_session, case, figures)
-    for name in _SECTION_NAMES:
+    for name in (*_SECTION_NAMES, "record"):
         context.update(await load_section_context(db_session, case, session, name, stand=stand))
     return context
 
@@ -2309,24 +2492,58 @@ async def get_case_section(
 
 # ---------------------------------------------------------------------------
 # Composers + writes (C3b) — everything that mutates a case from the detail
-# view. Every write endpoint takes ``verify_csrf`` and gates on the open state
-# at the route (the repository already raises on a closed case; the route gate
-# exists so the UI never offers what the layer below refuses, and so a
-# defensive request against a closed case degrades to a calm error, logged
-# because the UI should not have offered it).
+# view. Every write endpoint takes ``verify_csrf`` and gates on the open or
+# waiting state at the route (the repository already raises on a closed case;
+# the route gate exists so the UI never offers what the layer below refuses,
+# and so a defensive request against a closed case degrades to a calm error,
+# logged because the UI should not have offered it).
 # ---------------------------------------------------------------------------
 
 # The closed-case calm error, shared by every composer's closed-state branch.
 _CLOSED_CASE_ERROR = "This case is closed — closed cases are read-only and cannot be changed."
 
+#: The composers of the actions row (D-CS-B-70, D-CS-B-75); the note and
+#: decision composers are retired (the Decision block records a decision).
 _COMPOSER_TEMPLATES: dict[str, str] = {
-    "note": "_partials/cases_composer_note.html",
-    "decision": "_partials/cases_composer_decision.html",
     "pin": "_partials/cases_composer_pin.html",
     "close": "_partials/cases_composer_close.html",
     "link-investment": "_partials/cases_composer_link_investment.html",
     "attach": "_partials/cases_composer_attach.html",
+    "wait": "_partials/cases_composer_wait.html",
+    "handover": "_partials/cases_composer_handover.html",
 }
+
+#: *Wait until…* proposes a date this many days ahead (D-CS-B-70).
+_WAIT_DEFAULT_DAYS: int = 30
+
+_WAIT_PAST_TEXT = "The date must be after today."
+_WAIT_UNTIL_TEXT = "{raw!r} is not a date — write the date to wait until as YYYY-MM-DD."
+_WAIT_NOT_OPEN_TEXT = "Only an open case can be set waiting — this one is waiting already."
+_HANDOVER_TEXT = "Choose a user to hand over to."
+
+
+def _wait_dates() -> dict[str, str]:
+    """The *Wait until…* composer's default (today + 30 days) and earliest date (tomorrow), UTC."""
+    today = _now().date()
+    return {
+        "wait_until": (today + timedelta(days=_WAIT_DEFAULT_DAYS)).isoformat(),
+        "min_date": (today + timedelta(days=1)).isoformat(),
+    }
+
+
+async def _handover_candidates(db: AsyncSession, case: CaseDTO) -> list[dict[str, str]]:
+    """The users a case can be handed to: the tenant's active users but the owner, by name.
+
+    ``list_all`` is RLS-scoped, so another tenant's users never appear
+    (ADR-0138 §13).
+    """
+    users = await UserRepository(db).list_all()
+    candidates = [
+        {"id": str(user.id), "name": user.display_name or user.email}
+        for user in users
+        if user.is_active and user.id != case.owner_user_id
+    ]
+    return sorted(candidates, key=lambda candidate: candidate["name"].lower())
 
 
 def _render(
@@ -2370,9 +2587,11 @@ async def get_case_composer(
     ``action='cancel'`` clears the slot (an empty body). The real actions
     render their form — DB-free, exactly like ``GET /api/cases/new`` — because
     the gate that matters lives on the write endpoints the composers post to.
-    The one exception is ``link-investment``, which reads its candidates: the
-    tenant's active investments not yet linked, by name (D-CS-B-47). An
-    unknown action is a 404.
+    Two read: ``link-investment`` its candidates, the tenant's active
+    investments not yet linked, by name (D-CS-B-47); ``handover`` the tenant's
+    active users but the owner, by name (an unknown or foreign case is then a
+    404). ``wait`` proposes today + 30 days (D-CS-B-70). An unknown action —
+    the retired ``note`` and ``decision`` among them — is a 404.
     """
     if action == "cancel":
         return HTMLResponse("")
@@ -2385,6 +2604,15 @@ async def get_case_composer(
     }
     if action in ("pin", "attach"):
         context["caps_hint"] = _caps_hint(get_config())
+    if action == "wait":
+        context.update(_wait_dates())
+    if action == "handover":
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            case = await CaseRepository(db).get(case_id)
+            if case is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+            context["candidates"] = await _handover_candidates(db, case)
     if action == "link-investment":
         engine = _engine(request)
         async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
@@ -2404,149 +2632,6 @@ async def get_case_composer(
             if investment.id not in linked
         ]
     return _render(request, template, context)
-
-
-def _timeline_refresh(request: Request, entries: list[dict[str, Any]]) -> HTMLResponse:
-    """Return the OOB timeline fragment that clears the composer slot.
-
-    The response is only the timeline (carrying ``hx-swap-oob``), so HTMX
-    swaps it by id and the main ``#case-composer-slot`` target receives the
-    empty remainder — the note / decision success shape.
-    """
-    return _render(
-        request,
-        "_partials/cases_detail_timeline.html",
-        {"entries": entries, "timeline_oob": True},
-    )
-
-
-@router.post("/api/cases/{case_id}/note", response_class=HTMLResponse)
-async def post_case_note(
-    request: Request,
-    case_id: UUID,
-    text: str = Form(""),
-    session: SessionDTO = Depends(require_session),
-    _csrf: None = Depends(verify_csrf),
-) -> HTMLResponse:
-    """Append a ``note`` entry, then OOB-refresh the timeline (Step 3).
-
-    Route-level open-state gate first (missing → 404; closed → calm error,
-    logged); then the text is stripped and required. On success one ``note``
-    entry is appended (``actor='pm'``, ``actor_user_id`` = the session user)
-    and the timeline refreshes out of band while the composer slot clears.
-    """
-    clean = text.strip()
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        case = await CaseRepository(db).get(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found.",
-            )
-        if case.state != "open":
-            logger.warning(
-                "cases note: closed-case write blocked tenant=%s user=%s case=%s",
-                session.tenant_id,
-                session.user_id,
-                case_id,
-            )
-            return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["note"])
-        if not clean:
-            return _render(
-                request,
-                _COMPOSER_TEMPLATES["note"],
-                {
-                    "case_id": str(case_id),
-                    "csrf_token": session.csrf_token,
-                    "error": "A note cannot be empty.",
-                    "text": text,
-                },
-            )
-        await CaseRepository(db).append_entry(
-            case_id,
-            kind="note",
-            actor="pm",
-            actor_user_id=session.user_id,
-            payload={"text": clean},
-            now=_now(),
-        )
-        entries = await _project_timeline(db, case)
-
-    logger.info(
-        "cases note: tenant=%s user=%s case=%s",
-        session.tenant_id,
-        session.user_id,
-        case_id,
-    )
-    return _timeline_refresh(request, entries)
-
-
-@router.post("/api/cases/{case_id}/decision", response_class=HTMLResponse)
-async def post_case_decision(
-    request: Request,
-    case_id: UUID,
-    decision: str = Form(""),
-    rationale: str = Form(""),
-    session: SessionDTO = Depends(require_session),
-    _csrf: None = Depends(verify_csrf),
-) -> HTMLResponse:
-    """Append a ``decision_record`` entry, then OOB-refresh the timeline.
-
-    Both fields are required (each missing → inline error, nothing written) —
-    the ``decision`` / ``rationale`` pair is the C3a rendering contract. Same
-    open-state gate and refresh shape as :func:`post_case_note`.
-    """
-    clean_decision = decision.strip()
-    clean_rationale = rationale.strip()
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        case = await CaseRepository(db).get(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found.",
-            )
-        if case.state != "open":
-            logger.warning(
-                "cases decision: closed-case write blocked tenant=%s user=%s case=%s",
-                session.tenant_id,
-                session.user_id,
-                case_id,
-            )
-            return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["decision"])
-        if not clean_decision or not clean_rationale:
-            return _render(
-                request,
-                _COMPOSER_TEMPLATES["decision"],
-                {
-                    "case_id": str(case_id),
-                    "csrf_token": session.csrf_token,
-                    "error": "Both a decision and its rationale are required.",
-                    "decision": decision,
-                    "rationale": rationale,
-                },
-            )
-        await CaseRepository(db).append_entry(
-            case_id,
-            kind="decision_record",
-            actor="pm",
-            actor_user_id=session.user_id,
-            payload={
-                "decision": clean_decision,
-                "rationale": clean_rationale,
-            },
-            now=_now(),
-        )
-        entries = await _project_timeline(db, case)
-
-    logger.info(
-        "cases decision: tenant=%s user=%s case=%s",
-        session.tenant_id,
-        session.user_id,
-        case_id,
-    )
-    return _timeline_refresh(request, entries)
 
 
 async def _read_upload(request: Request, cfg: Any) -> tuple[str, str, bytes, str] | str:
@@ -2717,8 +2802,11 @@ async def post_case_question(
 
     Answers the OOB bundle alone — its crumb carries the title, so the head
     follows a rename; ``rerender=1`` (the title field, the framing switch)
-    answers the question block followed by the bundle. A closed case answers
-    the calm closed error in the note slot and saves nothing.
+    answers the question block (carrying its own note) followed by the
+    bundle — and, when the framing changed, the points block out of band, so
+    its heading follows at once (*Open points* ↔ *Questions to ask*). A
+    closed case answers the calm closed error in the note slot and saves
+    nothing.
     """
     form = await _request_form(request)
     values: dict[str, Any] = {}
@@ -2767,12 +2855,14 @@ async def post_case_question(
             return _note_refusal(request, "question", _CLOSED_CASE_ERROR, status_code=200)
         parts: list[tuple[str, dict[str, Any]]] = []
         if rerender:
-            parts.append(
-                (
-                    _SECTION_TEMPLATES["question"],
-                    await load_section_context(db, updated, session, "question"),
-                )
-            )
+            block = await load_section_context(db, updated, session, "question")
+            block["question"]["note"] = note
+            parts.append((_SECTION_TEMPLATES["question"], block))
+            if _framing(updated) != _framing(case):
+                # The points heading follows the framing (the 3c report's F-3c-4).
+                points = await load_section_context(db, updated, session, "points")
+                points["points"]["oob"] = True
+                parts.append((_SECTION_TEMPLATES["points"], points))
         parts.append(
             (
                 _OOB_TEMPLATE,
@@ -3069,14 +3159,18 @@ async def _answer_parts(
     rerender: bool,
     note: dict[str, str] | None,
     block_keys: dict[str, Any] | None = None,
+    also: Sequence[str] = (),
 ) -> list[tuple[str, dict[str, Any]]]:
     """A write's answer: the section's block (``rerender``), then the bundle (D-CS-B-44).
 
     The case is re-read after the write, so the stamps, the outline counts
-    and the crumb carry its new state. ``block_keys`` are set on the block's
-    own context (the thread to open or focus). The figures block composes
-    Where we stand once, after the write, when it holds a ``book`` figure
-    (D-CS-B-55).
+    and the crumb carry its new state. A re-rendered block carries ``note``
+    itself: htmx swaps the bundle's out-of-band note first and the block's
+    empty slot over it (the 3c report's D-7 and F-3c-5). ``block_keys`` are
+    set on the block's own context (the thread to open or focus). ``also``
+    names further blocks rendered out of band after it — the Record after a
+    recorded decision (D-CS-B-70). The figures block composes Where we stand
+    once, after the write, when it holds a ``book`` figure (D-CS-B-55).
     """
     updated = await CaseRepository(db).get(case_id)
     if updated is None:
@@ -3084,9 +3178,14 @@ async def _answer_parts(
     parts: list[tuple[str, dict[str, Any]]] = []
     if rerender:
         block = await load_section_context(db, updated, session, section)
+        block[section]["note"] = note
         if block_keys:
             block[section].update(block_keys)
         parts.append((_SECTION_TEMPLATES[section], block))
+    for name in also:
+        extra = await load_section_context(db, updated, session, name)
+        extra[name]["oob"] = True
+        parts.append((_SECTION_TEMPLATES[name], extra))
     parts.append(
         (_OOB_TEMPLATE, await _bundle_context(db, updated, session, section=section, note=note))
     )
@@ -4099,6 +4198,76 @@ async def post_case_decision_draft(
     return _render_parts(request, parts)
 
 
+# ---------------------------------------------------------------------------
+# Milestones from the file (P-CS-3c2): Record decision, Wait until…, Resume
+# now, Hand over to…, Close case…. Each goes through the one milestone path
+# (D-CS-B-7) with the file frozen as it stands — ``stand`` and ``book_values``
+# from :func:`_freeze_args`. The decision stays in place (the state does not
+# change); the state and owner milestones answer ``HX-Redirect`` (the 3a
+# close idiom), since the pill, the actions and the list all change.
+# ---------------------------------------------------------------------------
+
+
+def _redirect_to_case(case_id: UUID) -> HTMLResponse:
+    """The full refresh of the case page after a state or owner milestone."""
+    return HTMLResponse("", headers={"HX-Redirect": f"/cases/{case_id}"})
+
+
+@router.post("/api/cases/{case_id}/record-decision", response_class=HTMLResponse)
+async def post_case_record_decision(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Record the draft — the ``decision_record`` milestone with the file frozen (D-CS-B-70).
+
+    On an open or waiting case, in one transaction: Where we stand is
+    composed once (:func:`_freeze_args`) and :meth:`CaseRepository.record_decision`
+    writes the milestone, marks the draft recorded and freezes the file.
+    Its refusals — no draft, no chosen option, no rationale (D-CS-B-10) —
+    answer 400 with the message verbatim in ``#cs-note-decision``, and
+    nothing is written. Answers the Decision block (the recorded card and
+    *Start a new draft*), the Record block out of band (the new row and its
+    *File as decided*) and the bundle. A closed case answers the calm closed
+    error.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="decision", action="record decision"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        freeze = await _freeze_args(db, case)
+        try:
+            milestone = await CaseRepository(db).record_decision(
+                case_id,
+                recorded_by=session.user_id,
+                now=_now(),
+                stand=freeze["stand"],
+                book_values=freeze["book_values"],
+            )
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "decision", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "decision", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db, case_id, session, "decision", rerender=True, note=None, also=("record",)
+        )
+
+    logger.info(
+        "cases record decision: tenant=%s user=%s case=%s entry=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        milestone.id,
+    )
+    return _render_parts(request, parts)
+
+
 @router.post("/api/cases/{case_id}/pin-document", response_class=HTMLResponse)
 async def post_case_pin_document(
     request: Request,
@@ -4109,7 +4278,7 @@ async def post_case_pin_document(
     """Pin a document: validate, store the attachment, append the pin (Step 4).
 
     Gates, in order, each with its own inline error: case exists (404) → case
-    open → comment non-empty → file present → extension AND declared content
+    open or waiting (D-CS-B-76) → comment non-empty → file present → extension AND declared content
     type in the whitelist → size ≤ cap (the real byte length, never the header)
     → count < cap. The size gate reads the body in bounded 64 KiB chunks and
     stops at cap + 1 bytes, so an oversized upload is rejected without ever
@@ -4152,7 +4321,7 @@ async def post_case_pin_document(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Case not found.",
             )
-        if case.state != "open":
+        if case.state not in _MUTABLE_STATES:
             logger.warning(
                 "cases pin: closed-case write blocked tenant=%s user=%s case=%s",
                 session.tenant_id,
@@ -4290,6 +4459,211 @@ async def download_case_attachment(
     )
 
 
+@router.post("/api/cases/{case_id}/wait", response_class=HTMLResponse)
+async def post_case_wait(
+    request: Request,
+    case_id: UUID,
+    wait_until: str = Form(""),
+    note: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Set an open case waiting until a date — the ``waiting_set`` milestone (D-CS-B-70).
+
+    ``wait_until`` is ``YYYY-MM-DD`` and must be after today (UTC); ``note`` is
+    optional (stripped, ``None`` when empty). A refusal re-renders the
+    composer with the entered values and ``error`` — *The date must be after
+    today.* — and writes nothing; a closed case answers the calm closed error,
+    a waiting one a calm line. On success :meth:`CaseRepository.wait` moves
+    the case to waiting and writes the milestone with the file frozen
+    (:func:`_freeze_args`), and the answer is ``HX-Redirect: /cases/{id}``.
+    """
+    raw = wait_until.strip()
+    clean_note = note.strip() or None
+
+    def _wait_error(message: str) -> HTMLResponse:
+        return _render(
+            request,
+            _COMPOSER_TEMPLATES["wait"],
+            {
+                "case_id": str(case_id),
+                "csrf_token": session.csrf_token,
+                **_wait_dates(),
+                "wait_until": raw,
+                "note": note,
+                "error": message,
+            },
+        )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = CaseRepository(db)
+        case = await repo.get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases wait: closed-case write blocked tenant=%s user=%s case=%s",
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["wait"])
+        if case.state != "open":
+            return _wait_error(_WAIT_NOT_OPEN_TEXT)
+        try:
+            until = _parse_due(raw)
+        except ValueError:
+            return _wait_error(_WAIT_UNTIL_TEXT.format(raw=raw))
+        if until is None or until <= _now().date():
+            return _wait_error(_WAIT_PAST_TEXT)
+        freeze = await _freeze_args(db, case)
+        await repo.wait(
+            case_id,
+            wait_until=until,
+            by=session.user_id,
+            now=_now(),
+            note=clean_note,
+            stand=freeze["stand"],
+            book_values=freeze["book_values"],
+        )
+
+    logger.info(
+        "cases wait: tenant=%s user=%s case=%s until=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        until,
+    )
+    return _redirect_to_case(case_id)
+
+
+@router.post("/api/cases/{case_id}/resume", response_class=HTMLResponse)
+async def post_case_resume(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Lift the wait by hand — the ``waiting_lifted`` milestone, ``reason='manual'`` (D-CS-B-70).
+
+    On a waiting case :meth:`CaseRepository.lift_wait` returns it to open with
+    the file frozen (:func:`_freeze_args`), ``actor='pm'``. A case the program
+    lifted meanwhile (the date, an event — the repository's race guard,
+    D-CS-B-72) is open already: nothing is written and the page simply
+    refreshes, as it does on success (``HX-Redirect: /cases/{id}``). A closed
+    case answers the calm closed error in the Record block's note slot.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = CaseRepository(db)
+        case = await repo.get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases resume: closed-case write blocked tenant=%s user=%s case=%s",
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _note_refusal(request, "record", _CLOSED_CASE_ERROR, status_code=200)
+        lifted = False
+        if case.state == "waiting":
+            freeze = await _freeze_args(db, case)
+            try:
+                await repo.lift_wait(
+                    case_id,
+                    now=_now(),
+                    by=session.user_id,
+                    reason="manual",
+                    stand=freeze["stand"],
+                    book_values=freeze["book_values"],
+                )
+                lifted = True
+            except CaseStateInvalid:
+                logger.info("cases resume: case %s was no longer waiting — no lift.", case_id)
+
+    logger.info(
+        "cases resume: tenant=%s user=%s case=%s lifted=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        lifted,
+    )
+    return _redirect_to_case(case_id)
+
+
+@router.post("/api/cases/{case_id}/hand-over", response_class=HTMLResponse)
+async def post_case_hand_over(
+    request: Request,
+    case_id: UUID,
+    to_user_id: str = Form(""),
+    note: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Hand the case to another user — the ``handed_over`` milestone (ADR-0138 §13, D-CS-B-70).
+
+    ``to_user_id`` must be one of the composer's candidates — an active user
+    of this tenant who is not the owner (:func:`_handover_candidates`); any
+    other value re-renders the composer with *Choose a user to hand over to.*
+    and writes nothing. ``note`` is optional. On an open or waiting case
+    :meth:`CaseRepository.hand_over` changes the owner (``opened_by`` stays
+    as history) and writes the milestone with the file frozen; the answer is
+    ``HX-Redirect: /cases/{id}``. A closed case answers the calm closed error.
+    """
+    clean_note = note.strip() or None
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = CaseRepository(db)
+        case = await repo.get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases hand-over: closed-case write blocked tenant=%s user=%s case=%s",
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["handover"])
+        candidates = await _handover_candidates(db, case)
+        target = _parse_uuid(to_user_id.strip())
+        if target is None or str(target) not in {candidate["id"] for candidate in candidates}:
+            return _render(
+                request,
+                _COMPOSER_TEMPLATES["handover"],
+                {
+                    "case_id": str(case_id),
+                    "csrf_token": session.csrf_token,
+                    "candidates": candidates,
+                    "note": note,
+                    "error": _HANDOVER_TEXT,
+                },
+            )
+        freeze = await _freeze_args(db, case)
+        await repo.hand_over(
+            case_id,
+            to_user_id=target,
+            by=session.user_id,
+            now=_now(),
+            note=clean_note,
+            stand=freeze["stand"],
+            book_values=freeze["book_values"],
+        )
+
+    logger.info(
+        "cases hand-over: tenant=%s user=%s case=%s from=%s to=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        case.owner_user_id,
+        target,
+    )
+    return _redirect_to_case(case_id)
+
+
 @router.post("/api/cases/{case_id}/close", response_class=HTMLResponse)
 async def post_case_close(
     request: Request,
@@ -4298,59 +4672,358 @@ async def post_case_close(
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Close a case, then trigger a full-page refresh (Step 5).
+    """Close a case with the file frozen, then trigger a full-page refresh (D-CS-B-70).
 
     The closing note is stripped and required (missing → inline error);
-    missing case → 404; an already-closed case → the calm error idiom. On
-    success :meth:`CaseRepository.close` writes the state transition and the
-    ``closed`` entry atomically (C1), and the response carries an
-    ``HX-Redirect`` back to the detail URL so the browser re-renders the whole
-    page closed — state chip, closed metadata, closing note, no actions, no
-    composers. **No Journal write and no Journal link** — the Journal's
-    closed-case projection and the deep link are C4.
+    missing case → 404; an already-closed case → the calm error idiom. On an
+    open case :meth:`CaseRepository.close` writes the state transition and
+    the ``closed`` milestone with the file frozen — Where we stand and the
+    ``book`` values (:func:`_freeze_args`; the 3b2 report's F-5). A waiting
+    case is lifted first, in the same transaction (D-CS-B-2):
+    ``lift_wait(reason='manual')`` at ``t1``, then ``close`` at
+    ``t2 = max(now, t1 + 1 µs)`` — two milestones at two distinct instants,
+    each frozen with the one freeze. A case the program lifted meanwhile is
+    simply closed. The response carries an ``HX-Redirect`` back to the case
+    so the page re-renders closed — state chip, closed metadata, closing
+    note, no actions, no composers. **No Journal write** — the Journal's
+    closed-case projection reads the closed case (ADR-0107 C4).
     """
     clean_note = closing_note.strip()
     engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        case = await CaseRepository(db).get(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found.",
-            )
-        if case.state != "open":
-            logger.warning(
-                "cases close: already-closed close blocked tenant=%s user=%s case=%s",
-                session.tenant_id,
-                session.user_id,
+    try:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            repo = CaseRepository(db)
+            case = await repo.get(case_id)
+            if case is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Case not found.",
+                )
+            if case.state not in _MUTABLE_STATES:
+                logger.warning(
+                    "cases close: already-closed close blocked tenant=%s user=%s case=%s",
+                    session.tenant_id,
+                    session.user_id,
+                    case_id,
+                )
+                return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["close"])
+            if not clean_note:
+                return _render(
+                    request,
+                    _COMPOSER_TEMPLATES["close"],
+                    {
+                        "case_id": str(case_id),
+                        "csrf_token": session.csrf_token,
+                        "error": "A closing note is required to close a case.",
+                        "closing_note": closing_note,
+                    },
+                )
+            freeze = await _freeze_args(db, case)
+            now = _now()
+            if case.state == "waiting":
+                try:
+                    await repo.lift_wait(
+                        case_id,
+                        now=now,
+                        by=session.user_id,
+                        reason="manual",
+                        stand=freeze["stand"],
+                        book_values=freeze["book_values"],
+                    )
+                except CaseStateInvalid:
+                    logger.info("cases close: case %s was lifted meanwhile — closing.", case_id)
+                now = max(_now(), now + timedelta(microseconds=1))
+            await repo.close(
                 case_id,
+                closed_by=session.user_id,
+                closing_note=clean_note,
+                now=now,
+                stand=freeze["stand"],
+                book_values=freeze["book_values"],
             )
-            return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["close"])
-        if not clean_note:
-            return _render(
-                request,
-                _COMPOSER_TEMPLATES["close"],
-                {
-                    "case_id": str(case_id),
-                    "csrf_token": session.csrf_token,
-                    "error": "A closing note is required to close a case.",
-                    "closing_note": closing_note,
-                },
-            )
-        await CaseRepository(db).close(
-            case_id,
-            closed_by=session.user_id,
-            closing_note=clean_note,
-            now=_now(),
-        )
+    except (CaseClosedError, CaseStateInvalid):
+        # Closed (or gone) between the gate and the write: the transaction
+        # rolled back, the lift included.
+        logger.warning("cases close: case no longer closable under the write case=%s", case_id)
+        return _closed_composer(request, session, case_id, _COMPOSER_TEMPLATES["close"])
 
     logger.info(
-        "cases close: tenant=%s user=%s case=%s",
+        "cases close: tenant=%s user=%s case=%s from=%s",
         session.tenant_id,
         session.user_id,
         case_id,
+        case.state,
     )
     # Full-page refresh: the whole page changes (head chip, closed metadata,
     # actions and composers vanish). HX-Redirect is the codebase's full
     # client-side navigation idiom (web/routes/investments.py).
-    return HTMLResponse("", headers={"HX-Redirect": f"/cases/{case_id}"})
+    return _redirect_to_case(case_id)
+
+
+# ---------------------------------------------------------------------------
+# File as … — the file as a milestone froze it (P-CS-3c2, D-CS-B-74)
+# ---------------------------------------------------------------------------
+
+_NOT_FROZEN_STAND_TEXT = "Where we stand was not frozen with this milestone."
+
+
+def _snapshot_dict(source: Any, name: str) -> dict[str, Any]:
+    """``source[name]`` when it is a dict, else ``{}`` — a snapshot read by name."""
+    value = source.get(name) if isinstance(source, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _list_of(value: Any) -> list[Any]:
+    """``value`` when it is a list, else ``[]``."""
+    return value if isinstance(value, list) else []
+
+
+def _snapshot_rows(source: Any, name: str) -> list[dict[str, Any]]:
+    """The dict rows of ``source[name]`` in ``position`` order — a snapshot list read by name."""
+    value = source.get(name) if isinstance(source, dict) else None
+    rows = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+    return sorted(rows, key=lambda row: int(row.get("position") or 0))
+
+
+async def _frozen_kept_lines(kept: CaseKeptRepository, refs: Any) -> list[str]:
+    """A snapshot's kept references as *{artifact} · {caption}* lines (D-CS-M-5).
+
+    Each reference is resolved through :meth:`CaseKeptRepository.get`, which
+    returns a removed row too, so a freeze made before a removal still names
+    its artefact; the caption is the one frozen. The classes' full rendering
+    is P-CS-4b's.
+    """
+    lines: list[str] = []
+    for ref in refs if isinstance(refs, list) else []:
+        if not isinstance(ref, dict):
+            continue
+        kept_id = _parse_uuid(ref.get("kept_id"))
+        resolved = await kept.get(kept_id) if kept_id is not None else None
+        artifact = resolved.artifact if resolved is not None else str(ref.get("artifact") or "")
+        label = artifact.replace("_", " ").capitalize() or "Kept"
+        caption = str(
+            ref.get("caption") or (resolved.caption if resolved is not None else "") or ""
+        )
+        line = f"{label} · {caption}" if caption else label
+        lines.append(line if resolved is not None else f"{line} · not found")
+    return lines
+
+
+def _frozen_recorded(decision: dict[str, Any]) -> dict[str, str]:
+    """One recorded decision of a snapshot, read by name."""
+    options = _list_of(decision.get("options"))
+    chosen = next(
+        (
+            str(option.get("text") or "")
+            for option in options
+            if isinstance(option, dict) and option.get("key") == decision.get("chosen_key")
+        ),
+        "",
+    )
+    recorded_at = _as_datetime(decision.get("recorded_at"))
+    return {
+        "recorded": (
+            f"Recorded {recorded_at.astimezone(timezone.utc):%d %b %Y %H:%M}"
+            if recorded_at is not None
+            else "Recorded"
+        ),
+        "chosen": chosen,
+        "rationale": str(decision.get("rationale") or ""),
+    }
+
+
+async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -> dict[str, Any]:
+    """The file as one milestone froze it, read-only (D-CS-B-74), keys read by name.
+
+    Reads ``frozen.payload["file"]`` (:mod:`core.repositories.case_snapshot`):
+    the case head as it stood (title, framing, state, counterparty, due, owner),
+    the question's prose, Where we stand through :func:`_project_stand` under
+    *as frozen HH:MM dd Mon YYYY*, the threads with their kept references and
+    the file-level ones (:func:`_frozen_kept_lines`), the figures with the
+    values frozen (a ``book`` value as applied at the freeze), the
+    conversations, the open points and the decisions — recorded and the
+    draft. Nothing here reads the book; the names (users, investments) and the
+    finding's subject label are the only live reads.
+
+    Returns:
+        ``{entry_id, head, close_href, case, question_title, description,
+        stand_chip, stand, stand_missing, threads, kept, figures,
+        conversations, points_title, points, recorded, draft}``.
+    """
+    payload = frozen.payload or {}
+    file_block = _snapshot_dict(payload, "file")
+    snap_case = _snapshot_dict(file_block, "case")
+    word = _FILE_AS_WORDS.get(str(payload.get("milestone_kind") or ""), "frozen")
+    frozen_at = _as_datetime(payload.get("frozen_at")) or frozen.created_at
+    stamp = f"{frozen_at.astimezone(timezone.utc):%H:%M %d %b %Y}"
+    milestone_id = str(payload.get("milestone_entry_id") or "")
+    framing = snap_case.get("framing") if snap_case.get("framing") in _FRAMING_TITLES else None
+    framing = framing or "question"
+
+    points = _snapshot_rows(file_block, "open_points")
+    user_ids = {
+        user_id
+        for user_id in [_parse_uuid(snap_case.get("owner_user_id"))]
+        + [_parse_uuid(point.get("owner_user_id")) for point in points]
+        if user_id is not None
+    }
+    names = await _resolve_owner_names(UserRepository(db_session), user_ids)
+
+    subject_key: str | None = None
+    finding_id = _parse_uuid(snap_case.get("finding_id"))
+    if finding_id is not None:
+        finding = await IreneFindingRepository(db_session).get(finding_id)
+        subject_key = finding.subject_key if finding is not None else None
+    stand_source = file_block.get("where_we_stand")
+
+    kept = CaseKeptRepository(db_session)
+    threads = [
+        {
+            "title": str(thread.get("title") or ""),
+            "status_label": _THREAD_STATUS_LABELS.get(
+                str(thread.get("status") or ""), str(thread.get("status") or "").capitalize()
+            ),
+            "prose": str(thread.get("prose") or ""),
+            "conclusion": str(thread.get("conclusion") or ""),
+            "kept": await _frozen_kept_lines(kept, thread.get("kept")),
+        }
+        for thread in _snapshot_rows(file_block, "threads")
+    ]
+
+    figure_rows = _snapshot_rows(file_block, "figures")
+    investment_names = await _investment_names(db_session, figure_rows, {})
+    figures = [
+        _project_figure(
+            row,
+            value_text=row.get("value_text"),
+            as_of=row.get("as_of"),
+            names=investment_names,
+            live=False,
+        )
+        for row in figure_rows
+    ]
+
+    conversations: list[dict[str, str]] = []
+    for row in _snapshot_rows(file_block, "conversations"):
+        held_on = _as_date(row.get("held_on"))
+        channel = str(row.get("channel") or "")
+        when = [
+            _day(held_on) if held_on is not None else "—",
+            _CHANNEL_LABELS.get(channel, channel.capitalize()),
+        ]
+        if row.get("duration_minutes") is not None:
+            when.append(f"{row.get('duration_minutes')} min")
+        conversations.append(
+            {
+                "when": " · ".join(part for part in when if part),
+                "with_whom": str(row.get("with_whom") or ""),
+                "what_was_said": str(row.get("what_was_said") or ""),
+                "what_was_promised": str(row.get("what_was_promised") or ""),
+            }
+        )
+
+    point_rows: list[dict[str, Any]] = []
+    for point in points:
+        owner = _parse_uuid(point.get("owner_user_id"))
+        due_on = _as_date(point.get("due_on"))
+        point_rows.append(
+            {
+                "text": str(point.get("text") or ""),
+                "done": bool(point.get("done_at")),
+                "owner_label": _owner_label(owner, names) if owner is not None else "",
+                "due_label": _day(due_on) if due_on is not None else "",
+            }
+        )
+
+    decisions = _snapshot_dict(file_block, "decisions")
+    recorded_rows = _list_of(decisions.get("recorded"))
+    draft = decisions.get("draft") if isinstance(decisions.get("draft"), dict) else None
+    due_on = _as_date(snap_case.get("due_on"))
+    wait_until = _as_date(snap_case.get("wait_until"))
+    owner_id = _parse_uuid(snap_case.get("owner_user_id"))
+    state = str(snap_case.get("state") or "")
+
+    return {
+        "entry_id": milestone_id,
+        "head": f"File as {word} · frozen {stamp}",
+        "close_href": f"{_record_file_href(frozen.case_id, milestone_id)}?close=1",
+        "case": {
+            "title": str(snap_case.get("title") or ""),
+            "state": state,
+            "state_label": state.capitalize() or "—",
+            "wait_until": _day(wait_until) if wait_until is not None else "",
+            "counterparty": str(snap_case.get("counterparty") or ""),
+            "due": _day(due_on) if due_on is not None else "",
+            "owner": _owner_label(owner_id, names) if owner_id is not None else "",
+        },
+        "question_title": _FRAMING_TITLES[framing],
+        "description": str(snap_case.get("description") or ""),
+        "stand_chip": f"as frozen {stamp}",
+        "stand": (
+            _project_stand(stand_source, closed=True, now=frozen_at, subject_key=subject_key)
+            if isinstance(stand_source, dict)
+            else None
+        ),
+        "stand_missing": _NOT_FROZEN_STAND_TEXT,
+        "threads": threads,
+        "kept": await _frozen_kept_lines(kept, file_block.get("kept")),
+        "figures": figures,
+        "conversations": conversations,
+        "points_title": _POINTS_TITLES[framing],
+        "points": point_rows,
+        "recorded": [
+            _frozen_recorded(decision) for decision in recorded_rows if isinstance(decision, dict)
+        ],
+        "draft": (
+            {
+                "options": [
+                    {
+                        "text": str(option.get("text") or ""),
+                        "chosen": option.get("key") == draft.get("chosen_key"),
+                    }
+                    for option in (draft.get("options") or [])
+                    if isinstance(option, dict)
+                ],
+                "rationale": str(draft.get("rationale") or ""),
+            }
+            if draft is not None
+            else None
+        ),
+    }
+
+
+@router.get("/api/cases/{case_id}/record/{entry_id}/file", response_class=HTMLResponse)
+async def get_case_record_file(
+    request: Request,
+    case_id: UUID,
+    entry_id: UUID,
+    close: bool = False,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """*File as …*: the file as one milestone froze it, read-only (D-CS-B-74).
+
+    Rendered into the record row's slot (``#cs-file-as-{entry_id}``,
+    ``hx-swap="innerHTML"``). ``close=1`` — the view's *Close* — answers an
+    empty body. Otherwise a 404 unless ``entry_id`` is a milestone of this
+    case with a frozen pair, matched by ``payload.milestone_entry_id``
+    (D-CS-B-6): another case's entry, a system line, a ``frozen`` row itself,
+    a legacy milestone without a snapshot and an unknown id are all 404.
+    Reading is never gated on the state, so a closed case's milestones open
+    the same; nothing is written.
+    """
+    if close:
+        return HTMLResponse("")
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await CaseRepository(db).get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        entries = await CaseRepository(db).list_entries(case_id, include_frozen=True)
+        milestone = next(
+            (entry for entry in entries if entry.id == entry_id and entry.kind != "frozen"), None
+        )
+        frozen = _pair_frozen(entries).get(str(entry_id))
+        if milestone is None or frozen is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No frozen file.")
+        context = await _frozen_file_context(db, frozen)
+    return _render(request, "_partials/cases_file_frozen.html", {"frozen": context})

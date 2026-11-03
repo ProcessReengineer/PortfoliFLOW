@@ -1,0 +1,28 @@
+{# The Record (ADR-0138 §2, §7, D-CS-B-73) — the append-only half of the case:
+   the milestones (opened · handed over · waiting set · waiting lifted ·
+   decision recorded · closed), the system lines the program wrote and the
+   legacy entries (notes, pins, the two-key decisions), oldest first, newest
+   last. A milestone's frozen snapshot is never a row of its own: it is
+   paired with its milestone by payload.milestone_entry_id (D-CS-B-6) and
+   opens read-only under the row's "File as …" (cases_file_frozen.html).
+
+   The rows are the timeline partial's (cases_detail_timeline.html), so
+   #case-timeline stays the pin composer's out-of-band target until P-CS-4a.
+   With ``record.oob`` the block rides out of band after a milestone that
+   re-renders another block (Record decision re-renders the Decision). The
+   note slot carries the refusals of the gestures that have no composer of
+   their own (Resume now on a closed case).
+
+   Context: case_id, record — {entries: the projected rows of
+   _project_timeline in web/routes/cases.py, oob}. #}
+{% set block = record %}
+<section class="pf-blk" id="cs-record" data-pf-cs="block" data-pf-cs-name="record"{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}>
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Record</h3>
+        <span class="pf-blk__sub">milestones and what the program wrote — newest last; a milestone's file is frozen as it stood</span>
+    </div>
+    <div class="pf-record">
+        {% with entries = block.entries %}{% include "_partials/cases_detail_timeline.html" %}{% endwith %}
+    </div>
+    <div id="cs-note-record" class="pf-case__note" data-pf-cs="note-slot"></div>
+</section>

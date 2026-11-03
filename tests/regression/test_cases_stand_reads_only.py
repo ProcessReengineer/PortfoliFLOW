@@ -16,8 +16,13 @@ Transactions on every request. Two rules make that safe and keep it honest:
 
 Structural, like ``test_watch_desk_single_resolution.py``: a second path that
 agrees today is the defect, so the guard looks at the code, not the values.
-The package is walked, so the system-line modules (P-CS-2b/2c) are covered
-when they land.
+
+**Readers never write; writers never compute** (P-CS-2b). The system-line
+module (``services.cases.system_lines``) writes by design — through
+``CaseRepository.add_system_line`` only — so the no-writes rule is scoped to
+the reader, ``stand.py``. The no-metric rules (no pure calculation layer, no
+second observation path) keep walking the whole package, writers included:
+a system line states the figures its event carries and computes none.
 """
 
 from __future__ import annotations
@@ -72,8 +77,11 @@ def _cases_modules() -> list[ModuleType]:
 
 
 def test_the_stand_writes_nothing() -> None:
-    """Rendering a case must never change one (D-CS-M-14)."""
-    for module in _cases_modules():
+    """Rendering a case must never change one (D-CS-M-14).
+
+    Scoped to the reader: the system-line writers write by design.
+    """
+    for module in (stand_module,):
         source = inspect.getsource(module)
         for write in _WRITES:
             assert write not in source, (

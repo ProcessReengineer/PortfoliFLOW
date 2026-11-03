@@ -5,7 +5,10 @@
 
 Where we stand (ADR-0138 §6) — the live, read-only block of a case,
 composed at render time — lives in :mod:`services.cases.stand`. The
-system-line templates and writers follow (P-CS-2b, P-CS-2c).
+system lines (ADR-0138 §7) — the event vocabulary, the fixed templates and
+the writers the NAV seams and Irene's beat call — live in
+:mod:`services.cases.system_lines` (P-CS-2b; the remaining writers follow in
+P-CS-2c).
 """
 
 from services.cases.stand import (
@@ -23,11 +26,33 @@ from services.cases.stand import (
     headline_for,
     to_snapshot,
 )
+from services.cases.system_lines import (
+    EVENT_JOB_LANDED,
+    EVENT_JOB_REQUESTED,
+    EVENT_NAV_RESTATED,
+    EVENT_PRESS_CLUSTER,
+    EVENT_SUBJECT_WITHIN_CEILING,
+    EVENT_TICKET_BOOKED,
+    NavSeries,
+    linked_investment_ids,
+    nav_changes,
+    nav_restated,
+    nav_restated_after,
+    snapshot_actual_series,
+    subject_within_ceiling,
+)
 
 __all__ = [
+    "EVENT_JOB_LANDED",
+    "EVENT_JOB_REQUESTED",
+    "EVENT_NAV_RESTATED",
+    "EVENT_PRESS_CLUSTER",
+    "EVENT_SUBJECT_WITHIN_CEILING",
+    "EVENT_TICKET_BOOKED",
     "CounterpartyReading",
     "FxReading",
     "InvestmentReading",
+    "NavSeries",
     "StandContext",
     "SubjectReading",
     "SubjectStand",
@@ -37,5 +62,11 @@ __all__ = [
     "book_values_for",
     "compose",
     "headline_for",
+    "linked_investment_ids",
+    "nav_changes",
+    "nav_restated",
+    "nav_restated_after",
+    "snapshot_actual_series",
+    "subject_within_ceiling",
     "to_snapshot",
 ]

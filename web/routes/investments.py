@@ -92,6 +92,7 @@ from core.repositories.investment_sector_weights_repository import (
 from core.repositories.sector_repository import SectorRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
+from services.cases import nav_restated_after, snapshot_actual_series
 from services.chart_specs import (
     build_cashflows_nav_spec,
     build_multiples_spec,
@@ -1215,6 +1216,11 @@ async def investments_add_nav(
 
     Body: ``{"as_of_date": "...", "nav_value": "...", "currency": "...",
     "nav_kind": "actual"|"plan", "source": "..."}``.
+
+    A NAV write seam (ADR-0138 §7, D-CS-B-17): an ``actual`` write is
+    diffed against the investment's reported series before it, and a new
+    or restated as-of becomes a ``nav_restated`` system line on every open
+    or waiting case linking the investment — in the write's transaction.
     """
     as_of_date = _parse_iso_date(payload.get("as_of_date"), field="as_of_date")
     nav_value = _parse_decimal(payload.get("nav_value"), field="nav_value")
@@ -1239,6 +1245,11 @@ async def investments_add_nav(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Investment not found.",
             )
+        before = (
+            await snapshot_actual_series(db_session, [investment_id])
+            if nav_kind == "actual"
+            else {}
+        )
         nav = await service.add_nav(
             investment_id=investment_id,
             as_of_date=as_of_date,
@@ -1248,6 +1259,7 @@ async def investments_add_nav(
             source=source,
             created_by=session.user_id,
         )
+        await nav_restated_after(db_session, before=before, now=datetime.now(timezone.utc))
 
     logger.info(
         "investments-add-nav: tenant=%s user=%s investment=%s nav=%s",
@@ -1281,6 +1293,10 @@ async def investments_update_nav(
     The natural-key fields (``investment_id``, ``as_of_date``,
     ``nav_kind``) are immutable through this path — the repository
     re-uses them automatically for the UPSERT.
+
+    A NAV write seam (ADR-0138 §7, D-CS-B-17): when the row is ``actual``,
+    a changed value becomes a ``nav_restated`` system line on every open or
+    waiting case linking the investment, in the write's transaction.
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
@@ -1301,6 +1317,11 @@ async def investments_update_nav(
         currency = _validate_currency(str(payload.get("currency", "")))
         raw_source = payload.get("source")
         source: str | None = str(raw_source).strip() if raw_source not in (None, "") else None
+        before = (
+            await snapshot_actual_series(db_session, [existing_nav.investment_id])
+            if existing_nav.nav_kind == "actual"
+            else {}
+        )
         updated = await service.update_nav(
             nav_id=nav_id,
             nav_value=nav_value,
@@ -1308,6 +1329,7 @@ async def investments_update_nav(
             source=source,
             created_by=session.user_id,
         )
+        await nav_restated_after(db_session, before=before, now=datetime.now(timezone.utc))
 
     if updated is None:
         raise HTTPException(

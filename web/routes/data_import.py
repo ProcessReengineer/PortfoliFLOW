@@ -58,6 +58,7 @@ import pathlib
 import tempfile
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import cast
 
 from fastapi import (
@@ -121,6 +122,7 @@ from core.repositories.tenant_repository import TenantRepository
 from core.repositories.user_repository import UserRepository
 from services.data_normalization.excel_workbook_loader import load_excel
 from services.auth.session import SessionDTO
+from services.cases import linked_investment_ids, nav_restated_after, snapshot_actual_series
 from services.data_normalization import (
     ImportFormatError,
     InvestmentExtractionResult,
@@ -810,6 +812,11 @@ async def post_import_upload_as_investments(
                     position_transactions=PositionTransactionRepository(db),
                     instrument_prices=InstrumentPriceRepository(db),
                 )
+                # A NAV write seam (ADR-0138 §7, D-CS-B-17): the reported
+                # series of every case-linked investment is captured before
+                # the import rewrites it and diffed after, in this one
+                # transaction — a failed import rolls the lines back too.
+                before = await snapshot_actual_series(db, await linked_investment_ids(db))
                 result = await service.transform_upload_to_investments(
                     upload_id,
                     user_id=session.user_id,
@@ -828,6 +835,7 @@ async def post_import_upload_as_investments(
                     limits_repository=LimitsRepository(db),
                     dry_run=False,
                 )
+                await nav_restated_after(db, before=before, now=datetime.now(timezone.utc))
 
                 # Persist benchmark sheets (sofern in der Workbook
                 # vorhanden) into the Phase-7 benchmark tables.

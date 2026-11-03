@@ -45,6 +45,8 @@ Coverage
 * TR-09: the target checks — inactive (D-P), and both valuation modes (D-Q).
 * TR-10: U-NEW creates a unitised instrument, then books as a U-BUY (D-M).
 * TR-11: MD-7's refusal never fires on a secondary sale.
+* SL-08: a booking's NAV writes no ``nav_restated`` line on a linked case
+  (D-CS-M-10, ADR-0138 §7).
 """
 
 from __future__ import annotations
@@ -59,6 +61,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from core.exceptions import TicketIncomplete, ValuationModeError
 from core.repositories import (
     AssetClassRepository,
+    CaseInvestmentRepository,
+    CaseRepository,
     InstrumentPriceRepository,
     InvestmentCashflowRepository,
     InvestmentIdentifierRepository,
@@ -350,6 +354,42 @@ async def test_tr01_secondary_sell_books_four_effects(app_engine: AsyncEngine, s
     assert update.prior_state is not None
     assert update.prior_state["is_active"] is True
     assert update.prior_state["name"] == "Legacy Buyout Fund III"
+
+
+# ---------------------------------------------------------------------------
+# SL-08: the booking's NAV is no nav_restated line (D-CS-M-10)
+# ---------------------------------------------------------------------------
+
+
+async def test_sl08_booking_nav_writes_no_nav_restated_line(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """A ticket's NAV effect never passes a NAV write seam (D-CS-B-17)."""
+    tenant = await seed_tenant("SL-08")
+    fixture = await _seed(app_engine, tenant, email="pm@sl08.example")
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        case = await CaseRepository(session).create(
+            title="Sell the stake", opened_by=fixture.actor.id, opened_actor="pm", now=_NOW
+        )
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=fixture.stake.id, linked_by=fixture.actor.id, now=_NOW
+        )
+
+    async with tenant_context(app_engine, tenant, user_id=fixture.actor.id) as session:
+        service = _service(session)
+        draft = await service.create_draft(**_sell_draft_kwargs(fixture))
+        await service.book(draft.id, booked_by=fixture.actor.id, now=_NOW, today=_TODAY)
+        effects = _by_type(await TradeTicketRepository(session).list_effects(draft.id))
+        navs = await InvestmentNavRepository(session).list_by_investment_and_kind(
+            fixture.stake.id, "actual"
+        )
+        lines = await CaseRepository(session).list_system_lines(case.id)
+
+    closing = next(row for row in navs if row.as_of_date == _TRADE_DATE)
+    assert effects["nav"][0].effect_id == closing.id
+    # P-CS-2c changes this to "exactly one ticket_booked line".
+    assert lines == []
 
 
 # ---------------------------------------------------------------------------

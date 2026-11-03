@@ -70,7 +70,9 @@ from services.analytics.irene_floor import (
     final_urgency,
     options_allowed,
 )
+from services.analytics.irene_delta import KIND_FALLING_EDGE
 from services.analytics.rss_bucketing import item_identity
+from services.cases.system_lines import subject_within_ceiling
 from services.irene.briefing_step import run_briefing_step
 from services.irene.correlation import (
     CorrelationResult,
@@ -298,6 +300,82 @@ def _build_delta_context(
     return [{"role": "user", "content": content}]
 
 
+async def _write_falling_edge_lines(
+    session: AsyncSession,
+    internal: list[EligibleFinding],
+    signals: list[SignalEligibleFinding],
+    *,
+    now: datetime,
+    tenant_id: UUID,
+) -> int:
+    """Write a ``subject_within_ceiling`` system line for every falling edge.
+
+    ADR-0138 §7: a subject that falls back within its ceiling (a limit) or
+    its threshold (a watchpoint signal) is recorded on the open or waiting
+    cases opened from a finding on it. The line is the fixed template of
+    :mod:`services.cases.system_lines` — never Irene's prose. The as-of is
+    the beat's date: neither eligible dataclass carries a reading date.
+
+    Each subject is written in its own savepoint, so a failure loses that
+    subject's lines only: it is logged at ``warning`` and the beat goes on,
+    and the deltas' watch-state writes still commit with the beat.
+
+    Returns:
+        The number of lines written.
+    """
+    as_of = now.date()
+    written = 0
+    for finding in internal:
+        if finding.kind != KIND_FALLING_EDGE:
+            continue
+        try:
+            async with session.begin_nested():
+                lines = await subject_within_ceiling(
+                    session,
+                    subject_key=finding.subject_key,
+                    family=finding.subject_key.split(":", 1)[0],
+                    status=finding.status,
+                    as_of=as_of,
+                    now=now,
+                    coverage_pct=finding.coverage_pct,
+                    max_pct=finding.max_pct,
+                )
+            written += len(lines)
+        except Exception:  # noqa: BLE001 — a line must not fail the beat
+            logger.warning(
+                "irene-beat: tenant %s — could not write the falling-edge line for %r.",
+                tenant_id,
+                finding.subject_key,
+                exc_info=True,
+            )
+    for signal in signals:
+        if signal.kind != KIND_FALLING_EDGE:
+            continue
+        try:
+            async with session.begin_nested():
+                lines = await subject_within_ceiling(
+                    session,
+                    subject_key=signal.subject_key,
+                    family=signal.family,
+                    status=signal.status_label,
+                    as_of=as_of,
+                    now=now,
+                    display_name=signal.display_name,
+                    value=signal.magnitude,
+                    threshold=signal.threshold_pct,
+                    unit="pp",
+                )
+            written += len(lines)
+        except Exception:  # noqa: BLE001 — a line must not fail the beat
+            logger.warning(
+                "irene-beat: tenant %s — could not write the falling-edge line for %r.",
+                tenant_id,
+                signal.subject_key,
+                exc_info=True,
+            )
+    return written
+
+
 async def _active_tenant_id(session: AsyncSession) -> UUID:
     """Read the active tenant id from the session's RLS context."""
     result = await session.execute(text("SELECT current_setting('app.tenant_id')::uuid AS tid"))
@@ -379,6 +457,14 @@ async def run_beat(
        every tenant before this programme — takes the empty path. Each
        delta skips a family switched off through the watch-point scope
        (ADR-0133 §2.4), which the resolution of step 0 carries.
+    1b. Write the falling edges as system lines (ADR-0138 §7): for every
+       eligible finding of either delta whose kind is ``falling_edge``,
+       :func:`services.cases.system_lines.subject_within_ceiling` writes
+       the fixed ``subject_within_ceiling`` line to the open or waiting
+       cases opened from a finding on that subject. Each subject runs in a
+       savepoint; a failed line is logged at ``warning`` and never fails
+       the beat. The lines commit with the deltas' writes, before
+       synthesis.
     2. If an ``embedder`` and ``rss_items`` are supplied, cluster the feed
        items into keyed buckets (freeze-aware,
        :func:`services.irene.rss_clustering.build_rss_buckets`). The
@@ -474,6 +560,12 @@ async def run_beat(
 
         internal_eligible = await evaluate_internal_deltas(session, now=now, resolution=resolution)
         signal_eligible = await evaluate_signal_deltas(session, now=now, resolution=resolution)
+        # Step 1b: the falling edges as system lines (ADR-0138 §7), in the
+        # deltas' transaction and before synthesis, so a synthesis failure
+        # loses neither the resets nor the lines.
+        await _write_falling_edge_lines(
+            session, internal_eligible, signal_eligible, now=now, tenant_id=tenant_id
+        )
         rss_buckets: list[RssBucket] = []
         if embedder is not None and rss_items:
             # Formed once per check, whatever the Press switch says: the

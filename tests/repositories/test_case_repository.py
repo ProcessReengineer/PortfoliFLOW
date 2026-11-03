@@ -41,6 +41,12 @@ Coverage
 * CR-14: ``search_working_file`` — hits across the working file, the DMS
   boundary held (ADR-0138 §11), the state filter, escaping.
 * CR-15: ``hand_over`` — the owner changes, ``opened_by`` stays.
+* CR-16: ``add_system_line`` — the one system-line writer: kind, actor,
+  payload, the ``(event, subject)`` dedup, the event vocabulary, the
+  closed-case refusal, no ``updated_at`` bump; ``list_system_lines``
+  (ADR-0138 §7, D-CS-B-16).
+* CR-17: ``list_open_by_finding_subject`` — open or waiting cases from an
+  ``opened_case`` finding on the subject.
 """
 
 from __future__ import annotations
@@ -1068,3 +1074,139 @@ async def test_cr15_hand_over(app_engine: AsyncEngine, seed_tenant) -> None:
         await repo.close(case.id, closed_by=pm2, closing_note="done", now=later)
         with pytest.raises(CaseClosedError):
             await repo.hand_over(case.id, to_user_id=pm1, by=pm2, now=later)
+
+
+# ---------------------------------------------------------------------------
+# CR-16: add_system_line (ADR-0138 §7, D-CS-B-16)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr16_add_system_line(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-16")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr16.example")
+    minute = timedelta(minutes=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        case = await repo.create(title="Lines", opened_by=user_id, opened_actor="pm", now=_T0)
+
+        first = await repo.add_system_line(
+            case.id,
+            event="nav_restated",
+            subject="inv:2026-10-31",
+            text="NAV reported for Alpha: €1.2M as of 2026-10-31.",
+            payload={"change": "new"},
+            now=_T0 + minute,
+        )
+        assert first is not None
+        assert (first.kind, first.actor, first.actor_user_id) == ("system_line", "system", None)
+        assert first.payload == {
+            "change": "new",
+            "event": "nav_restated",
+            "subject": "inv:2026-10-31",
+            "text": "NAV reported for Alpha: €1.2M as of 2026-10-31.",
+        }
+
+        # The same (event, subject) again is a no-op.
+        assert (
+            await repo.add_system_line(
+                case.id,
+                event="nav_restated",
+                subject="inv:2026-10-31",
+                text="NAV restated for Alpha as of 2026-10-31: €1.2M → €1.3M.",
+                payload={"change": "restated"},
+                now=_T0 + 2 * minute,
+            )
+            is None
+        )
+        # Another subject is another line.
+        second = await repo.add_system_line(
+            case.id,
+            event="nav_restated",
+            subject="inv:2026-11-30",
+            text="NAV reported for Alpha: €1.3M as of 2026-11-30.",
+            payload={},
+            now=_T0 + 3 * minute,
+        )
+        assert second is not None
+
+        for bad in (
+            {"event": "waiting_lifted", "subject": "s", "text": "t"},
+            {"event": "nav_restated", "subject": " ", "text": "t"},
+            {"event": "nav_restated", "subject": "s", "text": ""},
+        ):
+            with pytest.raises(CaseWorkingFileInvalid):
+                await repo.add_system_line(case.id, payload={}, now=_T0, **bad)
+
+        # A system line is the program's: updated_at stays the PM's.
+        reread = await repo.get(case.id)
+        assert reread is not None and reread.updated_at == _T0
+
+        lines = await repo.list_system_lines(case.id)
+        assert [line.id for line in lines] == [first.id, second.id]
+        # Not hidden from the record — only ``frozen`` is.
+        assert [e.kind for e in await repo.list_entries(case.id)] == [
+            "opened",
+            "system_line",
+            "system_line",
+        ]
+
+        await repo.close(case.id, closed_by=user_id, closing_note="done", now=_T0 + 4 * minute)
+        with pytest.raises(CaseClosedError):
+            await repo.add_system_line(
+                case.id,
+                event="nav_restated",
+                subject="inv:2026-12-31",
+                text="NAV reported for Alpha: €1.4M as of 2026-12-31.",
+                payload={},
+                now=_T0 + 5 * minute,
+            )
+        assert len(await repo.list_system_lines(case.id)) == 2
+
+
+# ---------------------------------------------------------------------------
+# CR-17: list_open_by_finding_subject
+# ---------------------------------------------------------------------------
+
+
+async def test_cr17_list_open_by_finding_subject(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_id = await seed_tenant("CR-17")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr17.example")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        findings = IreneFindingRepository(session)
+        repo = CaseRepository(session)
+
+        async def from_finding(title: str, *, resolve: bool, subject: str = "saa:x"):
+            finding = await findings.append(
+                subject_key=subject, payload={"trigger": "x"}, urgency=4, band="critical"
+            )
+            if resolve:
+                await findings.resolve(
+                    finding_id=finding.id,
+                    resolution="opened_case",
+                    resolved_by=user_id,
+                    resolved_at=_T0,
+                )
+            return await repo.create(
+                title=title,
+                opened_by=user_id,
+                finding_id=finding.id,
+                opened_actor="pm",
+                now=_T0,
+            )
+
+        found = await from_finding("found", resolve=True)
+        unresolved = await from_finding("finding still open", resolve=False)
+        closed = await from_finding("closed", resolve=True)
+        await repo.close(closed.id, closed_by=user_id, closing_note="done", now=_T0)
+        waiting = await from_finding("waiting", resolve=True)
+        await repo.wait(waiting.id, wait_until=date(2026, 8, 1), by=user_id, now=_T0)
+        other = await from_finding("other subject", resolve=True, subject="saa:y")
+        manual = await repo.create(title="manual", opened_by=user_id, opened_actor="pm", now=_T0)
+
+        ids = [case.id for case in await repo.list_open_by_finding_subject("saa:x")]
+
+    assert ids == [found.id, waiting.id]
+    for absent in (unresolved, closed, other, manual):
+        assert absent.id not in ids

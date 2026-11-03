@@ -1467,6 +1467,21 @@ class CaseInvestmentRepository(_WorkingFileRepository):
         )
         return list(result.scalars().all())
 
+    async def list_linked_investment_ids(self) -> set[UUID]:
+        """Return every investment linked to an open or waiting case, in one query.
+
+        The import seam's read (ADR-0138 §7, P-CS-2b): only these
+        investments' reported NAV series are captured before an import and
+        diffed after it.
+        """
+        result = await self._session.execute(
+            select(CaseInvestment.investment_id)
+            .join(Case, Case.id == CaseInvestment.case_id)
+            .where(Case.state.in_(sorted(_MUTABLE_STATES)))
+            .distinct()
+        )
+        return set(result.scalars().all())
+
 
 # ---------------------------------------------------------------------------
 # Proposals

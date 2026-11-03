@@ -116,6 +116,18 @@ _MILESTONE_KINDS: frozenset[str] = (_MILESTONE_ONLY_KINDS | {"opened", "decision
 # Why a wait is lifted (ADR-0138 §4, D-CS-M-4): by the PM, or by the
 # program on the date or on an event.
 _LIFT_REASONS: frozenset[str] = frozenset({"manual", "date", "event"})
+# The events a system line records (ADR-0138 §7). ``waiting_lifted`` is a
+# milestone, not a line.
+_SYSTEM_LINE_EVENTS: frozenset[str] = frozenset(
+    {
+        "subject_within_ceiling",
+        "nav_restated",
+        "press_cluster",
+        "ticket_booked",
+        "job_requested",
+        "job_landed",
+    }
+)
 
 # The unique constraint that guarantees tenant-sequential numbering; a
 # concurrent allocation collides on it and the write is retried once.
@@ -765,6 +777,122 @@ class CaseRepository(BaseRepository):
             stmt = stmt.where(CaseEntry.kind != "frozen").order_by(CaseEntry.created_at.asc())
         result = await self._session.execute(stmt)
         return [_entry_to_dto(model) for model in result.scalars().all()]
+
+    # ------------------------------------------------------------------
+    # System lines (ADR-0138 §7, D-CS-B-16)
+    # ------------------------------------------------------------------
+
+    async def add_system_line(
+        self,
+        case_id: UUID,
+        *,
+        event: str,
+        subject: str,
+        text: str,
+        payload: dict,
+        now: datetime,
+    ) -> CaseEntryDTO | None:
+        """Write one system line to an open or waiting case, once per event and subject.
+
+        The one writer of ``kind = 'system_line'`` rows on the system-line
+        path (ADR-0138 §7): ``actor = 'system'``, no acting user, and a
+        payload of the caller's extras plus ``event``, ``subject`` and
+        ``text``. The composition of the text and the extras is the
+        system-lines service's; this layer knows the kind and the dedup key.
+
+        **Dedup.** A case carries at most one line per ``(event, subject)``:
+        one ``SELECT 1`` on ``payload->>'event'`` / ``payload->>'subject'``
+        runs before the insert, and an existing line makes this a no-op that
+        returns ``None``. A restated NAV for the same investment and as-of
+        is therefore written once.
+
+        **No ``updated_at`` bump.** A system line is the program's, not the
+        PM's; the list's "updated" column is the PM's work, so writing a line
+        leaves the case row untouched.
+
+        Args:
+            case_id: The case to write to.
+            event: One of the system-line events (ADR-0138 §7).
+            subject: The dedup subject within ``event`` (non-empty).
+            text: The fixed template text (non-empty).
+            payload: The event's machine-readable extras.
+            now: The entry's ``created_at``.
+
+        Returns:
+            The written :class:`CaseEntryDTO`, or ``None`` when the case
+            already carries a line for ``(event, subject)``.
+
+        Raises:
+            CaseWorkingFileInvalid: If ``event`` is outside the vocabulary or
+                ``subject`` / ``text`` is empty.
+            CaseStateInvalid: If no such case exists in the active tenant.
+            CaseClosedError: If the case is closed — nothing is ever written
+                to a closed case.
+        """
+        if event not in _SYSTEM_LINE_EVENTS:
+            raise CaseWorkingFileInvalid(
+                f"Invalid system-line event {event!r}; expected one of "
+                f"{sorted(_SYSTEM_LINE_EVENTS)}.",
+                field="event",
+            )
+        if not subject.strip():
+            raise CaseWorkingFileInvalid("A system line names its subject.", field="subject")
+        if not text.strip():
+            raise CaseWorkingFileInvalid("A system line carries its text.", field="text")
+        case = await self._require_mutable(case_id, action="write a system line to")
+        existing = await self._session.execute(
+            select(CaseEntry.id)
+            .where(
+                CaseEntry.case_id == case_id,
+                CaseEntry.kind == "system_line",
+                CaseEntry.payload["event"].astext == event,
+                CaseEntry.payload["subject"].astext == subject,
+            )
+            .limit(1)
+        )
+        if existing.scalar_one_or_none() is not None:
+            return None
+        return await self._insert_entry(
+            tenant_id=case.tenant_id,
+            case_id=case_id,
+            kind="system_line",
+            actor="system",
+            actor_user_id=None,
+            payload={**payload, "event": event, "subject": subject, "text": text},
+            now=now,
+        )
+
+    async def list_system_lines(self, case_id: UUID) -> list[CaseEntryDTO]:
+        """Return a case's system lines, oldest ``created_at`` first."""
+        result = await self._session.execute(
+            select(CaseEntry)
+            .where(CaseEntry.case_id == case_id, CaseEntry.kind == "system_line")
+            .order_by(CaseEntry.created_at.asc())
+        )
+        return [_entry_to_dto(model) for model in result.scalars().all()]
+
+    async def list_open_by_finding_subject(self, subject_key: str) -> list[CaseDTO]:
+        """Return the open or waiting cases opened from a finding on ``subject_key``.
+
+        The ``subject_within_ceiling`` writer's targets (ADR-0138 §7): the
+        case's origin finding carries ``subject_key`` and was resolved
+        ``opened_case``. A manual case has no finding and is never returned.
+
+        Returns:
+            Matching cases, ``case_number`` ascending.
+        """
+        query = (
+            select(Case)
+            .join(IreneFinding, IreneFinding.id == Case.finding_id)
+            .where(
+                IreneFinding.subject_key == subject_key,
+                IreneFinding.resolution == "opened_case",
+                Case.state.in_(sorted(_MUTABLE_STATES)),
+            )
+            .order_by(Case.case_number.asc())
+        )
+        result = await self._session.execute(query)
+        return [_case_to_dto(model) for model in result.scalars().all()]
 
     async def get_frozen_for(self, milestone_entry_id: UUID) -> CaseEntryDTO | None:
         """Return the ``frozen`` snapshot written with a milestone, or ``None``.

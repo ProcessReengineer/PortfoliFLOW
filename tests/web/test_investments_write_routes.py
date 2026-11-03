@@ -13,6 +13,9 @@ Coverage targets:
 * Cascade on hard-delete and soft-delete-with-reactivation behaviour.
 * NAV UPSERT semantics on add path.
 * Cashflow add with ``flow_date`` fallback to 12:00 UTC.
+* SL-06: the NAV routes are a NAV write seam — a new or restated reported
+  NAV writes one ``nav_restated`` system line per linked case and as-of
+  (ADR-0138 §7, D-CS-B-17).
 
 Live-DB tests against the compose Postgres so RLS, audit triggers,
 and the b006 CHECK constraints evaluate exactly as in production.
@@ -24,6 +27,7 @@ import os
 import pathlib
 from collections.abc import AsyncGenerator
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,6 +39,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from core.repositories import (
     AssetClassRepository,
+    CaseInvestmentRepository,
+    CaseRepository,
+    InvestmentNavRepository,
     InvestmentRepository,
     tenant_context,
 )
@@ -666,6 +673,105 @@ async def test_post_nav_against_unknown_investment_returns_404(
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 404
+
+
+async def test_sl06_nav_routes_write_nav_restated_lines(
+    web_client: AsyncClient, seeded_user: tuple[UUID, str, str]
+) -> None:
+    """SL-06: one line per linked case and as-of; plan rows and no-ops write none."""
+    user_id, email, password = seeded_user
+    inv_id, _ac = await _seed_investment_via_repo(user_id, name="Linked Fund")
+    now = datetime.now(timezone.utc)
+    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            case = await CaseRepository(session).create(
+                title="Watch the fund", opened_by=user_id, opened_actor="pm", now=now
+            )
+            await CaseInvestmentRepository(session).link(
+                case.id, investment_id=inv_id, linked_by=user_id, now=now
+            )
+            # A reported NAV written before, outside any seam: no line yet.
+            older = await InvestmentNavRepository(session).upsert(
+                investment_id=inv_id,
+                as_of_date=date(2025, 9, 30),
+                nav_kind="actual",
+                nav_value=Decimal("900.00"),
+                currency="EUR",
+                source=None,
+                created_by=user_id,
+            )
+
+        async def lines() -> list[dict]:
+            async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+                rows = await CaseRepository(session).list_system_lines(case.id)
+            return [row.payload for row in rows]
+
+        csrf = await _login_and_csrf(web_client, email, password)
+        headers = {"X-CSRF-Token": csrf}
+
+        # A new as-of → one line, change = new.
+        added = await web_client.post(
+            f"/investments/{inv_id}/navs",
+            json={
+                "as_of_date": "2025-12-31",
+                "nav_value": "1000.00",
+                "currency": "EUR",
+                "nav_kind": "actual",
+            },
+            headers=headers,
+        )
+        assert added.status_code == 200
+        (first,) = await lines()
+        assert first["event"] == "nav_restated"
+        assert first["subject"] == f"{inv_id}:2025-12-31"
+        assert first["change"] == "new"
+        assert first["text"] == "NAV reported for Linked Fund: €1k as of 2025-12-31."
+
+        # Restating that as-of → no new row: its subject is already written.
+        restate = await web_client.put(
+            f"/investments/{inv_id}/navs/{added.json()['id']}",
+            json={"nav_value": "1100.00", "currency": "EUR"},
+            headers=headers,
+        )
+        assert restate.status_code == 200
+        assert len(await lines()) == 1
+
+        # Restating an as-of without a line → one line, change = restated.
+        older_put = await web_client.put(
+            f"/investments/{inv_id}/navs/{older.id}",
+            json={"nav_value": "950.00", "currency": "EUR"},
+            headers=headers,
+        )
+        assert older_put.status_code == 200
+        payloads = await lines()
+        assert len(payloads) == 2
+        restated = next(p for p in payloads if p["subject"] == f"{inv_id}:2025-09-30")
+        assert restated["change"] == "restated"
+        assert (restated["previous_value"], restated["nav_value"]) == ("900.0000", "950.0000")
+
+        # The same value again → nothing.
+        same = await web_client.put(
+            f"/investments/{inv_id}/navs/{older.id}",
+            json={"nav_value": "950.00", "currency": "EUR"},
+            headers=headers,
+        )
+        assert same.status_code == 200
+        # A plan NAV is not a reported NAV → nothing.
+        plan = await web_client.post(
+            f"/investments/{inv_id}/navs",
+            json={
+                "as_of_date": "2026-03-31",
+                "nav_value": "1200.00",
+                "currency": "EUR",
+                "nav_kind": "plan",
+            },
+            headers=headers,
+        )
+        assert plan.status_code == 200
+        assert len(await lines()) == 2
+    finally:
+        await engine.dispose()
 
 
 # ---------------------------------------------------------------------------

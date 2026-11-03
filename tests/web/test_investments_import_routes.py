@@ -17,15 +17,22 @@ Coverage:
 * 404 when the upload id is unknown / cross-tenant.
 * 400 when the JSONB snapshot is structurally invalid
   (``ImportFormatError`` translated by the route handler).
+* SL-07: the import is a NAV write seam — a re-reported workbook writes one
+  ``nav_restated`` line per linked investment and new or changed as-of; an
+  unlinked investment and the dry run write none (ADR-0138 §7).
 """
 
 from __future__ import annotations
 
+import datetime
+import io
 import os
 import pathlib
 import re
 from collections.abc import AsyncGenerator
 from uuid import UUID, uuid4
+
+import openpyxl
 
 import pytest
 import pytest_asyncio
@@ -35,7 +42,13 @@ from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from cli.bootstrap import install_unclassified_asset_class
-from core.repositories import AssetClassRepository, tenant_context
+from core.repositories import (
+    AssetClassRepository,
+    CaseInvestmentRepository,
+    CaseRepository,
+    InvestmentRepository,
+    tenant_context,
+)
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.password_hashing import hash_password
 from tests.fixtures.workbooks import minimal_import_workbook
@@ -327,6 +340,117 @@ async def test_irt03_real_run_writes_normalised_rows(
         ("Investition A", "listed_equity"),
         ("Investition B", "private_equity"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# SL-07: the import is a NAV write seam (ADR-0138 §7, D-CS-B-17)
+# ---------------------------------------------------------------------------
+
+
+def _re_reported_workbook() -> bytes:
+    """The minimal workbook with Investition A and B re-reported.
+
+    2024-01-01 changes for both (A 100 → 110, B 200 → 210) and 2024-02-01
+    is a new as-of for both.
+    """
+    wb = openpyxl.load_workbook(io.BytesIO(minimal_import_workbook()))
+    ws = wb["NAVs actual"]
+    ws.cell(row=4, column=2, value=110)
+    ws.cell(row=4, column=3, value=210)
+    ws.append([datetime.datetime(2024, 2, 1), 120, 220])
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+async def test_sl07_import_writes_nav_restated_lines_for_linked_investments(
+    web_client: AsyncClient,
+    seeded_user_and_classes: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+    fresh_app_engine: AsyncEngine,
+) -> None:
+    user_id, email, password = seeded_user_and_classes
+    csrf = await _login_and_get_csrf(web_client, email, password)
+    first = await _resolve_upload_id(
+        fresh_superuser_engine, await _upload_workbook(web_client, csrf, filename="sl07-a.xlsx")
+    )
+    response = await web_client.post(
+        f"/api/data-uploads/{first}/import-as-investments",
+        headers={"X-CSRF-Token": csrf},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200, response.text
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    async with tenant_context(fresh_app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        by_name = {inv.name: inv for inv in await InvestmentRepository(session).list_active()}
+        linked = by_name["Investition A"]
+        case = await CaseRepository(session).create(
+            title="Watch A", opened_by=user_id, opened_actor="pm", now=now
+        )
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=linked.id, linked_by=user_id, now=now
+        )
+
+    upload = await web_client.post(
+        "/api/data-import/section/upload",
+        data={"csrf_token": csrf},
+        files={
+            "file": (
+                "sl07-b.xlsx",
+                _re_reported_workbook(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert upload.status_code == 200, upload.text
+    second = await _resolve_upload_id(fresh_superuser_engine, "sl07-b.xlsx")
+
+    async def system_line_count() -> int:
+        async with fresh_superuser_engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT count(*) FROM case_entries WHERE kind = 'system_line'")
+            )
+            return rows.scalar_one()
+
+    async def system_lines() -> list[dict]:
+        async with tenant_context(fresh_app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+            rows = await CaseRepository(session).list_system_lines(case.id)
+        return sorted((row.payload for row in rows), key=lambda p: p["subject"])
+
+    dry = await web_client.post(
+        f"/api/data-uploads/{second}/import-as-investments?dry_run=true",
+        headers={"X-CSRF-Token": csrf},
+        follow_redirects=False,
+    )
+    assert dry.status_code == 200, dry.text
+    assert await system_line_count() == 0
+
+    real = await web_client.post(
+        f"/api/data-uploads/{second}/import-as-investments",
+        headers={"X-CSRF-Token": csrf},
+        follow_redirects=False,
+    )
+    assert real.status_code == 200, real.text
+
+    lines = await system_lines()
+    # Exactly two, both on the linked case: Investition B is linked nowhere.
+    assert await system_line_count() == 2
+    assert [line["subject"] for line in lines] == [
+        f"{linked.id}:2024-01-01",
+        f"{linked.id}:2024-02-01",
+    ]
+    restated, reported = lines
+    assert (restated["change"], restated["previous_value"], restated["nav_value"]) == (
+        "restated",
+        "100.0000",
+        "110.0000",
+    )
+    assert restated["text"] == "NAV restated for Investition A as of 2024-01-01: €100 → €110."
+    assert (reported["change"], reported["previous_value"]) == ("new", None)
+    assert reported["text"] == "NAV reported for Investition A: €120 as of 2024-02-01."
 
 
 # ---------------------------------------------------------------------------

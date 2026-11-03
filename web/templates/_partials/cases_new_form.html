@@ -1,8 +1,10 @@
-{# Manual case-creation form (ADR-0107, C2). Rendered into
-   #cases-new-case-slot by the "New case" button; posts to /api/cases/new,
-   which on success clears this slot and refreshes the open-cases list out
-   of band, and on validation failure re-renders this form with ``error``
-   set (the inline-error idiom).
+{# Manual case-creation form (ADR-0107 C2, ADR-0138 §12). Rendered into the
+   Section's #cs-new-slot by "New case" (GET /api/cases/new); posts to
+   /api/cases/new, which on success answers HX-Redirect to the new case's file
+   (/cases/{id}) — the first thing after "New case" is the file — and on a
+   blank title re-renders this form into the slot with ``error`` set (the
+   inline-error idiom), creating nothing. Native form controls on the pf-field
+   vocabulary (ui-standards §2.11).
 
    Context: csrf_token, error (optional), title (echoed back on error). #}
 <form class="pf-cases__new-form"
@@ -14,9 +16,9 @@
     {% if error %}
         <p class="pf-cases__new-form-error" role="alert">{{ error }}</p>
     {% endif %}
-    <label class="pf-cases__field">
-        <span class="pf-cases__field-label">Title</span>
-        <input class="pf-cases__field-input"
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Title</span>
+        <input class="pf-input"
                type="text"
                name="title"
                value="{{ title or '' }}"
@@ -24,9 +26,9 @@
                autofocus
                placeholder="What question needs working?">
     </label>
-    <label class="pf-cases__field">
-        <span class="pf-cases__field-label">Description <span class="pf-cases__field-optional">(optional)</span></span>
-        <textarea class="pf-cases__field-input"
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Description <span class="pf-optional">(optional)</span></span>
+        <textarea class="pf-textarea"
                   name="description"
                   rows="3"
                   placeholder="Context, decision type, anything that frames the case."></textarea>

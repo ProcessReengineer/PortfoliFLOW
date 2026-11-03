@@ -22,6 +22,10 @@ survives the P-CS-3d restyle.
 * CS3a-09 — creation lands in the file (``HX-Redirect``).
 * CS3a-10 — the file: crumb, state, outline, facts, actions (the page move).
 * CS3a-11 — the one registered module.
+* CS3b-01…05 — The question: the block, the text autosave answering out of
+  band only, last write wins with a note, the refusals, the framing switch.
+* CS3b-06…08 — Link investment / unlink, Attach document and its gates.
+* CS3b-09/10 — Where we stand live and *At close*; the section endpoint.
 
 The file tests below (origin embed, timeline, pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -53,16 +57,21 @@ from core.repositories.case_attachment_repository import (
 )
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseInvestmentRepository,
     CasePointRepository,
     CaseThreadRepository,
 )
+from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
 
 import modules  # noqa: F401 — importing the package populates the ModuleRegistry
 import web.routes.cases as cases_module
 from modules.module_registry import registry
+from services.cases.stand import StandContext, compose, to_snapshot
+from services.money_format import format_money_compact
 from services.password_hashing import hash_password
+from tests.services.irene._book_fixtures import CALM_NAV, seed_book
 from tests.web.conftest import cs, cs_block, cs_blocks, cs_count, cs_text, wd_attr
 from web.main import create_app
 from web.settings import WebSettings
@@ -1334,8 +1343,8 @@ async def test_file_partial_writes_the_crumb_and_moves_the_page(
     cs_block(body, "outline-item", data_pf_cs_name="question")
     cs_block(body, "outline-item", data_pf_cs_name="record")
     assert "Opened" in cs_text(body, "facts")
-    assert cs_count(body, "action") == 6
-    for kind in ("note", "pin", "capture", "consult", "decision", "close"):
+    assert cs_count(body, "action") == 8
+    for kind in ("note", "pin", "link", "attach", "capture", "consult", "decision", "close"):
         cs_block(body, "action", data_pf_cs_kind=kind)
     assert cs("composer-slot") in body
     assert "Fund II continuation vehicle" in body
@@ -1885,3 +1894,534 @@ async def test_pin_chunked_read_rejects_oversize_without_full_buffer(
     )
     assert dl.status_code == 200
     assert dl.content == ok_bytes
+
+
+# ---------------------------------------------------------------------------
+# P-CS-3b — the editable file I: the autosave frame, The question, links and
+# documents, Where we stand (CS3b-01 … CS3b-10)
+# ---------------------------------------------------------------------------
+
+
+async def _case_now(app_engine: AsyncEngine, user_id: UUID, case_id: UUID) -> CaseDTO:
+    """Re-read one case through the repository (its current ``updated_at``)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        case = await CaseRepository(session).get(case_id)
+    assert case is not None
+    return case
+
+
+async def _post_question(
+    client: AsyncClient, case_id: UUID, csrf: str, *, rerender: bool = False, **fields: str
+):
+    """POST the question form (urlencoded) with ``fields``."""
+    suffix = "?rerender=1" if rerender else ""
+    return await client.post(
+        f"/api/cases/{case_id}/question{suffix}",
+        data={"csrf_token": csrf, **fields},
+        follow_redirects=False,
+    )
+
+
+async def _post_attach(
+    client: AsyncClient,
+    case_id: UUID,
+    csrf: str,
+    *,
+    filename: str = "memo.pdf",
+    content: bytes = _SMALL_PDF,
+    content_type: str = "application/pdf",
+):
+    """POST a multipart attach request (csrf field + one file part, no comment)."""
+    return await client.post(
+        f"/api/cases/{case_id}/attachments",
+        data={"csrf_token": csrf},
+        files={"file": (filename, content, content_type)},
+        follow_redirects=False,
+    )
+
+
+async def _seed_investment(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    *,
+    like: UUID,
+    name: str,
+    manager_name: str | None = None,
+    is_active: bool = True,
+) -> UUID:
+    """Create an investment in the asset class of ``like`` (the stand tests' idiom)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        repo = InvestmentRepository(session)
+        template = await repo.get_by_id(like)
+        assert template is not None
+        created = await repo.create(
+            name=name,
+            investment_type="private_equity",
+            asset_class_id=template.asset_class_id,
+            currency="EUR",
+            created_by=user_id,
+            manager_name=manager_name,
+            is_active=is_active,
+        )
+    return created.id
+
+
+def _radio(block: str, value: str) -> str:
+    """The framing radio's start tag for ``value``."""
+    match = re.search(rf'<input type="radio" name="framing" id="cs-framing-{value}"[^>]*>', block)
+    assert match is not None, f"no framing radio {value!r}"
+    return match.group(0)
+
+
+async def test_question_block_renders_prose_meta_and_framing_heading(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3b-01: the prose, the meta fields, the framing seg, the stamp; the task heading."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Continuation vehicle",
+        description="Fund II continuation vehicle — reinvestment question.",
+        opened_at=_T0,
+    )
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="question")
+    assert cs_text(block).startswith("The question")
+    prose = cs_block(block, "prose")
+    assert 'class="pf-textarea"' in prose
+    assert "Fund II continuation vehicle — reinvestment question." in html.unescape(prose)
+    assert 'name="counterparty"' in block
+    assert 'list="cs-managers"' in block
+    assert 'name="due_on"' in block and 'type="date"' in block
+    assert "checked" in _radio(block, "question")
+    assert "checked" not in _radio(block, "task")
+    current = await _case_now(app_engine, pm1, case.id)
+    assert f'id="cs-stamp-question" value="{current.updated_at.isoformat()}"' in block
+    assert cs("note") not in block
+    assert 'hx-swap="none"' in cs_block(block, "form", data_pf_cs_name="question")
+
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).update_working_file(
+            case.id, now=_T0 + timedelta(hours=1), framing="task"
+        )
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="question")
+    assert cs_text(block).startswith("The task")
+    assert "checked" in _radio(block, "task")
+    assert "The task" in cs_text(body, "outline")
+
+
+async def test_question_autosave_writes_and_answers_out_of_band_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-02: a text autosave writes the fields and answers the OOB bundle alone."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Autosave", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    before = await _case_now(app_engine, pm1, case.id)
+
+    response = await _post_question(
+        web_client,
+        case.id,
+        csrf,
+        description="  Should we roll into Fund III?  ",
+        counterparty="Acme Partners",
+        due_on="2026-12-15",
+        framing="question",
+        stamp=before.updated_at.isoformat(),
+    )
+    assert response.status_code == 200
+    body = response.text
+    after = await _case_now(app_engine, pm1, case.id)
+
+    assert after.description == "Should we roll into Fund III?"
+    assert after.counterparty == "Acme Partners"
+    assert after.due_on == date(2026, 12, 15)
+    assert after.framing == "question"
+    assert after.updated_at > before.updated_at
+
+    assert cs("block") not in body
+    assert "Saved ·" in cs_text(body, "saved")
+    assert 'id="cs-saved"' in body
+    facts = cs_block(body, "facts")
+    assert 'id="cs-facts"' in facts and 'hx-swap-oob="true"' in facts
+    assert "Acme Partners" in cs_text(facts)
+    assert "15 Dec 2026" in cs_text(facts)
+    assert 'id="cs-outline"' in cs_block(body, "outline")
+    assert f'id="cs-stamp-question" value="{after.updated_at.isoformat()}"' in body
+    assert f'id="cs-stamp-stand" value="{after.updated_at.isoformat()}"' in body
+    note_slot = cs_block(body, "note-slot")
+    assert 'id="cs-note-question"' in note_slot
+    assert cs_text(note_slot) == ""
+
+    # An empty field clears its column.
+    response = await _post_question(
+        web_client, case.id, csrf, counterparty="", stamp=after.updated_at.isoformat()
+    )
+    assert response.status_code == 200
+    cleared = await _case_now(app_engine, pm1, case.id)
+    assert cleared.counterparty is None
+    assert cleared.description == "Should we roll into Fund III?"
+
+
+async def test_question_autosave_last_write_wins_with_a_note(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-03: a stale stamp still saves and says so; the fresh stamp clears the note."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Two tabs", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    current = await _case_now(app_engine, pm1, case.id)
+    stale = (current.updated_at - timedelta(minutes=5)).isoformat()
+
+    response = await _post_question(
+        web_client, case.id, csrf, description="From the older tab.", stamp=stale
+    )
+    assert response.status_code == 200
+    assert (await _case_now(app_engine, pm1, case.id)).description == "From the older tab."
+    note = cs_text(response.text, "note")
+    assert note.startswith("Saved over a newer version from ")
+    assert f"{current.updated_at.astimezone(timezone.utc):%H:%M}" in note
+    assert "read the text once" in note
+
+    fresh = await _case_now(app_engine, pm1, case.id)
+    response = await _post_question(
+        web_client,
+        case.id,
+        csrf,
+        description="From the fresh tab.",
+        stamp=fresh.updated_at.isoformat(),
+    )
+    assert response.status_code == 200
+    assert cs("note") not in response.text
+    assert cs_text(response.text, "note-slot") == ""
+
+
+async def test_question_refusals_save_nothing(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-04: a malformed date or framing → 400 in the note; a closed case → calm error."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(
+        app_engine, opened_by=pm1, title="Refusals", description="Kept.", opened_at=_T0
+    )
+    closed = await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Closed",
+        description="Frozen.",
+        opened_at=_T0,
+        close_note="done",
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    before = await _case_now(app_engine, pm1, case.id)
+
+    response = await _post_question(
+        web_client, case.id, csrf, description="Changed.", due_on="31-02-2026"
+    )
+    assert response.status_code == 400
+    assert response.headers.get("HX-Reswap") == "none"
+    assert 'id="cs-note-question"' in response.text
+    assert "'31-02-2026' is not a date" in cs_text(response.text, "note")
+    after = await _case_now(app_engine, pm1, case.id)
+    assert after.description == "Kept."
+    assert after.updated_at == before.updated_at
+
+    response = await _post_question(
+        web_client, case.id, csrf, description="Changed.", framing="watch"
+    )
+    assert response.status_code == 400
+    assert "Invalid framing 'watch'" in cs_text(response.text, "note")
+    assert (await _case_now(app_engine, pm1, case.id)).description == "Kept."
+
+    response = await _post_question(web_client, closed.id, csrf, description="Changed.")
+    assert response.status_code == 200
+    assert "closed cases are read-only" in cs_text(response.text, "note")
+    assert (await _case_now(app_engine, pm1, closed.id)).description == "Frozen."
+
+    # A closed case renders the question read-only: the prose as text, no form.
+    body = (await web_client.get(f"/api/cases/{closed.id}", follow_redirects=False)).text
+    block = cs_block(body, "block", data_pf_cs_name="question")
+    assert cs("form") not in block
+    assert '<p class="pf-prose" data-pf-cs="prose">Frozen.</p>' in block
+
+
+async def test_framing_switch_rerenders_the_block(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-05: ``rerender=1`` answers the question block (The task) and the bundle."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Reframe", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await _post_question(web_client, case.id, csrf, rerender=True, framing="task")
+    assert response.status_code == 200
+    body = response.text
+    block = cs_block(body, "block", data_pf_cs_name="question")
+    assert cs_text(block).startswith("The task")
+    assert "hx-swap-oob" not in block
+    assert "Saved ·" in cs_text(body, "saved")
+    assert "The task" in cs_text(body, "outline")
+    assert (await _case_now(app_engine, pm1, case.id)).framing == "task"
+
+
+async def test_link_and_unlink_investment_rerender_where_we_stand(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-06: the composer lists the candidates; link/unlink re-render the stand."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    dormant = await _seed_investment(
+        app_engine, pm1, like=alpha, name="Dormant Fund", is_active=False
+    )
+    case = await _seed_case(app_engine, opened_by=pm1, title="Link me", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    composer = await web_client.get(
+        f"/api/cases/{case.id}/composer/link-investment", follow_redirects=False
+    )
+    assert composer.status_code == 200
+    assert f'value="{alpha}"' in composer.text
+    assert "Alpha" in composer.text
+    assert f'value="{dormant}"' not in composer.text
+
+    async def _link(path: str, investment_id: str):
+        return await web_client.post(
+            f"/api/cases/{case.id}/{path}",
+            data={"csrf_token": csrf, "investment_id": investment_id},
+            follow_redirects=False,
+        )
+
+    response = await _link("link-investment", str(alpha))
+    assert response.status_code == 200
+    stand = cs_block(response.text, "block", data_pf_cs_name="stand")
+    assert cs("stand-investment", name="Alpha") in stand
+    assert cs("unlink") in stand
+    assert "1 investments" in cs_text(response.text, "facts")
+    assert 'id="case-composer-slot" hx-swap-oob="innerHTML"' in response.text
+
+    again = await _link("link-investment", str(alpha))
+    assert again.status_code == 200
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert len(await CaseInvestmentRepository(session).list_for_case(case.id)) == 1
+
+    # Linked investments leave the composer's candidates.
+    composer = await web_client.get(
+        f"/api/cases/{case.id}/composer/link-investment", follow_redirects=False
+    )
+    assert f'value="{alpha}"' not in composer.text
+
+    response = await _link("unlink-investment", str(alpha))
+    assert response.status_code == 200
+    stand = cs_block(response.text, "block", data_pf_cs_name="stand")
+    assert cs("stand-investment", name="Alpha") not in stand
+    assert "No investment linked — link one from the actions." in cs_text(stand)
+    assert "0 investments" in cs_text(response.text, "facts")
+
+    inactive = await _link("link-investment", str(dormant))
+    assert inactive.status_code == 400
+    assert "only an active investment can be linked" in cs_text(inactive.text, "note")
+    unknown = await _link("link-investment", str(uuid4()))
+    assert unknown.status_code == 404
+    malformed = await _link("link-investment", "not-a-uuid")
+    assert malformed.status_code == 400
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseInvestmentRepository(session).list_for_case(case.id) == []
+
+
+async def test_attach_document_stores_without_a_record_entry_and_lists_it(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b-07: an attachment alone — listed in the question block, no record entry."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Attach", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        entries_before = len(await CaseRepository(session).list_entries(case.id))
+
+    composer = await web_client.get(f"/api/cases/{case.id}/composer/attach")
+    assert composer.status_code == 200
+    assert 'hx-encoding="multipart/form-data"' in composer.text
+    assert 'name="comment"' not in composer.text
+
+    response = await _post_attach(web_client, case.id, csrf, filename="memo.pdf")
+    assert response.status_code == 200
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        atts = await CaseAttachmentRepository(session).list_for_case(case.id)
+        entries_after = len(await CaseRepository(session).list_entries(case.id))
+    assert len(atts) == 1
+    assert atts[0].sha256 == hashlib.sha256(_SMALL_PDF).hexdigest()
+    assert entries_after == entries_before
+
+    block = cs_block(response.text, "block", data_pf_cs_name="question")
+    document = cs_block(block, "document")
+    assert "memo.pdf" in document
+    assert f'href="/api/cases/{case.id}/attachments/{atts[0].id}"' in document
+    cap = get_config().case_attachment_max_count
+    assert (
+        cs_text(response.text, "fact", data_pf_cs_name="attachments") == f"Attachments 1 of {cap}"
+    )
+    assert "0 investments · 1 documents" in cs_text(response.text, "facts")
+
+    # The documents list is part of the file's first render too.
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert "memo.pdf" in cs_text(body, "documents")
+
+
+async def test_attach_document_gates_reuse_the_pin_gates(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS3b-08: a disallowed type and an oversized body re-render the composer, write nothing."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Attach gates", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    async def _count() -> int:
+        async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+            return await CaseAttachmentRepository(session).count_for_case(case.id)
+
+    response = await _post_attach(
+        web_client,
+        case.id,
+        csrf,
+        filename="notes.txt",
+        content=b"hello there",
+        content_type="text/plain",
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Retarget") == "#case-composer-slot"
+    assert "not allowed" in cs_text(response.text, "error")
+    assert cs("composer", kind="attach") in response.text
+    assert await _count() == 0
+
+    monkeypatch.setattr(get_config(), "case_attachment_max_bytes", len(_SMALL_PDF) - 1)
+    response = await _post_attach(web_client, case.id, csrf)
+    assert "per-file" in cs_text(response.text, "error")
+    assert await _count() == 0
+
+
+async def test_where_we_stand_renders_live_and_at_close(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3b-09: live on an open case (subject, investment row); frozen *At close*."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    finding_id = await _seed_finding(app_engine, opened_by=pm1)
+    live = await _seed_case(
+        app_engine, opened_by=pm1, title="Live", finding_id=finding_id, opened_at=_T0
+    )
+    closing = await _seed_case(app_engine, opened_by=pm1, title="Closing", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        links = CaseInvestmentRepository(session)
+        for case_id in (live.id, closing.id):
+            await links.link(case_id, investment_id=alpha, linked_by=pm1, now=_T0)
+    await _login(web_client, email, password)
+    nav_text = format_money_compact(float(CALM_NAV), "EUR")
+
+    body = (await web_client.get(f"/api/cases/{live.id}", follow_redirects=False)).text
+    stand = cs_block(body, "block", data_pf_cs_name="stand")
+    assert cs_text(stand).startswith("Where we stand")
+    subject = cs_text(stand, "stand-subject")
+    assert "Private equity" in subject
+    assert "saa:" not in subject
+    row = cs_text(stand, "stand-investment", data_pf_cs_name="Alpha")
+    assert nav_text in row
+    assert cs("stand-refresh") in stand
+    assert cs("unlink") in stand
+    assert "live ·" in cs_text(stand, "stand-source")
+    assert "live" in cs_text(body, "outline-item", data_pf_cs_name="stand")
+
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        repo = CaseRepository(session)
+        current = await repo.get(closing.id)
+        assert current is not None
+        ctx = await StandContext.load(session, now=_T0 + timedelta(days=1))
+        frozen = to_snapshot(await compose(ctx, current))
+        await repo.close(
+            closing.id,
+            closed_by=pm1,
+            closing_note="Settled.",
+            now=_T0 + timedelta(days=1),
+            stand=frozen,
+        )
+
+    body = (await web_client.get(f"/api/cases/{closing.id}", follow_redirects=False)).text
+    stand = cs_block(body, "block", data_pf_cs_name="stand")
+    assert cs_text(stand).startswith("At close")
+    assert nav_text in cs_text(stand, "stand-investment", data_pf_cs_name="Alpha")
+    assert "frozen · 09:00 22 Jul 2026" in cs_text(stand, "stand-source")
+    assert cs("stand-refresh") not in stand
+    assert cs("unlink") not in stand
+    assert "at close" in cs_text(body, "outline-item", data_pf_cs_name="stand")
+
+    # A case closed without a frozen stand says so instead of inventing one.
+    plain = await _seed_case(
+        app_engine, opened_by=pm1, title="Plain close", opened_at=_T0, close_note="done"
+    )
+    body = (await web_client.get(f"/api/cases/{plain.id}", follow_redirects=False)).text
+    assert "was not frozen" in cs_text(body, "stand-missing")
+
+
+async def test_section_endpoint_renders_one_block_and_404s_unknown(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3b-10: one block alone, no bundle; unknown sections and cases are 404."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Sections", opened_at=_T0)
+    await _login(web_client, email, password)
+
+    question = await web_client.get(f"/api/cases/{case.id}/sections/question")
+    assert question.status_code == 200
+    assert cs_count(question.text, "block") == 1
+    cs_block(question.text, "block", data_pf_cs_name="question")
+    assert "hx-swap-oob" not in question.text
+    assert 'id="cs-facts"' not in question.text
+
+    revealed = await web_client.get(f"/api/cases/{case.id}/sections/question?reveal=1")
+    assert "autofocus" in cs_block(revealed.text, "prose")
+
+    stand = await web_client.get(f"/api/cases/{case.id}/sections/stand")
+    assert stand.status_code == 200
+    assert cs_count(stand.text, "block") == 1
+    cs_block(stand.text, "block", data_pf_cs_name="stand")
+
+    assert (await web_client.get(f"/api/cases/{case.id}/sections/threads")).status_code == 404
+    assert (await web_client.get(f"/api/cases/{uuid4()}/sections/question")).status_code == 404

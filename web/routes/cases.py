@@ -11,9 +11,12 @@ band. The page URLs ``/cases`` and ``/cases/{case_id}`` are the shell's
 (``web/routes/areas.py``); the shell's host loads one of the two partials. In
 P-CS-3a the sub-surface is the page move of the retired stand-alone detail
 page: the facts, the actions on an open case, the composer slot, the origin
-embed or the description, and the record. The four composers (Add note / Pin
-document / Record decision / Close case), the attachment upload/download
-pipeline with its caps and the pin timeline anatomy are unchanged.
+embed or the description, and the record. P-CS-3b makes the working file
+editable in place: The question (prose, counterparty, due date, framing), the
+investment links and documents, and Where we stand composed live (or *At
+close* from the frozen snapshot). The four composers (Add note / Pin document
+/ Record decision / Close case), the attachment download pipeline with its
+caps and the pin timeline anatomy are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -142,7 +145,24 @@ Endpoints
 * ``GET  /api/cases/{case_id}`` — the sub-surface partial (the case file).
   Unknown or foreign ids resolve to ``None`` under RLS and are mapped to 404,
   the entity-detail idiom (``web/routes/investments.py``).
-* The composer, write, download and close routes below, unchanged.
+* ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
+  (``question`` · ``stand``; ``reveal=1`` for the outline's ``+``).
+* ``POST /api/cases/{case_id}/question`` — the question's autosave
+  (D-CS-B-44): the prose, counterparty, due date and framing, last write wins
+  with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1`` the block too.
+* ``POST /api/cases/{case_id}/link-investment`` · ``…/unlink-investment`` —
+  the case's investment links; answer Where we stand and the bundle.
+* ``POST /api/cases/{case_id}/attachments`` — attach a document without a
+  record entry (D-CS-B-47); answers the question block and the bundle.
+* The composer, write, download and close routes below. The working file
+  writes on an open **or waiting** case; the P-CS-3a composers keep their
+  ``open`` gate until P-CS-3c.
+
+The OOB bundle (``_partials/cases_file_oob.html``) is what every save of the
+working file answers with: ``#cs-saved``, ``#cs-facts``, ``#cs-outline``, the
+section stamps and ``#cs-note-<section>``. A text autosave swaps nothing in
+place (``hx-swap="none"``) and receives the bundle alone; a structural change
+(framing, link, attach) re-renders its block, followed by the bundle.
 
 Reads use ``session = Depends(require_session)``; the write also takes
 ``_ = Depends(verify_csrf)`` and opens a ``tenant_context`` so it is
@@ -158,6 +178,7 @@ import logging
 import pathlib
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
@@ -169,7 +190,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from starlette.datastructures import UploadFile
 
 from core.config import get_config
-from core.exceptions import CaseClosedError, CaseStateInvalid
+from core.exceptions import CaseClosedError, CaseStateInvalid, CaseWorkingFileInvalid
 from core.repositories._session import tenant_context
 from core.repositories.case_attachment_repository import (
     CaseAttachmentRepository,
@@ -180,18 +201,24 @@ from core.repositories.case_repository import (
     CaseRepository,
 )
 from core.repositories.case_working_file_repository import (
+    CaseFigureDTO,
+    CaseFigureRepository,
+    CaseInvestmentRepository,
     CasePointDTO,
     CasePointRepository,
     CaseThreadDTO,
     CaseThreadRepository,
 )
+from core.repositories.investment_repository import InvestmentRepository
 from core.repositories.irene_finding_repository import (
     IreneFindingDTO,
     IreneFindingRepository,
 )
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
-from services.cases.stand import StandContext, headline_for
+from services.cases.stand import StandContext, compose, headline_for
+from services.money_format import format_money_compact
+from services.watch_desk.family_status import FIGURE_UNIT_DAYS, FIGURE_UNIT_RATIO
 from web.auth import require_session, verify_csrf
 from web.routes.watch_desk import JOURNAL_DEEP_LINK, resolution_label
 from web.routes.planning_desk import AREA_URL as PLANNING_DESK_AREA_URL
@@ -968,30 +995,106 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
     return [_project_entry(entry, owner_names, opened_text=opened_text) for entry in entries]
 
 
-async def load_case_file_context(
+# ---------------------------------------------------------------------------
+# The editable file (P-CS-3b) — the frame, the sections, Where we stand
+# ---------------------------------------------------------------------------
+
+#: The blocks the section endpoint renders and the stamps partial carries, in
+#: ADR order (D-CS-B-49). P-CS-3b2 appends "threads" and "figures".
+_SECTION_NAMES: tuple[str, ...] = ("question", "stand")  # 3b2 appends "threads", "figures"
+
+#: One block partial per section name.
+_SECTION_TEMPLATES: dict[str, str] = {
+    name: f"_partials/cases_file_{name}.html" for name in _SECTION_NAMES
+}
+
+#: The out-of-band bundle every save answers with (D-CS-B-44).
+_OOB_TEMPLATE = "_partials/cases_file_oob.html"
+
+#: The states the working file accepts writes in (ADR-0138 §4, D-CS-B-52) —
+#: the repositories' own gate, restated so the route answers calmly first.
+_MUTABLE_STATES: frozenset[str] = frozenset({"open", "waiting"})
+
+#: ``framing`` → the question block's heading (D-CS-M-1); ``None`` reads as a question.
+_FRAMING_TITLES: dict[str, str] = {"question": "The question", "task": "The task"}
+
+_STALE_NOTE = "Saved over a newer version from {time} — read the text once."
+_NO_FROZEN_TEXT = "No frozen state — this case was closed before the working file existed."
+_NOT_FROZEN_TEXT = "Where we stand was not frozen when this case closed."
+
+
+def _framing(case: CaseDTO) -> str:
+    """The case's framing, ``question`` when unset."""
+    return case.framing if case.framing in _FRAMING_TITLES else "question"
+
+
+def _clock(moment: datetime) -> str:
+    """``HH:MM`` in UTC (D-CS-B-41)."""
+    return f"{moment.astimezone(timezone.utc):%H:%M}"
+
+
+def _is_stale(stamp: Any, case: CaseDTO) -> bool:
+    """Whether the client's stamp names another version than ``case`` (D-CS-B-45).
+
+    No stamp is no claim, so never stale; an unreadable stamp is stale.
+    """
+    raw = str(stamp).strip() if stamp is not None else ""
+    if not raw:
+        return False
+    try:
+        sent = datetime.fromisoformat(raw)
+    except ValueError:
+        return True
+    if sent.tzinfo is None:
+        sent = sent.replace(tzinfo=timezone.utc)
+    return sent != case.updated_at
+
+
+def _note(text: str, tone: str = "info") -> dict[str, str]:
+    """A ``pf-note`` for a section's note slot: its text and tone."""
+    return {"text": text, "tone": tone}
+
+
+def _outline(case: CaseDTO, *, record_count: int) -> list[dict[str, Any]]:
+    """The outline's entries, in ADR order, for the sections that exist (D-CS-B-50).
+
+    An entry with ``empty`` set renders grey with ``+`` and reveals its block
+    through ``reveal_href``; in P-CS-3b no section is hidden when empty.
+    """
+
+    def entry(name: str, label: str, count_label: str, *, revealable: bool) -> dict[str, Any]:
+        return {
+            "name": name,
+            "label": label,
+            "count_label": count_label,
+            "empty": False,
+            "href": f"#cs-{name}",
+            "reveal_href": (
+                f"/api/cases/{case.id}/sections/{name}?reveal=1" if revealable else None
+            ),
+        }
+
+    return [
+        entry("question", _FRAMING_TITLES[_framing(case)], "", revealable=True),
+        entry(
+            "stand",
+            "Where we stand",
+            "at close" if case.state == "closed" else "live",
+            revealable=True,
+        ),
+        entry("record", "Record", str(record_count), revealable=False),
+    ]
+
+
+async def _frame_context(
     db_session: AsyncSession, case: CaseDTO, session: SessionDTO
 ) -> dict[str, Any]:
-    """The sub-surface context — what ``case_detail_view`` built, as one function the
-    partial route renders and tests exercise: head (badge, title, state, opened/closed
-    stamps and names, owner, counterparty, due, wait_until), is_open, origin / description,
-    entries, linked_finding, attachments_count / attachments_cap / show_attachments,
-    journal_href, capture_scenario_href, consult_shirley_href, csrf_token, case_id.
+    """What the file renders around its blocks, and what every save refreshes.
 
-    Loads the case's append-only timeline, its originating finding through the
-    read-only finding lookup when it has one, the actor and owner names in one
-    batch, and the attachments count. The actions — and with them the composer
-    slot, "Capture scenario" and "Consult Shirley" — are offered on an *open*
-    case only (``is_open``), so the UI never offers what the write routes'
-    ``state == "open"`` gate refuses; a waiting case reads like a closed one
-    until P-CS-3c re-gates the composers (D-CS-B-34).
-
-    Args:
-        db_session: A tenant-scoped session.
-        case: The case, already read (and 404-checked) by the caller.
-        session: The PM's session (for the CSRF token).
-
-    Returns:
-        The template context of ``_partials/cases_file.html``.
+    The head, the facts (with the linked count and the attachments row), the
+    outline, the stamp, the record's entries and the action hrefs. The OOB
+    bundle (``cases_file_oob.html``) renders from exactly this, so the first
+    render and a save's refresh cannot drift.
     """
     entries = await CaseRepository(db_session).list_entries(case.id)
 
@@ -1005,52 +1108,427 @@ async def load_case_file_context(
     actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
     owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
     attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
+    links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
 
-    head = _project_head(case, owner_names)
-    origin = _project_origin(finding, entries) if finding is not None else None
     opened_text = _opened_text(case, finding)
     is_open = case.state == "open"
     is_closed = case.state == "closed"
+    is_mutable = case.state in _MUTABLE_STATES
     cfg = get_config()
 
     return {
         "csrf_token": session.csrf_token,
         "case_id": str(case.id),
-        "head": head,
+        "head": _project_head(case, owner_names),
         "is_open": is_open,
-        "origin": origin,
-        # The manual-case substitute for the origin embed: rendered only when
-        # there is no finding to embed.
-        "description": case.description if origin is None else None,
+        "is_mutable": is_mutable,
+        "stamp": case.updated_at.isoformat(),
+        "section_names": _SECTION_NAMES,
+        "saved_label": "",
+        "outline": _outline(case, record_count=len(entries)),
         "entries": [
             _project_entry(entry, owner_names, opened_text=opened_text) for entry in entries
         ],
-        # The origin finding fact (text only), when present. No Investments
-        # row (binding decision 1).
+        # The origin finding fact (text only), when present.
         "linked_finding": (
-            {"subject_key": origin["subject_key"], "band": origin["band"]}
-            if origin is not None
+            {"subject_key": finding.subject_key, "band": finding.band}
+            if finding is not None
             else None
         ),
-        # Attachments · N of {cap}: shown when N > 0 or the case is open.
+        "linked_label": f"{links_count} investments · {attachments_count} documents",
+        # Attachments · N of {cap}: shown when N > 0 or the case is mutable.
         "attachments_count": attachments_count,
         "attachments_cap": cfg.case_attachment_max_count,
-        "show_attachments": attachments_count > 0 or is_open,
-        # Journal deep link — closed cases only (a closed case is in the
-        # Journal as a closed-case row; an open or waiting one is not).
-        # Binding decision 2.
+        "show_attachments": attachments_count > 0 or is_mutable,
+        # Journal deep link — closed cases only (binding decision 2).
         "journal_href": JOURNAL_DEEP_LINK if is_closed else None,
-        # "Capture scenario" (ADR-0107 C5) — open cases only: a plain link to the
-        # Planning Desk with this case as the capture marker, so the Desk arrives
-        # "capturing for" it. The C4 cross-module URL idiom — one imported target,
-        # not a duplicated path string.
+        # "Capture scenario" (ADR-0107 C5) and "Consult Shirley" (ADR-0107 C6) —
+        # open cases only, plain links carrying the case as their marker.
         "capture_scenario_href": (f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_open else None),
-        # "Consult Shirley" (ADR-0107 C6) — open cases only: a plain link to the
-        # assistants surface carrying this case as the ``?case=`` brief marker,
-        # so Shirley arrives "consulting for" it. The in-place hand-off is
-        # P-CS-5a's (D-CS-B-40).
         "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_open else None),
     }
+
+
+async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str, Any]:
+    """The question block (D-CS-B-46): heading, origin, prose, meta, documents."""
+    finding: IreneFindingDTO | None = None
+    entries: list[CaseEntryDTO] = []
+    if case.finding_id is not None:
+        finding = await IreneFindingRepository(db_session).get(case.finding_id)
+        entries = await CaseRepository(db_session).list_entries(case.id)
+    origin = _project_origin(finding, entries) if finding is not None else None
+
+    if case.finding_id is not None:
+        surfaced = (
+            f" · surfaced {finding.created_at:%d %b}"
+            if finding is not None and finding.created_at is not None
+            else ""
+        )
+        sub = f"from finding{surfaced}"
+    else:
+        sub = f"manual · opened {case.opened_at:%d %b}"
+
+    managers: list[str] = []
+    if case.state in _MUTABLE_STATES:
+        active = await InvestmentRepository(db_session).list_active()
+        managers = sorted({i.manager_name for i in active if i.manager_name})
+
+    attachments = await CaseAttachmentRepository(db_session).list_for_case(case.id)
+    framing = _framing(case)
+    return {
+        "title": _FRAMING_TITLES[framing],
+        "framing": framing,
+        "sub": sub,
+        "origin": origin,
+        "description": case.description or "",
+        "counterparty": case.counterparty or "",
+        "due_on": case.due_on.isoformat() if case.due_on is not None else "",
+        "due_label": _day(case.due_on) if case.due_on is not None else "",
+        "managers": managers,
+        "documents": [
+            {
+                "filename": attachment.filename,
+                "size": _human_size(attachment.size_bytes),
+                "uploaded": _day(attachment.created_at),
+                "href": f"/api/cases/{case.id}/attachments/{attachment.id}",
+            }
+            for attachment in attachments
+        ],
+    }
+
+
+# --- Where we stand: one projection over the dataclass or its snapshot -----
+
+
+def _field(source: Any, name: str) -> Any:
+    """Read ``name`` off a stand dataclass or its snapshot dict; ``None`` when absent."""
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        return source.get(name)
+    return getattr(source, name, None)
+
+
+def _as_decimal(value: Any) -> Decimal | None:
+    """A ``Decimal`` from a reading (``Decimal``) or a snapshot (``str``); ``None`` otherwise."""
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
+def _as_date(value: Any) -> date | None:
+    """A date from a reading (``date``) or a snapshot (ISO ``str``); ``None`` otherwise."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _as_datetime(value: Any) -> datetime | None:
+    """An aware datetime from a reading or a snapshot's ISO string; ``None`` otherwise."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    else:
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+def _figure_text(value: Decimal, unit: Any) -> str:
+    """A subject figure in its unit — the Watch Desk monitor's idiom."""
+    if unit == FIGURE_UNIT_DAYS:
+        days = int(value)
+        return f"{days} day{'' if days == 1 else 's'}"
+    if unit == FIGURE_UNIT_RATIO:
+        return f"{float(value):.2f}×"
+    return f"{float(value):.1f} %"
+
+
+def _reading_text(reading: Any) -> str:
+    """One subject reading as text: figure of ceiling (status) · as of date."""
+    value = _as_decimal(_field(reading, "value"))
+    status_label = str(_field(reading, "status_label") or "")
+    if value is None:
+        return status_label or str(_field(reading, "note") or "not available")
+    unit = _field(reading, "unit")
+    text = _figure_text(value, unit)
+    ceiling = _as_decimal(_field(reading, "ceiling"))
+    if ceiling is not None:
+        text += f" of {_figure_text(ceiling, unit)}"
+    if status_label:
+        text += f" ({status_label})"
+    as_of = _as_date(_field(reading, "as_of"))
+    if as_of is not None:
+        text += f" · as of {_day(as_of)}"
+    return text
+
+
+def _money(value: Decimal | None, currency: str) -> str:
+    return format_money_compact(float(value), currency) if value is not None else "—"
+
+
+def _multiple(value: Decimal | None) -> str:
+    return f"{float(value):.2f}x" if value is not None else "—"
+
+
+def _rate(value: Decimal | None) -> str:
+    return f"{value:.4f}" if value is not None else "—"
+
+
+def _project_stand(
+    source: Any, *, closed: bool, now: datetime, subject_key: str | None = None
+) -> dict[str, Any]:
+    """One display dict from a WhereWeStand or its snapshot dict (keys by name).
+
+    Every level is read by field name — ``getattr`` on the dataclass,
+    ``dict.get`` on the snapshot, whose JSONB keeps no order and may lack a
+    level — and every ``Decimal`` or ISO string becomes display text here, so
+    the live block and the block *At close* render from one template.
+
+    Args:
+        source: A :class:`~services.cases.stand.WhereWeStand` or its
+            :func:`~services.cases.stand.to_snapshot` dict.
+        closed: Whether the block is the frozen state at close (no unlink).
+        now: The request instant, the fallback for a missing ``composed_at``.
+        subject_key: The finding's subject key, so the subject is labelled
+            even when the Watch Desk could not be read (no reading carries it).
+
+    Returns:
+        ``closed``, ``composed_at``, ``subject``, ``investments``,
+        ``counterparty``, ``fx``, ``tickets`` and ``system_lines``.
+    """
+    subject: dict[str, Any] | None = None
+    subject_block = _field(source, "subject")
+    if subject_block is not None:
+        now_reading = _field(subject_block, "now")
+        at_opening = _field(subject_block, "at_opening")
+        key = (
+            subject_key
+            or _field(now_reading, "subject_key")
+            or _field(at_opening, "subject_key")
+            or ""
+        )
+        reason = _field(subject_block, "unavailable_reason")
+        subject = {
+            "label": subject_display(str(key)) if key else "The finding's subject",
+            "now": (
+                _reading_text(now_reading)
+                if now_reading is not None
+                else str(reason or "not available")
+            ),
+            "at_opening": _reading_text(at_opening) if at_opening is not None else "",
+            "at_opening_lines": [
+                str(line) for line in (_field(subject_block, "at_opening_lines") or [])
+            ],
+        }
+
+    investments: list[dict[str, Any]] = []
+    for reading in _field(source, "investments") or []:
+        currency = str(_field(reading, "currency") or "")
+        nav_as_of = _as_date(_field(reading, "nav_as_of"))
+        irr = _as_decimal(_field(reading, "irr"))
+        investments.append(
+            {
+                "id": str(_field(reading, "investment_id") or ""),
+                "name": str(_field(reading, "name") or ""),
+                "currency": currency,
+                "commitment": _money(_as_decimal(_field(reading, "commitment_amount")), currency),
+                "nav": _money(_as_decimal(_field(reading, "nav_value")), currency),
+                "as_of": _day(nav_as_of) if nav_as_of is not None else "—",
+                "tvpi": _multiple(_as_decimal(_field(reading, "tvpi"))),
+                "dpi": _multiple(_as_decimal(_field(reading, "dpi"))),
+                "irr": f"{float(irr) * 100.0:.1f}%" if irr is not None else "—",
+            }
+        )
+
+    counterparty: str | None = None
+    counterparty_block = _field(source, "counterparty")
+    if counterparty_block is not None:
+        funds = [str(_field(f, "name") or "") for f in (_field(counterparty_block, "funds") or [])]
+        count = len(funds)
+        counterparty = (
+            f"{_field(counterparty_block, 'name')} · {count} fund{'' if count == 1 else 's'} "
+            "in the book" + (f": {', '.join(funds)}" if funds else "")
+        )
+
+    fx = [
+        (
+            f"{_field(r, 'currency')}/{_field(r, 'functional_currency')} at opening "
+            f"{_rate(_as_decimal(_field(r, 'rate_at_opening')))} → now "
+            f"{_rate(_as_decimal(_field(r, 'rate_now')))}"
+        )
+        for r in _field(source, "fx") or []
+    ]
+
+    tickets: list[str] = []
+    for ticket in _field(source, "tickets") or []:
+        trade_date = _as_date(_field(ticket, "trade_date"))
+        parts = [
+            f"#{_field(ticket, 'ticket_number')}",
+            str(_field(ticket, "kind") or ""),
+            str(_field(ticket, "direction") or ""),
+            str(_field(ticket, "status") or ""),
+            str(_field(ticket, "investment_name") or "—"),
+            _day(trade_date) if trade_date is not None else "—",
+        ]
+        tickets.append(" · ".join(parts))
+
+    system_lines: list[dict[str, str]] = []
+    for line in _field(source, "system_lines") or []:
+        created = _as_datetime(_field(line, "created_at"))
+        system_lines.append(
+            {
+                "text": str(_field(line, "text") or _field(line, "event") or ""),
+                "date": _day(created) if created is not None else "",
+            }
+        )
+
+    return {
+        "closed": closed,
+        "composed_at": _as_datetime(_field(source, "composed_at")) or now,
+        "subject": subject,
+        "investments": investments,
+        "counterparty": counterparty,
+        "fx": fx,
+        "tickets": tickets,
+        "system_lines": system_lines,
+    }
+
+
+async def _stand_context(
+    db_session: AsyncSession, case: CaseDTO, figures: Sequence[CaseFigureDTO]
+) -> dict[str, Any]:
+    """Where we stand for the block: live via compose() on an open/waiting case, the
+    frozen where_we_stand of latest_frozen on a closed one; both through _project_stand.
+
+    ``compose`` refuses a closed case, so the state is branched on first. One
+    :class:`StandContext` per request (D-CS-B-11); nothing here writes
+    (D-CS-M-14). A closed case without a frozen ``where_we_stand`` renders a
+    calm line instead of the block's readings (``missing``).
+    """
+    now = _now()
+    subject_key: str | None = None
+    if case.finding_id is not None:
+        finding = await IreneFindingRepository(db_session).get(case.finding_id)
+        subject_key = finding.subject_key if finding is not None else None
+
+    if case.state == "closed":
+        frozen = await CaseRepository(db_session).latest_frozen(case.id)
+        file_block = (frozen.payload or {}).get("file") if frozen is not None else None
+        source = file_block.get("where_we_stand") if isinstance(file_block, dict) else None
+        return {
+            "closed": True,
+            "title": "At close",
+            "chip": (
+                f"frozen · {frozen.created_at.astimezone(timezone.utc):%H:%M %d %b %Y}"
+                if frozen is not None
+                else ""
+            ),
+            "view": (
+                _project_stand(source, closed=True, now=now, subject_key=subject_key)
+                if isinstance(source, dict)
+                else None
+            ),
+            "missing": _NO_FROZEN_TEXT if frozen is None else _NOT_FROZEN_TEXT,
+        }
+
+    ctx = await StandContext.load(db_session, now=now)
+    stand = await compose(ctx, case, figures=figures)
+    view = _project_stand(stand, closed=False, now=now, subject_key=subject_key)
+    return {
+        "closed": False,
+        "title": "Where we stand",
+        "chip": f"live · {_clock(view['composed_at'])}",
+        "view": view,
+        "missing": "",
+    }
+
+
+async def load_section_context(
+    db_session: AsyncSession, case: CaseDTO, session: SessionDTO, name: str, *, reveal: bool = False
+) -> dict[str, Any]:
+    """The context one block partial renders from (D-CS-B-49).
+
+    The shared keys (``csrf_token``, ``case_id``, ``is_mutable``, ``stamp``,
+    ``reveal``) plus one key named after the section: ``question`` (see
+    :func:`_question_context`) or ``stand`` (see :func:`_stand_context`).
+    :func:`load_case_file_context` composes the file from the same calls, so
+    the first render and a block's re-render cannot drift.
+
+    Args:
+        db_session: A tenant-scoped session.
+        case: The case, already read (and 404-checked) by the caller.
+        session: The PM's session (for the CSRF token).
+        name: One of ``_SECTION_NAMES``.
+        reveal: Render a hidden-when-empty block visible, its add control
+            focused (the outline's ``+``).
+
+    Returns:
+        The template context of ``_partials/cases_file_<name>.html``.
+
+    Raises:
+        ValueError: If ``name`` is not a section of the file.
+    """
+    context: dict[str, Any] = {
+        "csrf_token": session.csrf_token,
+        "case_id": str(case.id),
+        "is_mutable": case.state in _MUTABLE_STATES,
+        "stamp": case.updated_at.isoformat(),
+        "reveal": reveal,
+    }
+    if name == "question":
+        context["question"] = await _question_context(db_session, case)
+    elif name == "stand":
+        figures = await CaseFigureRepository(db_session).list_for_case(case.id)
+        context["stand"] = await _stand_context(db_session, case, figures)
+    else:
+        raise ValueError(f"Unknown section {name!r}; expected one of {', '.join(_SECTION_NAMES)}.")
+    return context
+
+
+async def load_case_file_context(
+    db_session: AsyncSession, case: CaseDTO, session: SessionDTO
+) -> dict[str, Any]:
+    """The sub-surface context: the frame plus every section's block context.
+
+    The frame (:func:`_frame_context`): ``csrf_token``, ``case_id``, ``head``,
+    ``is_open``, ``is_mutable``, ``stamp``, ``section_names``,
+    ``saved_label`` (empty on the first render), ``outline``, ``entries``,
+    ``linked_finding``, ``linked_label``, ``attachments_count`` /
+    ``attachments_cap`` / ``show_attachments``, ``journal_href``,
+    ``capture_scenario_href``, ``consult_shirley_href``. Then one key per
+    section (``question``, ``stand``) from :func:`load_section_context`.
+
+    The write actions of P-CS-3a's composers (note, pin, decision, close,
+    capture, consult) are offered on an *open* case only (``is_open``); the
+    working file — the question, links and documents — on an open or waiting
+    one (``is_mutable``, D-CS-B-52). A closed case renders read-only.
+
+    Args:
+        db_session: A tenant-scoped session.
+        case: The case, already read (and 404-checked) by the caller.
+        session: The PM's session (for the CSRF token).
+
+    Returns:
+        The template context of ``_partials/cases_file.html``.
+    """
+    context = await _frame_context(db_session, case, session)
+    for name in _SECTION_NAMES:
+        context.update(await load_section_context(db_session, case, session, name))
+    return context
 
 
 @router.get("/api/cases/{case_id}", response_class=HTMLResponse)
@@ -1077,6 +1555,32 @@ async def get_case_file(
     return _render(request, "_partials/cases_file.html", context)
 
 
+@router.get("/api/cases/{case_id}/sections/{name}", response_class=HTMLResponse)
+async def get_case_section(
+    request: Request,
+    case_id: UUID,
+    name: str,
+    reveal: bool = False,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """One block of the file, alone (D-CS-B-49): the stand's Refresh, the outline's ``+``.
+
+    ``name`` is one of ``_SECTION_NAMES``; anything else, like an unknown or
+    foreign case, is a 404. ``reveal=1`` renders a hidden-when-empty block
+    visible with its add control focused. No OOB bundle: a render writes nothing.
+    """
+    template = _SECTION_TEMPLATES.get(name)
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown section.")
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        case = await CaseRepository(db_session).get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        context = await load_section_context(db_session, case, session, name, reveal=reveal)
+    return _render(request, template, context)
+
+
 # ---------------------------------------------------------------------------
 # Composers + writes (C3b) — everything that mutates a case from the detail
 # view. Every write endpoint takes ``verify_csrf`` and gates on the open state
@@ -1094,6 +1598,8 @@ _COMPOSER_TEMPLATES: dict[str, str] = {
     "decision": "_partials/cases_composer_decision.html",
     "pin": "_partials/cases_composer_pin.html",
     "close": "_partials/cases_composer_close.html",
+    "link-investment": "_partials/cases_composer_link_investment.html",
+    "attach": "_partials/cases_composer_attach.html",
 }
 
 
@@ -1135,10 +1641,12 @@ async def get_case_composer(
 ) -> HTMLResponse:
     """Return one composer form into ``#case-composer-slot`` (the C2 slot idiom).
 
-    ``action='cancel'`` clears the slot (an empty body). The four real actions
+    ``action='cancel'`` clears the slot (an empty body). The real actions
     render their form — DB-free, exactly like ``GET /api/cases/new`` — because
     the gate that matters lives on the write endpoints the composers post to.
-    An unknown action is a 404.
+    The one exception is ``link-investment``, which reads its candidates: the
+    tenant's active investments not yet linked, by name (D-CS-B-47). An
+    unknown action is a 404.
     """
     if action == "cancel":
         return HTMLResponse("")
@@ -1149,8 +1657,26 @@ async def get_case_composer(
         "case_id": str(case_id),
         "csrf_token": session.csrf_token,
     }
-    if action == "pin":
+    if action in ("pin", "attach"):
         context["caps_hint"] = _caps_hint(get_config())
+    if action == "link-investment":
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            links = await CaseInvestmentRepository(db).list_for_case(case_id)
+            active = await InvestmentRepository(db).list_active()
+        linked = {link.investment_id for link in links}
+        context["candidates"] = [
+            {
+                "id": str(investment.id),
+                "label": " · ".join(
+                    part
+                    for part in (investment.name, investment.manager_name, investment.currency)
+                    if part
+                ),
+            }
+            for investment in sorted(active, key=lambda i: i.name.lower())
+            if investment.id not in linked
+        ]
     return _render(request, template, context)
 
 
@@ -1297,6 +1823,446 @@ async def post_case_decision(
     return _timeline_refresh(request, entries)
 
 
+async def _read_upload(request: Request, cfg: Any) -> tuple[str, str, bytes, str] | str:
+    """Validate and read the multipart ``file`` field — the pin route's gates, shared.
+
+    Returns ``(filename, mime_type, content, sha256)`` or the refusal text. Extension
+    AND declared content type in the whitelist; the size gate reads bounded 64 KiB
+    chunks and stops at cap + 1 bytes; the count cap is checked by the caller inside
+    its transaction (it needs the repository).
+
+    The gates, in order: a file is present → its sanitised name carries an
+    allowed extension → the declared content type matches it → the real byte
+    length (never the header) is within the cap → the file is not empty. The
+    bounded read means an oversized upload is rejected without ever being
+    buffered whole as one in-memory object (single-instance memory safety).
+    """
+    form = await _request_form(request)
+    file_field = form.get("file")
+    if not isinstance(file_field, UploadFile) or not file_field.filename:
+        return "Choose a file."
+    sanitised_name = _sanitise_filename(file_field.filename)
+    ext = _file_extension(sanitised_name)
+    allowed = cfg.case_attachment_allowed_types
+    accepted = ", ".join(sorted(e.upper() for e in allowed))
+    if not sanitised_name or ext not in allowed:
+        return f"That file type is not allowed. Accepted: {accepted}."
+    declared_mime = (file_field.content_type or "").split(";")[0].strip().lower()
+    if declared_mime not in allowed[ext]:
+        return (
+            "The file's declared content type does not match its extension "
+            f"— accepted types are {accepted}."
+        )
+    max_bytes = cfg.case_attachment_max_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while total <= max_bytes:
+        chunk = await file_field.read(min(_UPLOAD_CHUNK_BYTES, max_bytes + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    if total > max_bytes:
+        return f"The file exceeds the {max_bytes // (1024 * 1024)} MB per-file limit."
+    content = b"".join(chunks)
+    if len(content) == 0:
+        return "The file is empty."
+    return sanitised_name, declared_mime, content, hashlib.sha256(content).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# The editable file's writes (P-CS-3b): the autosave frame (D-CS-B-44), The
+# question, links and documents. Each writes on an open or waiting case
+# (D-CS-B-52) and answers the OOB bundle — a text autosave the bundle alone
+# (``hx-swap="none"``), a structural change its block followed by the bundle.
+# ---------------------------------------------------------------------------
+
+
+async def _request_form(request: Request) -> Any:
+    """The parsed form body — ``verify_csrf`` caches it on ``request.state.form``."""
+    form = getattr(request.state, "form", None)
+    if form is None:
+        form = await request.form()
+    return form
+
+
+def _render_parts(
+    request: Request,
+    parts: Sequence[tuple[str, dict[str, Any]]],
+    *,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+) -> HTMLResponse:
+    """Render several partials into one response body, in order (a block + the bundle)."""
+    templates = _templates(request)
+    body = "".join(
+        templates.get_template(template).render({**context, "request": request})
+        for template, context in parts
+    )
+    return HTMLResponse(body, status_code=status_code, headers=headers)
+
+
+async def _bundle_context(
+    db_session: AsyncSession,
+    case: CaseDTO,
+    session: SessionDTO,
+    *,
+    section: str,
+    note: dict[str, str] | None,
+    clear_composer: bool = False,
+) -> dict[str, Any]:
+    """The OOB bundle's context for the reloaded ``case`` (D-CS-B-44, D-CS-B-51).
+
+    ``#cs-saved`` (*Saved · HH:MM*), ``#cs-facts``, ``#cs-outline``, the
+    stamps and ``#cs-note-<section>`` carrying ``note`` (or an empty slot);
+    ``clear_composer`` empties ``#case-composer-slot`` after a composer saved.
+    """
+    context = await _frame_context(db_session, case, session)
+    context.update(
+        {
+            "oob": True,
+            "saved_label": f"Saved · {_clock(_now())}",
+            "note_section": section,
+            "note": note,
+            "clear_composer": clear_composer,
+        }
+    )
+    return context
+
+
+def _note_refusal(request: Request, section: str, text: str, *, status_code: int) -> HTMLResponse:
+    """A refusal: the section's note slot alone, nothing swapped in place, nothing saved.
+
+    ``HX-Reswap: none`` keeps the block a structural change targets in place;
+    the area's ``htmx:beforeSwap`` lets a 400 of this shape through, so the
+    reason reaches the PM.
+    """
+    return _render_parts(
+        request,
+        [
+            (
+                _OOB_TEMPLATE,
+                {
+                    "oob": True,
+                    "note_only": True,
+                    "note_section": section,
+                    "note": _note(text, "warn"),
+                },
+            )
+        ],
+        status_code=status_code,
+        headers={"HX-Reswap": "none"},
+    )
+
+
+def _stale_note(case: CaseDTO, stamp: Any) -> dict[str, str] | None:
+    """The last-write-wins note when ``stamp`` predates ``case`` (D-CS-B-45), else ``None``."""
+    if not _is_stale(stamp, case):
+        return None
+    return _note(_STALE_NOTE.format(time=_clock(case.updated_at)))
+
+
+def _parse_due(raw: str) -> date | None:
+    """Parse ``YYYY-MM-DD`` strictly; ``ValueError`` on anything else."""
+    if len(raw) != 10 or raw[4] != "-" or raw[7] != "-":
+        raise ValueError(raw)
+    return date.fromisoformat(raw)
+
+
+@router.post("/api/cases/{case_id}/question", response_class=HTMLResponse)
+async def post_case_question(
+    request: Request,
+    case_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Autosave The question (D-CS-B-44 … D-CS-B-46): prose, counterparty, due, framing.
+
+    Only the fields the form sent are written (``update_working_file`` is
+    partial): ``description`` and ``counterparty`` stripped, ``None`` when
+    empty; ``due_on`` ``YYYY-MM-DD`` or empty for none (anything else → 400,
+    nothing saved); ``framing`` validated by the repository (its refusal →
+    400 with the message verbatim). The stamp is compared on the case read
+    *before* the write, only for the note — the save always happens.
+
+    Answers the OOB bundle alone; ``rerender=1`` (the framing switch) answers
+    the question block followed by the bundle. A closed case answers the calm
+    closed error in the note slot and saves nothing.
+    """
+    form = await _request_form(request)
+    values: dict[str, Any] = {}
+    if "description" in form:
+        values["description"] = str(form.get("description") or "").strip() or None
+    if "counterparty" in form:
+        values["counterparty"] = str(form.get("counterparty") or "").strip() or None
+    if "due_on" in form:
+        raw_due = str(form.get("due_on") or "").strip()
+        try:
+            values["due_on"] = _parse_due(raw_due) if raw_due else None
+        except ValueError:
+            return _note_refusal(
+                request,
+                "question",
+                f"{raw_due!r} is not a date — write the due date as YYYY-MM-DD.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+    if "framing" in form:
+        values["framing"] = str(form.get("framing") or "").strip() or None
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = CaseRepository(db)
+        case = await repo.get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases question: closed-case write blocked tenant=%s user=%s case=%s",
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _note_refusal(request, "question", _CLOSED_CASE_ERROR, status_code=200)
+        note = _stale_note(case, form.get("stamp"))
+        try:
+            updated = await repo.update_working_file(case_id, now=_now(), **values)
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "question", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except CaseClosedError:
+            return _note_refusal(request, "question", _CLOSED_CASE_ERROR, status_code=200)
+        parts: list[tuple[str, dict[str, Any]]] = []
+        if rerender:
+            parts.append(
+                (
+                    _SECTION_TEMPLATES["question"],
+                    await load_section_context(db, updated, session, "question"),
+                )
+            )
+        parts.append(
+            (
+                _OOB_TEMPLATE,
+                await _bundle_context(db, updated, session, section="question", note=note),
+            )
+        )
+
+    logger.info(
+        "cases question: tenant=%s user=%s case=%s fields=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        ",".join(sorted(values)),
+    )
+    return _render_parts(request, parts)
+
+
+async def _write_link(
+    request: Request, case_id: UUID, session: SessionDTO, *, link: bool
+) -> HTMLResponse:
+    """Link or unlink one investment, then answer the stand block and the bundle.
+
+    ``investment_id`` must be a UUID (else 400). Linking needs a known (404)
+    active (400) investment and is idempotent; unlinking a pair that is not
+    linked is a no-op. A closed case answers the calm closed error.
+    """
+    form = await _request_form(request)
+    action = "link" if link else "unlink"
+    try:
+        investment_id = UUID(str(form.get("investment_id") or "").strip())
+    except ValueError:
+        return _note_refusal(
+            request,
+            "stand",
+            "Choose an investment.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await CaseRepository(db).get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases %s: closed-case write blocked tenant=%s user=%s case=%s",
+                action,
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _note_refusal(request, "stand", _CLOSED_CASE_ERROR, status_code=200)
+        links = CaseInvestmentRepository(db)
+        if link:
+            investment = await InvestmentRepository(db).get_by_id(investment_id)
+            if investment is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Investment not found."
+                )
+            if not investment.is_active:
+                return _note_refusal(
+                    request,
+                    "stand",
+                    f"{investment.name} is not active — only an active investment can be linked.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+        note = _stale_note(case, form.get("stamp"))
+        try:
+            if link:
+                await links.link(
+                    case_id, investment_id=investment_id, linked_by=session.user_id, now=_now()
+                )
+            else:
+                await links.unlink(case_id, investment_id=investment_id, now=_now())
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "stand", _CLOSED_CASE_ERROR, status_code=200)
+        updated = await CaseRepository(db).get(case_id)
+        assert updated is not None
+        parts = [
+            (
+                _SECTION_TEMPLATES["stand"],
+                await load_section_context(db, updated, session, "stand"),
+            ),
+            (
+                _OOB_TEMPLATE,
+                await _bundle_context(
+                    db, updated, session, section="stand", note=note, clear_composer=link
+                ),
+            ),
+        ]
+
+    logger.info(
+        "cases %s: tenant=%s user=%s case=%s investment=%s",
+        action,
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        investment_id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/link-investment", response_class=HTMLResponse)
+async def post_case_link_investment(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Link an investment (ADR-0138 §5, D-CS-B-47); answers Where we stand + the bundle."""
+    return await _write_link(request, case_id, session, link=True)
+
+
+@router.post("/api/cases/{case_id}/unlink-investment", response_class=HTMLResponse)
+async def post_case_unlink_investment(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Unlink an investment (ADR-0138 §5, D-CS-B-47); answers Where we stand + the bundle."""
+    return await _write_link(request, case_id, session, link=False)
+
+
+@router.post("/api/cases/{case_id}/attachments", response_class=HTMLResponse)
+async def post_case_attachment(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Attach a document to the case — the attachment alone, no record entry (D-CS-B-47).
+
+    The pin composer's file gates through :func:`_read_upload`, then the
+    count cap; on an open or waiting case. On success the question block
+    (its documents list) and the bundle (the attachments fact); a refusal
+    re-renders the attach composer with ``error`` into the composer slot
+    (``HX-Retarget`` / ``HX-Reswap``), the pin idiom.
+    """
+    cfg = get_config()
+    engine = _engine(request)
+
+    def _attach_error(message: str, *, status_code: int = 200) -> HTMLResponse:
+        response = _render(
+            request,
+            _COMPOSER_TEMPLATES["attach"],
+            {
+                "case_id": str(case_id),
+                "csrf_token": session.csrf_token,
+                "caps_hint": _caps_hint(cfg),
+                "error": message,
+            },
+            status_code=status_code,
+        )
+        response.headers["HX-Retarget"] = "#case-composer-slot"
+        response.headers["HX-Reswap"] = "innerHTML"
+        return response
+
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await CaseRepository(db).get(case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+        if case.state not in _MUTABLE_STATES:
+            logger.warning(
+                "cases attach: closed-case write blocked tenant=%s user=%s case=%s",
+                session.tenant_id,
+                session.user_id,
+                case_id,
+            )
+            return _attach_error(_CLOSED_CASE_ERROR)
+        current_count = await CaseAttachmentRepository(db).count_for_case(case_id)
+
+    upload = await _read_upload(request, cfg)
+    if isinstance(upload, str):
+        return _attach_error(upload)
+    if current_count >= cfg.case_attachment_max_count:
+        return _attach_error(
+            f"This case already has the maximum of {cfg.case_attachment_max_count} attachments."
+        )
+    filename, mime_type, content, sha256 = upload
+
+    try:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            attachment = await CaseAttachmentRepository(db).create(
+                case_id,
+                filename=filename,
+                mime_type=mime_type,
+                size_bytes=len(content),
+                sha256=sha256,
+                content=content,
+                uploaded_by=session.user_id,
+                now=_now(),
+            )
+            updated = await CaseRepository(db).get(case_id)
+            assert updated is not None
+            parts = [
+                (
+                    _SECTION_TEMPLATES["question"],
+                    await load_section_context(db, updated, session, "question"),
+                ),
+                (
+                    _OOB_TEMPLATE,
+                    await _bundle_context(
+                        db, updated, session, section="question", note=None, clear_composer=True
+                    ),
+                ),
+            ]
+    except (CaseClosedError, CaseStateInvalid):
+        logger.warning("cases attach: case no longer writable under the write case=%s", case_id)
+        return _attach_error(_CLOSED_CASE_ERROR)
+
+    logger.info(
+        "cases attach: tenant=%s user=%s case=%s attachment=%s bytes=%d",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        attachment.id,
+        len(content),
+    )
+    return _render_parts(request, parts)
+
+
 @router.post("/api/cases/{case_id}/pin-document", response_class=HTMLResponse)
 async def post_case_pin_document(
     request: Request,
@@ -1338,12 +2304,9 @@ async def post_case_pin_document(
             status_code=status_code,
         )
 
-    form = getattr(request.state, "form", None)
-    if form is None:
-        form = await request.form()
+    form = await _request_form(request)
     comment_raw = form.get("comment")
     comment = str(comment_raw).strip() if comment_raw is not None else ""
-    file_field = form.get("file")
 
     # Gates 1-2 + the count read (one tenant-context read).
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
@@ -1371,46 +2334,12 @@ async def post_case_pin_document(
             "decision-relevant. Please reselect the file too; browsers cannot "
             "keep it across this error."
         )
-    # Gate 4: file present.
-    if not isinstance(file_field, UploadFile) or not file_field.filename:
-        return _pin_error("Choose a file to pin.", comment=comment)
-    # Gate 5: extension AND declared content type in the whitelist.
-    sanitised_name = _sanitise_filename(file_field.filename)
-    ext = _file_extension(sanitised_name)
-    allowed = cfg.case_attachment_allowed_types
-    accepted = ", ".join(sorted(e.upper() for e in allowed))
-    if not sanitised_name or ext not in allowed:
-        return _pin_error(
-            f"That file type is not allowed. Accepted: {accepted}.",
-            comment=comment,
-        )
-    declared_mime = (file_field.content_type or "").split(";")[0].strip().lower()
-    if declared_mime not in allowed[ext]:
-        return _pin_error(
-            "The file's declared content type does not match its extension "
-            f"— accepted types are {accepted}.",
-            comment=comment,
-        )
-    # Gate 6: size ≤ cap — read the bytes in bounded 64 KiB chunks, stopping
-    # at cap + 1 so an oversized body is rejected without ever being fully
-    # buffered as one in-memory object (single-instance memory safety).
-    max_bytes = cfg.case_attachment_max_bytes
-    chunks: list[bytes] = []
-    total = 0
-    while total <= max_bytes:
-        chunk = await file_field.read(min(_UPLOAD_CHUNK_BYTES, max_bytes + 1 - total))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-    if total > max_bytes:
-        return _pin_error(
-            f"The file exceeds the {max_bytes // (1024 * 1024)} MB per-file limit.",
-            comment=comment,
-        )
-    content = b"".join(chunks)
-    if len(content) == 0:
-        return _pin_error("The file is empty.", comment=comment)
+    # Gates 4-6 (file present, extension and declared type, the bounded size
+    # read, non-empty) — shared with the attach route (D-CS-B-47).
+    upload = await _read_upload(request, cfg)
+    if isinstance(upload, str):
+        return _pin_error(upload, comment=comment)
+    sanitised_name, declared_mime, content, sha256 = upload
     # Gate 7: count < cap.
     if current_count >= cfg.case_attachment_max_count:
         return _pin_error(
@@ -1419,7 +2348,6 @@ async def post_case_pin_document(
         )
 
     # Write: one transaction — attachment + pin entry together (atomic).
-    sha256 = hashlib.sha256(content).hexdigest()
     now = _now()
     try:
         async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:

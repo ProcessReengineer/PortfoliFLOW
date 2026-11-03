@@ -25,3 +25,29 @@
         {% include "areas/_section.html" %}
     {% endwith %}
 </div>
+
+<script>
+(function () {
+    "use strict";
+
+    var area = document.querySelector('[data-area="cases"]');
+    if (!area || area.dataset.csBound === "1") return;
+    area.dataset.csBound = "1";
+
+    // D-CS-B-45: a refused save of the working file (a malformed due date, a
+    // framing outside the vocabulary, an investment that cannot be linked)
+    // answers 400 with only the section's note and HX-Reswap: none
+    // (web/routes/cases.py, _note_refusal). HTMX does not swap error
+    // responses by default, so the reason would never reach the PM — allow
+    // the swap for exactly that shape, inside the case file. Nothing is
+    // swapped in place; only the out-of-band note lands.
+    area.addEventListener("htmx:beforeSwap", function (event) {
+        var xhr = event.detail.xhr;
+        if (xhr && xhr.status === 400 && xhr.getResponseHeader("HX-Reswap") === "none" &&
+                event.detail.target && event.detail.target.closest('[data-pf-cs="file"]')) {
+            event.detail.shouldSwap = true;
+            event.detail.isError = false;
+        }
+    });
+})();
+</script>

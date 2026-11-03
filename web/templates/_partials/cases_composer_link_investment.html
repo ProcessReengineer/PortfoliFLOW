@@ -1,0 +1,34 @@
+{# Link-investment composer (ADR-0138 §5, D-CS-B-47). Opened into
+   #case-composer-slot by the actions row's "Link investment…"; offers the
+   tenant's active investments not yet linked (name · manager · currency) and
+   posts to /api/cases/{id}/link-investment, which re-renders Where we stand
+   (#cs-stand) and, out of band, the facts, the outline, the stamps and an
+   empty composer slot. The stand's stamp rides along (hx-include) for the
+   last-write-wins note.
+
+   Context: case_id, csrf_token, candidates — [{id, label}]. #}
+<form class="pf-case-composer" data-pf-cs="composer" data-pf-cs-kind="link"
+      hx-post="/api/cases/{{ case_id }}/link-investment"
+      hx-target="#cs-stand"
+      hx-swap="outerHTML"
+      hx-include="#cs-stamp-stand">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Link investment</h3>
+    {% if candidates %}
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">Investment</span>
+            <select class="pf-select" name="investment_id" required autofocus>
+                {% for candidate in candidates %}<option value="{{ candidate.id }}">{{ candidate.label }}</option>{% endfor %}
+            </select>
+        </label>
+    {% else %}
+        <p class="pf-case-composer__hint">Every active investment is linked to this case already.</p>
+    {% endif %}
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        {% if candidates %}<button type="submit" class="pf-btn pf-btn--primary">Link investment</button>{% endif %}
+    </div>
+</form>

@@ -1,0 +1,35 @@
+{# Attach-document composer (ADR-0138 §5, D-CS-B-47). Opened into
+   #case-composer-slot by the actions row's "Attach document…"; posts a
+   multipart body to /api/cases/{id}/attachments. The attachment alone is the
+   document link — no comment, no record entry (§9 retires the pin ceremony).
+   On success the route re-renders The question (#cs-question, its documents
+   list) and, out of band, the facts with the attachments count and an empty
+   composer slot. A refusal (the pin composer's gates and caps) re-renders
+   this form into the slot carrying ``error``; the file input cannot survive
+   a re-render, so the file is chosen again.
+
+   Context: case_id, csrf_token, caps_hint (the visible caps line), error
+   (optional). #}
+<form class="pf-case-composer" data-pf-cs="composer" data-pf-cs-kind="attach"
+      hx-post="/api/cases/{{ case_id }}/attachments"
+      hx-target="#cs-question"
+      hx-swap="outerHTML"
+      hx-encoding="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h3 class="pf-case-composer__title">Attach document</h3>
+    {% if error %}
+        <p class="pf-case-composer__error" role="alert" data-pf-cs="error">{{ error }}</p>
+    {% endif %}
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Document</span>
+        <input class="pf-input" type="file" name="file" required autofocus>
+    </label>
+    <p class="pf-case-composer__hint">{{ caps_hint }}</p>
+    <div class="pf-case-composer__actions">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/composer/cancel"
+                hx-target="#case-composer-slot"
+                hx-swap="innerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Attach document</button>
+    </div>
+</form>

@@ -1,0 +1,122 @@
+{# Where we stand (ADR-0138 §6, D-CS-B-48) — what the book says about the case,
+   read now: nothing here is typed. Composed live on an open or waiting case
+   (services/cases/stand.py, one StandContext per request) and, on a closed
+   case, read from the newest frozen snapshot under the heading "At close".
+   Both arrive through one projection (_project_stand), so this template
+   renders the dataclass and the snapshot alike.
+
+   In order: the subject (now, and at case opening), the linked investments
+   (an unlink per row on a mutable case), the counterparty's funds as a
+   listing (never a sum, D-CS-B-12), FX per linked currency, the tickets and
+   the system lines since opening. The head's Refresh re-reads the block
+   through the section endpoint.
+
+   Context: case_id, csrf_token, is_mutable, stamp, stand — {closed, title,
+   chip, missing, view: {subject, investments, counterparty, fx, tickets,
+   system_lines} or none}. #}
+<section class="pf-blk" id="cs-stand" data-pf-cs="block" data-pf-cs-name="stand">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">{{ stand.title }}</h3>
+        <span class="pf-blk__sub">{% if stand.closed %}as frozen at close{% else %}nothing here is typed — the book, the Watch Desk and Transactions, read now{% endif %}</span>
+        <div class="pf-blk__tools">
+            {% if stand.closed %}
+                {% if stand.chip %}<span class="pf-src pf-src--frozen" data-pf-cs="stand-source">{{ stand.chip }}</span>{% endif %}
+            {% else %}
+                <span class="pf-src pf-src--live" data-pf-cs="stand-source">{{ stand.chip }}</span>
+                <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="stand-refresh"
+                        hx-get="/api/cases/{{ case_id }}/sections/stand" hx-target="#cs-stand" hx-swap="outerHTML">Refresh</button>
+            {% endif %}
+        </div>
+    </div>
+    <input type="hidden" name="stamp" id="cs-stamp-stand" value="{{ stamp }}">
+    {% set view = stand.view %}
+    {% if view is none %}
+        <p class="pf-hint" data-pf-cs="stand-missing">{{ stand.missing }}</p>
+    {% else %}
+        {% if view.subject %}
+            <dl class="pf-facts" data-pf-cs="stand-subject">
+                <div><dt>Subject</dt><dd>{{ view.subject.label }}</dd></div>
+                <div><dt>{% if stand.closed %}At close{% else %}Now{% endif %}</dt><dd>{{ view.subject.now }}</dd></div>
+                {% if view.subject.at_opening %}
+                    <div><dt>At case opening</dt><dd>{{ view.subject.at_opening }}</dd></div>
+                {% elif view.subject.at_opening_lines %}
+                    <div><dt>At case opening</dt><dd>{% for line in view.subject.at_opening_lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div>
+                {% endif %}
+            </dl>
+        {% endif %}
+
+        {% if view.investments %}
+            <div class="pf-scroll-x">
+                <table class="pf-table pf-figtable" data-pf-cs="stand-investments">
+                    <thead>
+                        <tr>
+                            <th scope="col">Investment</th>
+                            <th scope="col">Currency</th>
+                            <th scope="col" class="pf-num">Commitment</th>
+                            <th scope="col" class="pf-num">NAV</th>
+                            <th scope="col">As of</th>
+                            <th scope="col" class="pf-num">TVPI</th>
+                            <th scope="col" class="pf-num">DPI</th>
+                            <th scope="col" class="pf-num">IRR</th>
+                            {% if is_mutable and not stand.closed %}<th scope="col"><span class="pf-sr">Unlink</span></th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in view.investments %}
+                            <tr data-pf-cs="stand-investment" data-pf-cs-name="{{ inv.name }}">
+                                <td>{{ inv.name }}</td>
+                                <td>{{ inv.currency }}</td>
+                                <td class="pf-num">{{ inv.commitment }}</td>
+                                <td class="pf-num">{{ inv.nav }}</td>
+                                <td>{{ inv.as_of }}</td>
+                                <td class="pf-num">{{ inv.tvpi }}</td>
+                                <td class="pf-num">{{ inv.dpi }}</td>
+                                <td class="pf-num">{{ inv.irr }}</td>
+                                {% if is_mutable and not stand.closed %}
+                                    <td class="pf-table__actions">
+                                        <form hx-post="/api/cases/{{ case_id }}/unlink-investment"
+                                              hx-target="#cs-stand" hx-swap="outerHTML"
+                                              hx-include="#cs-stamp-stand">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                            <input type="hidden" name="investment_id" value="{{ inv.id }}">
+                                            <button type="submit" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="unlink">Unlink</button>
+                                        </form>
+                                    </td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="pf-hint" data-pf-cs="stand-empty" data-pf-cs-name="investments">No investment linked — link one from the actions.</p>
+        {% endif %}
+
+        {% if view.counterparty %}
+            <p class="pf-hint" data-pf-cs="stand-counterparty">{{ view.counterparty }}</p>
+        {% endif %}
+
+        {% if view.fx %}
+            <dl class="pf-facts" data-pf-cs="stand-fx">
+                {% for line in view.fx %}<div><dt>FX</dt><dd>{{ line }}</dd></div>{% endfor %}
+            </dl>
+        {% endif %}
+
+        {% if view.tickets %}
+            <ul class="pf-case__lines" data-pf-cs="stand-tickets" aria-label="Tickets">
+                {% for ticket in view.tickets %}<li>{{ ticket }}</li>{% endfor %}
+            </ul>
+        {% else %}
+            <p class="pf-hint" data-pf-cs="stand-empty" data-pf-cs-name="tickets">No tickets yet.</p>
+        {% endif %}
+
+        {% if view.system_lines %}
+            <ul class="pf-case__lines" data-pf-cs="stand-lines" aria-label="Since opening">
+                {% for line in view.system_lines %}<li>{{ line.text }} <span class="pf-hint">· {{ line.date }}</span></li>{% endfor %}
+            </ul>
+        {% else %}
+            <p class="pf-hint" data-pf-cs="stand-empty" data-pf-cs-name="lines">Nothing happened on this case's subject since opening.</p>
+        {% endif %}
+    {% endif %}
+    <div id="cs-note-stand" class="pf-case__note" data-pf-cs="note-slot"></div>
+</section>

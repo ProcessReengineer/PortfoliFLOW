@@ -1,0 +1,89 @@
+{# The question block (ADR-0138 §3 row 1, D-CS-B-46) — The question / The task
+   from ``framing`` (D-CS-M-1). The finding's origin embed when there is one;
+   then the prose (cases.description) and the meta row — Counterparty (with the
+   managers of the tenant's active investments as suggestions), Due, Framing —
+   on native form controls (ui-standards §2.11); the documents at the foot.
+
+   Typing in place autosaves (D-CS-B-44): the form posts on ``change`` (blur,
+   Enter, a pick from the suggestions) and swaps nothing in place — the
+   response is the OOB bundle alone, so the caret never moves. The framing
+   switch is the one structural change: its radios post with ``rerender=1``
+   and re-render this block. The stamp input carries the case's updated_at
+   for last-write-wins (D-CS-B-45); #cs-note-question shows its note.
+
+   A closed case renders the prose as text and the meta as facts, no form.
+
+   Context: case_id, csrf_token, is_mutable, stamp, reveal, question —
+   {title, framing, sub, origin, description, counterparty, due_on,
+   due_label, managers, documents: [{filename, size, uploaded, href}]}. #}
+<section class="pf-blk" id="cs-question" data-pf-cs="block" data-pf-cs-name="question">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">{{ question.title }}</h3>
+        <span class="pf-blk__sub">{{ question.sub }}</span>
+    </div>
+    {% if question.origin %}
+        {% with origin = question.origin %}{% include "_partials/cases_detail_origin.html" %}{% endwith %}
+    {% endif %}
+
+    {% if is_mutable %}
+        <form class="pf-case__question" data-pf-cs="form" data-pf-cs-name="question"
+              hx-post="/api/cases/{{ case_id }}/question"
+              hx-trigger="change[target.name!='framing'], submit"
+              hx-swap="none"
+              hx-sync="this:queue last">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="stamp" id="cs-stamp-question" value="{{ stamp }}">
+            <label class="pf-field pf-field--full">
+                <span class="pf-sr">{{ question.title }}</span>
+                <textarea class="pf-textarea" name="description" rows="4" data-pf-cs="prose"
+                          {% if reveal %}autofocus{% endif %}
+                          placeholder="Add what you make of it — or leave this empty and go straight to a ticket.">{{ question.description }}</textarea>
+            </label>
+            <div class="pf-case__meta">
+                <label class="pf-field">
+                    <span class="pf-label">Counterparty <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="counterparty" value="{{ question.counterparty }}"
+                           list="cs-managers" autocomplete="off">
+                    <datalist id="cs-managers">
+                        {% for manager in question.managers %}<option value="{{ manager }}">{% endfor %}
+                    </datalist>
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Due <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="date" name="due_on" value="{{ question.due_on }}">
+                </label>
+                <div class="pf-field">
+                    <span class="pf-label" id="cs-framing-label">Framing</span>
+                    <div class="pf-seg" role="radiogroup" aria-labelledby="cs-framing-label" data-pf-cs="framing">
+                        {% for value, label in (("question", "Question"), ("task", "Task")) %}
+                            <input type="radio" name="framing" id="cs-framing-{{ value }}" value="{{ value }}"
+                                   {% if question.framing == value %}checked{% endif %}
+                                   hx-post="/api/cases/{{ case_id }}/question?rerender=1"
+                                   hx-trigger="change"
+                                   hx-target="#cs-question"
+                                   hx-swap="outerHTML"
+                                   hx-sync="closest form:queue last">
+                            <label for="cs-framing-{{ value }}">{{ label }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </form>
+    {% else %}
+        {% if question.description %}<p class="pf-prose" data-pf-cs="prose">{{ question.description }}</p>{% endif %}
+        <dl class="pf-facts" data-pf-cs="question-facts">
+            {% if question.counterparty %}<div><dt>Counterparty</dt><dd>{{ question.counterparty }}</dd></div>{% endif %}
+            {% if question.due_label %}<div><dt>Due</dt><dd>{{ question.due_label }}</dd></div>{% endif %}
+            <div><dt>Framing</dt><dd>{{ question.framing|capitalize }}</dd></div>
+        </dl>
+    {% endif %}
+    <div id="cs-note-question" class="pf-case__note" data-pf-cs="note-slot"></div>
+
+    {% if question.documents %}
+        <ul class="pf-case__documents" id="cs-documents" data-pf-cs="documents" aria-label="Documents">
+            {% for doc in question.documents %}
+                <li data-pf-cs="document"><a href="{{ doc.href }}">{{ doc.filename }}</a> <span class="pf-hint">· {{ doc.size }} · uploaded {{ doc.uploaded }}</span></li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</section>

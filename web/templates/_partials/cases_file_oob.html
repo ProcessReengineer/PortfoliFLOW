@@ -1,0 +1,41 @@
+{# The file's frame pieces and the OOB bundle every save answers with
+   (D-CS-B-44, D-CS-B-51).
+
+   Without ``oob`` (the first render, included in the head row of
+   cases_file.html) it renders the facts (#cs-facts) and the saved stamp
+   (#cs-saved, empty) in place. With ``oob`` (a save's response) the same two
+   carry hx-swap-oob and are followed by the outline, the section stamps and
+   #cs-note-<note_section> — the note (last write wins, or a refusal) or an
+   empty slot — and, after a composer saved, an empty #case-composer-slot.
+   ``note_only`` (a refusal) renders the note slot alone.
+
+   One partial for both uses, so the facts the first render shows and the
+   facts a save refreshes are one markup.
+
+   Context: the frame of _frame_context in web/routes/cases.py (head,
+   linked_finding, linked_label, show_attachments, attachments_count,
+   attachments_cap, journal_href, outline, section_names, stamp, saved_label);
+   oob, note_section, note ({text, tone} or none), clear_composer, note_only. #}
+{% if not note_only %}
+<dl class="pf-facts" id="cs-facts" data-pf-cs="facts"{% if oob %} hx-swap-oob="true"{% endif %}>
+    <div><dt>Opened</dt><dd>{{ head.opened_stamp }} · {{ head.opened_by }}</dd></div>
+    {% if head.counterparty %}<div data-pf-cs="fact" data-pf-cs-name="counterparty"><dt>Counterparty</dt><dd>{{ head.counterparty }}</dd></div>{% endif %}
+    {% if head.due %}<div data-pf-cs="fact" data-pf-cs-name="due"><dt>Due</dt><dd>{{ head.due }}</dd></div>{% endif %}
+    {% if linked_finding %}<div><dt>Finding</dt><dd><span class="mono">{{ linked_finding.subject_key }}</span> <span class="pf-dc-band-tag pf-dc-band-tag--{{ linked_finding.band }}">{{ linked_finding.band|capitalize }}</span></dd></div>{% endif %}
+    <div data-pf-cs="fact" data-pf-cs-name="linked"><dt>Linked</dt><dd>{{ linked_label }}</dd></div>
+    {% if show_attachments %}{% include "_partials/cases_detail_attachments_row.html" %}{% endif %}
+    {% if head.closed_stamp %}<div><dt>Closed</dt><dd>{{ head.closed_stamp }} · {{ head.closed_by }}</dd></div>{% endif %}
+    {% if journal_href %}<div><dt>Journal</dt><dd>{% include "_partials/cases_journal_link.html" %}</dd></div>{% endif %}
+</dl>
+<span class="pf-saved" id="cs-saved" data-pf-cs="saved" role="status"{% if oob %} hx-swap-oob="true"{% endif %}>{{ saved_label }}</span>
+{% if oob %}
+{% include "_partials/cases_file_outline.html" %}
+{% include "_partials/cases_file_stamps.html" %}
+{% if clear_composer %}<div id="case-composer-slot" hx-swap-oob="innerHTML"></div>{% endif %}
+{% endif %}
+{% endif %}
+{% if oob %}
+<div id="cs-note-{{ note_section }}" class="pf-case__note" data-pf-cs="note-slot" hx-swap-oob="true">
+    {% if note %}<div class="pf-note pf-note--{{ note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ note.text }}</p></div>{% endif %}
+</div>
+{% endif %}

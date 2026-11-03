@@ -1,0 +1,174 @@
+{# Figures (ADR-0138 §3, D-CS-B-54) — the numbers side by side, each with its
+   source chip and its as-of; no formulas. Hidden while the case has no
+   figure (D-CS-B-57): the block is then an empty placeholder carrying
+   #cs-figures, so the outline's "+" (?reveal=1) has a target; revealed, it
+   renders visible with the Add figure form focused.
+
+   One table row per figure, in position order. On an open or waiting case
+   each row is a form: a <form> cannot wrap a <tr>, so the row's form sits in
+   the tools cell and the row's controls join it through the HTML `form`
+   attribute (htmx posts form.elements). The row autosaves on change with
+   hx-swap="none" (the OOB bundle answers); the source select re-renders the
+   block (?rerender=1) so the chip follows; Remove re-renders the block, no
+   confirm. A `book` row reads its value live (book_values_for, D-CS-B-14):
+   label and note editable, the value, source and as-of fixed, "updates
+   itself". Two add forms at the foot: Add figure (typed) and Add from the
+   book (investment · metric).
+
+   A closed case renders the rows read-only from the snapshot frozen at
+   close, whose `book` rows carry the value frozen then.
+
+   Context: case_id, csrf_token, is_mutable, stamp, figures — {figures:
+   [{id, label, value, pending, source, editable_source, chip_css,
+   chip_label, ref_label, note, as_of, is_book, live}], empty, reveal,
+   investments: [{id, name, linked}], metrics: [{key, label}], sources:
+   [{value, label}]}. #}
+{% set block = figures %}
+{% if block.empty and not block.reveal %}
+<section class="pf-blk" id="cs-figures" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="figures"></section>
+{% else %}
+<section class="pf-blk" id="cs-figures" data-pf-cs="block" data-pf-cs-name="figures">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Figures</h3>
+        <span class="pf-blk__sub">the numbers side by side — each says where it came from and from when</span>
+    </div>
+    {% if is_mutable %}<input type="hidden" name="stamp" id="cs-stamp-figures" value="{{ stamp }}">{% endif %}
+
+    {% if block.figures %}
+        <div class="pf-scroll-x">
+            <table class="pf-table pf-figtable" data-pf-cs="figures-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Figure</th>
+                        <th scope="col" class="pf-num">Value</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">As of</th>
+                        {% if is_mutable %}<th scope="col"><span class="pf-sr">Tools</span></th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in block.figures %}
+                        {% set form_id = "cs-figure-form-" ~ row.id %}
+                        <tr id="cs-figure-{{ row.id }}" data-pf-cs="figure" data-pf-cs-kind="{{ row.source }}">
+                            {% if is_mutable %}
+                                <td><input class="pf-input" type="text" name="label" value="{{ row.label }}" form="{{ form_id }}" aria-label="Figure" autocomplete="off"></td>
+                                {% if row.is_book %}
+                                    <td class="pf-num{% if row.pending %} is-pending{% endif %}" data-pf-cs="figure-value">{% if row.pending %}not available{% else %}{{ row.value }}{% endif %}</td>
+                                    <td>
+                                        <span class="pf-src pf-src--{{ row.chip_css }}" data-pf-cs="figure-source">{{ row.chip_label }} · {{ row.ref_label }}</span>
+                                        <input class="pf-input" type="text" name="note" value="{{ row.note }}" form="{{ form_id }}" aria-label="Note" autocomplete="off"
+                                               placeholder="where it comes from — &quot;Q2 report, p. 4&quot;">
+                                    </td>
+                                    <td>{{ row.as_of or "—" }} <span class="pf-hint" data-pf-cs="figure-live">updates itself</span></td>
+                                {% else %}
+                                    <td class="pf-num"><input class="pf-input pf-input--num{% if row.pending %} is-pending{% endif %}" type="text" name="value_text" value="{{ row.value }}" form="{{ form_id }}" aria-label="Value" autocomplete="off" placeholder="pending" data-pf-cs="figure-value"></td>
+                                    <td>
+                                        <span class="pf-src pf-src--{{ row.chip_css }}" data-pf-cs="figure-source">{{ row.chip_label }}</span>
+                                        {% if row.editable_source %}
+                                            <select class="pf-select" name="source" form="{{ form_id }}" aria-label="Source"
+                                                    hx-post="/api/cases/{{ case_id }}/figures/{{ row.id }}?rerender=1"
+                                                    hx-trigger="change"
+                                                    hx-target="#cs-figures"
+                                                    hx-swap="outerHTML"
+                                                    hx-include="#{{ form_id }}, #cs-stamp-figures"
+                                                    hx-sync="#{{ form_id }}:queue last">
+                                                {% for option in block.sources %}<option value="{{ option.value }}"{% if option.value == row.source %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+                                            </select>
+                                        {% endif %}
+                                        <input class="pf-input" type="text" name="note" value="{{ row.note }}" form="{{ form_id }}" aria-label="Note" autocomplete="off"
+                                               placeholder="where it comes from — &quot;Q2 report, p. 4&quot;">
+                                    </td>
+                                    <td><input class="pf-input" type="text" name="as_of" value="{{ row.as_of }}" form="{{ form_id }}" aria-label="As of" autocomplete="off" placeholder="30 Jun 2026"></td>
+                                {% endif %}
+                                <td class="pf-table__actions">
+                                    <form id="{{ form_id }}" data-pf-cs="figure-form"
+                                          hx-post="/api/cases/{{ case_id }}/figures/{{ row.id }}"
+                                          hx-trigger="change[target.name!='source'] from:closest tr, submit"
+                                          hx-swap="none"
+                                          hx-include="#cs-stamp-figures"
+                                          hx-sync="this:queue last">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="figure-remove"
+                                                hx-post="/api/cases/{{ case_id }}/figures/{{ row.id }}/remove"
+                                                hx-target="#cs-figures"
+                                                hx-swap="outerHTML">Remove</button>
+                                    </form>
+                                </td>
+                            {% else %}
+                                <td>{{ row.label }}</td>
+                                <td class="pf-num{% if row.pending %} is-pending{% endif %}" data-pf-cs="figure-value">{% if not row.pending %}{{ row.value }}{% elif row.is_book %}not available{% else %}pending{% endif %}</td>
+                                <td><span class="pf-src pf-src--{{ row.chip_css }}" data-pf-cs="figure-source">{{ row.chip_label }}{% if row.ref_label %} · {{ row.ref_label }}{% endif %}</span>{% if row.note %} {{ row.note }}{% endif %}</td>
+                                <td>{{ row.as_of or "—" }}</td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if is_mutable %}<p class="pf-hint" data-pf-cs="figures-foot">Rows from the book keep moving; typed rows keep their date.</p>{% endif %}
+    {% elif is_mutable %}
+        <p class="pf-hint" data-pf-cs="figures-empty">No figure yet — type one, or take one from the book.</p>
+    {% endif %}
+
+    {% if is_mutable %}
+        <div class="pf-case__adders">
+            <form class="pf-case__add" data-pf-cs="figure-add"
+                  hx-post="/api/cases/{{ case_id }}/figures"
+                  hx-target="#cs-figures"
+                  hx-swap="outerHTML">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="pf-field">
+                    <span class="pf-label">Figure</span>
+                    <input class="pf-input" type="text" name="label" autocomplete="off"{% if block.reveal %} autofocus{% endif %}>
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Value <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="value_text" autocomplete="off" placeholder="pending">
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Source</span>
+                    <select class="pf-select" name="source">
+                        {% for option in block.sources %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Note <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="note" autocomplete="off"
+                           placeholder="where it comes from — &quot;Q2 report, p. 4&quot;">
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">As of <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="as_of" autocomplete="off" placeholder="30 Jun 2026">
+                </label>
+                <button type="submit" class="pf-btn">Add figure</button>
+            </form>
+            <form class="pf-case__add" data-pf-cs="figure-add-book"
+                  hx-post="/api/cases/{{ case_id }}/figures"
+                  hx-target="#cs-figures"
+                  hx-swap="outerHTML">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="source" value="book">
+                <label class="pf-field">
+                    <span class="pf-label">Investment</span>
+                    <select class="pf-select" name="investment_id">
+                        <option value="">Choose an investment</option>
+                        {% for investment in block.investments %}<option value="{{ investment.id }}">{{ investment.name }}{% if investment.linked %} · linked{% endif %}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Metric</span>
+                    <select class="pf-select" name="metric">
+                        {% for metric in block.metrics %}<option value="{{ metric.key }}">{{ metric.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label class="pf-field">
+                    <span class="pf-label">Label <span class="pf-optional">(optional)</span></span>
+                    <input class="pf-input" type="text" name="label" autocomplete="off">
+                </label>
+                <button type="submit" class="pf-btn">Add from the book</button>
+            </form>
+        </div>
+    {% endif %}
+    <div id="cs-note-figures" class="pf-case__note" data-pf-cs="note-slot"></div>
+</section>
+{% endif %}

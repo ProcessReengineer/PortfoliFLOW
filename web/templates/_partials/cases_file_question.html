@@ -6,16 +6,19 @@
 
    Typing in place autosaves (D-CS-B-44): the form posts on ``change`` (blur,
    Enter, a pick from the suggestions) and swaps nothing in place — the
-   response is the OOB bundle alone, so the caret never moves. The framing
-   switch is the one structural change: its radios post with ``rerender=1``
-   and re-render this block. The stamp input carries the case's updated_at
-   for last-write-wins (D-CS-B-45); #cs-note-question shows its note.
+   response is the OOB bundle alone, so the caret never moves. The title
+   (the form's first field, D-CS-B-56) and the framing switch are the
+   structural changes: they post with ``rerender=1`` and re-render this
+   block, and the bundle's crumb carries the new title into the Section
+   head. The stamp input carries the case's updated_at for last-write-wins
+   (D-CS-B-45); #cs-note-question shows its note.
 
    A closed case renders the prose as text and the meta as facts, no form.
 
    Context: case_id, csrf_token, is_mutable, stamp, reveal, question —
-   {title, framing, sub, origin, description, counterparty, due_on,
-   due_label, managers, documents: [{filename, size, uploaded, href}]}. #}
+   {title, case_title, framing, sub, origin, description, counterparty,
+   due_on, due_label, managers, documents: [{filename, size, uploaded,
+   href}]}. #}
 <section class="pf-blk" id="cs-question" data-pf-cs="block" data-pf-cs-name="question">
     <div class="pf-blk__head">
         <h3 class="pf-blk__title">{{ question.title }}</h3>
@@ -28,11 +31,20 @@
     {% if is_mutable %}
         <form class="pf-case__question" data-pf-cs="form" data-pf-cs-name="question"
               hx-post="/api/cases/{{ case_id }}/question"
-              hx-trigger="change[target.name!='framing'], submit"
+              hx-trigger="change[target.name!='framing'&&target.name!='title'], submit"
               hx-swap="none"
               hx-sync="this:queue last">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="stamp" id="cs-stamp-question" value="{{ stamp }}">
+            <label class="pf-field pf-field--full">
+                <span class="pf-label">Title</span>
+                <input class="pf-input" type="text" name="title" value="{{ question.case_title }}" data-pf-cs="title" autocomplete="off"
+                       hx-post="/api/cases/{{ case_id }}/question?rerender=1"
+                       hx-trigger="change"
+                       hx-target="#cs-question"
+                       hx-swap="outerHTML"
+                       hx-sync="closest form:queue last">
+            </label>
             <label class="pf-field pf-field--full">
                 <span class="pf-sr">{{ question.title }}</span>
                 <textarea class="pf-textarea" name="description" rows="4" data-pf-cs="prose"

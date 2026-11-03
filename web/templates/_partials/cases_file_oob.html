@@ -3,8 +3,10 @@
 
    Without ``oob`` (the first render, included in the head row of
    cases_file.html) it renders the facts (#cs-facts) and the saved stamp
-   (#cs-saved, empty) in place. With ``oob`` (a save's response) the same two
-   carry hx-swap-oob and are followed by the outline, the section stamps and
+   (#cs-saved, empty) in place. With ``oob`` (a save's response) it opens with
+   the crumb (#cases-title, the 3a crumb anatomy of cases_file.html restated,
+   D-CS-B-56) so the Section head follows a rename; then the same two carry
+   hx-swap-oob and are followed by the outline, the section stamps and
    #cs-note-<note_section> — the note (last write wins, or a refusal) or an
    empty slot — and, after a composer saved, an empty #case-composer-slot.
    ``note_only`` (a refusal) renders the note slot alone.
@@ -17,6 +19,15 @@
    attachments_cap, journal_href, outline, section_names, stamp, saved_label);
    oob, note_section, note ({text, tone} or none), clear_composer, note_only. #}
 {% if not note_only %}
+{% if oob %}
+<h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
+    <button type="button" class="pf-crumb__back"
+            hx-get="/api/cases/list" hx-target="#cs-host" hx-swap="innerHTML"
+            hx-push-url="/cases">{{ pf_icon("back") }}Cases</button>
+    <span class="pf-crumb__sep" aria-hidden="true">›</span>
+    <span class="pf-crumb__here">{{ head.badge }} · {{ head.title }}</span>
+</h2>
+{% endif %}
 <dl class="pf-facts" id="cs-facts" data-pf-cs="facts"{% if oob %} hx-swap-oob="true"{% endif %}>
     <div><dt>Opened</dt><dd>{{ head.opened_stamp }} · {{ head.opened_by }}</dd></div>
     {% if head.counterparty %}<div data-pf-cs="fact" data-pf-cs-name="counterparty"><dt>Counterparty</dt><dd>{{ head.counterparty }}</dd></div>{% endif %}

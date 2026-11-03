@@ -26,6 +26,14 @@ survives the P-CS-3d restyle.
   band only, last write wins with a note, the refusals, the framing switch.
 * CS3b-06…08 — Link investment / unlink, Attach document and its gates.
 * CS3b-09/10 — Where we stand live and *At close*; the section endpoint.
+* CS3b2-01 — Threads and Figures hidden while empty, revealed by the outline's +.
+* CS3b2-02…05 — Threads: add (open, focused), the text autosave, title and
+  status re-rendering, the soft remove.
+* CS3b2-06…08 — Figures: typed and ``book`` rows (read live), the two add
+  forms, the row autosave and the delete.
+* CS3b2-09 — the title field and the crumb that follows it.
+* CS3b2-10/11 — cross-case and closed refusals; a closed case read-only.
+* CS3b2-12 — the outline counts.
 
 The file tests below (origin embed, timeline, pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -41,6 +49,7 @@ import re
 from collections.abc import AsyncGenerator
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -57,8 +66,11 @@ from core.repositories.case_attachment_repository import (
 )
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseFigureDTO,
+    CaseFigureRepository,
     CaseInvestmentRepository,
     CasePointRepository,
+    CaseThreadDTO,
     CaseThreadRepository,
 )
 from core.repositories.investment_repository import InvestmentRepository
@@ -66,9 +78,10 @@ from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
 
 import modules  # noqa: F401 — importing the package populates the ModuleRegistry
+import services.cases.stand as stand_module
 import web.routes.cases as cases_module
 from modules.module_registry import registry
-from services.cases.stand import StandContext, compose, to_snapshot
+from services.cases.stand import StandContext, book_values_for, compose, to_snapshot
 from services.money_format import format_money_compact
 from services.password_hashing import hash_password
 from tests.services.irene._book_fixtures import CALM_NAV, seed_book
@@ -2423,5 +2436,862 @@ async def test_section_endpoint_renders_one_block_and_404s_unknown(
     assert cs_count(stand.text, "block") == 1
     cs_block(stand.text, "block", data_pf_cs_name="stand")
 
-    assert (await web_client.get(f"/api/cases/{case.id}/sections/threads")).status_code == 404
+    assert (await web_client.get(f"/api/cases/{case.id}/sections/nonsense")).status_code == 404
     assert (await web_client.get(f"/api/cases/{uuid4()}/sections/question")).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# P-CS-3b2 — the editable file II: Threads, Figures, the title field, hidden
+# when empty (CS3b2-01 … CS3b2-12)
+# ---------------------------------------------------------------------------
+
+_REMOVE_CONFIRM = "Remove this thread? It leaves the file; its kept artefacts stay in the record."
+
+
+async def _post_form(client: AsyncClient, path: str, csrf: str, **fields: str):
+    """POST one urlencoded form (csrf field + ``fields``) to ``path``."""
+    return await client.post(path, data={"csrf_token": csrf, **fields}, follow_redirects=False)
+
+
+async def _seed_thread(
+    app_engine: AsyncEngine, user_id: UUID, case_id: UUID, *, title: str, prose: str = ""
+) -> CaseThreadDTO:
+    """Add one thread through the repository (under RLS)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseThreadRepository(session).add(
+            case_id, title=title, prose=prose, now=_T0 + timedelta(hours=1)
+        )
+
+
+async def _seed_figure(
+    app_engine: AsyncEngine, user_id: UUID, case_id: UUID, **fields: Any
+) -> CaseFigureDTO:
+    """Add one figure through the repository (under RLS)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseFigureRepository(session).add(
+            case_id, now=_T0 + timedelta(hours=1), **fields
+        )
+
+
+async def _thread_now(app_engine: AsyncEngine, user_id: UUID, thread_id: UUID) -> CaseThreadDTO:
+    """Re-read one thread, removed ones included."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        thread = await CaseThreadRepository(session).get(thread_id)
+    assert thread is not None
+    return thread
+
+
+async def _figure_now(
+    app_engine: AsyncEngine, user_id: UUID, figure_id: UUID
+) -> CaseFigureDTO | None:
+    """Re-read one figure; ``None`` once deleted."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseFigureRepository(session).get(figure_id)
+
+
+def _count_compositions(monkeypatch: pytest.MonkeyPatch) -> list[UUID]:
+    """Count the route module's ``compose`` calls (one per composition, D-CS-B-55)."""
+    calls: list[UUID] = []
+    real = cases_module.compose
+
+    async def counting(ctx, case, *, figures=()):
+        calls.append(case.id)
+        return await real(ctx, case, figures=figures)
+
+    monkeypatch.setattr(cases_module, "compose", counting)
+    return calls
+
+
+async def test_threads_and_figures_hide_when_empty_and_reveal(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3b2-01: empty → hidden placeholders, grey outline entries with +; ?reveal=1 shows them."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fresh", opened_at=_T0)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    sections = (
+        ("threads", "thread-add", "threads-empty", "No thread yet — add the first below."),
+        (
+            "figures",
+            "figure-add",
+            "figures-empty",
+            "No figure yet — type one, or take one from the book.",
+        ),
+    )
+    for name, add_hook, empty_hook, empty_text in sections:
+        placeholder = cs_block(body, "block", data_pf_cs_name=name)
+        assert wd_attr(placeholder, "id") == f"cs-{name}"
+        assert wd_attr(placeholder, "hidden") == ""
+        assert wd_attr(placeholder, "data-pf-cs-state") == "empty"
+        assert cs_text(placeholder) == ""
+        assert f'id="cs-stamp-{name}"' not in body
+
+        item = cs_block(body, "outline-item", data_pf_cs_name=name)
+        assert wd_attr(item, "class") == "is-empty"
+        assert cs_text(item) == f"{name.capitalize()} +"
+        assert wd_attr(item, "hx-get") == f"/api/cases/{case.id}/sections/{name}?reveal=1"
+        assert wd_attr(item, "hx-target") == f"#cs-{name}"
+        assert wd_attr(item, "hx-swap") == "outerHTML"
+
+        revealed = await web_client.get(f"/api/cases/{case.id}/sections/{name}?reveal=1")
+        assert revealed.status_code == 200
+        block = cs_block(revealed.text, "block", data_pf_cs_name=name)
+        assert wd_attr(block, "id") == f"cs-{name}"
+        assert wd_attr(block, "hidden") is None
+        assert wd_attr(block, "data-pf-cs-state") is None
+        assert "autofocus" in cs_block(block, add_hook)
+        assert cs_text(block, empty_hook) == empty_text
+        assert f'id="cs-stamp-{name}"' in block
+        assert f'id="cs-note-{name}"' in block
+        assert "hx-swap-oob" not in revealed.text
+
+        # Without reveal the section endpoint answers the placeholder again.
+        plain = await web_client.get(f"/api/cases/{case.id}/sections/{name}")
+        assert wd_attr(cs_block(plain.text, "block", data_pf_cs_name=name), "hidden") == ""
+
+
+async def test_add_thread_rerenders_open_with_focus(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-02: an added thread renders open with its prose focused; an empty title is refused."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Threaded", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/threads"
+
+    response = await _post_form(web_client, path, csrf, title="  Is the hedge the gap?  ")
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="threads")
+    assert wd_attr(block, "hidden") is None
+    assert "hx-swap-oob" not in block
+    thread = cs_block(block, "thread", data_pf_cs_state="open")
+    assert wd_attr(thread, "open") == ""
+    assert cs_text(thread, "thread-title") == "Is the hedge the gap?"
+    assert cs_text(thread, "thread-status") == "Open"
+    assert "pf-state--open" in cs_block(thread, "thread-status")
+    assert "autofocus" in cs_block(thread, "thread-prose")
+    assert 'hx-swap="none"' in cs_block(thread, "thread-form")
+    assert cs_count(block, "thread-empty") == 1
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="threads") == "Threads 1"
+    assert "Saved ·" in cs_text(response.text, "saved")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        threads = await CaseThreadRepository(session).list_for_case(case.id)
+    assert [(t.title, t.status) for t in threads] == [("Is the hedge the gap?", "open")]
+
+    refused = await _post_form(web_client, path, csrf, title="   ")
+    assert refused.status_code == 400
+    assert refused.headers.get("HX-Reswap") == "none"
+    assert 'id="cs-note-threads"' in refused.text
+    assert cs_text(refused.text, "note") == "The title must not be empty."
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert len(await CaseThreadRepository(session).list_for_case(case.id)) == 1
+
+
+async def test_thread_prose_and_conclusion_autosave_out_of_band(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-03: prose and conclusion autosave — the bundle alone, the row written, the stamp."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fees", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Fund V fee drag")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    before = await _case_now(app_engine, pm1, case.id)
+    path = f"/api/cases/{case.id}/threads/{thread.id}"
+
+    response = await _post_form(
+        web_client,
+        path,
+        csrf,
+        prose="  1.75 % on commitments against 1.50 %.  ",
+        conclusion="  Fees explain a third of the gap.  ",
+        stamp=before.updated_at.isoformat(),
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert cs("block") not in body
+    assert "Saved ·" in cs_text(body, "saved")
+    after = await _case_now(app_engine, pm1, case.id)
+    assert after.updated_at > before.updated_at
+    assert f'id="cs-stamp-threads" value="{after.updated_at.isoformat()}"' in body
+    assert f'id="cs-stamp-figures" value="{after.updated_at.isoformat()}"' in body
+    note_slot = cs_block(body, "note-slot")
+    assert 'id="cs-note-threads"' in note_slot
+    assert cs_text(note_slot) == ""
+
+    stored = await _thread_now(app_engine, pm1, thread.id)
+    assert stored.prose == "1.75 % on commitments against 1.50 %."
+    assert stored.conclusion == "Fees explain a third of the gap."
+    assert stored.status == "open"
+    assert stored.concluded_at is None
+
+    # An emptied conclusion clears it; a stale stamp still saves, with a note.
+    response = await _post_form(
+        web_client, path, csrf, conclusion="", stamp=before.updated_at.isoformat()
+    )
+    assert response.status_code == 200
+    assert (await _thread_now(app_engine, pm1, thread.id)).conclusion is None
+    assert cs_text(response.text, "note").startswith("Saved over a newer version from ")
+
+
+async def test_thread_title_and_status_rerender_and_set_concluded_at(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-04: status and title re-render the block, the thread kept open; concluded_at."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Status", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="An open currency position?")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/threads/{thread.id}?rerender=1"
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    row = cs_block(body, "thread", data_pf_cs_state="open")
+    assert wd_attr(row, "open") is None
+    assert cs_text(row, "thread-status") == "Open"
+    assert cs_text(row).count("21 Jul") == 1
+    for value in ("open", "confirmed", "parked", "refuted"):
+        assert f'value="{value}"' in cs_block(row, "thread-status-switch")
+
+    response = await _post_form(web_client, path, csrf, status="confirmed")
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="threads")
+    row = cs_block(block, "thread", data_pf_cs_state="confirmed")
+    assert wd_attr(row, "open") == ""
+    assert "pf-state--confirmed" in cs_block(row, "thread-status")
+    assert cs_text(row, "thread-status") == "Confirmed"
+    assert "21 Jul →" in cs_text(row)
+    assert "Saved ·" in cs_text(response.text, "saved")
+    stored = await _thread_now(app_engine, pm1, thread.id)
+    assert stored.status == "confirmed"
+    assert stored.concluded_at is not None
+
+    response = await _post_form(web_client, path, csrf, status="open")
+    assert response.status_code == 200
+    cs_block(response.text, "thread", data_pf_cs_state="open")
+    assert (await _thread_now(app_engine, pm1, thread.id)).concluded_at is None
+
+    response = await _post_form(web_client, path, csrf, title="Hedge ratio fell to 40 %")
+    assert response.status_code == 200
+    row = cs_block(response.text, "thread")
+    assert cs_text(row, "thread-title") == "Hedge ratio fell to 40 %"
+    assert (await _thread_now(app_engine, pm1, thread.id)).title == "Hedge ratio fell to 40 %"
+
+    refused = await _post_form(web_client, path, csrf, status="bogus")
+    assert refused.status_code == 400
+    assert refused.headers.get("HX-Reswap") == "none"
+    assert "Invalid status 'bogus'" in cs_text(refused.text, "note")
+    refused = await _post_form(web_client, path, csrf, title="  ")
+    assert refused.status_code == 400
+    stored = await _thread_now(app_engine, pm1, thread.id)
+    assert (stored.status, stored.title) == ("open", "Hedge ratio fell to 40 %")
+
+
+async def test_thread_remove_is_soft_and_the_block_follows(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-05: remove sets removed_at (the row stays); the block follows; a second remove 404s."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Remove", opened_at=_T0)
+    first = await _seed_thread(app_engine, pm1, case.id, title="First")
+    second = await _seed_thread(app_engine, pm1, case.id, title="Second")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert [cs_text(row, "thread-title") for row in cs_blocks(body, "thread")] == [
+        "First",
+        "Second",
+    ]
+    remove = cs_block(cs_blocks(body, "thread")[0], "thread-remove")
+    assert wd_attr(remove, "hx-confirm") == _REMOVE_CONFIRM
+    assert wd_attr(remove, "hx-post") == f"/api/cases/{case.id}/threads/{first.id}/remove"
+
+    response = await _post_form(web_client, f"/api/cases/{case.id}/threads/{first.id}/remove", csrf)
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="threads")
+    assert cs_count(block, "thread") == 1
+    assert cs_text(block, "thread-title") == "Second"
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="threads") == "Threads 1"
+    assert (await _thread_now(app_engine, pm1, first.id)).removed_at is not None
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        repo = CaseThreadRepository(session)
+        every = await repo.list_for_case(case.id, include_removed=True)
+        live = await repo.list_for_case(case.id)
+    assert {t.id for t in every} == {first.id, second.id}
+    assert [t.id for t in live] == [second.id]
+
+    again = await _post_form(web_client, f"/api/cases/{case.id}/threads/{first.id}/remove", csrf)
+    assert again.status_code == 404
+    write = await _post_form(
+        web_client, f"/api/cases/{case.id}/threads/{first.id}", csrf, prose="x"
+    )
+    assert write.status_code == 404
+    assert (await _thread_now(app_engine, pm1, first.id)).prose == ""
+
+    last = await _post_form(web_client, f"/api/cases/{case.id}/threads/{second.id}/remove", csrf)
+    assert last.status_code == 200
+    placeholder = cs_block(last.text, "block", data_pf_cs_name="threads")
+    assert wd_attr(placeholder, "hidden") == ""
+    assert wd_attr(placeholder, "data-pf-cs-state") == "empty"
+    item = cs_block(last.text, "outline-item", data_pf_cs_name="threads")
+    assert wd_attr(item, "class") == "is-empty"
+
+
+async def test_figures_render_typed_and_book_rows_with_live_values(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS3b2-06: typed rows keep their value; book rows read the book live; one composition."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Figures", opened_at=_T0)
+    await _seed_figure(
+        app_engine,
+        pm1,
+        case.id,
+        label="Gross top-5",
+        source="typed",
+        value_text="+14.2 % p.a.",
+        note="Q2 report, p. 4",
+        as_of="30 Jun 2026",
+    )
+    await _seed_figure(
+        app_engine,
+        pm1,
+        case.id,
+        label="Alpha NAV",
+        source="book",
+        source_ref={"investment_id": str(alpha), "metric": "nav"},
+    )
+    await _seed_figure(
+        app_engine,
+        pm1,
+        case.id,
+        label="Elsewhere",
+        source="book",
+        source_ref={"investment_id": str(uuid4()), "metric": "nav"},
+    )
+    await _seed_figure(app_engine, pm1, case.id, label="Fee drag", source="external", note="Excel")
+    await _login(web_client, email, password)
+    nav_text = format_money_compact(float(CALM_NAV), "EUR")
+    compositions = _count_compositions(monkeypatch)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert compositions == [case.id]
+    block = cs_block(body, "block", data_pf_cs_name="figures")
+    assert wd_attr(block, "hidden") is None
+    rows = cs_blocks(block, "figure")
+    assert [wd_attr(row, "data-pf-cs-kind") for row in rows] == [
+        "typed",
+        "book",
+        "book",
+        "external",
+    ]
+    typed, book, lost, pending = rows
+
+    assert 'value="+14.2 % p.a."' in cs_block(typed, "figure-value")
+    assert "pf-src--typed" in cs_block(typed, "figure-source")
+    assert 'value="Q2 report, p. 4"' in typed
+    assert 'value="30 Jun 2026"' in typed
+    assert 'name="source"' in typed
+
+    assert cs_text(book, "figure-value") == nav_text
+    source = cs_block(book, "figure-source")
+    assert "pf-src--live" in source
+    assert cs_text(source) == "book · Alpha · NAV"
+    assert cs_text(book, "figure-live") == "updates itself"
+    assert "30 Jun 2024" in cs_text(book)
+    assert 'name="label"' in book and 'name="note"' in book
+    for field in ("value_text", "source", "as_of"):
+        assert f'name="{field}"' not in book
+
+    assert cs_text(lost, "figure-value") == "not available"
+    assert "is-pending" in cs_block(lost, "figure-value")
+    assert cs_text(lost, "figure-source") == "book · unknown investment · NAV"
+
+    assert "is-pending" in cs_block(pending, "figure-value")
+    assert 'placeholder="pending"' in cs_block(pending, "figure-value")
+    assert "pf-src--ext" in cs_block(pending, "figure-source")
+
+    assert (
+        cs_text(block, "figures-foot")
+        == "Rows from the book keep moving; typed rows keep their date."
+    )
+    assert cs_text(body, "outline-item", data_pf_cs_name="figures") == "Figures 4"
+
+    # The block alone composes on its own — once.
+    compositions.clear()
+    section = await web_client.get(f"/api/cases/{case.id}/sections/figures")
+    assert section.status_code == 200
+    assert compositions == [case.id]
+    assert cs_text(cs_blocks(section.text, "figure")[1], "figure-value") == nav_text
+
+
+async def test_add_figure_typed_and_from_the_book(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS3b2-07: Add figure (typed) and Add from the book; the refusals write nothing."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Add figures", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        active = await InvestmentRepository(session).list_active()
+        cash = next(i.id for i in active if i.id != alpha)
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=cash, linked_by=pm1, now=_T0
+        )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    path = f"/api/cases/{case.id}/figures"
+    compositions = _count_compositions(monkeypatch)
+
+    response = await _post_form(
+        web_client,
+        path,
+        csrf,
+        label="Hedge ratio undertaken",
+        value_text="≥ 80 % of NAV",
+        source="document",
+        note="PPM p. 23",
+        as_of="2019",
+    )
+    assert response.status_code == 200
+    assert compositions == []  # typed figures alone read no book
+    block = cs_block(response.text, "block", data_pf_cs_name="figures")
+    row = cs_block(block, "figure", data_pf_cs_kind="document")
+    assert 'value="Hedge ratio undertaken"' in row
+    assert "pf-src--doc" in cs_block(row, "figure-source")
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="figures") == "Figures 1"
+
+    # Add from the book: the active investments, the linked one first; the eight metrics.
+    picker = cs_block(block, "figure-add-book")
+    assert re.findall(r'<option value="([0-9a-f-]{36})"', picker) == [str(cash), str(alpha)]
+    assert [label for label in cases_module._BOOK_METRIC_LABELS.values()] == [
+        "NAV",
+        "NAV date",
+        "Commitment",
+        "TVPI",
+        "DPI",
+        "RVPI",
+        "Net IRR",
+        "Currency",
+    ]
+    assert set(cases_module._BOOK_METRIC_LABELS) == stand_module._BOOK_METRICS
+    for key in cases_module._BOOK_METRIC_LABELS:
+        assert f'<option value="{key}">' in picker
+
+    response = await _post_form(
+        web_client, path, csrf, source="book", investment_id=str(alpha), metric="tvpi"
+    )
+    assert response.status_code == 200
+    assert compositions == [case.id]  # one composition, after the write
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        figures = await CaseFigureRepository(session).list_for_case(case.id)
+    assert len(figures) == 2
+    book = figures[1]
+    assert book.source == "book"
+    assert book.source_ref == {"investment_id": str(alpha), "metric": "tvpi"}
+    assert book.value_text is None
+    assert book.label == "Alpha TVPI"
+    book_row = cs_block(response.text, "figure", data_pf_cs_kind="book")
+    assert cs_text(book_row, "figure-source") == "book · Alpha · TVPI"
+
+    refusals = (
+        ({"source": "book", "investment_id": str(alpha)}, "Choose a metric."),
+        ({"source": "book", "investment_id": "", "metric": "nav"}, "Choose an investment."),
+        (
+            {"source": "book", "investment_id": str(uuid4()), "metric": "nav"},
+            "Choose an investment.",
+        ),
+        ({"label": "Kept by hand", "source": "kept"}, cases_module._FIGURE_SOURCE_TEXT),
+        ({"label": "  ", "source": "typed", "value_text": "1"}, "The label must not be empty."),
+    )
+    for fields, refusal in refusals:
+        refused = await _post_form(web_client, path, csrf, **fields)
+        assert refused.status_code == 400, fields
+        assert refused.headers.get("HX-Reswap") == "none"
+        assert 'id="cs-note-figures"' in refused.text
+        assert cs_text(refused.text, "note") == refusal
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert len(await CaseFigureRepository(session).list_for_case(case.id)) == 2
+
+
+async def test_figure_autosave_and_remove(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-08: a row autosaves out of band; a book row takes label and note only; delete."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Edit figures", opened_at=_T0)
+    typed = await _seed_figure(
+        app_engine, pm1, case.id, label="Gross", source="typed", value_text="14 %"
+    )
+    book = await _seed_figure(
+        app_engine,
+        pm1,
+        case.id,
+        label="Alpha NAV",
+        source="book",
+        source_ref={"investment_id": str(alpha), "metric": "nav"},
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    before = await _case_now(app_engine, pm1, case.id)
+
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/figures/{typed.id}",
+        csrf,
+        label="Gross, top-5 companies",
+        value_text=" +14.2 % p.a. ",
+        source="typed",
+        note="Q2 report, p. 4",
+        as_of="30 Jun 2026",
+        stamp=before.updated_at.isoformat(),
+    )
+    assert response.status_code == 200
+    assert cs("block") not in response.text
+    assert "Saved ·" in cs_text(response.text, "saved")
+    after = await _case_now(app_engine, pm1, case.id)
+    assert after.updated_at > before.updated_at
+    assert f'id="cs-stamp-figures" value="{after.updated_at.isoformat()}"' in response.text
+    stored = await _figure_now(app_engine, pm1, typed.id)
+    assert stored is not None
+    assert (stored.label, stored.value_text, stored.note, stored.as_of) == (
+        "Gross, top-5 companies",
+        "+14.2 % p.a.",
+        "Q2 report, p. 4",
+        "30 Jun 2026",
+    )
+
+    # An emptied value is pending (NULL), not an empty string.
+    response = await _post_form(
+        web_client, f"/api/cases/{case.id}/figures/{typed.id}", csrf, value_text=""
+    )
+    assert response.status_code == 200
+    stored = await _figure_now(app_engine, pm1, typed.id)
+    assert stored is not None and stored.value_text is None
+
+    # The source select re-renders the block, so the chip follows.
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/figures/{typed.id}?rerender=1",
+        csrf,
+        source="conversation",
+    )
+    assert response.status_code == 200
+    moved = cs_block(response.text, "figure", data_pf_cs_kind="conversation")
+    assert "pf-src--call" in cs_block(moved, "figure-source")
+    for source in ("book", "kept"):
+        refused = await _post_form(
+            web_client, f"/api/cases/{case.id}/figures/{typed.id}", csrf, source=source
+        )
+        assert refused.status_code == 400
+        assert cs_text(refused.text, "note") == cases_module._FIGURE_SOURCE_TEXT
+
+    # A book row takes its label and note only.
+    response = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/figures/{book.id}",
+        csrf,
+        label="NAV of Alpha",
+        note="the book",
+    )
+    assert response.status_code == 200
+    stored = await _figure_now(app_engine, pm1, book.id)
+    assert stored is not None
+    assert (stored.label, stored.note, stored.value_text) == ("NAV of Alpha", "the book", None)
+    for field, value in (("value_text", "EUR 1m"), ("source", "typed"), ("as_of", "today")):
+        refused = await _post_form(
+            web_client, f"/api/cases/{case.id}/figures/{book.id}", csrf, **{field: value}
+        )
+        assert refused.status_code == 400, field
+        assert cs_text(refused.text, "note") == cases_module._BOOK_ROW_TEXT
+    stored = await _figure_now(app_engine, pm1, book.id)
+    assert stored is not None and stored.source == "book" and stored.value_text is None
+
+    # Remove: a hard delete, no confirm; the block follows.
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    remove = cs_block(cs_block(body, "figure", data_pf_cs_kind="conversation"), "figure-remove")
+    assert wd_attr(remove, "hx-confirm") is None
+    response = await _post_form(web_client, f"/api/cases/{case.id}/figures/{typed.id}/remove", csrf)
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="figures")
+    assert [wd_attr(row, "data-pf-cs-kind") for row in cs_blocks(block, "figure")] == ["book"]
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="figures") == "Figures 1"
+    assert await _figure_now(app_engine, pm1, typed.id) is None
+    again = await _post_form(web_client, f"/api/cases/{case.id}/figures/{typed.id}/remove", csrf)
+    assert again.status_code == 404
+
+
+async def test_title_field_renames_and_the_crumb_follows(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-09: the title field re-renders the block and the bundle rewrites the crumb."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Old title", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    badge = f"CASE-{case.case_number:04d}"
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    question = cs_block(body, "block", data_pf_cs_name="question")
+    field = cs_block(question, "title")
+    assert wd_attr(field, "value") == "Old title"
+    assert wd_attr(field, "hx-post") == f"/api/cases/{case.id}/question?rerender=1"
+    assert wd_attr(field, "hx-target") == "#cs-question"
+    assert question.index(cs("title")) < question.index(cs("prose"))
+
+    response = await _post_question(web_client, case.id, csrf, rerender=True, title="  New title  ")
+    assert response.status_code == 200
+    block = cs_block(response.text, "block", data_pf_cs_name="question")
+    assert wd_attr(cs_block(block, "title"), "value") == "New title"
+    crumb = cs_block(response.text, "crumb", data_pf_cs_case=badge)
+    assert wd_attr(crumb, "id") == "cases-title"
+    assert wd_attr(crumb, "hx-swap-oob") == "outerHTML"
+    assert cs_text(crumb).endswith(f"{badge} · New title")
+    assert (await _case_now(app_engine, pm1, case.id)).title == "New title"
+
+    # Every save's bundle carries the crumb; the list reads the title on its next load.
+    response = await _post_question(web_client, case.id, csrf, description="Prose.")
+    assert cs_text(cs_block(response.text, "crumb")).endswith(f"{badge} · New title")
+    listing = (await web_client.get("/api/cases/list", follow_redirects=False)).text
+    assert "New title" in listing
+
+    refused = await _post_question(web_client, case.id, csrf, rerender=True, title="   ")
+    assert refused.status_code == 400
+    assert refused.headers.get("HX-Reswap") == "none"
+    assert cs_text(refused.text, "note") == "A case title must not be empty."
+    assert 'id="cases-title"' not in refused.text
+    assert (await _case_now(app_engine, pm1, case.id)).title == "New title"
+
+
+async def test_cross_case_and_closed_refusals(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-10: another case's thread or figure → 404; closed → calm error; waiting writes."""
+    pm1, email, password = seeded_user
+    case_a = await _seed_case(app_engine, opened_by=pm1, title="Case A", opened_at=_T0)
+    case_b = await _seed_case(app_engine, opened_by=pm1, title="Case B", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case_a.id, title="A's thread")
+    figure = await _seed_figure(
+        app_engine, pm1, case_a.id, label="A's figure", source="typed", value_text="1"
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    crossing = (
+        (f"/api/cases/{case_b.id}/threads/{thread.id}", {"prose": "x"}),
+        (f"/api/cases/{case_b.id}/threads/{thread.id}/remove", {}),
+        (f"/api/cases/{case_b.id}/figures/{figure.id}", {"label": "x"}),
+        (f"/api/cases/{case_b.id}/figures/{figure.id}/remove", {}),
+        (f"/api/cases/{case_a.id}/threads/{uuid4()}", {"prose": "x"}),
+        (f"/api/cases/{case_a.id}/figures/{uuid4()}", {"label": "x"}),
+        (f"/api/cases/{uuid4()}/threads", {"title": "x"}),
+        (f"/api/cases/{uuid4()}/figures", {"label": "x"}),
+    )
+    for path, fields in crossing:
+        response = await _post_form(web_client, path, csrf, **fields)
+        assert response.status_code == 404, path
+    assert (await _thread_now(app_engine, pm1, thread.id)).prose == ""
+    assert (await _thread_now(app_engine, pm1, thread.id)).removed_at is None
+    stored = await _figure_now(app_engine, pm1, figure.id)
+    assert stored is not None and stored.label == "A's figure"
+
+    closed = await _seed_case(
+        app_engine, opened_by=pm1, title="Closed", opened_at=_T0, close_note="done"
+    )
+    for path, fields, section in (
+        (f"/api/cases/{closed.id}/threads", {"title": "Late"}, "threads"),
+        (f"/api/cases/{closed.id}/figures", {"label": "Late", "source": "typed"}, "figures"),
+    ):
+        response = await _post_form(web_client, path, csrf, **fields)
+        assert response.status_code == 200
+        assert f'id="cs-note-{section}"' in response.text
+        assert "closed cases are read-only" in cs_text(response.text, "note")
+        assert cs("block") not in response.text
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseThreadRepository(session).list_for_case(closed.id) == []
+        assert await CaseFigureRepository(session).list_for_case(closed.id) == []
+
+    waiting = await _seed_case(app_engine, opened_by=pm1, title="Waiting", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).wait(
+            waiting.id, wait_until=date(2026, 12, 1), by=pm1, now=_T0 + timedelta(hours=2)
+        )
+    response = await _post_form(
+        web_client, f"/api/cases/{waiting.id}/threads", csrf, title="While we wait"
+    )
+    assert response.status_code == 200
+    cs_block(response.text, "thread", data_pf_cs_state="open")
+    response = await _post_form(
+        web_client, f"/api/cases/{waiting.id}/figures", csrf, label="Waiting figure"
+    )
+    assert response.status_code == 200
+    cs_block(response.text, "figure", data_pf_cs_kind="typed")
+
+
+async def test_closed_case_renders_threads_and_figures_read_only(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS3b2-11: a closed case renders both blocks without a form; book values as frozen."""
+    pm1, email, password = seeded_user
+    alpha = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Closing", opened_at=_T0)
+    thread = await _seed_thread(
+        app_engine, pm1, case.id, title="Is the hedge the gap?", prose="Suspect the hedge."
+    )
+    await _seed_figure(app_engine, pm1, case.id, label="Gross", source="typed", value_text="+14 %")
+    book = await _seed_figure(
+        app_engine,
+        pm1,
+        case.id,
+        label="Alpha NAV",
+        source="book",
+        source_ref={"investment_id": str(alpha), "metric": "nav"},
+    )
+    closed_at = _T0 + timedelta(days=1)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseThreadRepository(session).update(
+            thread.id, now=closed_at, status="confirmed", conclusion="The gap is FX."
+        )
+        repo = CaseRepository(session)
+        current = await repo.get(case.id)
+        assert current is not None
+        figures = await CaseFigureRepository(session).list_for_case(case.id)
+        stand = await compose(
+            await StandContext.load(session, now=closed_at), current, figures=figures
+        )
+        book_values = book_values_for(stand, figures)
+        assert book_values[str(book.id)]["value_text"] == format_money_compact(
+            float(CALM_NAV), "EUR"
+        )
+        # A value the live book could not produce: the render can only have read the freeze.
+        book_values[str(book.id)] = {"value_text": "EUR 123k (as frozen)", "as_of": "2024-06-30"}
+        await repo.close(
+            case.id,
+            closed_by=pm1,
+            closing_note="Settled.",
+            now=closed_at,
+            stand=to_snapshot(stand),
+            book_values=book_values,
+        )
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    threads = cs_block(body, "block", data_pf_cs_name="threads")
+    assert "<form" not in threads and "<input" not in threads
+    row = cs_block(threads, "thread", data_pf_cs_state="confirmed")
+    assert cs_text(row, "thread-title") == "Is the hedge the gap?"
+    assert cs_text(row, "thread-prose") == "Suspect the hedge."
+    assert cs_text(row, "thread-conclusion") == "The gap is FX."
+
+    figures_block = cs_block(body, "block", data_pf_cs_name="figures")
+    assert "<form" not in figures_block and "<input" not in figures_block
+    assert cs("figure-live") not in figures_block
+    assert cs("figures-foot") not in figures_block
+    book_row = cs_block(figures_block, "figure", data_pf_cs_kind="book")
+    assert cs_text(book_row, "figure-value") == "EUR 123k (as frozen)"
+    assert "30 Jun 2024" in cs_text(book_row)
+    source = cs_block(book_row, "figure-source")
+    assert "pf-src--frozen" in source
+    assert cs_text(source) == "book · Alpha · NAV"
+    assert cs_text(figures_block, "figure", data_pf_cs_kind="typed").startswith("Gross +14 %")
+
+    item = cs_block(body, "outline-item", data_pf_cs_name="threads")
+    assert cs_text(item) == "Threads 1"
+    assert wd_attr(item, "hx-get") is None
+
+    # A closed case's empty section is listed grey, with nothing to reveal.
+    plain = await _seed_case(
+        app_engine, opened_by=pm1, title="Plain close", opened_at=_T0, close_note="done"
+    )
+    body = (await web_client.get(f"/api/cases/{plain.id}", follow_redirects=False)).text
+    item = cs_block(body, "outline-item", data_pf_cs_name="figures")
+    assert wd_attr(item, "class") == "is-empty"
+    assert wd_attr(item, "hx-get") is None
+    assert cs_text(item) == "Figures"
+
+
+async def test_outline_counts_follow_the_blocks(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS3b2-12: the outline reads Threads n and Figures n, and is-empty again once emptied."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Counts", opened_at=_T0)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    for title in ("One", "Two"):
+        response = await _post_form(web_client, f"/api/cases/{case.id}/threads", csrf, title=title)
+        assert response.status_code == 200
+    response = await _post_form(
+        web_client, f"/api/cases/{case.id}/figures", csrf, label="Typed", value_text="1"
+    )
+    assert response.status_code == 200
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    outline = cs_block(body, "outline")
+    assert cs_text(outline, "outline-item", data_pf_cs_name="threads") == "Threads 2"
+    assert cs_text(outline, "outline-item", data_pf_cs_name="figures") == "Figures 1"
+    threads_item = cs_block(outline, "outline-item", data_pf_cs_name="threads")
+    assert wd_attr(threads_item, "class") is None
+    assert wd_attr(threads_item, "hx-get") is None
+    names = [wd_attr(item, "data-pf-cs-name") for item in cs_blocks(outline, "outline-item")]
+    assert names == ["question", "stand", "threads", "figures", "record"]
+    blocks = [wd_attr(block, "data-pf-cs-name") for block in cs_blocks(body, "block")]
+    assert blocks == ["question", "stand", "threads", "figures", "record"]
+
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        threads = await CaseThreadRepository(session).list_for_case(case.id)
+    for thread in threads:
+        response = await _post_form(
+            web_client, f"/api/cases/{case.id}/threads/{thread.id}/remove", csrf
+        )
+        assert response.status_code == 200
+    item = cs_block(response.text, "outline-item", data_pf_cs_name="threads")
+    assert wd_attr(item, "class") == "is-empty"
+    assert cs_text(item) == "Threads +"
+    assert cs_text(response.text, "outline-item", data_pf_cs_name="figures") == "Figures 1"
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert wd_attr(cs_block(body, "block", data_pf_cs_name="threads"), "hidden") == ""
+    assert wd_attr(cs_block(body, "block", data_pf_cs_name="figures"), "hidden") is None

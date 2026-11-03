@@ -1,0 +1,122 @@
+{# Threads (ADR-0138 §3, D-CS-B-53) — one thing the PM is chasing per thread:
+   a title, the prose, a status (open · confirmed · parked · refuted) and a
+   one-line conclusion. Hidden while the case has no thread (D-CS-B-57): the
+   block is then an empty placeholder carrying #cs-threads, so the outline's
+   "+" (?reveal=1) has a target; revealed, it renders visible with its add
+   form focused and stays so until the next full render.
+
+   One <details class="pf-thread"> per thread, in position order. On an open
+   or waiting case its body is the thread's form, on native controls
+   (ui-standards §2.11). The prose and the conclusion autosave on change with
+   hx-swap="none" (the OOB bundle answers); the title and the status
+   re-render the block (?rerender=1), so the summary follows, the thread kept
+   open. Remove re-renders the block after a native confirm. The form's stamp
+   is the block's #cs-stamp-threads (hx-include). Kept rows inside a thread
+   arrive with P-CS-4a / 4b; until then every body reads the hint.
+
+   A closed case renders the threads read-only: the prose as text, the
+   conclusion, no form.
+
+   Context: case_id, csrf_token, is_mutable, stamp, threads — {threads:
+   [{id, title, prose, status, status_label, conclusion, dates}], empty,
+   reveal, focus_id, open_id, statuses: [{value, label}]}. #}
+{% set block = threads %}
+{% if block.empty and not block.reveal %}
+<section class="pf-blk" id="cs-threads" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="threads"></section>
+{% else %}
+<section class="pf-blk" id="cs-threads" data-pf-cs="block" data-pf-cs-name="threads">
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Threads</h3>
+        <span class="pf-blk__sub">one thing you are chasing, with what you kept while chasing it</span>
+    </div>
+    {% if is_mutable %}<input type="hidden" name="stamp" id="cs-stamp-threads" value="{{ stamp }}">{% endif %}
+
+    {% for thread in block.threads %}
+        {% set is_focus = block.focus_id == thread.id %}
+        {% set is_open = is_focus or block.open_id == thread.id %}
+        <details class="pf-thread" id="cs-thread-{{ thread.id }}" data-pf-cs="thread" data-pf-cs-state="{{ thread.status }}"{% if is_open %} open{% endif %}>
+            <summary>
+                <p class="pf-thread__q" data-pf-cs="thread-title">{{ thread.title }}</p>
+                <span class="pf-state pf-state--{{ thread.status }}" data-pf-cs="thread-status">{{ thread.status_label }}</span>
+                <span class="pf-thread__meta">{{ thread.dates }}</span>
+            </summary>
+            <div class="pf-thread__body">
+                {% if is_mutable %}
+                    <form class="pf-thread__form" data-pf-cs="thread-form"
+                          hx-post="/api/cases/{{ case_id }}/threads/{{ thread.id }}"
+                          hx-trigger="change[target.name=='prose'||target.name=='conclusion'], submit"
+                          hx-swap="none"
+                          hx-include="#cs-stamp-threads"
+                          hx-sync="this:queue last">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-label">Thread</span>
+                            <input class="pf-input" type="text" name="title" value="{{ thread.title }}" autocomplete="off"
+                                   hx-post="/api/cases/{{ case_id }}/threads/{{ thread.id }}?rerender=1"
+                                   hx-trigger="change"
+                                   hx-target="#cs-threads"
+                                   hx-swap="outerHTML"
+                                   hx-sync="closest form:queue last">
+                        </label>
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-sr">What you make of it</span>
+                            <textarea class="pf-textarea" name="prose" rows="3" data-pf-cs="thread-prose"
+                                      {% if is_focus %}autofocus{% endif %}>{{ thread.prose }}</textarea>
+                        </label>
+                        <div class="pf-field">
+                            <span class="pf-label" id="cs-thread-{{ thread.id }}-status-label">Status</span>
+                            <div class="pf-seg" role="radiogroup" aria-labelledby="cs-thread-{{ thread.id }}-status-label" data-pf-cs="thread-status-switch">
+                                {% for option in block.statuses %}
+                                    <input type="radio" name="status" id="cs-thread-{{ thread.id }}-status-{{ option.value }}" value="{{ option.value }}"
+                                           {% if thread.status == option.value %}checked{% endif %}
+                                           hx-post="/api/cases/{{ case_id }}/threads/{{ thread.id }}?rerender=1"
+                                           hx-trigger="change"
+                                           hx-target="#cs-threads"
+                                           hx-swap="outerHTML"
+                                           hx-sync="closest form:queue last">
+                                    <label for="cs-thread-{{ thread.id }}-status-{{ option.value }}">{{ option.label }}</label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-label">Conclusion</span>
+                            <textarea class="pf-textarea" name="conclusion" rows="2" data-pf-cs="thread-conclusion"
+                                      placeholder="One line: what this thread established.">{{ thread.conclusion }}</textarea>
+                        </label>
+                        <p class="pf-hint" data-pf-cs="thread-empty">Nothing kept yet — ask Shirley in the dock, attach a document, or type a figure.</p>
+                        <div class="pf-thread__tools">
+                            <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="thread-remove"
+                                    hx-post="/api/cases/{{ case_id }}/threads/{{ thread.id }}/remove"
+                                    hx-target="#cs-threads"
+                                    hx-swap="outerHTML"
+                                    hx-confirm="Remove this thread? It leaves the file; its kept artefacts stay in the record.">Remove thread</button>
+                        </div>
+                    </form>
+                {% else %}
+                    {% if thread.prose %}<p class="pf-prose" data-pf-cs="thread-prose">{{ thread.prose }}</p>{% endif %}
+                    {% if thread.conclusion %}
+                        <div class="pf-thread__concl" data-pf-cs="thread-conclusion"><p>{{ thread.conclusion }}</p></div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </details>
+    {% endfor %}
+
+    {% if is_mutable %}
+        {% if block.empty %}<p class="pf-hint" data-pf-cs="threads-empty">No thread yet — add the first below.</p>{% endif %}
+        <form class="pf-case__add" data-pf-cs="thread-add"
+              hx-post="/api/cases/{{ case_id }}/threads"
+              hx-target="#cs-threads"
+              hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="pf-field">
+                <span class="pf-label">New thread</span>
+                <input class="pf-input" type="text" name="title" autocomplete="off"
+                       {% if block.reveal %}autofocus{% endif %}>
+            </label>
+            <button type="submit" class="pf-btn">Add thread</button>
+        </form>
+    {% endif %}
+    <div id="cs-note-threads" class="pf-case__note" data-pf-cs="note-slot"></div>
+</section>
+{% endif %}

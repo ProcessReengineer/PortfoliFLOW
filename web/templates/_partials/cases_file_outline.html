@@ -1,18 +1,23 @@
 {# The file's outline (ADR-0138 §3, D-CS-B-50): the sections that exist, in
-   ADR order — The question · Where we stand (live / at close) · Record
-   (count). Refreshed out of band by every save (rendered with ``oob`` inside
-   cases_file_oob.html); in the first render it carries no hx-swap-oob, since
-   htmx 1.9 swaps nested OOB elements too and #cs-outline is not yet in the
-   page. An entry for a hidden-when-empty section renders ``is-empty`` with
-   "+" and reveals its block through the section endpoint (?reveal=1).
+   ADR order — The question · Where we stand (live / at close) · Threads
+   (count) · Figures (count) · Record (count). Refreshed out of band by every
+   save (rendered with ``oob`` inside cases_file_oob.html); in the first
+   render it carries no hx-swap-oob, since htmx 1.9 swaps nested OOB elements
+   too and #cs-outline is not yet in the page. An entry for a hidden-when-empty
+   section renders ``is-empty``; on an open or waiting case it carries "+" and
+   reveals its block through the section endpoint (?reveal=1) into the
+   block's placeholder (D-CS-B-57). A closed case has nothing to add: the
+   entry is grey alone.
 
    Context: outline — [{name, label, count_label, empty, href, reveal_href}],
    head (state, owner, due, wait_until), oob (optional). #}
 <nav id="cs-outline" class="pf-case__toc" aria-label="Sections of this case" data-pf-cs="outline"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
     {% for item in outline %}
-        {% if item.empty %}
+        {% if item.empty and item.reveal_href %}
             <a href="{{ item.href }}" class="is-empty" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}"
                hx-get="{{ item.reveal_href }}" hx-target="#cs-{{ item.name }}" hx-swap="outerHTML">{{ item.label }} <span class="n">+</span></a>
+        {% elif item.empty %}
+            <a href="{{ item.href }}" class="is-empty" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}">{{ item.label }}</a>
         {% else %}
             <a href="{{ item.href }}" data-pf-cs="outline-item" data-pf-cs-name="{{ item.name }}">{{ item.label }}{% if item.count_label %} <span class="n">{{ item.count_label }}</span>{% endif %}</a>
         {% endif %}

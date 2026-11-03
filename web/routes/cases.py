@@ -14,9 +14,12 @@ page: the facts, the actions on an open case, the composer slot, the origin
 embed or the description, and the record. P-CS-3b makes the working file
 editable in place: The question (prose, counterparty, due date, framing), the
 investment links and documents, and Where we stand composed live (or *At
-close* from the frozen snapshot). The four composers (Add note / Pin document
-/ Record decision / Close case), the attachment download pipeline with its
-caps and the pin timeline anatomy are unchanged.
+close* from the frozen snapshot). P-CS-3b2 adds the title (the crumb follows),
+Threads and Figures — both hidden while empty and revealed from the outline's
+``+``; a ``book`` figure is read live through ``book_values_for``. The four
+composers (Add note / Pin document / Record decision / Close case), the
+attachment download pipeline with its caps and the pin timeline anatomy are
+unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -146,23 +149,33 @@ Endpoints
   Unknown or foreign ids resolve to ``None`` under RLS and are mapped to 404,
   the entity-detail idiom (``web/routes/investments.py``).
 * ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
-  (``question`` · ``stand``; ``reveal=1`` for the outline's ``+``).
+  (``question`` · ``stand`` · ``threads`` · ``figures``; ``reveal=1`` for the
+  outline's ``+``).
 * ``POST /api/cases/{case_id}/question`` — the question's autosave
-  (D-CS-B-44): the prose, counterparty, due date and framing, last write wins
-  with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1`` the block too.
+  (D-CS-B-44): the title, prose, counterparty, due date and framing, last
+  write wins with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1``
+  the block too.
 * ``POST /api/cases/{case_id}/link-investment`` · ``…/unlink-investment`` —
   the case's investment links; answer Where we stand and the bundle.
 * ``POST /api/cases/{case_id}/attachments`` — attach a document without a
   record entry (D-CS-B-47); answers the question block and the bundle.
+* ``POST /api/cases/{case_id}/threads`` · ``…/threads/{thread_id}`` ·
+  ``…/threads/{thread_id}/remove`` — add, update (title · prose · status ·
+  conclusion, partial by presence) and remove a thread (D-CS-B-53).
+* ``POST /api/cases/{case_id}/figures`` · ``…/figures/{figure_id}`` ·
+  ``…/figures/{figure_id}/remove`` — add a typed or a ``book`` figure, update
+  one (a ``book`` row its label and note only) and delete one (D-CS-B-54).
 * The composer, write, download and close routes below. The working file
   writes on an open **or waiting** case; the P-CS-3a composers keep their
   ``open`` gate until P-CS-3c.
 
 The OOB bundle (``_partials/cases_file_oob.html``) is what every save of the
-working file answers with: ``#cs-saved``, ``#cs-facts``, ``#cs-outline``, the
-section stamps and ``#cs-note-<section>``. A text autosave swaps nothing in
-place (``hx-swap="none"``) and receives the bundle alone; a structural change
-(framing, link, attach) re-renders its block, followed by the bundle.
+working file answers with: the crumb ``#cases-title``, ``#cs-saved``,
+``#cs-facts``, ``#cs-outline``, the section stamps and ``#cs-note-<section>``.
+A text autosave swaps nothing in place (``hx-swap="none"``) and receives the
+bundle alone; a structural change (title, framing, link, attach, a thread's
+title or status, a figure's source, any add or remove) re-renders its block,
+followed by the bundle.
 
 Reads use ``session = Depends(require_session)``; the write also takes
 ``_ = Depends(verify_csrf)`` and opens a ``tenant_context`` so it is
@@ -216,7 +229,13 @@ from core.repositories.irene_finding_repository import (
 )
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
-from services.cases.stand import StandContext, compose, headline_for
+from services.cases.stand import (
+    StandContext,
+    WhereWeStand,
+    book_values_for,
+    compose,
+    headline_for,
+)
 from services.money_format import format_money_compact
 from services.watch_desk.family_status import FIGURE_UNIT_DAYS, FIGURE_UNIT_RATIO
 from web.auth import require_session, verify_csrf
@@ -1000,8 +1019,8 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
 # ---------------------------------------------------------------------------
 
 #: The blocks the section endpoint renders and the stamps partial carries, in
-#: ADR order (D-CS-B-49). P-CS-3b2 appends "threads" and "figures".
-_SECTION_NAMES: tuple[str, ...] = ("question", "stand")  # 3b2 appends "threads", "figures"
+#: ADR order (D-CS-B-49, D-CS-B-59). P-CS-3c appends its blocks after "figures".
+_SECTION_NAMES: tuple[str, ...] = ("question", "stand", "threads", "figures")
 
 #: One block partial per section name.
 _SECTION_TEMPLATES: dict[str, str] = {
@@ -1021,6 +1040,62 @@ _FRAMING_TITLES: dict[str, str] = {"question": "The question", "task": "The task
 _STALE_NOTE = "Saved over a newer version from {time} — read the text once."
 _NO_FROZEN_TEXT = "No frozen state — this case was closed before the working file existed."
 _NOT_FROZEN_TEXT = "Where we stand was not frozen when this case closed."
+
+#: A thread's status → its chip label (D-CS-B-53), in the order the switch shows them.
+_THREAD_STATUS_LABELS: dict[str, str] = {
+    "open": "Open",
+    "confirmed": "Confirmed",
+    "parked": "Parked",
+    "refuted": "Refuted",
+}
+
+#: The sources a PM types a figure under (D-CS-B-54). ``book`` and ``kept``
+#: figures come from their own paths and are never typed.
+_FIGURE_EDITABLE_SOURCES: tuple[str, ...] = ("typed", "document", "conversation", "external")
+
+#: A ``book`` figure's metric → its label, in the picker's order (D-CS-B-54).
+#: The keys are the metrics ``book_values_for`` resolves (D-CS-B-14).
+_BOOK_METRIC_LABELS: dict[str, str] = {
+    "nav": "NAV",
+    "nav_as_of": "NAV date",
+    "commitment": "Commitment",
+    "tvpi": "TVPI",
+    "dpi": "DPI",
+    "rvpi": "RVPI",
+    "irr": "Net IRR",
+    "currency": "Currency",
+}
+
+#: A figure's source → ``(pf-src tone, chip label)`` (D-CS-B-54).
+_SOURCE_CHIPS: dict[str, tuple[str, str]] = {
+    "book": ("live", "book"),
+    "typed": ("typed", "typed"),
+    "document": ("doc", "document"),
+    "conversation": ("call", "conversation"),
+    "kept": ("kept", "kept"),
+    "external": ("ext", "external"),
+}
+
+#: The fields a figure row's form may carry; a ``book`` row takes the first two.
+_FIGURE_FIELDS: tuple[str, ...] = (
+    "label",
+    "note",
+    "value_text",
+    "source",
+    "as_of",
+    "investment_id",
+    "metric",
+)
+_BOOK_ROW_FIELDS: frozenset[str] = frozenset({"label", "note"})
+
+_UNKNOWN_INVESTMENT = "unknown investment"
+_CHOOSE_INVESTMENT_TEXT = "Choose an investment."
+_CHOOSE_METRIC_TEXT = "Choose a metric."
+_FIGURE_SOURCE_TEXT = (
+    "Choose typed, document, conversation or external — "
+    "book and kept figures come from their own paths."
+)
+_BOOK_ROW_TEXT = "A figure from the book takes only its label and note — its value is read live."
 
 
 def _framing(case: CaseDTO) -> str:
@@ -1055,19 +1130,27 @@ def _note(text: str, tone: str = "info") -> dict[str, str]:
     return {"text": text, "tone": tone}
 
 
-def _outline(case: CaseDTO, *, record_count: int) -> list[dict[str, Any]]:
+def _outline(
+    case: CaseDTO, *, record_count: int, threads_count: int, figures_count: int
+) -> list[dict[str, Any]]:
     """The outline's entries, in ADR order, for the sections that exist (D-CS-B-50).
 
-    An entry with ``empty`` set renders grey with ``+`` and reveals its block
-    through ``reveal_href``; in P-CS-3b no section is hidden when empty.
+    Threads and Figures are hidden when empty (D-CS-B-57): their entry has
+    ``empty`` set and renders grey. On an open or waiting case it carries
+    ``+`` and reveals the block through ``reveal_href``; a closed case has
+    nothing to add, so its empty entry is grey alone (``reveal_href`` is
+    ``None``). A non-empty entry reads its count.
     """
+    is_mutable = case.state in _MUTABLE_STATES
 
-    def entry(name: str, label: str, count_label: str, *, revealable: bool) -> dict[str, Any]:
+    def entry(
+        name: str, label: str, count_label: str, *, revealable: bool, empty: bool = False
+    ) -> dict[str, Any]:
         return {
             "name": name,
             "label": label,
             "count_label": count_label,
-            "empty": False,
+            "empty": empty,
             "href": f"#cs-{name}",
             "reveal_href": (
                 f"/api/cases/{case.id}/sections/{name}?reveal=1" if revealable else None
@@ -1082,6 +1165,20 @@ def _outline(case: CaseDTO, *, record_count: int) -> list[dict[str, Any]]:
             "at close" if case.state == "closed" else "live",
             revealable=True,
         ),
+        entry(
+            "threads",
+            "Threads",
+            str(threads_count),
+            revealable=is_mutable,
+            empty=threads_count == 0,
+        ),
+        entry(
+            "figures",
+            "Figures",
+            str(figures_count),
+            revealable=is_mutable,
+            empty=figures_count == 0,
+        ),
         entry("record", "Record", str(record_count), revealable=False),
     ]
 
@@ -1091,10 +1188,11 @@ async def _frame_context(
 ) -> dict[str, Any]:
     """What the file renders around its blocks, and what every save refreshes.
 
-    The head, the facts (with the linked count and the attachments row), the
-    outline, the stamp, the record's entries and the action hrefs. The OOB
-    bundle (``cases_file_oob.html``) renders from exactly this, so the first
-    render and a save's refresh cannot drift.
+    The head (the crumb reads its badge and title), the facts (with the
+    linked count and the attachments row), the outline (with the Threads and
+    Figures counts), the stamp, the record's entries and the action hrefs.
+    The OOB bundle (``cases_file_oob.html``) renders from exactly this, so the
+    first render and a save's refresh cannot drift.
     """
     entries = await CaseRepository(db_session).list_entries(case.id)
 
@@ -1109,6 +1207,8 @@ async def _frame_context(
     owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
     attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
     links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
+    threads_count = len(await CaseThreadRepository(db_session).list_for_case(case.id))
+    figures_count = len(await CaseFigureRepository(db_session).list_for_case(case.id))
 
     opened_text = _opened_text(case, finding)
     is_open = case.state == "open"
@@ -1125,7 +1225,12 @@ async def _frame_context(
         "stamp": case.updated_at.isoformat(),
         "section_names": _SECTION_NAMES,
         "saved_label": "",
-        "outline": _outline(case, record_count=len(entries)),
+        "outline": _outline(
+            case,
+            record_count=len(entries),
+            threads_count=threads_count,
+            figures_count=figures_count,
+        ),
         "entries": [
             _project_entry(entry, owner_names, opened_text=opened_text) for entry in entries
         ],
@@ -1150,7 +1255,11 @@ async def _frame_context(
 
 
 async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str, Any]:
-    """The question block (D-CS-B-46): heading, origin, prose, meta, documents."""
+    """The question block (D-CS-B-46, D-CS-B-56): heading, title, origin, prose, meta, documents.
+
+    ``title`` is the block's heading (The question / The task); ``case_title``
+    is the case's own title, the form's first field.
+    """
     finding: IreneFindingDTO | None = None
     entries: list[CaseEntryDTO] = []
     if case.finding_id is not None:
@@ -1177,6 +1286,7 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
     framing = _framing(case)
     return {
         "title": _FRAMING_TITLES[framing],
+        "case_title": case.title,
         "framing": framing,
         "sub": sub,
         "origin": origin,
@@ -1408,14 +1518,29 @@ def _project_stand(
     }
 
 
-async def _stand_context(
+async def _compose_stand(
     db_session: AsyncSession, case: CaseDTO, figures: Sequence[CaseFigureDTO]
+) -> WhereWeStand:
+    """Compose Where we stand for an open or waiting case (D-CS-B-11, D-CS-B-55).
+
+    One :class:`StandContext` per call. ``figures`` are handed to ``compose``
+    so a ``book`` figure's investment is read too, for :func:`book_values_for`.
+    A request calls this once: :func:`load_case_file_context` hands the result
+    to the stand and the figures blocks alike.
+    """
+    ctx = await StandContext.load(db_session, now=_now())
+    return await compose(ctx, case, figures=figures)
+
+
+async def _stand_context(
+    db_session: AsyncSession, case: CaseDTO, *, stand: WhereWeStand | None = None
 ) -> dict[str, Any]:
     """Where we stand for the block: live via compose() on an open/waiting case, the
     frozen where_we_stand of latest_frozen on a closed one; both through _project_stand.
 
-    ``compose`` refuses a closed case, so the state is branched on first. One
-    :class:`StandContext` per request (D-CS-B-11); nothing here writes
+    ``compose`` refuses a closed case, so the state is branched on first. A
+    ``stand`` already composed for this request is used as it is; without one
+    the block composes its own (D-CS-B-11, D-CS-B-55). Nothing here writes
     (D-CS-M-14). A closed case without a frozen ``where_we_stand`` renders a
     calm line instead of the block's readings (``missing``).
     """
@@ -1445,8 +1570,9 @@ async def _stand_context(
             "missing": _NO_FROZEN_TEXT if frozen is None else _NOT_FROZEN_TEXT,
         }
 
-    ctx = await StandContext.load(db_session, now=now)
-    stand = await compose(ctx, case, figures=figures)
+    if stand is None:
+        figures = await CaseFigureRepository(db_session).list_for_case(case.id)
+        stand = await _compose_stand(db_session, case, figures)
     view = _project_stand(stand, closed=False, now=now, subject_key=subject_key)
     return {
         "closed": False,
@@ -1457,16 +1583,259 @@ async def _stand_context(
     }
 
 
+# --- Threads and Figures (P-CS-3b2) ----------------------------------------
+
+
+def _thread_dates(thread: CaseThreadDTO) -> str:
+    """``dd Mon`` (opened) or ``dd Mon → dd Mon`` (concluded), in UTC (D-CS-B-53)."""
+    opened = f"{thread.created_at.astimezone(timezone.utc):%d %b}"
+    if thread.concluded_at is None:
+        return opened
+    return f"{opened} → {thread.concluded_at.astimezone(timezone.utc):%d %b}"
+
+
+async def _threads_context(
+    db_session: AsyncSession, case: CaseDTO, *, reveal: bool
+) -> dict[str, Any]:
+    """Threads (D-CS-B-53): ``{threads[{id, title, prose, status, status_label,
+    conclusion, dates}], empty, reveal, focus_id, open_id, statuses}``.
+
+    The case's threads in ``position`` order; removed threads never render.
+    A closed case reads the same rows — its working file is read-only, so they
+    are the threads as they stood at close. ``focus_id`` (a thread just added:
+    open, its prose focused) and ``open_id`` (a thread whose title or status
+    was just changed: open) are ``None`` here; the write routes set them on
+    the block they answer with. Kept rows are not read (P-CS-4a / 4b).
+    """
+    threads = await CaseThreadRepository(db_session).list_for_case(case.id)
+    return {
+        "threads": [
+            {
+                "id": str(thread.id),
+                "title": thread.title,
+                "prose": thread.prose,
+                "status": thread.status,
+                "status_label": _THREAD_STATUS_LABELS.get(
+                    thread.status, thread.status.capitalize()
+                ),
+                "conclusion": thread.conclusion or "",
+                "dates": _thread_dates(thread),
+            }
+            for thread in threads
+        ],
+        "empty": not threads,
+        "reveal": reveal,
+        "focus_id": None,
+        "open_id": None,
+        "statuses": [
+            {"value": value, "label": label} for value, label in _THREAD_STATUS_LABELS.items()
+        ],
+    }
+
+
+def _book_ref(source_ref: Any) -> tuple[UUID | None, str]:
+    """A ``book`` figure's read key ``(investment_id, metric)``; ``None`` / ``""`` if unreadable."""
+    ref = source_ref if isinstance(source_ref, dict) else {}
+    try:
+        investment_id: UUID | None = UUID(str(ref.get("investment_id")))
+    except ValueError:
+        investment_id = None
+    return investment_id, str(ref.get("metric") or "")
+
+
+async def _investment_names(
+    db_session: AsyncSession, rows: Iterable[Any], known: dict[UUID, str]
+) -> dict[UUID, str]:
+    """The names of the investments the ``book`` rows read: ``known`` first, the rest by id.
+
+    ``rows`` are figure DTOs or frozen figure dicts. An id the book does not
+    hold stays absent (the row reads *unknown investment*).
+    """
+    names = dict(known)
+    missing: set[UUID] = set()
+    repo = InvestmentRepository(db_session)
+    for row in rows:
+        if _field(row, "source") != "book":
+            continue
+        investment_id, _ = _book_ref(_field(row, "source_ref"))
+        if investment_id is None or investment_id in names or investment_id in missing:
+            continue
+        investment = await repo.get_by_id(investment_id)
+        if investment is None:
+            missing.add(investment_id)
+        else:
+            names[investment_id] = investment.name
+    return names
+
+
+def _figure_as_of(raw: Any, *, is_book: bool) -> str:
+    """A figure's as-of for display: a book date as ``dd Mon YYYY``, a typed one verbatim."""
+    if raw is None or raw == "":
+        return ""
+    if is_book:
+        moment = _as_date(raw)
+        return _day(moment) if moment is not None else str(raw)
+    return str(raw)
+
+
+def _project_figure(
+    row: Any, *, value_text: Any, as_of: Any, names: dict[UUID, str], live: bool
+) -> dict[str, Any]:
+    """One figure row of the block, from a :class:`CaseFigureDTO` or a frozen row dict.
+
+    Read by field name (``_field``), so the live rows and the rows frozen at
+    close render from one template. ``value_text`` and ``as_of`` arrive
+    resolved: a typed figure's own; a live ``book`` figure's from
+    :func:`book_values_for`; a frozen figure's as frozen (a ``book`` value was
+    applied at the freeze). An empty value is *pending* on a typed row and
+    *not available* on a ``book`` row (the template words it). A ``book`` row
+    of a closed case is frozen, not live, so its chip takes the stand block's
+    frozen tone.
+    """
+    source = str(_field(row, "source") or "")
+    is_book = source == "book"
+    tone, chip = _SOURCE_CHIPS.get(source, ("typed", source))
+    if is_book and not live:
+        tone = "frozen"
+    ref_label = ""
+    if is_book:
+        investment_id, metric = _book_ref(_field(row, "source_ref"))
+        name = names.get(investment_id) if investment_id is not None else None
+        metric_label = _BOOK_METRIC_LABELS.get(metric, metric or "—")
+        ref_label = f"{name or _UNKNOWN_INVESTMENT} · {metric_label}"
+    value = str(value_text).strip() if value_text is not None else ""
+    return {
+        "id": str(_field(row, "id") or ""),
+        "label": str(_field(row, "label") or ""),
+        "value": value,
+        "pending": not value,
+        "source": source,
+        "editable_source": source in _FIGURE_EDITABLE_SOURCES,
+        "chip_css": tone,
+        "chip_label": chip,
+        "ref_label": ref_label,
+        "note": str(_field(row, "note") or ""),
+        "as_of": _figure_as_of(as_of, is_book=is_book),
+        "is_book": is_book,
+        "live": is_book and live,
+    }
+
+
+async def _closed_figures_context(
+    db_session: AsyncSession, case: CaseDTO, *, reveal: bool
+) -> dict[str, Any]:
+    """Figures of a closed case, read-only, from the newest frozen snapshot.
+
+    ``latest_frozen(...).payload["file"]["figures"]`` is read by name; its
+    ``book`` rows carry the value frozen at close. A case without a frozen
+    file (closed before the working file existed) falls back to the table's
+    rows, whose ``book`` values then read *not available*.
+    """
+    frozen = await CaseRepository(db_session).latest_frozen(case.id)
+    file_block = (frozen.payload or {}).get("file") if frozen is not None else None
+    frozen_rows = file_block.get("figures") if isinstance(file_block, dict) else None
+    rows: list[Any] = (
+        [row for row in frozen_rows if isinstance(row, dict)]
+        if isinstance(frozen_rows, list)
+        else list(await CaseFigureRepository(db_session).list_for_case(case.id))
+    )
+    names = await _investment_names(db_session, rows, {})
+    figures = [
+        _project_figure(
+            row,
+            value_text=_field(row, "value_text"),
+            as_of=_field(row, "as_of"),
+            names=names,
+            live=False,
+        )
+        for row in rows
+    ]
+    return {
+        "figures": figures,
+        "empty": not figures,
+        "reveal": reveal,
+        "investments": [],
+        "metrics": [],
+        "sources": [],
+    }
+
+
+async def _figures_context(
+    db_session: AsyncSession, case: CaseDTO, *, stand: WhereWeStand | None, reveal: bool
+) -> dict[str, Any]:
+    """Figures (D-CS-B-54, D-CS-B-55): ``{figures[{id, label, value, pending, source,
+    editable_source, chip_css, chip_label, ref_label, note, as_of, is_book, live}], empty,
+    reveal, investments[{id, name, linked}], metrics[{key, label}], sources[{value, label}]}``.
+
+    On an open or waiting case the rows are the figures table's, in
+    ``position`` order; a ``book`` row's value and as-of are read live through
+    :func:`book_values_for`. Where we stand is composed here only when
+    ``stand`` is ``None`` **and** a ``book`` figure exists, so a case of typed
+    figures reads neither the Watch Desk nor a NAV. ``investments`` are the
+    active investments for *Add from the book*, the linked ones first, then by
+    name. A closed case renders from its frozen snapshot
+    (:func:`_closed_figures_context`).
+    """
+    if case.state not in _MUTABLE_STATES:
+        return await _closed_figures_context(db_session, case, reveal=reveal)
+
+    figures = await CaseFigureRepository(db_session).list_for_case(case.id)
+    book_values: dict[str, dict] = {}
+    if any(figure.source == "book" for figure in figures):
+        if stand is None:
+            stand = await _compose_stand(db_session, case, figures)
+        book_values = book_values_for(stand, figures)
+
+    active = await InvestmentRepository(db_session).list_active()
+    links = await CaseInvestmentRepository(db_session).list_for_case(case.id)
+    linked = {link.investment_id for link in links}
+    names = await _investment_names(db_session, figures, {i.id: i.name for i in active})
+
+    rows: list[dict[str, Any]] = []
+    for figure in figures:
+        if figure.source == "book":
+            resolved = book_values.get(str(figure.id)) or {}
+            value_text, as_of = resolved.get("value_text"), resolved.get("as_of")
+        else:
+            value_text, as_of = figure.value_text, figure.as_of
+        rows.append(
+            _project_figure(figure, value_text=value_text, as_of=as_of, names=names, live=True)
+        )
+
+    return {
+        "figures": rows,
+        "empty": not rows,
+        "reveal": reveal,
+        "investments": [
+            {"id": str(investment.id), "name": investment.name, "linked": investment.id in linked}
+            for investment in sorted(active, key=lambda i: (i.id not in linked, i.name.lower()))
+        ],
+        "metrics": [{"key": key, "label": label} for key, label in _BOOK_METRIC_LABELS.items()],
+        "sources": [
+            {"value": source, "label": _SOURCE_CHIPS[source][1]}
+            for source in _FIGURE_EDITABLE_SOURCES
+        ],
+    }
+
+
 async def load_section_context(
-    db_session: AsyncSession, case: CaseDTO, session: SessionDTO, name: str, *, reveal: bool = False
+    db_session: AsyncSession,
+    case: CaseDTO,
+    session: SessionDTO,
+    name: str,
+    *,
+    reveal: bool = False,
+    stand: WhereWeStand | None = None,
 ) -> dict[str, Any]:
     """The context one block partial renders from (D-CS-B-49).
 
     The shared keys (``csrf_token``, ``case_id``, ``is_mutable``, ``stamp``,
     ``reveal``) plus one key named after the section: ``question`` (see
-    :func:`_question_context`) or ``stand`` (see :func:`_stand_context`).
-    :func:`load_case_file_context` composes the file from the same calls, so
-    the first render and a block's re-render cannot drift.
+    :func:`_question_context`), ``stand`` (see :func:`_stand_context`),
+    ``threads`` (see :func:`_threads_context`) or ``figures`` (see
+    :func:`_figures_context`). :func:`load_case_file_context` composes the
+    file from the same calls, so the first render and a block's re-render
+    cannot drift.
 
     Args:
         db_session: A tenant-scoped session.
@@ -1475,6 +1844,9 @@ async def load_section_context(
         name: One of ``_SECTION_NAMES``.
         reveal: Render a hidden-when-empty block visible, its add control
             focused (the outline's ``+``).
+        stand: Where we stand already composed for this request, for the
+            stand and figures blocks; ``None`` lets the block compose its own
+            when it needs one (D-CS-B-55).
 
     Returns:
         The template context of ``_partials/cases_file_<name>.html``.
@@ -1492,8 +1864,11 @@ async def load_section_context(
     if name == "question":
         context["question"] = await _question_context(db_session, case)
     elif name == "stand":
-        figures = await CaseFigureRepository(db_session).list_for_case(case.id)
-        context["stand"] = await _stand_context(db_session, case, figures)
+        context["stand"] = await _stand_context(db_session, case, stand=stand)
+    elif name == "threads":
+        context["threads"] = await _threads_context(db_session, case, reveal=reveal)
+    elif name == "figures":
+        context["figures"] = await _figures_context(db_session, case, stand=stand, reveal=reveal)
     else:
         raise ValueError(f"Unknown section {name!r}; expected one of {', '.join(_SECTION_NAMES)}.")
     return context
@@ -1510,12 +1885,18 @@ async def load_case_file_context(
     ``linked_finding``, ``linked_label``, ``attachments_count`` /
     ``attachments_cap`` / ``show_attachments``, ``journal_href``,
     ``capture_scenario_href``, ``consult_shirley_href``. Then one key per
-    section (``question``, ``stand``) from :func:`load_section_context`.
+    section (``question``, ``stand``, ``threads``, ``figures``) from
+    :func:`load_section_context`.
+
+    An open or waiting case is composed **once** here (D-CS-B-11, D-CS-B-55):
+    the same :class:`WhereWeStand` feeds the stand block and the figures
+    block's ``book`` values.
 
     The write actions of P-CS-3a's composers (note, pin, decision, close,
     capture, consult) are offered on an *open* case only (``is_open``); the
-    working file — the question, links and documents — on an open or waiting
-    one (``is_mutable``, D-CS-B-52). A closed case renders read-only.
+    working file — the question, links, documents, threads and figures — on
+    an open or waiting one (``is_mutable``, D-CS-B-52). A closed case renders
+    read-only.
 
     Args:
         db_session: A tenant-scoped session.
@@ -1526,8 +1907,12 @@ async def load_case_file_context(
         The template context of ``_partials/cases_file.html``.
     """
     context = await _frame_context(db_session, case, session)
+    stand: WhereWeStand | None = None
+    if case.state in _MUTABLE_STATES:
+        figures = await CaseFigureRepository(db_session).list_for_case(case.id)
+        stand = await _compose_stand(db_session, case, figures)
     for name in _SECTION_NAMES:
-        context.update(await load_section_context(db_session, case, session, name))
+        context.update(await load_section_context(db_session, case, session, name, stand=stand))
     return context
 
 
@@ -1977,21 +2362,27 @@ async def post_case_question(
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Autosave The question (D-CS-B-44 … D-CS-B-46): prose, counterparty, due, framing.
+    """Autosave The question (D-CS-B-44 … D-CS-B-46, D-CS-B-56): title, prose, counterparty,
+    due, framing.
 
     Only the fields the form sent are written (``update_working_file`` is
-    partial): ``description`` and ``counterparty`` stripped, ``None`` when
-    empty; ``due_on`` ``YYYY-MM-DD`` or empty for none (anything else → 400,
-    nothing saved); ``framing`` validated by the repository (its refusal →
-    400 with the message verbatim). The stamp is compared on the case read
-    *before* the write, only for the note — the save always happens.
+    partial): ``title`` as sent (the repository strips it and refuses an empty
+    one → 400 with its message verbatim, nothing saved); ``description`` and
+    ``counterparty`` stripped, ``None`` when empty; ``due_on`` ``YYYY-MM-DD``
+    or empty for none (anything else → 400, nothing saved); ``framing``
+    validated by the repository (its refusal → 400 with the message verbatim).
+    The stamp is compared on the case read *before* the write, only for the
+    note — the save always happens.
 
-    Answers the OOB bundle alone; ``rerender=1`` (the framing switch) answers
-    the question block followed by the bundle. A closed case answers the calm
-    closed error in the note slot and saves nothing.
+    Answers the OOB bundle alone — its crumb carries the title, so the head
+    follows a rename; ``rerender=1`` (the title field, the framing switch)
+    answers the question block followed by the bundle. A closed case answers
+    the calm closed error in the note slot and saves nothing.
     """
     form = await _request_form(request)
     values: dict[str, Any] = {}
+    if "title" in form:
+        values["title"] = str(form.get("title") or "")
     if "description" in form:
         values["description"] = str(form.get("description") or "").strip() or None
     if "counterparty" in form:
@@ -2259,6 +2650,482 @@ async def post_case_attachment(
         case_id,
         attachment.id,
         len(content),
+    )
+    return _render_parts(request, parts)
+
+
+# ---------------------------------------------------------------------------
+# Threads and Figures (P-CS-3b2): the two list sections of the working file.
+# Each write runs on an open or waiting case (D-CS-B-58) and answers the
+# 3b frame: a text autosave the bundle alone, a structural change (add,
+# remove, a thread's title or status, a figure's source) its block followed
+# by the bundle. Refusals go through ``_note_refusal`` into
+# ``#cs-note-threads`` / ``#cs-note-figures``.
+# ---------------------------------------------------------------------------
+
+
+def _optional_text(form: Any, name: str) -> str | None:
+    """A form field stripped, ``None`` when empty."""
+    return str(form.get(name) or "").strip() or None
+
+
+async def _writable_case(
+    request: Request,
+    db: AsyncSession,
+    case_id: UUID,
+    session: SessionDTO,
+    *,
+    section: str,
+    action: str,
+) -> CaseDTO | HTMLResponse:
+    """The case a working-file write addresses, or the answer that refuses it.
+
+    Unknown or foreign → 404 (raised). Closed → the calm closed error in the
+    section's note slot (200, nothing written), logged because the UI does
+    not offer the write (D-CS-B-58).
+    """
+    case = await CaseRepository(db).get(case_id)
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+    if case.state not in _MUTABLE_STATES:
+        logger.warning(
+            "cases %s: closed-case write blocked tenant=%s user=%s case=%s",
+            action,
+            session.tenant_id,
+            session.user_id,
+            case_id,
+        )
+        return _note_refusal(request, section, _CLOSED_CASE_ERROR, status_code=200)
+    return case
+
+
+async def _case_thread(db: AsyncSession, case_id: UUID, thread_id: UUID) -> CaseThreadDTO:
+    """The live thread ``thread_id`` of ``case_id``.
+
+    Another case's thread, a removed thread or an unknown id is a 404
+    (D-CS-B-58): a removed thread never renders and refuses every write.
+    """
+    thread = await CaseThreadRepository(db).get(thread_id)
+    if thread is None or thread.case_id != case_id or thread.removed_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found.")
+    return thread
+
+
+async def _case_figure(db: AsyncSession, case_id: UUID, figure_id: UUID) -> CaseFigureDTO:
+    """The figure ``figure_id`` of ``case_id``; another case's or an unknown id is a 404."""
+    figure = await CaseFigureRepository(db).get(figure_id)
+    if figure is None or figure.case_id != case_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Figure not found.")
+    return figure
+
+
+async def _answer_parts(
+    db: AsyncSession,
+    case_id: UUID,
+    session: SessionDTO,
+    section: str,
+    *,
+    rerender: bool,
+    note: dict[str, str] | None,
+    block_keys: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """A write's answer: the section's block (``rerender``), then the bundle (D-CS-B-44).
+
+    The case is re-read after the write, so the stamps, the outline counts
+    and the crumb carry its new state. ``block_keys`` are set on the block's
+    own context (the thread to open or focus). The figures block composes
+    Where we stand once, after the write, when it holds a ``book`` figure
+    (D-CS-B-55).
+    """
+    updated = await CaseRepository(db).get(case_id)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+    parts: list[tuple[str, dict[str, Any]]] = []
+    if rerender:
+        block = await load_section_context(db, updated, session, section)
+        if block_keys:
+            block[section].update(block_keys)
+        parts.append((_SECTION_TEMPLATES[section], block))
+    parts.append(
+        (_OOB_TEMPLATE, await _bundle_context(db, updated, session, section=section, note=note))
+    )
+    return parts
+
+
+@router.post("/api/cases/{case_id}/threads", response_class=HTMLResponse)
+async def post_case_thread_add(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Add a thread (D-CS-B-53): the block re-rendered with it open, its prose focused.
+
+    The title is required — the repository's refusal answers 400 with its
+    message in ``#cs-note-threads`` and nothing is written. The new thread is
+    ``open`` at the next position.
+    """
+    form = await _request_form(request)
+    title = str(form.get("title") or "")
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="thread add"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        try:
+            thread = await CaseThreadRepository(db).add(case_id, title=title, now=_now())
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "threads", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "threads", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "threads",
+            rerender=True,
+            note=None,
+            block_keys={"focus_id": str(thread.id)},
+        )
+
+    logger.info(
+        "cases thread add: tenant=%s user=%s case=%s thread=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        thread.id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/threads/{thread_id}", response_class=HTMLResponse)
+async def post_case_thread(
+    request: Request,
+    case_id: UUID,
+    thread_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Update a thread (D-CS-B-53): title · prose · status · conclusion, partial by presence.
+
+    ``prose`` stripped; ``conclusion`` stripped, ``None`` when empty;
+    ``title`` and ``status`` validated by the repository (an empty title or
+    a status outside *open · confirmed · parked · refuted* → 400 with its
+    message verbatim, nothing saved). A status leaving ``open`` sets
+    ``concluded_at``; a return to ``open`` clears it (the repository's rule).
+
+    Answers the bundle alone (the prose and conclusion autosave); ``rerender=1``
+    (the title, the status) answers the block — the thread kept open, so the
+    summary follows in place — followed by the bundle. Last write wins with a
+    note (D-CS-B-45). Another case's, a removed or an unknown thread → 404.
+    """
+    form = await _request_form(request)
+    values: dict[str, Any] = {}
+    if "title" in form:
+        values["title"] = str(form.get("title") or "")
+    if "prose" in form:
+        values["prose"] = str(form.get("prose") or "").strip()
+    if "status" in form:
+        values["status"] = str(form.get("status") or "").strip()
+    if "conclusion" in form:
+        values["conclusion"] = _optional_text(form, "conclusion")
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="thread update"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_thread(db, case_id, thread_id)
+        note = _stale_note(case, form.get("stamp"))
+        try:
+            await CaseThreadRepository(db).update(thread_id, now=_now(), **values)
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "threads", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except CaseClosedError:
+            return _note_refusal(request, "threads", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "threads",
+            rerender=rerender,
+            note=note,
+            block_keys={"open_id": str(thread_id)},
+        )
+
+    logger.info(
+        "cases thread update: tenant=%s user=%s case=%s thread=%s fields=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        thread_id,
+        ",".join(sorted(values)),
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/threads/{thread_id}/remove", response_class=HTMLResponse)
+async def post_case_thread_remove(
+    request: Request,
+    case_id: UUID,
+    thread_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Remove a thread from the file (D-CS-B-53): soft — ``removed_at`` is set, the row stays.
+
+    The UI asks first (a native ``hx-confirm``). Answers the block without the
+    thread — the hidden placeholder when it was the last — and the bundle.
+    A thread already removed, another case's or an unknown one → 404.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="thread remove"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_thread(db, case_id, thread_id)
+        try:
+            await CaseThreadRepository(db).remove(thread_id, now=_now())
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "threads", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "threads", rerender=True, note=None)
+
+    logger.info(
+        "cases thread remove: tenant=%s user=%s case=%s thread=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        thread_id,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/figures", response_class=HTMLResponse)
+async def post_case_figure_add(
+    request: Request,
+    case_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Add a figure (D-CS-B-54): typed, or read from the book.
+
+    ``source`` is ``typed`` when not sent. One of *typed · document ·
+    conversation · external* adds the row as typed (``label`` required by the
+    repository; ``value_text``, ``note``, ``as_of`` stripped, ``None`` when
+    empty — an empty value reads *pending*). ``source=book`` needs an
+    ``investment_id`` the book holds and a ``metric`` of the eight; it stores
+    ``source_ref={investment_id, metric}`` with no ``value_text``, and an
+    empty label defaults to *{investment} {metric}*. ``kept`` or anything
+    else → 400. Answers the block (Where we stand composed once, after the
+    write, when a ``book`` figure exists) and the bundle.
+    """
+    form = await _request_form(request)
+    source = str(form.get("source") or "").strip() or "typed"
+    label = str(form.get("label") or "").strip()
+    book_ref: tuple[UUID, str] | None = None
+    if source == "book":
+        try:
+            investment_id = UUID(str(form.get("investment_id") or "").strip())
+        except ValueError:
+            return _note_refusal(
+                request,
+                "figures",
+                _CHOOSE_INVESTMENT_TEXT,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        metric = str(form.get("metric") or "").strip()
+        if metric not in _BOOK_METRIC_LABELS:
+            return _note_refusal(
+                request, "figures", _CHOOSE_METRIC_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+            )
+        book_ref = (investment_id, metric)
+    elif source not in _FIGURE_EDITABLE_SOURCES:
+        return _note_refusal(
+            request, "figures", _FIGURE_SOURCE_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="figures", action="figure add"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        figures = CaseFigureRepository(db)
+        try:
+            if book_ref is not None:
+                investment_id, metric = book_ref
+                investment = await InvestmentRepository(db).get_by_id(investment_id)
+                if investment is None:
+                    return _note_refusal(
+                        request,
+                        "figures",
+                        _CHOOSE_INVESTMENT_TEXT,
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                figure = await figures.add(
+                    case_id,
+                    label=label or f"{investment.name} {_BOOK_METRIC_LABELS[metric]}",
+                    source="book",
+                    source_ref={"investment_id": str(investment_id), "metric": metric},
+                    now=_now(),
+                )
+            else:
+                figure = await figures.add(
+                    case_id,
+                    label=label,
+                    source=source,
+                    value_text=_optional_text(form, "value_text"),
+                    note=_optional_text(form, "note"),
+                    as_of=_optional_text(form, "as_of"),
+                    now=_now(),
+                )
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "figures", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "figures", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "figures", rerender=True, note=None)
+
+    logger.info(
+        "cases figure add: tenant=%s user=%s case=%s figure=%s source=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        figure.id,
+        source,
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/figures/{figure_id}", response_class=HTMLResponse)
+async def post_case_figure(
+    request: Request,
+    case_id: UUID,
+    figure_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Update a figure row (D-CS-B-54): label · value_text · source · note · as_of, by presence.
+
+    Text fields are stripped, ``None`` when empty; an empty label is the
+    repository's refusal (400, verbatim). A ``book`` row takes its label and
+    note only — any other field → 400, nothing saved. A typed row's source
+    moves among *typed · document · conversation · external*; ``book``,
+    ``kept`` or a move off a ``kept`` row → 400.
+
+    Answers the bundle alone (the row autosave); ``rerender=1`` (the source
+    select, so the chip follows) answers the block too. Last write wins with a
+    note (D-CS-B-45). Another case's or an unknown figure → 404.
+    """
+    form = await _request_form(request)
+    sent = {name for name in _FIGURE_FIELDS if name in form}
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="figures", action="figure update"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        figure = await _case_figure(db, case_id, figure_id)
+        values: dict[str, Any] = {}
+        if figure.source == "book":
+            if sent - _BOOK_ROW_FIELDS:
+                return _note_refusal(
+                    request, "figures", _BOOK_ROW_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            if "value_text" in form:
+                values["value_text"] = _optional_text(form, "value_text")
+            if "as_of" in form:
+                values["as_of"] = _optional_text(form, "as_of")
+            if "source" in form:
+                source = str(form.get("source") or "").strip()
+                movable = (
+                    source in _FIGURE_EDITABLE_SOURCES and figure.source in _FIGURE_EDITABLE_SOURCES
+                )
+                if source != figure.source and not movable:
+                    return _note_refusal(
+                        request,
+                        "figures",
+                        _FIGURE_SOURCE_TEXT,
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                values["source"] = source
+        if "label" in form:
+            values["label"] = str(form.get("label") or "")
+        if "note" in form:
+            values["note"] = _optional_text(form, "note")
+        note = _stale_note(case, form.get("stamp"))
+        try:
+            await CaseFigureRepository(db).update(figure_id, now=_now(), **values)
+        except CaseWorkingFileInvalid as exc:
+            return _note_refusal(
+                request, "figures", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except CaseClosedError:
+            return _note_refusal(request, "figures", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "figures", rerender=rerender, note=note)
+
+    logger.info(
+        "cases figure update: tenant=%s user=%s case=%s figure=%s fields=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        figure_id,
+        ",".join(sorted(values)),
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/figures/{figure_id}/remove", response_class=HTMLResponse)
+async def post_case_figure_remove(
+    request: Request,
+    case_id: UUID,
+    figure_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Delete a figure (D-CS-B-54): no confirm — a figure is one line.
+
+    A hard delete (snapshots embed figures by value). Answers the block
+    without the row — the hidden placeholder when it was the last — and the
+    bundle. Another case's or an unknown figure → 404.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="figures", action="figure remove"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        await _case_figure(db, case_id, figure_id)
+        try:
+            await CaseFigureRepository(db).delete(figure_id, now=_now())
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "figures", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "figures", rerender=True, note=None)
+
+    logger.info(
+        "cases figure remove: tenant=%s user=%s case=%s figure=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        figure_id,
     )
     return _render_parts(request, parts)
 

@@ -1132,3 +1132,51 @@
 .pf-cases .pf-figtable th { white-space: nowrap; }
 .pf-cases .pf-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-cases .pf-figtable form { margin: 0; }
+
+/* P-CS-3b2 — M-CS-2 families, provisional */
+
+/* Threads: one <details> per thread; the summary is the title, the state chip
+   and the dates, the body the thread's form (or, closed, its prose and
+   conclusion). The mockup's view-case b-threads, transcribed on tokens. */
+.pf-cases .pf-thread { border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
+.pf-cases .pf-thread > summary { list-style: none; display: flex; align-items: center; gap: var(--ui-space-3); padding: 12px 16px; cursor: pointer; }
+.pf-cases .pf-thread > summary::-webkit-details-marker { display: none; }
+.pf-cases .pf-thread > summary::before { content: "›"; color: var(--ui-text-tertiary); transition: transform var(--ui-motion-duration); }
+.pf-cases .pf-thread[open] > summary::before { transform: rotate(90deg); }
+.pf-cases .pf-thread__q { flex: 1; min-width: 0; margin: 0; color: var(--ui-text-primary); font-size: var(--ui-font-scale-md); font-weight: var(--ui-font-weight-medium); }
+.pf-cases .pf-thread__meta { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
+.pf-cases .pf-thread__body { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: 4px 16px 16px 36px; }
+.pf-cases .pf-thread__concl { padding: 10px 12px; border-radius: var(--ui-radius-sm); background: var(--ui-background-section); box-shadow: inset 2px 0 0 var(--ui-semantic-positive); }
+.pf-cases .pf-thread__concl p { margin: 0; color: var(--ui-text-primary); }
+
+/* Authored: the thread's form is a column; its tools a right-aligned row. */
+.pf-cases .pf-thread__form { display: flex; flex-direction: column; gap: var(--ui-space-3); }
+.pf-cases .pf-thread__tools { display: flex; justify-content: flex-end; }
+
+/* The two thread states P-CS-3a did not tone (open and confirmed are above). */
+.pf-cases .pf-state--parked { color: var(--ui-text-secondary); }
+.pf-cases .pf-state--parked::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-semantic-warn); }
+.pf-cases .pf-state--refuted { --dot: var(--ui-text-tertiary); }
+
+/* Figures: a pending value is italic and quiet; the external source chip on
+   a token (the mockup's literal colour is not a token). */
+.pf-cases .pf-figtable .is-pending { color: var(--ui-text-tertiary); font-style: italic; }
+.pf-cases .pf-src--ext { --src: var(--ui-semantic-muted); }
+
+/* Authored: inputs inside the figures table keep a usable width; the source
+   chip and its select or note sit on one line. */
+.pf-cases .pf-figtable td .pf-input,
+.pf-cases .pf-figtable td .pf-select { min-width: 8rem; }
+.pf-cases .pf-figtable td .pf-src + .pf-select,
+.pf-cases .pf-figtable td .pf-src + .pf-input,
+.pf-cases .pf-figtable td .pf-select + .pf-input { margin-left: var(--ui-space-2); }
+.pf-cases .pf-figtable td .pf-select,
+.pf-cases .pf-figtable td .pf-src ~ .pf-input { width: auto; }
+
+/* Authored: the add forms — one per list block, two side by side under
+   Figures (pf-case__adders), each a wrapping row of fields ending in its
+   button. */
+.pf-cases .pf-case__adders { display: flex; flex-wrap: wrap; gap: var(--ui-space-4); align-items: flex-start; }
+.pf-cases .pf-case__adders > .pf-case__add { flex: 1 1 360px; }
+.pf-cases .pf-case__add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2) var(--ui-space-3); }
+.pf-cases .pf-case__add .pf-field { flex: 1 1 160px; }

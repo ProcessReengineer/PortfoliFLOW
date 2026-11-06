@@ -98,11 +98,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from core.exceptions import (
     CaseClosedError,
     CaseStateInvalid,
+    CaseWorkingFileInvalid,
     DuplicateCashPositionError,
     MissingFxRateError,
     PlanHorizonInvalidError,
     PlanSeamMissingError,
 )
+from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories._session import tenant_context
 from core.repositories.asset_class_repository import AssetClassRepository
 from core.repositories.case_repository import CaseDTO, CaseRepository
@@ -176,6 +178,18 @@ from services.overlay import (
 )
 
 from web.auth import require_session, verify_csrf
+from web.brief_stash import BRIEF_KIND_CASE, ActiveBrief, _get_active_brief, _set_active_brief
+from web.case_keep import (
+    KEEP_CASE_GONE_MESSAGE,
+    KEEP_THREAD_GONE_MESSAGE,
+    KeepTarget,
+    keep_artifact,
+    keep_trigger,
+    kept_line_context,
+    picker_options,
+    posted_target,
+    resolve_keep_target,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -195,10 +209,12 @@ COMPOSITION_URL: str = "/api/planning-desk/scenario-composition"
 #: the marker URL is built against one target, the C4 ``JOURNAL_DEEP_LINK`` idiom.
 AREA_URL: str = "/planning-desk"
 
-#: The scenario-snapshot pin endpoint (ADR-0107 C5). One URL, two verbs: ``GET``
-#: renders the pin dialog (the ``list_open`` case picker + comment), ``POST``
-#: writes the frozen snapshot to the chosen case's timeline.
-PIN_SCENARIO_URL: str = "/api/planning-desk/pin-scenario"
+#: Keep (ADR-0138 §8 channel 2, §9): ``POST`` keeps the result on screen as a
+#: ``scenario_snapshot`` into the target case (or answers the picker); ``GET``
+#: clears the slot. The picker re-renders for another case from
+#: ``KEEP_PICKER_URL``.
+KEEP_URL: str = "/api/planning-desk/keep"
+KEEP_PICKER_URL: str = "/api/planning-desk/keep/picker"
 
 #: The `case=` query key — the navigation marker a case sets when it sends the PM
 #: to the Desk "capturing for" it (ADR-0107 C5, binding decision 4). It is *not*
@@ -209,8 +225,7 @@ _CASE_MARKER_KEY: str = "case"
 _SECTION_TEMPLATE: str = "_partials/planning_desk_cash_flow_planning.html"
 _ERROR_TEMPLATE: str = "_partials/planning_desk_error.html"
 _COMPOSITION_TEMPLATE: str = "_partials/planning_desk_composition.html"
-_PIN_DIALOG_TEMPLATE: str = "_partials/planning_desk_pin_dialog.html"
-_PIN_CONFIRM_TEMPLATE: str = "_partials/planning_desk_pin_confirm.html"
+_KEEP_TEMPLATE: str = "_partials/planning_desk_keep.html"
 
 #: Per KPI key, whether a *rise* is the favourable move — drives the delta
 #: badge's tone (ADR-0067 pair idiom). More AUM, more headroom and more cash are
@@ -814,11 +829,12 @@ def _state_pairs(
 ) -> list[tuple[str, str]]:
     """The page state's ordered ``(key, value)`` pairs — the marker excluded.
 
-    The body :func:`_query` encodes into a URL, and the body the pin dialog
+    The body :func:`_query` encodes into a URL, and the body the Keep form
     embeds as hidden ``<input>``s so its POST round-trips exactly what the page
-    round-trips (ADR-0107 C5). Factored so the link a control carries and the
-    form the dialog submits describe one state — and so the marker, which is
-    navigation context, is added *only* by :func:`_query`, never by the state.
+    round-trips (ADR-0107 C5, ADR-0138 §8). Factored so the link a control
+    carries and the form Keep submits describe one state — and so the marker,
+    which is navigation context, is added *only* by :func:`_query`, never by
+    the state.
     """
     return [
         ("periodisation", periodisation.value),
@@ -1766,7 +1782,8 @@ def _build_scenario_context(
     labels: list[str],
     composition_query: str,
     capturing: dict[str, Any] | None = None,
-    pin_open_query: str | None = None,
+    keep_state_pairs: list[tuple[str, str]] | None = None,
+    case_marker: str | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     """Build the ``scenario`` sub-context for the result region (ADR-0104 §5).
@@ -1782,9 +1799,11 @@ def _build_scenario_context(
       marker is in force, or ``None``. It is navigation context, so it shows in
       **both** the notice and the scored branch (the marker survives even when
       the scenario cannot be scored).
-    * ``pin`` — the "Pin to case…" affordance's dialog-open query, present only in
-      the scored branch: the pin freezes a *result*, so the affordance appears
-      exactly when there is one to freeze (mirroring the region's own condition).
+    * ``keep`` — Keep's form (ADR-0138 §8): the page state as hidden inputs
+      (``state_pairs``) and the capturing ``marker`` when one is in force,
+      present only in the scored branch: a keep freezes a *result*, so the
+      gestures appear exactly when there is one to freeze (mirroring the
+      region's own condition).
     """
     if result is None:
         return {"scenario": {"error": error, "capturing": capturing}}
@@ -1817,7 +1836,10 @@ def _build_scenario_context(
             "composition_url": COMPOSITION_URL,
             "composition_query": composition_query,
             "capturing": capturing,
-            "pin": {"open_query": pin_open_query},
+            "keep": {
+                "state_pairs": keep_state_pairs or [],
+                "marker": case_marker if capturing is not None else None,
+            },
         }
     }
 
@@ -1952,21 +1974,20 @@ def _build_section_context(
                 case_marker=case_marker,
             ),
             capturing=capturing,
-            # The dialog-open query carries the marker (so the picker preselects
-            # the capturing case) *and* the whole page state (which the dialog
-            # freezes into hidden inputs for the POST). ADR-0107 C5.
-            pin_open_query=_query(
+            # Keep's form freezes the whole page state into hidden inputs; the
+            # marker rides beside it, never inside it (ADR-0107 C5, D-CS-B-89).
+            keep_state_pairs=_state_pairs(
                 periodisation=periodisation,
                 horizon=horizon,
                 currency_view=currency_view,
                 view=view,
                 overlay=overlay,
-                case_marker=case_marker,
             ),
+            case_marker=case_marker,
             error=scenario_error,
         ),
-        # The pin endpoint the "Pin to case…" affordance opens against (C5).
-        "pin_scenario_url": PIN_SCENARIO_URL,
+        # The endpoint Keep's two gestures post to (ADR-0138 §8).
+        "keep_url": KEEP_URL,
         "header": header,
         "rows": rows,
         "total_cells": _cells(timeline.total, timeline),
@@ -2149,19 +2170,20 @@ def _parse_case_marker(raw: str | None) -> UUID | None:
 
 
 async def _resolve_case_marker(db_session: AsyncSession, raw: str | None) -> CaseDTO | None:
-    """Resolve the ``case=`` marker to an **open** case, or ``None``.
+    """Resolve the ``case=`` marker to an **open or waiting** case, or ``None``.
 
     Malformed, unknown (or foreign-tenant, which RLS resolves to ``None``), and
     closed markers all yield ``None`` — the marker is dropped and the Desk renders
-    normally (ADR-0107 C5, Step 1). Validated fresh on every request, so a link
-    made while a case was open silently loses its chip once the case closes,
-    rather than dangling.
+    normally (ADR-0107 C5, Step 1). A waiting case still takes writes, so its
+    *Capture scenario* lands capturing (D-CS-B-93). Validated fresh on every
+    request, so a link made while a case was open silently loses its chip once
+    the case closes, rather than dangling.
     """
     marker_id = _parse_case_marker(raw)
     if marker_id is None:
         return None
     case = await CaseRepository(db_session).get(marker_id)
-    if case is None or case.state != "open":
+    if case is None or case.state not in _MUTABLE_STATES:
         return None
     return case
 
@@ -2667,6 +2689,8 @@ async def get_cash_flow_planning_section(  # noqa: PLR0913 — one flat page sta
         case_marker=case_marker,
         capturing=capturing,
     )
+    # Keep's form posts with the session's token (ADR-0138 §8).
+    context["csrf_token"] = session.csrf_token
     response = cast(
         HTMLResponse,
         _templates(request).TemplateResponse(request, _SECTION_TEMPLATE, context),
@@ -2835,35 +2859,32 @@ def _composition_notice(request: Request, message: str) -> HTMLResponse:
 
 
 # ---------------------------------------------------------------------------
-# Scenario-snapshot pinning — the pin pipeline's second artifact class
-# (ADR-0107 C5)
+# Keep — the scenario snapshot (ADR-0107 C5's artefact class; ADR-0138 §8, §9)
 #
-# A scenario state becomes a frozen, curated record on a case's timeline. The
-# snapshot serialises exactly what the results region *renders* — parameter
-# chips, the four KPI pairs, the headroom families, the two horizon feet — plus
-# the canonical query string as documentation. Nothing new is computed (Gate-C0):
+# A scenario state becomes a frozen artefact kept in a case file. The snapshot
+# serialises exactly what the results region *renders* — parameter chips, the
+# four KPI pairs, the headroom families, the two horizon feet — plus the
+# canonical query string as documentation. Nothing new is computed (Gate-C0):
 # the endpoint rebuilds the results context through the very builders the page
 # uses, then reads their presentation output. No charts, no live links, no
-# rehydration path (binding decisions 1-3).
+# rehydration path (binding decisions 1-3). Keep carries no comment and opens
+# no dialog: "Keep →" writes into the target (the capturing marker's case,
+# else the session's, D-CS-B-89), "Keep to…" opens the picker in
+# ``#pd-keep-slot``. The pin dialog of ADR-0107 C5 is retired.
 # ---------------------------------------------------------------------------
 
-#: The artifact-class discriminator written into a case's pin payload
-#: (binding decision 3). The Cases timeline reads it to select the
-#: scenario-snapshot render arm; any other value falls to its calm fallback.
+#: The kept class a Desk result becomes (ADR-0138 §9); the Cases file reads it
+#: to select the scenario-snapshot anatomy.
 _SNAPSHOT_ARTIFACT: str = "scenario_snapshot"
 
-#: The Cases area page the empty-picker dialog links out to (there are no open
-#: cases to capture into, so the dialog points the PM at Cases rather than
-#: offering a dead dropdown — Step 2).
+#: Every kept scenario's caption (D-CS-B-85).
+_SNAPSHOT_CAPTION: str = "Scenario snapshot"
+
+#: The Cases area page the picker's no-case state links out to.
 _CASES_AREA_URL: str = "/cases"
 
-_PIN_CLOSED_CASE_MESSAGE: str = (
-    "This case is closed — closed cases are read-only and cannot be captured "
-    "into. Pick an open case."
-)
-_PIN_NO_RESULT_MESSAGE: str = (
-    "This scenario produced no result to pin — an empty snapshot is never "
-    "frozen. Re-check the parameters and try again."
+_KEEP_NO_RESULT_MESSAGE: str = (
+    "This scenario produced no result to keep — an empty snapshot is never kept."
 )
 
 
@@ -2873,27 +2894,15 @@ def _partial(
     context: dict[str, Any],
     *,
     status_code: int = 200,
+    headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
     """Render ``template`` with ``context`` as an :class:`HTMLResponse`."""
     return cast(
         HTMLResponse,
-        _templates(request).TemplateResponse(request, template, context, status_code=status_code),
+        _templates(request).TemplateResponse(
+            request, template, context, status_code=status_code, headers=headers
+        ),
     )
-
-
-def _picker_options(cases: Sequence[CaseDTO]) -> list[dict[str, str]]:
-    """Project open cases into the pin dialog's picker (``CASE-NNNN — title``).
-
-    Order is the repository's — newest ``opened_at`` first (Step 2); the route
-    never re-sorts.
-    """
-    return [
-        {
-            "id": str(case.id),
-            "label": f"CASE-{case.case_number:04d} — {case.title}",
-        }
-        for case in cases
-    ]
 
 
 def _snapshot_chips(chips: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -2934,109 +2943,159 @@ def _build_snapshot(
     }
 
 
-@router.get(PIN_SCENARIO_URL, response_class=HTMLResponse)
-async def get_pin_scenario_dialog(  # noqa: PLR0913 — one flat page state
-    request: Request,
-    periodisation: str = Periodisation.QUARTERLY.value,
-    horizon: str = str(DEFAULT_HORIZON_QUARTERS),
-    currency_view: str = CurrencyView.PER_CURRENCY.value,
-    view: str = WorldView.SCENARIO.value,
-    case: str | None = None,
-    cancel: bool = False,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Render the "Pin to case…" dialog into ``#pd-pin-dialog`` (ADR-0107 C5).
+def _keep_state(
+    params: Any,
+) -> tuple[Periodisation, int, CurrencyView, WorldView, Overlay] | None:
+    """Read the page state off a form or a query string, or ``None`` when malformed.
 
-    Opened by the results region's affordance, carrying the current page state
-    (which the dialog embeds as hidden inputs, so the POST freezes exactly the
-    state on screen) and the ``case`` marker (which preselects the picker). A
-    ``cancel`` flag clears the slot — the composer-cancel idiom.
-
-    The picker is the tenant's open cases, newest first; with none, the dialog
-    says so calmly and links to the Cases area rather than offering a dead
-    dropdown (Step 2). The page state is re-serialised as ``(key, value)`` pairs
-    **without** the marker — a snapshot's query is scenario state, not navigation.
-
-    A malformed dialog-open link (the affordance never emits one) degrades to an
-    empty slot rather than a status line on this secondary surface.
+    Keep's form and the picker carry the state as hidden inputs (the
+    ``_state_pairs`` contract); they only ever emit valid ones, so a malformed
+    set is a hand-built request, answered as an empty slot rather than folded
+    into a snapshot.
     """
-    if cancel:
-        return HTMLResponse("")
     try:
-        periods = _parse_periodisation(periodisation)
-        quarters = _parse_horizon(horizon)
-        currencies = _parse_currency_view(currency_view)
-        world = _parse_view(view)
-        overlay = _overlay_from(request)
+        return (
+            _parse_periodisation(str(params.get("periodisation") or "")),
+            _parse_horizon(str(params.get("horizon") or "")),
+            _parse_currency_view(str(params.get("currency_view") or "")),
+            _parse_view(str(params.get("view") or "")),
+            parse_overlay(params.multi_items()),
+        )
     except (ViewParameterError, OverlayError):
-        return HTMLResponse("")
+        return None
 
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        open_cases = await CaseRepository(db_session).list_open()
-        marker_case = await _resolve_case_marker(db_session, case)
 
-    return _partial(
-        request,
-        _PIN_DIALOG_TEMPLATE,
-        {
-            "csrf_token": session.csrf_token,
-            "pin_scenario_url": PIN_SCENARIO_URL,
-            "cases_area_url": _CASES_AREA_URL,
-            "cases": _picker_options(open_cases),
-            "preselect": (str(marker_case.id) if marker_case is not None else None),
-            "state_pairs": _state_pairs(
-                periodisation=periods,
-                horizon=quarters,
-                currency_view=currencies,
-                view=world,
-                overlay=overlay,
-            ),
-            "comment": "",
-            "error": None,
-        },
+async def _result_snapshot(
+    db_session: AsyncSession,
+    *,
+    periodisation: Periodisation,
+    horizon: int,
+    currency_view: CurrencyView,
+    view: WorldView,
+    overlay: Overlay,
+) -> dict[str, Any] | None:
+    """Freeze the result of one page state, or ``None`` when it yields none.
+
+    The results context is rebuilt through the *same* builders the page uses
+    (``load_cash_flow_planning_inputs`` → ``project_cash_flow_planning`` →
+    ``_assemble_scenario`` → ``_build_scenario_context`` → ``_build_chips`` →
+    ``_build_snapshot``); any book or projection failure, or a scenario that
+    cannot be scored, is "no result" rather than a status line.
+    """
+    investments = InvestmentRepository(db_session)
+    names = {inv.id: inv.name for inv in await investments.list_active()}
+    try:
+        inputs = await load_cash_flow_planning_inputs(
+            investments=investments,
+            navs=InvestmentNavRepository(db_session),
+            cashflows=InvestmentCashflowRepository(db_session),
+            tenants=TenantRepository(db_session),
+            fx_rates=FxRateRepository(db_session),
+            periodisation=periodisation,
+        )
+        result = project_cash_flow_planning(
+            baseline=inputs.baseline,
+            overlay=overlay,
+            actual_cash=inputs.actual_cash,
+            converter=inputs.converter,
+            periodisation=periodisation,
+            horizon_quarters=horizon,
+        )
+    except (
+        PlanSeamMissingError,
+        DuplicateCashPositionError,
+        PlanHorizonInvalidError,
+        MissingFxRateError,
+        OverlayError,
+    ):
+        return None
+
+    scenario_result, _scenario_error = await _assemble_scenario(
+        db_session=db_session,
+        cash_flow_inputs=inputs,
+        result=result,
+        overlay=overlay,
+    )
+    if scenario_result is None:
+        return None
+    scenario = _build_scenario_context(
+        result=scenario_result,
+        functional_currency=result.baseline.functional_currency,
+        labels=[period.label for period in result.baseline.periods],
+        composition_query="",
+    )["scenario"]
+    chips = _build_chips(
+        overlay=overlay,
+        names=names,
+        periodisation=periodisation,
+        horizon=horizon,
+        currency_view=currency_view,
+        view=view,
+    )
+    return _build_snapshot(
+        scenario=scenario,
+        chips=chips,
+        query=_query(
+            periodisation=periodisation,
+            horizon=horizon,
+            currency_view=currency_view,
+            view=view,
+            overlay=overlay,
+        ),
     )
 
 
-@router.post(PIN_SCENARIO_URL, response_class=HTMLResponse)
-async def post_pin_scenario(
-    request: Request,
+async def _keep_picker_context(
+    db_session: AsyncSession,
+    session: SessionDTO,
+    *,
+    state_pairs: list[tuple[str, str]],
+    marker: str | None,
+    target: KeepTarget | None,
+    requested: str = "",
+    error: str | None = None,
+) -> dict[str, Any]:
+    """The picker's context in ``#pd-keep-slot`` — the chat picker's shape plus the state."""
+    options, selected = await picker_options(db_session, requested=requested, target=target)
+    return {
+        "mode": "picker",
+        "csrf_token": session.csrf_token,
+        "keep_url": KEEP_URL,
+        "picker_url": KEEP_PICKER_URL,
+        "cases_area_url": _CASES_AREA_URL,
+        "state_pairs": state_pairs,
+        "marker": marker,
+        "options": options,
+        "selected_thread": selected,
+        "error": error,
+    }
+
+
+@router.get(KEEP_URL, response_class=HTMLResponse)
+async def get_keep_slot(
     session: SessionDTO = Depends(require_session),
-    _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Freeze the on-screen scenario result and pin it to a case (ADR-0107 C5).
+    """Clear ``#pd-keep-slot`` — the picker's Cancel (``?cancel=1``, the composer-cancel idiom)."""
+    return HTMLResponse("")
 
-    The body carries the page state (the same params the page round-trips) plus
-    ``case_id`` and ``comment``. Gates, each re-rendering the dialog with an
-    inline error: comment non-empty → case exists → case open → the posted state
-    yields a scenario result (else "nothing to pin"; an empty snapshot is never
-    frozen). The results context is rebuilt through the *same* builders the page
-    uses; the snapshot serialises the presentation data (no charts, no live
-    links) and the canonical query as documentation (binding decisions 1-3).
 
-    On success the dialog is replaced by a quiet in-place confirmation with a
-    link to the case — the Desk keeps its state, so the PM can pin another right
-    away (Step 3). Nothing is written on any gate failure.
+@router.get(KEEP_PICKER_URL, response_class=HTMLResponse)
+async def get_keep_picker(
+    request: Request,
+    case_id: str = "",
+    case: str | None = None,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The picker for the state on screen, for ``case_id`` when it takes writes (D-CS-B-87).
+
+    Re-rendered by the picker's *Another case…* select, which includes its
+    form — the page state, the marker and the choice. Nothing is written; a
+    malformed state answers an empty slot.
     """
-    form = getattr(request.state, "form", None)
-    if form is None:
-        form = await request.form()
-
-    comment = str(form.get("comment") or "").strip()
-    case_id_raw = str(form.get("case_id") or "").strip()
-
-    # The page state is parsed first — a malformed set is a hand-built request
-    # (the dialog only ever emits valid hidden inputs), answered as an empty slot
-    # rather than folded into a snapshot.
-    try:
-        periods = _parse_periodisation(str(form.get("periodisation") or ""))
-        quarters = _parse_horizon(str(form.get("horizon") or ""))
-        currencies = _parse_currency_view(str(form.get("currency_view") or ""))
-        world = _parse_view(str(form.get("view") or ""))
-        overlay = parse_overlay(form.multi_items())
-    except (ViewParameterError, OverlayError):
+    state = _keep_state(request.query_params)
+    if state is None:
         return HTMLResponse("")
-
+    periods, quarters, currencies, world, overlay = state
     state_pairs = _state_pairs(
         periodisation=periods,
         horizon=quarters,
@@ -3046,145 +3105,143 @@ async def post_pin_scenario(
     )
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
-        open_cases = await CaseRepository(db_session).list_open()
-
-        def _dialog_error(message: str, *, status_code: int = 200) -> HTMLResponse:
-            """Re-render the dialog inline, carrying an error and the inputs.
-
-            200 for a reliable HTMX swap (the composer idiom); the picked case
-            and the comment survive so the operator does not retype them.
-            """
-            return _partial(
-                request,
-                _PIN_DIALOG_TEMPLATE,
-                {
-                    "csrf_token": session.csrf_token,
-                    "pin_scenario_url": PIN_SCENARIO_URL,
-                    "cases_area_url": _CASES_AREA_URL,
-                    "cases": _picker_options(open_cases),
-                    "preselect": case_id_raw or None,
-                    "state_pairs": state_pairs,
-                    "comment": comment,
-                    "error": message,
-                },
-                status_code=status_code,
-            )
-
-        # Gate 1: a curation comment is mandatory.
-        if not comment:
-            return _dialog_error(
-                "A capture comment is required — say what this scenario shows "
-                "and why it is worth keeping."
-            )
-        # Gate 2: the case exists in this tenant. The picker only offers real
-        # open cases, so a miss is a race (closed since) or a hand-built id.
-        try:
-            case_id = UUID(case_id_raw)
-        except ValueError:
-            return _dialog_error("Choose a case to capture into.")
-        case = await CaseRepository(db_session).get(case_id)
-        if case is None:
-            return _dialog_error("That case could not be found — it may have just been closed.")
-        # Gate 3: the case is open (closed cases are immutable, ADR-0107 §4).
-        if case.state != "open":
-            return _dialog_error(_PIN_CLOSED_CASE_MESSAGE)
-
-        # Gate 4: the posted state yields a scenario result. Rebuild the results
-        # context through the same builders the page uses; any book/projection
-        # failure is "nothing to pin" rather than a status line.
-        investments = InvestmentRepository(db_session)
-        names = {inv.id: inv.name for inv in await investments.list_active()}
-        try:
-            inputs = await load_cash_flow_planning_inputs(
-                investments=investments,
-                navs=InvestmentNavRepository(db_session),
-                cashflows=InvestmentCashflowRepository(db_session),
-                tenants=TenantRepository(db_session),
-                fx_rates=FxRateRepository(db_session),
-                periodisation=periods,
-            )
-            result = project_cash_flow_planning(
-                baseline=inputs.baseline,
-                overlay=overlay,
-                actual_cash=inputs.actual_cash,
-                converter=inputs.converter,
-                periodisation=periods,
-                horizon_quarters=quarters,
-            )
-        except (
-            PlanSeamMissingError,
-            DuplicateCashPositionError,
-            PlanHorizonInvalidError,
-            MissingFxRateError,
-            OverlayError,
-        ):
-            return _dialog_error(_PIN_NO_RESULT_MESSAGE)
-
-        scenario_result, _scenario_error = await _assemble_scenario(
-            db_session=db_session,
-            cash_flow_inputs=inputs,
-            result=result,
-            overlay=overlay,
+        marker_case = await _resolve_case_marker(db_session, case)
+        target = await resolve_keep_target(
+            db_session,
+            brief=_get_active_brief(request, str(session.id)),
+            marker_case=marker_case,
         )
-        if scenario_result is None:
-            return _dialog_error(_PIN_NO_RESULT_MESSAGE)
-
-        # The frozen record: the very presentation the results region renders.
-        scenario = _build_scenario_context(
-            result=scenario_result,
-            functional_currency=result.baseline.functional_currency,
-            labels=[period.label for period in result.baseline.periods],
-            composition_query="",
-        )["scenario"]
-        chips = _build_chips(
-            overlay=overlay,
-            names=names,
-            periodisation=periods,
-            horizon=quarters,
-            currency_view=currencies,
-            view=world,
+        context = await _keep_picker_context(
+            db_session,
+            session,
+            state_pairs=state_pairs,
+            marker=str(marker_case.id) if marker_case is not None else None,
+            target=target,
+            requested=case_id,
         )
-        snapshot = _build_snapshot(
-            scenario=scenario,
-            chips=chips,
-            query=_query(
+    return _partial(request, _KEEP_TEMPLATE, context)
+
+
+@router.post(KEEP_URL, response_class=HTMLResponse)
+async def post_keep(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Keep the result on screen as a scenario snapshot (ADR-0138 §8, §9; D-CS-B-89).
+
+    The body is the page state (the ``_state_pairs`` contract) plus the
+    capturing marker ``case`` when one is in force, and from the picker
+    ``case_id`` / ``thread_id`` (``""`` = the file); ``pick=1`` is *Keep to…*.
+    Gates in order, nothing written on any of them: the state parses (else an
+    empty slot) → a target exists — the posted one, else the marker's case
+    (with the stash's thread when the stash names it), else the stash's;
+    none, or ``pick=1``, answers the picker → the state yields a result (else
+    *no result to keep*) → the case still takes writes (else the picker with
+    the refusal). Then one ``case_kept`` row, ``scenario_snapshot``,
+    ``via="keep"``, caption *Scenario snapshot*.
+
+    The kept line answers into ``#pd-keep-slot`` with ``HX-Trigger``
+    ``pf:case-kept`` (and ``pf:brief-changed`` when a posted target became
+    the brief, D-CS-B-86). The Desk keeps its state, so the PM can keep
+    another right away.
+    """
+    form = getattr(request.state, "form", None)
+    if form is None:
+        form = await request.form()
+    state = _keep_state(form)
+    if state is None:
+        return HTMLResponse("")
+    periods, quarters, currencies, world, overlay = state
+    case_id = str(form.get("case_id") or "")
+    thread_id = str(form.get("thread_id") or "")
+    pick = str(form.get("pick") or "")
+    marker_raw = str(form.get(_CASE_MARKER_KEY) or "") or None
+    state_pairs = _state_pairs(
+        periodisation=periods,
+        horizon=quarters,
+        currency_view=currencies,
+        view=world,
+        overlay=overlay,
+    )
+    session_id = str(session.id)
+    stashed = _get_active_brief(request, session_id)
+
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        marker_case = await _resolve_case_marker(db_session, marker_raw)
+        marker = str(marker_case.id) if marker_case is not None else None
+        current = await resolve_keep_target(db_session, brief=stashed, marker_case=marker_case)
+        target: KeepTarget | None = current
+        refusal: str | None = None
+        if case_id.strip():
+            posted = await posted_target(db_session, case_id=case_id, thread_id=thread_id)
+            if isinstance(posted, str):
+                refusal, target = posted, None
+            else:
+                target = posted
+        elif pick == "1":
+            target = None
+        if target is not None:
+            snapshot = await _result_snapshot(
+                db_session,
                 periodisation=periods,
                 horizon=quarters,
                 currency_view=currencies,
                 view=world,
                 overlay=overlay,
-            ),
-        )
-
-        try:
-            await CaseRepository(db_session).append_entry(
-                case_id,
-                kind="pin",
-                actor="pm",
-                actor_user_id=session.user_id,
-                payload={
-                    "artifact": _SNAPSHOT_ARTIFACT,
-                    "comment": comment,
-                    "snapshot": snapshot,
-                },
-                now=datetime.now(timezone.utc),
             )
-        except (CaseClosedError, CaseStateInvalid):
-            # Raced to closed between the open-gate and the write.
-            return _dialog_error(_PIN_CLOSED_CASE_MESSAGE)
+            if snapshot is None:
+                return _partial(
+                    request, _KEEP_TEMPLATE, {"mode": "empty", "message": _KEEP_NO_RESULT_MESSAGE}
+                )
+            try:
+                kept = await keep_artifact(
+                    db_session,
+                    target=target,
+                    artifact=_SNAPSHOT_ARTIFACT,
+                    payload={"snapshot": snapshot},
+                    caption=_SNAPSHOT_CAPTION,
+                    kept_by=session.user_id,
+                    now=datetime.now(timezone.utc),
+                )
+            except (CaseClosedError, CaseStateInvalid):
+                # Closed or vanished between the gate and the write.
+                refusal, target = KEEP_CASE_GONE_MESSAGE, None
+            except CaseWorkingFileInvalid as exc:
+                if exc.field != "thread_id":
+                    raise
+                refusal, target = KEEP_THREAD_GONE_MESSAGE, None
+        if target is None:
+            context = await _keep_picker_context(
+                db_session,
+                session,
+                state_pairs=state_pairs,
+                marker=marker,
+                target=current,
+                requested=case_id if refusal == KEEP_THREAD_GONE_MESSAGE else "",
+                error=refusal,
+            )
+            return _partial(request, _KEEP_TEMPLATE, context)
+        line = kept_line_context(kept, target)
 
+    # A target the picker posted becomes the brief (D-CS-B-86).
+    kept_brief = ActiveBrief(
+        BRIEF_KIND_CASE, target.case.id, target.thread.id if target.thread is not None else None
+    )
+    brief_changed = bool(case_id.strip()) and kept_brief != stashed
+    if brief_changed:
+        _set_active_brief(request, session_id, kept_brief)
     logger.info(
-        "planning desk: scenario snapshot pinned tenant=%s user=%s case=%s",
+        "planning desk: scenario snapshot kept tenant=%s user=%s case=%s thread=%s",
         session.tenant_id,
         session.user_id,
-        case_id,
+        target.case.id,
+        target.thread.id if target.thread is not None else None,
     )
     return _partial(
         request,
-        _PIN_CONFIRM_TEMPLATE,
-        {
-            "case_badge": f"CASE-{case.case_number:04d}",
-            "case_href": f"/cases/{case_id}",
-            "pin_scenario_url": PIN_SCENARIO_URL,
-        },
+        _KEEP_TEMPLATE,
+        {"mode": "done", **line},
+        headers={"HX-Trigger": keep_trigger(target.case.id, brief_changed=brief_changed)},
     )

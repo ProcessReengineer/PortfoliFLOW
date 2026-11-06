@@ -36,7 +36,8 @@
                      after the composer; call_panel.js drives both.
      brief_banner  — the active consultation context (ADR-0107 C6;
                      ADR-0133 §6), else ``None``: {kind: "case", badge,
-                     title, href} renders "Consulting for CASE-NNNN",
+                     title, href, target} renders "Consulting for
+                     CASE-NNNN · title · keeps to <target>",
                      {kind: "watch_briefing", stamp, href} renders
                      "Discussing the briefing of <check stamp>". The
                      banner itself is _partials/chat_brief_banner.html.
@@ -107,13 +108,6 @@
        content, no script and no route yet. Placed with the chat partial
        so A0e transcribes one unit. #}
     <ul class="pf-sources" id="shirley-sources" hidden></ul>
-
-    {# The consultation pin dialog swaps in here (ADR-0107 C6, Step 2). A
-       completed assistant bubble's "Pin to case…" affordance hx-GETs
-       /api/chat/pin-consultation into this slot; Cancel and a successful pin
-       both swap it back to empty / a quiet confirmation. Sits below the
-       history so opening it never disturbs the scroll. #}
-    <div id="chat-pin-dialog"></div>
 
     <div class="chat-composer">
         <form id="chat-form"

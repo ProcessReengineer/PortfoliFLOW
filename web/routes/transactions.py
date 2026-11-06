@@ -1217,13 +1217,11 @@ async def _pickable_cases(db: AsyncSession) -> list[CaseDTO]:
 
     A ticket against a waiting case wakes it when it books (P-CS-2c), so a
     waiting case is a legitimate target and the picker offers it, marked
-    *· waiting*; a closed case is not. Two state-filtered reads — open by
-    ``updated_at``, then the waiting ones by ``wait_until`` — the composition
-    of the Cases list's own *Open* filter, rather than one unfiltered read
-    whose row cap would apply before the closed cases were dropped.
+    *· waiting*; a closed case is not. Open by ``updated_at``, then the
+    waiting ones by ``wait_until`` — :meth:`CaseRepository.list_unclosed`,
+    the read the Keep pickers share (D-CS-B-92).
     """
-    cases = CaseRepository(db)
-    return [*await cases.list_cases(state="open"), *await cases.list_cases(state="waiting")]
+    return await CaseRepository(db).list_unclosed()
 
 
 async def _prefill_point(db: AsyncSession, form: _ComposerForm) -> CasePointDTO | None:

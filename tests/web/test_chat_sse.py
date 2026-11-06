@@ -389,7 +389,7 @@ async def test_sse_plotly_chart_artifact_yields_chart_event(
     # The interactive spec never reaches the wire as a PNG data URI.
     assert "data:image/png" not in chart_frames[0][1]
     # ADR-0114: the archived spec's handle rides along, so the live figure can
-    # offer "Pin to case…". Same ``chart`` event — one additive payload key.
+    # offer Keep. Same ``chart`` event — one additive payload key.
     assert len(payload["artifact_id"]) == 12
 
 

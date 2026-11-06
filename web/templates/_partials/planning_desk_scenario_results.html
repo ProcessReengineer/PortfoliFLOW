@@ -24,13 +24,15 @@
                        bar_pct, bar_tone, delta, delta_tone}]}], per family.
      has_headroom    — whether any family carries a class row at the horizon.
      composition_url / composition_query — the lazy drill-down's address.
-     capturing       — {badge, title, href, dismiss_query} when a valid, open
-                       case marker is in force (ADR-0107 C5), else None: the
-                       "Capturing for CASE-NNNN" chip. Navigation context, so it
-                       shows in both the notice and the scored branch.
-     pin.open_query  — the "Pin to case…" dialog-open query (scored branch only).
-   Plus, from the parent section context: section_url, area_url,
-   pin_scenario_url. #}
+     capturing       — {badge, title, href, dismiss_query} when a valid open or
+                       waiting case marker is in force (ADR-0107 C5, D-CS-B-93),
+                       else None: the "Capturing for CASE-NNNN" chip. Navigation
+                       context, so it shows in both the notice and the scored
+                       branch.
+     keep            — {state_pairs, marker}: Keep's hidden page state and the
+                       capturing marker (scored branch only, ADR-0138 §8).
+   Plus, from the parent section context: section_url, area_url, keep_url,
+   csrf_token. #}
 <div class="pd-sa__results" id="pd-sa-results" hx-swap-oob="outerHTML">
     <div class="pd-sa__results-head">
         <h3 class="pd-sa__results-title">Impact — scenario vs baseline</h3>
@@ -180,20 +182,27 @@
             </div>
         </div>
 
-        {# ---- pin this state to a case: the second artifact class (ADR-0107 C5).
-           The affordance renders only here, in the scored branch — a snapshot
-           freezes a *result*, so it appears exactly when there is one to freeze.
-           It opens the dialog (list_open picker + comment) into #pd-pin-dialog,
-           carrying the current page state; the dialog's own POST keeps the Desk
-           state, so the PM can pin more than one. The button sits outside the
-           dialog slot so a success confirmation swapped into the slot leaves it
-           in place. #}
-        <div class="pd-pin">
-            <button type="button" class="btn btn--ghost pd-pin__open"
-                    hx-get="{{ pin_scenario_url }}?{{ scenario.pin.open_query }}"
-                    hx-target="#pd-pin-dialog"
-                    hx-swap="innerHTML">Pin to case&hellip;</button>
-            <div id="pd-pin-dialog" class="pd-pin__dialog"></div>
+        {# ---- Keep this result (ADR-0138 §8 channel 2, D-CS-B-89): the scenario
+           snapshot, frozen into a case file. Only here, in the scored branch — a
+           snapshot freezes a *result*, so the gestures appear exactly when there
+           is one to freeze. One form, two submit buttons: "Keep →" writes into
+           the target (the capturing case, else the session's), "Keep to…" opens
+           the picker. The page state rides as hidden inputs, the marker beside
+           it; the picker and the kept line render into #pd-keep-slot, so the
+           gestures stay put and the PM can keep another state straight after. #}
+        <div class="pd-keep">
+            <form class="pd-keep__form" hx-post="{{ keep_url }}" hx-target="#pd-keep-slot" hx-swap="innerHTML">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% for key, value in scenario.keep.state_pairs %}
+                    <input type="hidden" name="{{ key }}" value="{{ value }}">
+                {% endfor %}
+                {% if scenario.capturing and scenario.keep.marker %}
+                    <input type="hidden" name="case" value="{{ scenario.keep.marker }}">
+                {% endif %}
+                <button type="submit" class="btn btn--ghost pd-keep__btn" name="pick" value="">Keep &rarr;</button>
+                <button type="submit" class="btn btn--ghost pd-keep__btn pd-keep__btn--quiet" name="pick" value="1">Keep to&hellip;</button>
+            </form>
+            <div id="pd-keep-slot" class="pd-keep__slot" data-pf-keep="slot"></div>
         </div>
     {% endif %}
 </div>

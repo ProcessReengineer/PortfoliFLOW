@@ -895,7 +895,7 @@ def test_trim_history_evicts_the_artifacts_of_the_evicted_turn_group() -> None:
     """A dropped turn-group takes its archived specs with it (ADR-0114).
 
     The whole point of the coupling: an orphaned spec would outlive the message
-    it belongs to and could never be rendered, pinned or garbage-collected.
+    it belongs to and could never be rendered, kept or garbage-collected.
     """
     conv = Conversation()
     for i in range(11):
@@ -951,7 +951,8 @@ def test_history_items_interleave_charts_at_their_message_positions() -> None:
 
     The prose rule is ADR-0050's, unchanged (no tool internals, no empty
     bubbles) — so an assistant message with no prose contributes its figure
-    and nothing else.
+    and nothing else. An assistant bubble carries its ``message_id`` — the
+    handle Keep posts (CS4a-07, D-CS-B-95); a user bubble carries ``""``.
     """
     conv = Conversation()
     user = Message(role=MessageRole.USER, content="chart please")
@@ -972,6 +973,8 @@ def test_history_items_interleave_charts_at_their_message_positions() -> None:
     assert items[1]["content"] == "Here it is."
     assert items[2]["artifact_id"] == "aaaaaaaaaaaa"
     assert items[3]["artifact_id"] == "bbbbbbbbbbbb"
+    assert items[0]["message_id"] == ""
+    assert items[1]["message_id"] == with_prose.id
 
 
 # ---------------------------------------------------------------------------
@@ -1117,8 +1120,8 @@ async def test_chat_history_rehydrates_the_chart_at_its_message_position(
     """A reload restores the figure itself, not a description of it (ADR-0114).
 
     The spec rides in an inert ``application/json`` block — never interpolated
-    into JavaScript — and the figure carries the pin affordance with its
-    sidecar handle.
+    into JavaScript — and the figure carries Keep's gestures with its
+    sidecar handle (ADR-0138 §8).
     """
     _id, email, password = seeded_user
     final_msg = Message(role=MessageRole.ASSISTANT, content="Here it is.")
@@ -1136,9 +1139,38 @@ async def test_chat_history_rehydrates_the_chart_at_its_message_position(
     assert '"scatter"' in body  # the frozen spec itself
     assert "NAV trajectory" in body  # the caption
     artifact_id = _sidecar_for_only_session(app)[0]["artifact_id"]
-    assert f"/api/chat/pin-chart?artifact_id={artifact_id}" in body
+    assert f'data-pf-keep="chart" data-pf-keep-ref="{artifact_id}"' in body
+    assert f'name="artifact_id" value="{artifact_id}"' in body
+    assert "chat-pin" not in body
     # Order: the figure follows the message it belongs to.
     assert body.index("Here it is.") < body.index("data-pf-chart-plot")
+
+
+async def test_a_rehydrated_answer_carries_the_keep_gestures(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """CS4a-07: after a reload an answer is keepable like a live one (D-CS-B-95).
+
+    The assistant bubble renders Keep's two gestures carrying its message id
+    and the session's token; the user's line carries none.
+    """
+    _id, email, password = seeded_user
+    final_msg = Message(role=MessageRole.ASSISTANT, content="The answer to keep.")
+    events = [StreamEvent("stream_finished", {"message": final_msg, "iterations": 1})]
+    client, _app, _fake = await web_client_factory(events)
+    csrf = await _login_and_get_csrf(client, email, password)
+    turn_id = await _open_turn(client, csrf, "a question")
+    await client.get(f"/chat/stream/{turn_id}")
+
+    body = (await client.get("/chat/history")).text
+    assert body.count('data-pf-keep="message"') == 1
+    assert f'data-pf-keep-ref="{final_msg.id}"' in body
+    assert f'name="message_id" value="{final_msg.id}"' in body
+    assert f'name="csrf_token" value="{csrf}"' in body
+    assert "Keep →" in body and "Keep to…" in body
+    assert body.index("The answer to keep.") < body.index('data-pf-keep="message"')
+    assert body.index("a question") < body.index("The answer to keep.")
 
 
 async def test_chat_history_renders_the_placeholder_for_an_unarchived_chart(
@@ -1157,8 +1189,9 @@ async def test_chat_history_renders_the_placeholder_for_an_unarchived_chart(
     body = (await client.get("/chat/history")).text
     assert "too large to restore" in body
     assert "data-pf-chart-spec" not in body
-    # No pin affordance for a figure the server never archived.
-    assert "/api/chat/pin-chart" not in body
+    # No Keep for a figure the server never archived (its answer keeps).
+    assert 'data-pf-keep="chart"' not in body
+    assert 'data-pf-keep="message"' in body
 
 
 async def test_new_chat_and_logout_drop_the_sidecar_with_the_history(

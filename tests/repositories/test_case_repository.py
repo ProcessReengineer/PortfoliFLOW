@@ -14,7 +14,8 @@ Coverage
   constraint; the single-retry recovery on a number collision.
 * CR-02: both creation entry points (manual / from-finding) write exactly
   one ``opened`` entry and never touch the finding.
-* CR-03: kind / actor vocabulary enforcement writes nothing.
+* CR-03: kind / actor vocabulary enforcement writes nothing; the retired
+  kinds ``note`` / ``pin`` / ``decision_record`` are refused (P-CS-4a).
 * CR-04: no update/delete surface for entries; timeline reads in order.
 * CR-05: close requires a note, writes the transition + ``closed`` entry
   atomically, and refuses a second close.
@@ -37,8 +38,8 @@ Coverage
   on a waiting case.
 * CR-13: the extended kind vocabulary — program-only kinds (the milestone
   kinds and ``system_line``) refused on the generic path, ``system_line``
-  written through ``add_system_line``, ``note`` still writable (D-CS-B-1,
-  D-CS-B-25).
+  written through ``add_system_line``, and the retired kinds refused —
+  D-CS-B-1's staged retirement closed with P-CS-4a (D-CS-B-25, D-CS-B-91).
 * CR-14: ``search_working_file`` — hits across the working file, the DMS
   boundary held (ADR-0138 §11), the state filter, escaping.
 * CR-15: ``hand_over`` — the owner changes, ``opened_by`` stays.
@@ -51,6 +52,11 @@ Coverage
 * CR-18: ``count_by_state`` (every state present, zeros included) and the
   Closed filter's paging through ``list_cases(before=…)`` — newest first,
   ``before`` exclusive, refused for any other state (P-CS-3a, D-CS-B-31).
+* CR-19: ``list_unclosed`` — the open cases by ``updated_at`` descending, then
+  the waiting ones by ``wait_until``; a closed case absent (D-CS-B-92).
+
+Legacy record rows (``note``, ``pin``, ``decision_record``) are seeded through
+``tests/_case_record_seed.py`` — ``append_entry`` refuses them (D-CS-B-91).
 """
 
 from __future__ import annotations
@@ -86,6 +92,10 @@ from core.repositories.case_working_file_repository import (
     CaseKeptRepository,
     CaseThreadRepository,
 )
+from tests._case_record_seed import seed_record_entry
+
+#: The b031 kinds retired for new writes (ADR-0138 §9, D-CS-B-91).
+_RETIRED_KINDS: tuple[str, ...] = ("note", "pin", "decision_record")
 
 _T0 = datetime(2026, 7, 21, 9, 0, tzinfo=timezone.utc)
 
@@ -337,7 +347,7 @@ async def test_cr03_vocabulary_enforced_and_writes_nothing(
         with pytest.raises(CaseActorInvalid):
             await repo.append_entry(
                 case.id,
-                kind="note",
+                kind="opened",
                 actor="robot",
                 actor_user_id=user_id,
                 payload={},
@@ -352,6 +362,17 @@ async def test_cr03_vocabulary_enforced_and_writes_nothing(
                 payload={},
                 now=_T0,
             )
+        # The retired kinds (P-CS-4a): refused before any SQL, like the rest.
+        for retired in _RETIRED_KINDS:
+            with pytest.raises(CaseEntryKindInvalid, match="retired for new writes"):
+                await repo.append_entry(
+                    case.id,
+                    kind=retired,
+                    actor="pm",
+                    actor_user_id=user_id,
+                    payload={},
+                    now=_T0,
+                )
 
     # Only the mandatory opened entry survives.
     async with tenant_context(app_engine, tenant_id) as session:
@@ -385,21 +406,26 @@ async def test_cr04_append_only_surface_and_order(app_engine: AsyncEngine, seed_
     async with tenant_context(app_engine, tenant_id) as session:
         repo = CaseRepository(session)
         case = await repo.create(title="Timeline", opened_by=user_id, opened_actor="pm", now=_T0)
-        await repo.append_entry(
-            case.id,
-            kind="note",
-            actor="pm",
-            actor_user_id=user_id,
-            payload={"n": 1},
-            now=_T0 + timedelta(minutes=1),
-        )
-        await repo.append_entry(
-            case.id,
+        # Two legacy notes (D-CS-M-7), seeded out of order to prove the read orders.
+        await seed_record_entry(
+            session,
+            tenant_id=tenant_id,
+            case_id=case.id,
             kind="note",
             actor="shirley",
             actor_user_id=None,
             payload={"n": 2},
             now=_T0 + timedelta(minutes=2),
+        )
+        await seed_record_entry(
+            session,
+            tenant_id=tenant_id,
+            case_id=case.id,
+            kind="note",
+            actor="pm",
+            actor_user_id=user_id,
+            payload={"n": 1},
+            now=_T0 + timedelta(minutes=1),
         )
         entries = await repo.list_entries(case.id)
 
@@ -491,9 +517,18 @@ async def test_cr06_closed_case_is_immutable(app_engine: AsyncEngine, seed_tenan
         with pytest.raises(CaseClosedError):
             await CaseRepository(session).append_entry(
                 case.id,
-                kind="note",
+                kind="opened",
                 actor="pm",
                 actor_user_id=user_id,
+                payload={},
+                now=_T0 + timedelta(hours=2),
+            )
+        with pytest.raises(CaseClosedError):
+            await CaseRepository(session).add_system_line(
+                case.id,
+                event="nav_restated",
+                subject="cr06",
+                text="NAV restated.",
                 payload={},
                 now=_T0 + timedelta(hours=2),
             )
@@ -594,8 +629,10 @@ async def test_cr07_search_archive(app_engine: AsyncEngine, seed_tenant) -> None
         payload_case = await repo.create(
             title="Ordinary title", opened_by=pm1, opened_actor="pm", now=base
         )
-        await repo.append_entry(
-            payload_case.id,
+        await seed_record_entry(
+            session,
+            tenant_id=tenant_id,
+            case_id=payload_case.id,
             kind="note",
             actor="pm",
             actor_user_id=pm1,
@@ -675,8 +712,10 @@ async def test_cr08_cross_tenant_invisibility(app_engine: AsyncEngine, seed_tena
     async with tenant_context(app_engine, tenant_a) as session:
         repo = CaseRepository(session)
         case = await repo.create(title="A-only", opened_by=user_a, opened_actor="pm", now=_T0)
-        await repo.append_entry(
-            case.id,
+        await seed_record_entry(
+            session,
+            tenant_id=tenant_a,
+            case_id=case.id,
             kind="note",
             actor="pm",
             actor_user_id=user_a,
@@ -870,16 +909,16 @@ async def test_cr12_states_waiting(app_engine: AsyncEngine, seed_tenant) -> None
         with pytest.raises(CaseStateInvalid):
             await repo.close(b.id, closed_by=user_id, closing_note="done", now=_T0 + 12 * minute)
 
-        # A waiting case is mutable like an open one.
-        entry = await repo.append_entry(
+        # A waiting case takes record writes like an open one.
+        entry = await repo.add_system_line(
             b.id,
-            kind="note",
-            actor="pm",
-            actor_user_id=user_id,
+            event="nav_restated",
+            subject="cr12",
+            text="NAV restated.",
             payload={},
             now=_T0 + 12 * minute,
         )
-        assert entry.kind == "note"
+        assert entry is not None and entry.kind == "system_line"
 
         lifted = await repo.lift_wait(c.id, by=user_id, now=_T0 + 13 * minute)
         assert (lifted.state, lifted.wait_until) == ("open", None)
@@ -889,18 +928,18 @@ async def test_cr12_states_waiting(app_engine: AsyncEngine, seed_tenant) -> None
         await repo.close(a.id, closed_by=user_id, closing_note="done", now=_T0 + 14 * minute)
         assert [x.id for x in await repo.list_cases(state="closed")] == [a.id]
         with pytest.raises(CaseClosedError):
-            await repo.append_entry(
+            await repo.add_system_line(
                 a.id,
-                kind="note",
-                actor="pm",
-                actor_user_id=user_id,
+                event="nav_restated",
+                subject="cr12-closed",
+                text="NAV restated.",
                 payload={},
                 now=_T0 + 15 * minute,
             )
 
 
 # ---------------------------------------------------------------------------
-# CR-13: the extended kind vocabulary (D-CS-B-1)
+# CR-13: the extended kind vocabulary (D-CS-B-1, closed with P-CS-4a)
 # ---------------------------------------------------------------------------
 
 
@@ -934,19 +973,22 @@ async def test_cr13_entry_kinds(app_engine: AsyncEngine, seed_tenant) -> None:
             now=_T0 + timedelta(minutes=1),
         )
         assert line is not None
-        note = await repo.append_entry(
-            case.id,
-            kind="note",
-            actor="pm",
-            actor_user_id=user_id,
-            payload={},
-            now=_T0 + timedelta(minutes=2),
-        )
+        # The b031 kinds are retired for new writes (ADR-0138 §9, D-CS-B-91):
+        # refused with their own message, nothing written.
+        for retired in _RETIRED_KINDS:
+            with pytest.raises(CaseEntryKindInvalid, match="ADR-0138 §9"):
+                await repo.append_entry(
+                    case.id,
+                    kind=retired,
+                    actor="pm",
+                    actor_user_id=user_id,
+                    payload={},
+                    now=_T0 + timedelta(minutes=2),
+                )
         entries = await repo.list_entries(case.id)
 
     assert (line.kind, line.actor, line.actor_user_id) == ("system_line", "system", None)
-    assert note.kind == "note"
-    assert [e.kind for e in entries] == ["opened", "system_line", "note"]
+    assert [e.kind for e in entries] == ["opened", "system_line"]
 
 
 # ---------------------------------------------------------------------------
@@ -1266,3 +1308,43 @@ async def test_cr18_count_by_state_and_closed_paging(app_engine: AsyncEngine, se
             await repo.list_cases(state="open", before=cursor)
         with pytest.raises(ValueError, match="Closed filter only"):
             await repo.list_cases(before=cursor)
+
+
+# ---------------------------------------------------------------------------
+# CR-19: list_unclosed — the pickers' one read (D-CS-B-92)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr19_list_unclosed_orders_open_then_waiting(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """CR-19: open by ``updated_at`` descending, then waiting by ``wait_until``; closed absent."""
+    tenant_id = await seed_tenant("CR-19")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cr19.example")
+    minute = timedelta(minutes=1)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        older = await repo.create(title="Older", opened_by=user_id, opened_actor="pm", now=_T0)
+        newer = await repo.create(
+            title="Newer", opened_by=user_id, opened_actor="pm", now=_T0 + minute
+        )
+        late = await repo.create(
+            title="Waits late", opened_by=user_id, opened_actor="pm", now=_T0 + 2 * minute
+        )
+        soon = await repo.create(
+            title="Waits soon", opened_by=user_id, opened_actor="pm", now=_T0 + 3 * minute
+        )
+        shut = await repo.create(
+            title="Closed", opened_by=user_id, opened_actor="pm", now=_T0 + 4 * minute
+        )
+        await repo.wait(late.id, wait_until=date(2027, 3, 1), by=user_id, now=_T0 + 5 * minute)
+        await repo.wait(soon.id, wait_until=date(2027, 1, 1), by=user_id, now=_T0 + 6 * minute)
+        await repo.close(shut.id, closed_by=user_id, closing_note="done", now=_T0 + 7 * minute)
+        # Touch the older open case last: updated_at, not opened_at, orders.
+        await repo.update_working_file(older.id, now=_T0 + 8 * minute, counterparty="GP X")
+        unclosed = await repo.list_unclosed()
+
+    assert [case.id for case in unclosed] == [older.id, newer.id, soon.id, late.id]
+    assert [case.state for case in unclosed] == ["open", "open", "waiting", "waiting"]
+    assert shut.id not in {case.id for case in unclosed}

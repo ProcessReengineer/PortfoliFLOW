@@ -72,6 +72,7 @@ from core.repositories.case_working_file_repository import (
     kept_payload_sha256,
 )
 from core.repositories.trade_ticket_repository import TradeTicketRepository
+from tests._case_record_seed import seed_record_entry
 
 _T0 = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
 _T1 = _T0 + timedelta(hours=1)
@@ -484,8 +485,10 @@ async def test_cw06_decisions(app_engine: AsyncEngine, seed_tenant) -> None:
         with pytest.raises(CaseWorkingFileInvalid):
             await repo.upsert_draft(case.id, now=_T1, options=[{"key": "b", "text": "Redeem"}])
 
-        entry = await CaseRepository(session).append_entry(
-            case.id,
+        entry_id = await seed_record_entry(
+            session,
+            tenant_id=tenant_id,
+            case_id=case.id,
             kind="decision_record",
             actor="pm",
             actor_user_id=user_id,
@@ -493,9 +496,9 @@ async def test_cw06_decisions(app_engine: AsyncEngine, seed_tenant) -> None:
             now=_T2,
         )
         recorded = await repo.mark_recorded(
-            draft.id, recorded_by=user_id, record_entry_id=entry.id, now=_T2
+            draft.id, recorded_by=user_id, record_entry_id=entry_id, now=_T2
         )
-        assert recorded.recorded_at == _T2 and recorded.record_entry_id == entry.id
+        assert recorded.recorded_at == _T2 and recorded.record_entry_id == entry_id
         assert await repo.get_draft(case.id) is None
         assert [d.id for d in await repo.list_recorded(case.id)] == [draft.id]
 
@@ -504,7 +507,7 @@ async def test_cw06_decisions(app_engine: AsyncEngine, seed_tenant) -> None:
 
         with pytest.raises(CaseDecisionRecorded):
             await repo.mark_recorded(
-                draft.id, recorded_by=user_id, record_entry_id=entry.id, now=_T2
+                draft.id, recorded_by=user_id, record_entry_id=entry_id, now=_T2
             )
         unchanged = await repo.get(draft.id)
         assert unchanged == recorded
@@ -656,8 +659,10 @@ async def _build_world(app_engine: AsyncEngine, seed_tenant, label: str, *, stat
         decision = await CaseDecisionRepository(session).upsert_draft(
             case.id, now=_T0, options=[{"key": "a", "text": "Hold"}]
         )
-        entry = await CaseRepository(session).append_entry(
-            case.id,
+        entry_id = await seed_record_entry(
+            session,
+            tenant_id=tenant_id,
+            case_id=case.id,
             kind="decision_record",
             actor="pm",
             actor_user_id=user_id,
@@ -691,7 +696,7 @@ async def _build_world(app_engine: AsyncEngine, seed_tenant, label: str, *, stat
         conversation_id=conversation.id,
         point_id=point.id,
         decision_id=decision.id,
-        entry_id=entry.id,
+        entry_id=entry_id,
         ticket_id=ticket_id,
         linked_investment=linked_investment,
         free_investment=free_investment,

@@ -1,0 +1,33 @@
+{# Keep's two gestures under one Shirley answer or figure (ADR-0138 §8 channel 2,
+   D-CS-B-87): "Keep →" writes into the session's keep target in one click (with
+   none it opens the picker), "Keep to…" opens the picker. No comment, no dialog.
+
+   One container per artefact: the gestures, the picker (chat_keep_picker.html)
+   and the kept line (chat_keep_done.html) take turns in it — every Keep request
+   answers into ``closest .chat-keep`` with ``outerHTML``. Rendered inline by the
+   rehydrated history and fetched by the live path (chat.js appends a ``load``
+   placeholder), so the markup has this one source. The submit button that was
+   clicked carries ``pick``.
+
+   With ``unavailable`` set the container is the calm state instead: the answer
+   left the session's memory, or the figure is stale or was too large to keep.
+
+   Context: csrf_token, keep_url, kind ("message" | "chart"), message_id,
+   artifact_id, ref (the handle, for chat.js's one-per-artefact guard),
+   unavailable (optional). #}
+{% if unavailable %}
+<div class="chat-keep chat-keep--calm" role="status" data-pf-keep="unavailable" data-pf-keep-ref="{{ ref }}">{{ unavailable }}</div>
+{% else %}
+<div class="chat-keep" data-pf-keep="{{ kind }}" data-pf-keep-ref="{{ ref }}">
+    <form class="chat-keep__form" hx-post="{{ keep_url }}" hx-target="closest .chat-keep" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if kind == "chart" %}
+        <input type="hidden" name="artifact_id" value="{{ artifact_id }}">
+        {% else %}
+        <input type="hidden" name="message_id" value="{{ message_id }}">
+        {% endif %}
+        <button type="submit" class="chat-keep__btn" name="pick" value="">Keep →</button>
+        <button type="submit" class="chat-keep__btn chat-keep__btn--quiet" name="pick" value="1">Keep to…</button>
+    </form>
+</div>
+{% endif %}

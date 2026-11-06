@@ -26,8 +26,12 @@ draft, *Wait until…*, *Resume now*, *Hand over to…* and *Close case…* (lif
 then close, on a waiting case). The Record block lists the milestones, the
 system lines and the legacy entries, each milestone paired with its frozen
 snapshot, which opens read-only under *File as …*. The note and decision
-composers are retired; the pin composer, the attachment download pipeline
-with its caps and the pin timeline anatomy are unchanged.
+composers are retired. P-CS-4a retires the pin composer — Keep (ADR-0138 §8)
+writes kept rows from the dock and the Planning Desk — and renders the kept
+rows inside their threads, the file-level ones after them; the legacy pin rows
+keep their anatomy in the Record (D-CS-M-7), from the same class partial
+(``_partials/cases_artifact.html``). The attachment download pipeline and its
+caps are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -35,8 +39,13 @@ repository's read-only ``get``; resolving a finding as ``opened_case`` lives
 on the Watch Desk. A closed case carries the Journal deep link (ADR-0107 C4,
 binding decision 2) on its list row and in its facts.
 
-Pin payload contract (binding decision 4)
------------------------------------------
+Pin payload contract (binding decision 4) — legacy rows, read-only
+-------------------------------------------------------------------
+No route writes a ``pin`` entry since P-CS-4a (ADR-0138 §9; D-CS-B-1 closed).
+The kept classes carry the same contracts minus ``comment`` in
+``case_kept.payload`` (D-CS-B-85), and both render through
+:func:`_project_kept_payload` and ``_partials/cases_artifact.html``.
+
 A ``pin`` entry of artifact class ``document`` carries, in its opaque
 ``payload`` JSONB, exactly::
 
@@ -116,17 +125,16 @@ timeline renders it verbatim through the shared render helper — nothing
 recomputed and no live re-query, the same discipline ``scenario_snapshot``
 keeps. The theme is baked into the spec at render time, so a later theme change
 does not alter an archived chart; only the pinned Plotly.js version bounds the
-fidelity (ADR-0042 §4). The write lives in ``web/routes/chat.py``
-(``POST /api/chat/pin-chart``), which writes exactly what this view reads.
+fidelity (ADR-0042 §4). The pin's write lived in ``web/routes/chat.py``;
+Keep writes the kept ``chart_snapshot`` there now.
 
-Attachment atomicity
---------------------
-The upload lives *inside* the pin composer precisely so the attachment and its
-pin entry are written in one transaction: ``create`` the attachment and
-``append_entry`` the pin together, and if the entry append fails the whole
-transaction — attachment included — rolls back, leaving no orphaned bytes.
-Attachments are addressed only through their pin entry (ADR-0107 §7, the DMS
-boundary): no standalone manager, no delete, no re-upload.
+Attachments
+-----------
+The attach route stores a document without a record entry (D-CS-B-47); the
+pin composer that wrote an attachment and its pin entry in one transaction is
+retired (P-CS-4a), and P-CS-4b's document keep shares the attach route's gates
+(:func:`_read_upload`). No standalone manager, no delete, no re-upload
+(ADR-0107 §7, the DMS boundary).
 
 Caps (ADR-0107 §7) are configuration, read from ``core.config`` and enforced
 here at the route — never hard-coded at the call site, never in the repository.
@@ -191,7 +199,7 @@ Endpoints
   each answers ``HX-Redirect: /cases/{id}`` (D-CS-B-70).
 * ``GET  /api/cases/{case_id}/record/{entry_id}/file`` — the file as a
   milestone froze it, read-only, into the record row's slot (D-CS-B-74).
-* The composer, pin and download routes below. Everything writes on an open
+* The composer and download routes below. Everything writes on an open
   **or waiting** case (D-CS-B-76); a closed case is read-only.
 
 The OOB bundle (``_partials/cases_file_oob.html``) is what every save of the
@@ -252,6 +260,7 @@ from core.repositories.case_working_file_repository import (
     CaseFigureDTO,
     CaseFigureRepository,
     CaseInvestmentRepository,
+    CaseKeptDTO,
     CaseKeptRepository,
     CasePointDTO,
     CasePointRepository,
@@ -393,7 +402,7 @@ def _sanitise_header_filename(name: str) -> str:
 
 
 def _caps_hint(cfg: Any) -> str:
-    """Build the pin composer's visible caps line from configuration."""
+    """Build the attach composer's visible caps line from configuration."""
     max_mb = cfg.case_attachment_max_bytes / (1024 * 1024)
     types = ", ".join(sorted(ext.upper() for ext in cfg.case_attachment_allowed_types))
     return (
@@ -949,6 +958,66 @@ def _project_origin(finding: IreneFindingDTO, entries: Iterable[CaseEntryDTO]) -
     }
 
 
+#: A legacy pin's record label per artifact class (ADR-0107 C3b–C6, ADR-0114).
+_PIN_KIND_LABELS: dict[str, str] = {
+    "document": "Document pinned",
+    "scenario_snapshot": "Scenario snapshot pinned",
+    "consultation": "Consultation pinned",
+    "chart_snapshot": "Chart snapshot pinned",
+}
+
+
+def _project_kept_payload(
+    artifact: str, payload: dict[str, Any], *, case_id: UUID
+) -> dict[str, Any]:
+    """Project one artefact class's payload for ``_partials/cases_artifact.html``.
+
+    The one projection of the four rendered classes, shared by a legacy pin in
+    the Record and a kept row in the file (D-CS-B-90): ``document`` — the
+    filename linking to the download endpoint and the human-legible size;
+    ``scenario_snapshot`` — the frozen Planning Desk snapshot (ADR-0107 C5:
+    the parameter chips, the four KPI pairs, the headroom *count*, the two
+    feet and the stored query, all read verbatim, the query text and never a
+    link); ``consultation`` — the Shirley excerpt (ADR-0107 C6); and
+    ``chart_snapshot`` — the caption and the frozen Plotly spec, passed
+    through untouched (ADR-0114). Any other class projects nothing, so the
+    partial falls to its calm one-liner and the payload never leaks.
+
+    Args:
+        artifact: The artefact class.
+        payload: The opaque payload (a pin's entry payload or a kept row's).
+        case_id: The case, for a document's download link.
+
+    Returns:
+        The class's template keys.
+    """
+    if artifact == "document":
+        return {
+            "filename": payload.get("filename", ""),
+            "size_human": _human_size(int(payload.get("size_bytes") or 0)),
+            "download_href": f"/api/cases/{case_id}/attachments/{payload.get('attachment_id')}",
+        }
+    if artifact == "scenario_snapshot":
+        snapshot = payload.get("snapshot") or {}
+        return {
+            "chips": [
+                {"label": str(chip.get("label", "")), "css_class": str(chip.get("css_class", ""))}
+                for chip in (snapshot.get("chips") or [])
+                if isinstance(chip, dict)
+            ],
+            "kpis": [kpi for kpi in (snapshot.get("kpis") or []) if isinstance(kpi, dict)],
+            "headroom_count": _headroom_row_count(snapshot.get("headroom")),
+            "baseline_foot": snapshot.get("baseline_foot") or {},
+            "scenario_foot": snapshot.get("scenario_foot") or {},
+            "query": str(snapshot.get("query", "")),
+        }
+    if artifact == "consultation":
+        return {"excerpt": payload.get("excerpt", "")}
+    if artifact == "chart_snapshot":
+        return {"caption": payload.get("caption", ""), "spec": payload.get("spec") or {}}
+    return {}
+
+
 def _project_entry(
     entry: CaseEntryDTO,
     owner_names: dict[UUID, str],
@@ -1042,55 +1111,18 @@ def _project_entry(
     elif kind == "closed":
         projected["closing_note"] = payload.get("closing_note", "")
     elif kind == "pin":
+        # A legacy pin (D-CS-M-7): the class body is the kept classes' own
+        # projection, so a pin in the Record and a kept row in a thread render
+        # one anatomy; the pin adds its label and its curation comment. Any
+        # other artifact projects only its raw value — the calm fallback, the
+        # payload never leaked.
         artifact = payload.get("artifact")
         projected["artifact"] = artifact
-        if artifact == "document":
-            projected["kind_label"] = "Document pinned"
+        label = _PIN_KIND_LABELS.get(str(artifact))
+        if label is not None:
+            projected["kind_label"] = label
             projected["comment"] = payload.get("comment", "")
-            projected["filename"] = payload.get("filename", "")
-            projected["size_human"] = _human_size(int(payload.get("size_bytes") or 0))
-            projected["download_href"] = (
-                f"/api/cases/{entry.case_id}/attachments/{payload.get('attachment_id')}"
-            )
-        elif artifact == "scenario_snapshot":
-            # The frozen Planning Desk snapshot, read verbatim (ADR-0107 C5):
-            # chips + KPI pairs + headroom count + feet + the stored query, none
-            # of it recomputed. The query is text, never an anchor (decision 2).
-            snapshot = payload.get("snapshot") or {}
-            projected["kind_label"] = "Scenario snapshot pinned"
-            projected["comment"] = payload.get("comment", "")
-            projected["chips"] = [
-                {
-                    "label": str(chip.get("label", "")),
-                    "css_class": str(chip.get("css_class", "")),
-                }
-                for chip in (snapshot.get("chips") or [])
-                if isinstance(chip, dict)
-            ]
-            projected["kpis"] = [
-                kpi for kpi in (snapshot.get("kpis") or []) if isinstance(kpi, dict)
-            ]
-            projected["headroom_count"] = _headroom_row_count(snapshot.get("headroom"))
-            projected["baseline_foot"] = snapshot.get("baseline_foot") or {}
-            projected["scenario_foot"] = snapshot.get("scenario_foot") or {}
-            projected["query"] = str(snapshot.get("query", ""))
-        elif artifact == "consultation":
-            # The curated Shirley excerpt (ADR-0107 C6): the quoted text, read
-            # verbatim from the payload and attributed to Shirley in the
-            # anatomy, plus the PM's curation comment. The words are Shirley's;
-            # the actor chip stays ``pm`` (the curator, binding decision 3).
-            projected["kind_label"] = "Consultation pinned"
-            projected["comment"] = payload.get("comment", "")
-            projected["excerpt"] = payload.get("excerpt", "")
-        elif artifact == "chart_snapshot":
-            # The frozen Plotly figure (ADR-0114). The spec is handed to the
-            # template untouched — the projection labels, it never
-            # reinterprets — and re-plotted verbatim: what the PM saw at pin
-            # time, not a fresh query (the C5 snapshot discipline).
-            projected["kind_label"] = "Chart snapshot pinned"
-            projected["comment"] = payload.get("comment", "")
-            projected["caption"] = payload.get("caption", "")
-            projected["spec"] = payload.get("spec") or {}
+            projected.update(_project_kept_payload(str(artifact), payload, case_id=entry.case_id))
     return projected
 
 
@@ -1129,7 +1161,7 @@ def _record_file_href(case_id: UUID, entry_id: Any) -> str:
 
 
 async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dict[str, Any]]:
-    """The Record block's rows, oldest first (D-CS-B-73) — also the pin result's OOB timeline.
+    """The Record block's rows, oldest first (D-CS-B-73).
 
     One read of the record with its ``frozen`` rows
     (``list_entries(include_frozen=True)``): a snapshot is never a row of its
@@ -1139,8 +1171,9 @@ async def _project_timeline(db_session: AsyncSession, case: CaseDTO) -> list[dic
     ``payload.event.entry_id`` in the same list. The actors, the owner and a
     hand-over's two users are resolved in one batch; the originating finding
     is read for the ``opened`` phrasing. The single source of the record's
-    shape: the file's first render, the Record block's re-render after a
-    milestone and the pin composer's refresh into ``#case-timeline``.
+    shape: the file's first render and the Record block's re-render after a
+    milestone (the pin composer's refresh into ``#case-timeline`` retired with
+    P-CS-4a).
     """
     entries = await CaseRepository(db_session).list_entries(case.id, include_frozen=True)
     pairs = _pair_frozen(entries)
@@ -1357,6 +1390,7 @@ def _outline(
     record_count: int,
     threads_count: int,
     figures_count: int,
+    file_kept_count: int = 0,
     conversations_count: int = 0,
     points_open: int = 0,
     points_total: int = 0,
@@ -1373,6 +1407,8 @@ def _outline(
     grey alone (``reveal_href`` is ``None``). A non-empty entry reads its
     count — Open points the **open** count (a done point still lists it),
     Decision ``draft`` / ``n recorded`` (:func:`_decision_count_label`).
+    Threads counts the threads; file-level kept rows append ``· kept m`` and
+    keep the entry from reading empty (D-CS-B-90).
     """
     is_mutable = case.state in _MUTABLE_STATES
 
@@ -1401,9 +1437,9 @@ def _outline(
         entry(
             "threads",
             "Threads",
-            str(threads_count),
+            str(threads_count) + (f" · kept {file_kept_count}" if file_kept_count else ""),
             revealable=is_mutable,
-            empty=threads_count == 0,
+            empty=threads_count == 0 and file_kept_count == 0,
         ),
         entry(
             "figures",
@@ -1463,6 +1499,11 @@ async def _frame_context(
     attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
     links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
     threads_count = len(await CaseThreadRepository(db_session).list_for_case(case.id))
+    file_kept_count = sum(
+        1
+        for row in await CaseKeptRepository(db_session).list_for_case(case.id)
+        if row.thread_id is None
+    )
     figures_count = len(await CaseFigureRepository(db_session).list_for_case(case.id))
     conversations_count = len(await CaseConversationRepository(db_session).list_for_case(case.id))
     points = await CasePointRepository(db_session).list_for_case(case.id)
@@ -1491,6 +1532,7 @@ async def _frame_context(
             record_count=len(entries),
             threads_count=threads_count,
             figures_count=figures_count,
+            file_kept_count=file_kept_count,
             conversations_count=conversations_count,
             points_open=sum(1 for point in points if point.done_at is None),
             points_total=len(points),
@@ -1882,20 +1924,83 @@ def _thread_dates(thread: CaseThreadDTO) -> str:
     return f"{opened} → {thread.concluded_at.astimezone(timezone.utc):%d %b}"
 
 
+#: Where a kept artefact came from, by class — the kept row's chip (D-4a-7).
+_KEPT_FROM: dict[str, str] = {
+    "consultation": "Shirley",
+    "chart_snapshot": "Shirley",
+    "generated_document": "Shirley",
+    "scenario_snapshot": "the Planning Desk",
+}
+
+#: The kept classes that address an attachment; their chip names the document.
+_KEPT_DOCUMENT_CLASSES: frozenset[str] = frozenset({"document", "document_excerpt"})
+
+
+def _project_kept_row(row: CaseKeptDTO, owner_names: dict[UUID, str]) -> dict[str, Any]:
+    """One kept row for ``_partials/cases_kept_row.html`` (D-CS-B-90).
+
+    The head: a ``pf-src`` chip — *kept from Shirley · dd Mon* / *kept from
+    the Planning Desk · dd Mon*, or *document · filename* for a document
+    class — the caption and *kept by <name>*. The body is the class's
+    projection (:func:`_project_kept_payload`) under ``art``; a class it does
+    not render yet falls to the calm *{class} · caption* line (P-CS-4b).
+    """
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    label = row.artifact.replace("_", " ").capitalize()
+    if row.artifact in _KEPT_DOCUMENT_CLASSES:
+        name = str(payload.get("filename") or row.caption or "attachment")
+        chip = {"tone": "doc", "text": f"document · {name}"}
+    else:
+        day = f"{row.kept_at.astimezone(timezone.utc):%d %b}"
+        chip = {
+            "tone": "kept",
+            "text": f"kept from {_KEPT_FROM.get(row.artifact, 'Shirley')} · {day}",
+        }
+    return {
+        "id": str(row.id),
+        "artifact": row.artifact,
+        "caption": row.caption or "",
+        "chip": chip,
+        "kept_by": _owner_label(row.kept_by, owner_names),
+        "art": {
+            "artifact": row.artifact,
+            "label": label,
+            "kept_caption": row.caption or "",
+            **_project_kept_payload(row.artifact, payload, case_id=row.case_id),
+        },
+    }
+
+
 async def _threads_context(
     db_session: AsyncSession, case: CaseDTO, *, reveal: bool
 ) -> dict[str, Any]:
-    """Threads (D-CS-B-53): ``{threads[{id, title, prose, status, status_label,
-    conclusion, dates}], empty, reveal, focus_id, open_id, note, statuses}``.
+    """Threads (D-CS-B-53, D-CS-B-90): ``{threads[{id, title, prose, status,
+    status_label, conclusion, dates, kept}], file_kept, empty, reveal, focus_id,
+    open_id, note, statuses}``.
 
     The case's threads in ``position`` order; removed threads never render.
     A closed case reads the same rows — its working file is read-only, so they
     are the threads as they stood at close. ``focus_id`` (a thread just added:
     open, its prose focused) and ``open_id`` (a thread whose title or status
     was just changed: open) are ``None`` here; the write routes set them on
-    the block they answer with. Kept rows are not read (P-CS-4a / 4b).
+    the block they answer with.
+
+    The kept rows are read **once** (``list_for_case``, removed rows left
+    out) and grouped by ``thread_id``: each thread carries its own under
+    ``kept``, the file-level ones are ``file_kept``. The ``kept_by`` names
+    resolve in one batch. ``empty`` — the block hidden — is no thread *and*
+    no file-level kept row. A kept row of a removed thread renders nowhere
+    live; the record and the frozen files still name it (D-CS-M-5).
     """
     threads = await CaseThreadRepository(db_session).list_for_case(case.id)
+    kept_rows = await CaseKeptRepository(db_session).list_for_case(case.id)
+    owner_names = await _resolve_owner_names(
+        UserRepository(db_session), {row.kept_by for row in kept_rows}
+    )
+    kept_by_thread: dict[UUID | None, list[dict[str, Any]]] = {}
+    for row in kept_rows:
+        kept_by_thread.setdefault(row.thread_id, []).append(_project_kept_row(row, owner_names))
+    file_kept = kept_by_thread.get(None, [])
     return {
         "threads": [
             {
@@ -1908,10 +2013,12 @@ async def _threads_context(
                 ),
                 "conclusion": thread.conclusion or "",
                 "dates": _thread_dates(thread),
+                "kept": kept_by_thread.get(thread.id, []),
             }
             for thread in threads
         ],
-        "empty": not threads,
+        "file_kept": file_kept,
+        "empty": not threads and not file_kept,
         "reveal": reveal,
         "focus_id": None,
         "open_id": None,
@@ -2503,9 +2610,9 @@ async def get_case_section(
 _CLOSED_CASE_ERROR = "This case is closed — closed cases are read-only and cannot be changed."
 
 #: The composers of the actions row (D-CS-B-70, D-CS-B-75); the note and
-#: decision composers are retired (the Decision block records a decision).
+#: decision composers are retired (the Decision block records a decision), and
+#: the pin composer with P-CS-4a (Keep replaced it, ADR-0138 §9).
 _COMPOSER_TEMPLATES: dict[str, str] = {
-    "pin": "_partials/cases_composer_pin.html",
     "close": "_partials/cases_composer_close.html",
     "link-investment": "_partials/cases_composer_link_investment.html",
     "attach": "_partials/cases_composer_attach.html",
@@ -2591,7 +2698,7 @@ async def get_case_composer(
     investments not yet linked, by name (D-CS-B-47); ``handover`` the tenant's
     active users but the owner, by name (an unknown or foreign case is then a
     404). ``wait`` proposes today + 30 days (D-CS-B-70). An unknown action —
-    the retired ``note`` and ``decision`` among them — is a 404.
+    the retired ``note``, ``decision`` and ``pin`` among them — is a 404.
     """
     if action == "cancel":
         return HTMLResponse("")
@@ -2602,7 +2709,7 @@ async def get_case_composer(
         "case_id": str(case_id),
         "csrf_token": session.csrf_token,
     }
-    if action in ("pin", "attach"):
+    if action == "attach":
         context["caps_hint"] = _caps_hint(get_config())
     if action == "wait":
         context.update(_wait_dates())
@@ -2635,7 +2742,9 @@ async def get_case_composer(
 
 
 async def _read_upload(request: Request, cfg: Any) -> tuple[str, str, bytes, str] | str:
-    """Validate and read the multipart ``file`` field — the pin route's gates, shared.
+    """Validate and read the multipart ``file`` field — the attach route's gates.
+
+    P-CS-4b's excerpt keep shares them.
 
     Returns ``(filename, mime_type, content, sha256)`` or the refusal text. Extension
     AND declared content type in the whitelist; the size gate reads bounded 64 KiB
@@ -2996,11 +3105,11 @@ async def post_case_attachment(
 ) -> HTMLResponse:
     """Attach a document to the case — the attachment alone, no record entry (D-CS-B-47).
 
-    The pin composer's file gates through :func:`_read_upload`, then the
-    count cap; on an open or waiting case. On success the question block
-    (its documents list) and the bundle (the attachments fact); a refusal
-    re-renders the attach composer with ``error`` into the composer slot
-    (``HX-Retarget`` / ``HX-Reswap``), the pin idiom.
+    The file gates of :func:`_read_upload`, then the count cap; on an open
+    or waiting case. On success the question block (its documents list) and
+    the bundle (the attachments fact); a refusal re-renders the attach
+    composer with ``error`` into the composer slot (``HX-Retarget`` /
+    ``HX-Reswap``), the composer idiom.
     """
     cfg = get_config()
     engine = _engine(request)
@@ -4266,163 +4375,6 @@ async def post_case_record_decision(
         milestone.id,
     )
     return _render_parts(request, parts)
-
-
-@router.post("/api/cases/{case_id}/pin-document", response_class=HTMLResponse)
-async def post_case_pin_document(
-    request: Request,
-    case_id: UUID,
-    session: SessionDTO = Depends(require_session),
-    _csrf: None = Depends(verify_csrf),
-) -> HTMLResponse:
-    """Pin a document: validate, store the attachment, append the pin (Step 4).
-
-    Gates, in order, each with its own inline error: case exists (404) → case
-    open or waiting (D-CS-B-76) → comment non-empty → file present → extension AND declared content
-    type in the whitelist → size ≤ cap (the real byte length, never the header)
-    → count < cap. The size gate reads the body in bounded 64 KiB chunks and
-    stops at cap + 1 bytes, so an oversized upload is rejected without ever
-    being fully buffered as one in-memory object (single-instance memory
-    safety). Then, in **one** tenant-context transaction, the attachment is
-    created and the pin entry appended together — if the append fails the
-    attachment rolls back too, so no orphaned bytes survive. On success the
-    timeline and the rail's attachments count refresh out of band.
-
-    The multipart body is read through ``request.state.form`` (cached by
-    ``verify_csrf``), the codebase's multipart idiom (``data_import.py``) —
-    reading it a second time via ``request.form()`` is avoided.
-    """
-    cfg = get_config()
-    engine = _engine(request)
-
-    def _pin_error(message: str, *, comment: str = "", status_code: int = 200) -> HTMLResponse:
-        return _render(
-            request,
-            _COMPOSER_TEMPLATES["pin"],
-            {
-                "case_id": str(case_id),
-                "csrf_token": session.csrf_token,
-                "caps_hint": _caps_hint(cfg),
-                "error": message,
-                "comment": comment,
-            },
-            status_code=status_code,
-        )
-
-    form = await _request_form(request)
-    comment_raw = form.get("comment")
-    comment = str(comment_raw).strip() if comment_raw is not None else ""
-
-    # Gates 1-2 + the count read (one tenant-context read).
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        case = await CaseRepository(db).get(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found.",
-            )
-        if case.state not in _MUTABLE_STATES:
-            logger.warning(
-                "cases pin: closed-case write blocked tenant=%s user=%s case=%s",
-                session.tenant_id,
-                session.user_id,
-                case_id,
-            )
-            return _pin_error(_CLOSED_CASE_ERROR)
-        current_count = await CaseAttachmentRepository(db).count_for_case(case_id)
-
-    # Gate 3: comment non-empty. The file input cannot be preserved across a
-    # re-render, so the copy asks the PM to reselect it.
-    if not comment:
-        return _pin_error(
-            "A curation comment is required — say why the document is "
-            "decision-relevant. Please reselect the file too; browsers cannot "
-            "keep it across this error."
-        )
-    # Gates 4-6 (file present, extension and declared type, the bounded size
-    # read, non-empty) — shared with the attach route (D-CS-B-47).
-    upload = await _read_upload(request, cfg)
-    if isinstance(upload, str):
-        return _pin_error(upload, comment=comment)
-    sanitised_name, declared_mime, content, sha256 = upload
-    # Gate 7: count < cap.
-    if current_count >= cfg.case_attachment_max_count:
-        return _pin_error(
-            f"This case already has the maximum of {cfg.case_attachment_max_count} attachments.",
-            comment=comment,
-        )
-
-    # Write: one transaction — attachment + pin entry together (atomic).
-    now = _now()
-    try:
-        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-            attachment = await CaseAttachmentRepository(db).create(
-                case_id,
-                filename=sanitised_name,
-                mime_type=declared_mime,
-                size_bytes=len(content),
-                sha256=sha256,
-                content=content,
-                uploaded_by=session.user_id,
-                now=now,
-            )
-            await CaseRepository(db).append_entry(
-                case_id,
-                kind="pin",
-                actor="pm",
-                actor_user_id=session.user_id,
-                payload={
-                    "artifact": "document",
-                    "comment": comment,
-                    "attachment_id": str(attachment.id),
-                    "filename": attachment.filename,
-                    "mime_type": attachment.mime_type,
-                    "size_bytes": attachment.size_bytes,
-                },
-                now=now,
-            )
-            entries = await _project_timeline(db, case)
-            new_count = await CaseAttachmentRepository(db).count_for_case(case_id)
-    except HTTPException:
-        raise
-    except (CaseClosedError, CaseStateInvalid):
-        # Raced to closed (or the case vanished) between gate and write.
-        logger.warning(
-            "cases pin: case no longer writable under the write case=%s",
-            case_id,
-        )
-        return _pin_error(_CLOSED_CASE_ERROR)
-    except Exception:
-        # The pin entry append failed after the attachment insert: the
-        # tenant_context rolled the whole transaction back, so the attachment
-        # did not survive. Surface a calm error rather than a 500 page.
-        logger.exception(
-            "cases pin: atomic write failed, attachment rolled back case=%s",
-            case_id,
-        )
-        return _pin_error(
-            "The document could not be pinned. Please reselect the file and try again.",
-            comment=comment,
-            status_code=500,
-        )
-
-    logger.info(
-        "cases pin: tenant=%s user=%s case=%s attachment=%s bytes=%d",
-        session.tenant_id,
-        session.user_id,
-        case_id,
-        attachment.id,
-        len(content),
-    )
-    return _render(
-        request,
-        "_partials/cases_pin_result.html",
-        {
-            "entries": entries,
-            "attachments_count": new_count,
-            "attachments_cap": cfg.case_attachment_max_count,
-        },
-    )
 
 
 @router.get("/api/cases/{case_id}/attachments/{attachment_id}")

@@ -14,12 +14,13 @@
    D-CS-B-73). The crumb below is restated in the OOB bundle (cases_file_oob.html),
    which rewrites it after every save so the head follows a rename.
 
-   The actions render on an open or waiting case (is_mutable, D-CS-B-76): Pin
-   document · Link investment… · Attach document… · Capture scenario · Consult
-   Shirley · Wait until… (open) or Resume now (waiting) · Hand over to… ·
-   Close case…. Resume now posts at once (a small form carrying the CSRF
-   token); the others open their composer in the slot. A closed case renders
-   no actions.
+   The actions render on an open or waiting case (is_mutable, D-CS-B-76): Link
+   investment… · Attach document… (the document path) · Capture scenario ·
+   Consult Shirley · Wait until… (open) or Resume now (waiting) · Hand over
+   to… · Close case…. Keep lives in the dock and on the Planning Desk
+   (ADR-0138 §8), not here. Resume now posts at once (a small form carrying
+   the CSRF token); the others open their composer in the slot. A closed case
+   renders no actions.
 
    Context: see load_case_file_context in web/routes/cases.py. #}
 <h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
@@ -43,7 +44,6 @@
             </div>
             {% if is_mutable %}
                 <div class="pf-case__actions" data-pf-cs="actions">
-                    <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="pin" hx-get="/api/cases/{{ case_id }}/composer/pin" hx-target="#case-composer-slot" hx-swap="innerHTML">Pin document</button>
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="link" hx-get="/api/cases/{{ case_id }}/composer/link-investment" hx-target="#case-composer-slot" hx-swap="innerHTML">Link investment…</button>
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="attach" hx-get="/api/cases/{{ case_id }}/composer/attach" hx-target="#case-composer-slot" hx-swap="innerHTML">Attach document…</button>
                     <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="capture" href="{{ capture_scenario_href }}">Capture scenario</a>

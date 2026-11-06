@@ -11,13 +11,17 @@
    carries the chip alone).
 
    A chart item renders the same figure anatomy the live SSE path builds
-   in chat.js — plot container, caption, pin affordance — with the frozen
+   in chat.js — plot container, caption, the Keep gestures — with the frozen
    spec transported in an adjacent ``application/json`` block that
    chart_snapshot.js reads and feeds to Plotly. The spec is emitted via
    ``|tojson``, which escapes ``<``/``>``/``&``/``'`` as unicode escapes:
    it is never interpolated into JavaScript source, and the block is inert
    to the HTML parser. An artefact that was too large to archive carries
-   no spec and renders the calm placeholder instead.
+   no spec and renders the calm placeholder instead, and no Keep.
+
+   Every rehydrated assistant answer and every archived figure carries Keep's
+   two gestures (ADR-0138 §8, D-CS-B-95), from the same partial the live path
+   fetches (_partials/chat_keep_actions.html).
 
    A voice call (ADR-0137 §5) leaves two marks: its bubbles carry a small
    "Call" chip in the meta line under the bubble, and its start and end
@@ -27,10 +31,10 @@
 
    Context:
        items         — render items in surface order:
-                       {kind: "message", role, content, channel},
+                       {kind: "message", role, content, channel, message_id},
                        {kind: "chart", artifact_id, caption, spec, oversized}
                        and {kind: "call_line", content}.
-       pin_chart_url — the chart pin dialog endpoint (ADR-0114).
+       csrf_token, keep_url — the session's token and the Keep endpoint.
 #}
 {% for item in items %}
 {% if item.kind == "message" %}
@@ -39,6 +43,9 @@
          {% if item.role == "assistant" %}aria-live="polite"{% endif %}>{{ item.content }}</div>
     {% if item.channel == "call" %}
     <div class="chat-message__meta"><span class="pf-chip chat-chip--call">{{ pf_icon("call") }}Call</span></div>
+    {% endif %}
+    {% if item.role == "assistant" and item.message_id %}
+        {% with kind = "message", message_id = item.message_id, artifact_id = "", ref = item.message_id %}{% include "_partials/chat_keep_actions.html" %}{% endwith %}
     {% endif %}
 </article>
 {% elif item.kind == "chart" %}
@@ -57,10 +64,7 @@
                 <div class="chat-chart__caption">{{ item.caption }}</div>
             {% endif %}
         </div>
-        <button type="button" class="chat-pin-affordance" data-pf-pin="chart"
-                hx-get="{{ pin_chart_url }}?artifact_id={{ item.artifact_id | urlencode }}"
-                hx-target="#chat-pin-dialog"
-                hx-swap="innerHTML">Pin to case…</button>
+        {% with kind = "chart", message_id = "", artifact_id = item.artifact_id, ref = item.artifact_id %}{% include "_partials/chat_keep_actions.html" %}{% endwith %}
     {% endif %}
 </article>
 {% elif item.kind == "call_line" %}

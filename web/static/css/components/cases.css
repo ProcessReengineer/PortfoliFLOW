@@ -118,14 +118,14 @@
 .pf-cases .mono { color: var(--ui-text-secondary); font-family: var(--ui-font-family-mono); font-size: var(--ui-font-scale-xs); }
 
 /* --- Scoped residue: the timeline under the Record (ADR-0107 C3a–C6, ADR-0114) -
- * Retired by P-CS-4a / P-CS-4b: the Record's rows keep the timeline's two-
- * column frame (P-CS-3c2 D-7 and F-1; the mock's one-line pf-record__row is
- * in pf_components.css, unused yet), with the actor chips, the four pin
- * anatomies (document, scenario snapshot, consultation, chart snapshot), the
- * legacy two-key decision — scoped to the timeline body, so the file's own
- * pf-decision no longer reaches it (P-CS-3c2 F-4) — and the closing note.
- * 4a moves the pins into Keep and 4b renders the kept classes; then this
- * group goes. */
+ * Stays for the b031 rows (D-CS-M-7): the Record's rows keep the timeline's
+ * two-column frame (P-CS-3c2 D-7 and F-1; the mock's one-line pf-record__row
+ * is in pf_components.css, unused yet), with the actor chips, the legacy pins'
+ * comment, the legacy two-key decision — scoped to the timeline body, so the
+ * file's own pf-decision no longer reaches it (P-CS-3c2 F-4) — and the closing
+ * note. The four class anatomies (pf-artifact, pf-snap, pf-chartsnap) serve
+ * the kept rows in the file too since P-CS-4a (cases_artifact.html); P-CS-4b
+ * renders the remaining kept classes. */
 .pf-cases .pf-tl { display: flex; flex-direction: column; }
 .pf-cases .pf-tl__entry { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--ui-space-4); padding: var(--ui-space-3) 0; border-bottom: 1px solid var(--ui-border-default); }
 .pf-cases .pf-tl__entry:last-child { border-bottom: none; }
@@ -184,11 +184,11 @@
 .pf-cases .pf-closing p { margin: 0; color: var(--ui-text-secondary); }
 
 /* --- Scoped residue: the composer frame (ADR-0107 C3b, P-CS-3a, P-CS-3c2) -----
- * Retired by P-CS-4a: the composers that open in the file's slot and the
- * New-case form share one framed panel, and the pin and close composers
- * still draw their own field classes (pf-cases__field*). 4a replaces the pin
- * composer and 3b's form classes are revisited then; this group goes. The
- * empty slot takes no gap in the head. */
+ * Retired by P-CS-6a's hygiene pass or the record question Q-UX-S-CS-7 the
+ * acceptance walk may raise: the five composers that open in the file's slot
+ * and the New-case form share one framed panel; pf-cases__field* is the close
+ * composer's alone since the pin composer went (P-CS-4a). The empty slot takes
+ * no gap in the head. */
 .pf-cases .pf-case-composer-slot:empty { display: none; }
 .pf-cases .pf-case-composer, .pf-cases .pf-cases__new-form { display: flex; flex-direction: column; gap: var(--ui-space-3); padding: var(--ui-space-4); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-section); }
 .pf-cases .pf-case-composer--close { border-left: 3px solid var(--ui-accent-primary); }

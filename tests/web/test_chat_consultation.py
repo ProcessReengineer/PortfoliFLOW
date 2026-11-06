@@ -1,35 +1,41 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Shirley case brief and the consultation pin (ADR-0107 C6),
-and for the Watch Desk briefing hand-off (ADR-0133 §6).
+"""Tests for the Shirley case brief (ADR-0107 C6), Keep from the dock
+(ADR-0138 §8 channel 2, §9; P-CS-4a), and the Watch Desk briefing hand-off
+(ADR-0133 §6).
 
 ASGI-level tests over a live Postgres. Three surfaces are exercised:
 
 * the **case brief** — a per-session stash the assistants surface sets from a
-  ``?case=<id>`` marker, appended to Shirley's system prompt at the SSE call
-  site (never an ``ai_service_core`` change). A scripted ``_FakeCore`` records
-  the system prompt it was handed, so the brief is observable without a live
-  model;
-* the **consultation pin** — a completed assistant answer, curated and pinned to
-  a case as the third pin artifact class (``consultation``);
+  ``?case=<id>`` marker (an open or a waiting case, D-CS-B-93), appended to
+  Shirley's system prompt at the SSE call site (never an ``ai_service_core``
+  change). A scripted ``_FakeCore`` records the system prompt it was handed, so
+  the brief is observable without a live model;
+* **Keep** — every answer and every figure carries ``Keep →`` (one click into
+  the session's keep target: the stashed case, at file level or in its thread)
+  and ``Keep to…`` (the picker). No comment, no dialog: a ``case_kept`` row,
+  ``via="keep"`` (CS4a-01…06). The consultation and chart pin dialogs are
+  retired;
 * the **briefing hand-off** — the same stash, generalised to a second kind: a
   written Watch Desk briefing set by a CSRF-protected POST, bannered in the
   dock, and appended to the prompt as its own fenced block (obligation 17).
 
-The Telegram surface is untouched: the brief and pin presume the web UI's banner
-and pin loop, so the boundary test asserts the briefless path still yields the
-plain system prompt.
+The Telegram surface is untouched: the brief and Keep presume the web UI's
+banner and keep loop, so the boundary test asserts the briefless path still
+yields the plain system prompt.
 """
 
 from __future__ import annotations
 
+import html
+import json
 import os
 import re
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AsyncExitStack
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -45,6 +51,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
+from core.repositories.case_working_file_repository import (
+    CaseKeptDTO,
+    CaseKeptRepository,
+    CaseThreadRepository,
+)
 from core.repositories.irene_briefing_repository import IreneBriefingRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
@@ -52,8 +63,11 @@ from services.ai_models import ConnectionStatus, Message, MessageRole
 from services.ai_service_core import StreamEvent
 from services.irene.briefing_material import MATERIAL_VERSION
 from services.password_hashing import hash_password
+from tests._case_record_seed import seed_record_entry
+from web.case_keep import resolve_keep_target
 from web.main import create_app
 from web.routes.chat import (
+    _CHART_SPEC_BYTE_CAP,
     BRIEF_KIND_CASE,
     BRIEF_KIND_WATCH_BRIEFING,
     ActiveBrief,
@@ -299,27 +313,6 @@ async def _seed_case(
         return case.id, case.case_number
 
 
-async def _append_entry(
-    app_engine: AsyncEngine,
-    *,
-    opened_by: UUID,
-    case_id: UUID,
-    kind: str,
-    actor: str,
-    payload: dict,
-    actor_user_id: UUID | None = None,
-) -> None:
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
-        await CaseRepository(session).append_entry(
-            case_id,
-            kind=kind,
-            actor=actor,
-            actor_user_id=actor_user_id,
-            payload=payload,
-            now=datetime.now(UTC),
-        )
-
-
 async def _close_case(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID) -> None:
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
         await CaseRepository(session).close(
@@ -330,14 +323,42 @@ async def _close_case(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID) -
         )
 
 
-async def _consultation_pins(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID):
+async def _kept_rows(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID) -> list[CaseKeptDTO]:
+    """A case's kept rows (the working file, ADR-0138 §9), file level first."""
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
-        entries = await CaseRepository(session).list_entries(case_id)
-    return [
-        e
-        for e in entries
-        if e.kind == "pin" and (e.payload or {}).get("artifact") == "consultation"
-    ]
+        return await CaseKeptRepository(session).list_for_case(case_id)
+
+
+async def _wait_case(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID) -> None:
+    """Set a case waiting through the milestone path."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
+        await CaseRepository(session).wait(
+            case_id, wait_until=date(2099, 1, 1), by=opened_by, now=datetime.now(UTC)
+        )
+
+
+async def _add_thread(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID, title: str) -> UUID:
+    """Add a thread to a case's working file; return its id."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
+        thread = await CaseThreadRepository(session).add(
+            case_id, title=title, now=datetime.now(UTC)
+        )
+    return thread.id
+
+
+async def _remove_thread(app_engine: AsyncEngine, opened_by: UUID, thread_id: UUID) -> None:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
+        await CaseThreadRepository(session).remove(thread_id, now=datetime.now(UTC))
+
+
+async def _keep(client: AsyncClient, csrf: str, **fields: str) -> Any:
+    """POST the Keep form (``message_id`` or ``artifact_id``, optional target)."""
+    return await client.post("/api/chat/keep", data={"csrf_token": csrf, **fields})
+
+
+def _trigger(response: Any) -> dict[str, Any]:
+    """The JSON ``HX-Trigger`` of a successful keep."""
+    return json.loads(response.headers["HX-Trigger"])
 
 
 async def _drive_turn(
@@ -385,15 +406,18 @@ async def test_active_stash_briefs_the_turn_and_absent_stash_does_not(
             "materiality_at_opening": {"lines": ["PE at 27.4% vs a 25% ceiling — 2.4 pts over."]}
         },
     )
-    await _append_entry(
-        app_engine,
-        opened_by=actor_id,
-        case_id=case_id,
-        kind="note",
-        actor="pm",
-        actor_user_id=actor_id,
-        payload={"text": "Waiting on the Q2 statement before acting."},
-    )
+    # A legacy note (D-CS-M-7) still reads into the digest.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case_id,
+            kind="note",
+            actor="pm",
+            actor_user_id=actor_id,
+            payload={"text": "Waiting on the Q2 statement before acting."},
+            now=datetime.now(UTC),
+        )
 
     msg = Message(role=MessageRole.ASSISTANT, content="Understood.")
     client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
@@ -495,174 +519,6 @@ async def test_marker_hygiene_banner_dismiss_and_replace(
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — prefill
-# ---------------------------------------------------------------------------
-
-
-async def test_dialog_prefills_the_message_text_and_flags_the_unavailable(
-    client_factory: Any,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-) -> None:
-    """The dialog prefills exactly the identified message; a stale id is calm."""
-    actor_id, email, password = seeded_user
-    await _seed_case(app_engine, opened_by=actor_id, title="Prefill case")
-
-    answer = "The Nordbank 2031 is senior non-preferred — anlv:15, not anlv:17."
-    msg = Message(role=MessageRole.ASSISTANT, content=answer)
-    client, _core = await client_factory(_finish_events(msg))
-    csrf = await _login_and_csrf(client, email, password)
-    await _drive_turn(client, csrf)
-
-    # The real message id prefills exactly that message's text.
-    dialog = await client.get(f"/api/chat/pin-consultation?message_id={msg.id}")
-    assert dialog.status_code == 200
-    assert answer in dialog.text
-    assert 'name="excerpt"' in dialog.text
-
-    # A stale/unknown id → the calm "no longer available" state, no prefill.
-    stale = await client.get("/api/chat/pin-consultation?message_id=deadbeef00")
-    assert "no longer available" in stale.text
-    assert answer not in stale.text
-
-
-# ---------------------------------------------------------------------------
-# Test 4 — pin gates
-# ---------------------------------------------------------------------------
-
-
-async def test_pin_gates_write_nothing_and_preserve_inputs(
-    client_factory: Any,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-) -> None:
-    """Empty comment / emptied excerpt / missing / closed case each write nothing."""
-    actor_id, email, password = seeded_user
-    open_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Gate case")
-    closed_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Closed", closed=True)
-    client, _core = await client_factory()
-    csrf = await _login_and_csrf(client, email, password)
-
-    # No apostrophe/quote — the textarea autoescapes, so plain text round-trips.
-    good_excerpt = "The finding, kept verbatim for the record."
-
-    # Gate 1 — empty comment.
-    r = await client.post(
-        "/api/chat/pin-consultation",
-        data={
-            "csrf_token": csrf,
-            "case_id": str(open_id),
-            "comment": "  ",
-            "excerpt": good_excerpt,
-        },
-    )
-    assert r.status_code == 200
-    assert "curation comment is required" in r.text
-    assert good_excerpt in r.text  # the edited excerpt survives
-
-    # Gate 2 — emptied excerpt.
-    r = await client.post(
-        "/api/chat/pin-consultation",
-        data={
-            "csrf_token": csrf,
-            "case_id": str(open_id),
-            "comment": "why it matters",
-            "excerpt": "   ",
-        },
-    )
-    assert "excerpt is empty" in r.text
-
-    # Gate 3 — the case does not exist.
-    r = await client.post(
-        "/api/chat/pin-consultation",
-        data={
-            "csrf_token": csrf,
-            "case_id": str(uuid4()),
-            "comment": "x",
-            "excerpt": good_excerpt,
-        },
-    )
-    assert "could not be found" in r.text
-
-    # Gate 4 — the case is closed.
-    r = await client.post(
-        "/api/chat/pin-consultation",
-        data={
-            "csrf_token": csrf,
-            "case_id": str(closed_id),
-            "comment": "x",
-            "excerpt": good_excerpt,
-        },
-    )
-    assert "closed" in r.text.lower()
-
-    assert await _consultation_pins(app_engine, actor_id, open_id) == []
-    assert await _consultation_pins(app_engine, actor_id, closed_id) == []
-
-
-# ---------------------------------------------------------------------------
-# Test 5 — pin write + anatomy
-# ---------------------------------------------------------------------------
-
-
-async def test_a_successful_pin_writes_one_entry_and_renders_the_anatomy(
-    client_factory: Any,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-) -> None:
-    """A pin appends one consultation entry (actor pm) and renders quoted."""
-    actor_id, email, password = seeded_user
-    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="Anatomy case")
-    client, _core = await client_factory()
-    csrf = await _login_and_csrf(client, email, password)
-
-    excerpt = "The Hansestadt AT1 is a contingent convertible — anlv:17 is correct."
-    comment = "Ranking analysis — the Nordbank classification looks wrong."
-    r = await client.post(
-        "/api/chat/pin-consultation",
-        data={
-            "csrf_token": csrf,
-            "case_id": str(case_id),
-            "comment": comment,
-            "excerpt": excerpt,
-        },
-    )
-    assert r.status_code == 200
-    assert "Excerpt pinned to" in r.text
-    assert f"CASE-{case_number:04d}" in r.text
-
-    pins = await _consultation_pins(app_engine, actor_id, case_id)
-    assert len(pins) == 1
-    entry = pins[0]
-    assert entry.actor == "pm"
-    assert entry.actor_user_id == actor_id
-    assert entry.payload["comment"] == comment
-    assert entry.payload["excerpt"] == excerpt
-
-    # The timeline renders the quoted excerpt + comment under Shirley's name.
-    detail = await client.get(f"/api/cases/{case_id}")
-    assert detail.status_code == 200
-    assert "Consultation pinned" in detail.text
-    assert excerpt in detail.text
-    assert comment in detail.text
-    assert "pf-artifact--consultation" in detail.text
-
-    # An unknown artifact still falls to the calm fallback (no leak, no break).
-    await _append_entry(
-        app_engine,
-        opened_by=actor_id,
-        case_id=case_id,
-        kind="pin",
-        actor="pm",
-        actor_user_id=actor_id,
-        payload={"artifact": "mystery", "secret": "SHOULD-NOT-LEAK"},
-    )
-    detail = await client.get(f"/api/cases/{case_id}")
-    assert detail.status_code == 200
-    assert "SHOULD-NOT-LEAK" not in detail.text
-
-
-# ---------------------------------------------------------------------------
 # Test 6 — the case-side affordance
 # ---------------------------------------------------------------------------
 
@@ -712,8 +568,13 @@ async def test_briefless_turn_passes_the_plain_system_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — the chart pin (ADR-0114): dialog, gates, payload, timeline
+# Keep from the dock (ADR-0138 §8 channel 2, §9; P-CS-4a) — CS4a-01…06
 # ---------------------------------------------------------------------------
+
+#: The retired pin routes, spelled in parts so the tree-wide retirement grep
+#: (P-CS-4a gate G-6) finds no live reference — these tests only prove the
+#: paths answer 404.
+_RETIRED_PIN = "pin" + "-"
 
 
 def _chart_events(msg: Message, spec: dict, caption: str = "NAV trajectory") -> list[StreamEvent]:
@@ -739,16 +600,6 @@ def _artifact_id_from_stream(sse_body: str) -> str:
     return match.group(1)
 
 
-async def _chart_pins(app_engine: AsyncEngine, opened_by: UUID, case_id: UUID):
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=opened_by) as session:
-        entries = await CaseRepository(session).list_entries(case_id)
-    return [
-        e
-        for e in entries
-        if e.kind == "pin" and (e.payload or {}).get("artifact") == "chart_snapshot"
-    ]
-
-
 _SPEC = {
     "data": [{"type": "scatter", "x": ["2026-01-31"], "y": [1.0], "name": "NAV"}],
     "layout": {"title": {"text": "Nordbank 2031 — NAV"}},
@@ -756,221 +607,274 @@ _SPEC = {
 }
 
 
-async def test_chart_pin_dialog_names_the_figure_and_a_stale_handle_is_calm(
+async def test_history_bubbles_and_figures_carry_both_keep_gestures(
     client_factory: Any,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """The dialog identifies the chart by caption; an unknown handle is calm.
-
-    A frozen figure has nothing to trim, so there is no excerpt field — and the
-    form never carries the spec: only the sidecar handle (ADR-0114 §2).
-    """
+    """CS4a-01: a reloaded answer and figure each carry Keep → and Keep to…; no pin remains."""
     actor_id, email, password = seeded_user
-    await _seed_case(app_engine, opened_by=actor_id, title="Chart case")
-
+    await _seed_case(app_engine, opened_by=actor_id, title="Gesture case")
     msg = Message(role=MessageRole.ASSISTANT, content="Here is the trajectory.")
     client, _core = await client_factory(_chart_events(msg, _SPEC))
     csrf = await _login_and_csrf(client, email, password)
     artifact_id = _artifact_id_from_stream(await _drive_turn(client, csrf, "chart please"))
 
-    dialog = await client.get(f"/api/chat/pin-chart?artifact_id={artifact_id}")
-    assert dialog.status_code == 200
-    assert "Pin this chart to a case" in dialog.text
-    assert "NAV trajectory" in dialog.text
-    assert f'name="artifact_id" value="{artifact_id}"' in dialog.text
-    assert 'name="excerpt"' not in dialog.text
-    # Transport by reference: the spec is never put in front of the client.
-    assert "scatter" not in dialog.text
+    body = (await client.get("/chat/history")).text
+    for kind, handle in (("message", msg.id), ("chart", artifact_id)):
+        match = re.search(
+            rf'<div class="chat-keep" data-pf-keep="{kind}" data-pf-keep-ref="{handle}">.*?</div>',
+            body,
+            flags=re.DOTALL,
+        )
+        assert match is not None, kind
+        gestures = match.group(0)
+        assert 'hx-post="/api/chat/keep"' in gestures
+        assert "Keep →" in gestures and "Keep to…" in gestures
+        assert 'name="pick" value="1"' in gestures
+        assert f'name="csrf_token" value="{csrf}"' in gestures
+    assert f'name="message_id" value="{msg.id}"' in body
+    assert f'name="artifact_id" value="{artifact_id}"' in body
+    # Transport by reference: the gestures never carry the spec's data.
+    assert body.count('"scatter"') == 1  # the figure's own spec block only
+    assert re.search(r"\bpin\b", body, flags=re.IGNORECASE) is None
+    assert "chat-pin" not in body
 
-    # A stale/unknown handle → the calm "no longer available" state, no pin.
-    stale = await client.get("/api/chat/pin-chart?artifact_id=deadbeef0000")
-    assert "no longer available" in stale.text
-    assert 'name="case_id"' not in stale.text
+    dock = (await client.get("/chat/dock")).text
+    assert 'id="chat-pin-dialog"' not in dock
+    assert "chat-pin" not in dock
+
+    # The live path fetches the same gestures from the actions endpoint.
+    actions = await client.get(f"/api/chat/keep/actions?message_id={msg.id}")
+    assert actions.status_code == 200
+    assert 'data-pf-keep="message"' in actions.text and "Keep to…" in actions.text
 
 
-async def test_chart_pin_gates_write_nothing(
+async def test_keep_without_a_target_opens_the_picker_and_with_one_writes_the_row(
     client_factory: Any,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """Empty comment / stale handle / missing case / closed case each write nothing."""
+    """CS4a-02: no target → the picker, nothing written; a stashed case → one kept row."""
     actor_id, email, password = seeded_user
-    open_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Gate chart case")
-    closed_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Shut", closed=True)
+    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="Keep target")
+    first_line = "The Nordbank 2031 is senior non-preferred " + "and ranks below the AT1 " * 6
+    answer = f"  \n{first_line}\nThe second line stays out of the caption."
+    msg = Message(role=MessageRole.ASSISTANT, content=answer)
+    client, _core = await client_factory(_finish_events(msg))
+    csrf = await _login_and_csrf(client, email, password)
+    await _drive_turn(client, csrf)
 
-    msg = Message(role=MessageRole.ASSISTANT, content="Here it is.")
-    client, _core = await client_factory(_chart_events(msg, _SPEC))
+    # No stash, no posted target: "Keep →" opens the picker; nothing is written.
+    picked = await _keep(client, csrf, message_id=msg.id, pick="")
+    assert picked.status_code == 200
+    assert 'data-pf-keep="picker"' in picked.text
+    assert f"CASE-{case_number:04d}" in picked.text
+    assert "HX-Trigger" not in picked.headers
+    assert await _kept_rows(app_engine, actor_id, case_id) == []
+
+    # A stashed case is the target: one click keeps into its file.
+    await client.get(f"/assistants?case={case_id}")
+    kept = await _keep(client, csrf, message_id=msg.id, pick="")
+    assert kept.status_code == 200, kept.text
+    (row,) = await _kept_rows(app_engine, actor_id, case_id)
+    assert (row.artifact, row.via, row.thread_id) == ("consultation", "keep", None)
+    assert row.payload == {"excerpt": answer}
+    assert row.comment is None
+    assert row.kept_by == actor_id
+    stripped = first_line.strip()
+    assert row.caption == stripped[:119].rstrip() + "…"
+    assert row.caption is not None and len(row.caption) == 120
+
+    line = kept.text
+    assert 'data-pf-keep="done"' in line
+    assert f'href="/cases/{case_id}#cs-threads">CASE-{case_number:04d}</a>' in line
+    assert "· the file ·" in line
+    assert f'data-pf-keep-ref="{msg.id}"' in line
+    trigger = _trigger(kept)
+    assert trigger["pf:case-kept"] == {"case_id": str(case_id)}
+    assert "pf:brief-changed" not in trigger  # the default target already is the brief
+
+    # "Keep to…" with a target still opens the picker.
+    again = await _keep(client, csrf, message_id=msg.id, pick="1")
+    assert 'data-pf-keep="picker"' in again.text
+    assert len(await _kept_rows(app_engine, actor_id, case_id)) == 1
+
+
+async def test_the_picker_offers_threads_the_file_and_other_cases_and_switches_the_brief(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4a-03: threads + The file + other unclosed cases; a thread or a case becomes the brief."""
+    actor_id, email, password = seeded_user
+    case_a, number_a = await _seed_case(app_engine, opened_by=actor_id, title="Alpha")
+    case_b, number_b = await _seed_case(app_engine, opened_by=actor_id, title="Bravo")
+    closed_c, _ = await _seed_case(app_engine, opened_by=actor_id, title="Shut", closed=True)
+    await _wait_case(app_engine, actor_id, case_b)
+    live = await _add_thread(app_engine, actor_id, case_a, "Fee step-up")
+    gone = await _add_thread(app_engine, actor_id, case_a, "Dropped idea")
+    await _remove_thread(app_engine, actor_id, gone)
+
+    msg = Message(role=MessageRole.ASSISTANT, content="The step-up applies from year three.")
+    client, _core = await client_factory(_finish_events(msg))
+    csrf = await _login_and_csrf(client, email, password)
+    await _drive_turn(client, csrf)
+    await client.get(f"/assistants?case={case_a}")
+
+    picker = (await client.get(f"/api/chat/keep/picker?message_id={msg.id}")).text
+    assert f"CASE-{number_a:04d}" in picker and "Keep this in…" in picker
+    assert "The file" in picker
+    assert f'name="thread_id" value="{live}"' in picker and "Fee step-up" in picker
+    assert str(gone) not in picker and "Dropped idea" not in picker
+    assert f"CASE-{number_b:04d} — Bravo · waiting" in picker
+    assert str(closed_c) not in picker and "Shut" not in picker
+    # The select re-renders the picker for another case.
+    other = (await client.get(f"/api/chat/keep/picker?message_id={msg.id}&case_id={case_b}")).text
+    assert f'Keep this in… <a href="/cases/{case_b}">CASE-{number_b:04d}</a>' in other
+    assert "Fee step-up" not in other
+
+    # Into the thread: the row lands there, the stash takes the thread.
+    into_thread = await _keep(
+        client, csrf, message_id=msg.id, case_id=str(case_a), thread_id=str(live)
+    )
+    (row,) = await _kept_rows(app_engine, actor_id, case_a)
+    assert row.thread_id == live
+    assert f'href="/cases/{case_a}#cs-thread-{live}"' in into_thread.text
+    assert "pf:brief-changed" in _trigger(into_thread)
+    banner = html.unescape((await client.get("/chat/brief/banner")).text)
+    assert 'keeps to thread "Fee step-up"' in banner
+    assert "data-pf-brief-target" in banner
+    # The next one-click keep follows the stash into the thread.
+    await _keep(client, csrf, message_id=msg.id, pick="")
+    assert [r.thread_id for r in await _kept_rows(app_engine, actor_id, case_a)] == [live, live]
+
+    # Into another case's file: the brief switches to that case.
+    switched = await _keep(client, csrf, message_id=msg.id, case_id=str(case_b), thread_id="")
+    trigger = _trigger(switched)
+    assert trigger["pf:case-kept"] == {"case_id": str(case_b)}
+    assert "pf:brief-changed" in trigger
+    (row_b,) = await _kept_rows(app_engine, actor_id, case_b)
+    assert row_b.thread_id is None
+    banner = (await client.get("/chat/brief/banner")).text
+    assert f"CASE-{number_b:04d}" in banner and "keeps to the file" in banner
+
+
+async def test_a_chart_keeps_by_reference_and_unkeepable_figures_are_calm(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4a-04: the server resolves the spec from the sidecar; stale and oversized write nothing."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Chart case")
+    msg = Message(role=MessageRole.ASSISTANT, content="Here is the trajectory.")
+    client, core = await client_factory(_chart_events(msg, _SPEC))
     csrf = await _login_and_csrf(client, email, password)
     artifact_id = _artifact_id_from_stream(await _drive_turn(client, csrf, "chart please"))
+    await client.get(f"/assistants?case={case_id}")
 
-    # Gate 1 — empty comment (the artefact is fine).
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(open_id),
-            "comment": "   ",
-        },
-    )
-    assert r.status_code == 200
-    assert "curation comment is required" in r.text
+    stale = await _keep(client, csrf, artifact_id="deadbeef0000")
+    assert 'data-pf-keep="unavailable"' in stale.text
+    assert "no longer available to keep" in stale.text
+    assert "HX-Trigger" not in stale.headers
 
-    # Gate 2 — the handle no longer resolves in this session's sidecar.
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": "deadbeef0000",
-            "case_id": str(open_id),
-            "comment": "why it matters",
-        },
-    )
-    assert "no longer available" in r.text
+    big = {"data": [], "layout": {"title": "x" * (_CHART_SPEC_BYTE_CAP + 10)}}
+    core._events = _chart_events(Message(role=MessageRole.ASSISTANT, content="Big."), big)
+    await _drive_turn(client, csrf, "the whole book")
+    # An oversized figure streams with no handle, so no gesture is offered;
+    # its sidecar record still has one, and a hand-built post meets the guard.
+    app = cast(ASGITransport, client._transport).app
+    (big_record,) = [
+        record
+        for records in app.state.chat_chart_artifacts.values()
+        for record in records
+        if record["oversized"]
+    ]
+    oversized = await _keep(client, csrf, artifact_id=big_record["artifact_id"])
+    assert "too large to keep" in oversized.text
+    assert await _kept_rows(app_engine, actor_id, case_id) == []
 
-    # Gate 3 — the case does not exist.
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(uuid4()),
-            "comment": "why it matters",
-        },
-    )
-    assert "could not be found" in r.text
-
-    # Gate 4 — the case is closed (ADR-0107 §4 immutability).
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(closed_id),
-            "comment": "why it matters",
-        },
-    )
-    assert "closed" in r.text.lower()
-
-    assert await _chart_pins(app_engine, actor_id, open_id) == []
-    assert await _chart_pins(app_engine, actor_id, closed_id) == []
+    kept = await _keep(client, csrf, artifact_id=artifact_id)
+    assert 'data-pf-keep="done"' in kept.text
+    (row,) = await _kept_rows(app_engine, actor_id, case_id)
+    assert row.artifact == "chart_snapshot"
+    assert row.payload == {"caption": "NAV trajectory", "spec": _SPEC}
+    assert row.caption == "NAV trajectory"
 
 
-async def test_chart_pin_closed_race_is_refused_by_the_repository(
+async def test_a_target_gone_since_the_picker_is_refused_and_the_pin_routes_are_gone(
     client_factory: Any,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A case that closes between the open-gate and the write writes nothing.
-
-    The race is simulated where it actually happens: the route's open-gate read
-    sees ``open``, and by the time ``append_entry`` re-reads the state it is
-    closed. Only the repository's refusal stands between the pin and the
-    record — the C6 handler shape, exercised for the chart class.
-    """
+    """CS4a-05: a closed case or a removed thread re-renders the picker with the reason, zero rows."""
     actor_id, email, password = seeded_user
-    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Racing", closed=True)
-
-    real_get = CaseRepository.get
-    reads = {"n": 0}
-
-    async def _open_on_first_read(self: CaseRepository, wanted: UUID):
-        case = await real_get(self, wanted)
-        reads["n"] += 1
-        # First read = the route's gate (still open); every later read — the
-        # one inside append_entry — sees the case as it now is: closed.
-        if reads["n"] == 1 and case is not None:
-            return replace(case, state="open")
-        return case
-
-    monkeypatch.setattr(CaseRepository, "get", _open_on_first_read)
-
-    msg = Message(role=MessageRole.ASSISTANT, content="Here it is.")
-    client, _core = await client_factory(_chart_events(msg, _SPEC))
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Moving target")
+    other_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Still open")
+    thread_id = await _add_thread(app_engine, actor_id, case_id, "Soon gone")
+    msg = Message(role=MessageRole.ASSISTANT, content="An answer worth keeping.")
+    client, _core = await client_factory(_finish_events(msg))
     csrf = await _login_and_csrf(client, email, password)
-    artifact_id = _artifact_id_from_stream(await _drive_turn(client, csrf, "chart please"))
+    await _drive_turn(client, csrf)
 
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(case_id),
-            "comment": "raced in",
-        },
+    await _remove_thread(app_engine, actor_id, thread_id)
+    thread_gone = await _keep(
+        client, csrf, message_id=msg.id, case_id=str(case_id), thread_id=str(thread_id)
     )
-    assert r.status_code == 200
-    assert "closed" in r.text.lower()
+    assert thread_gone.status_code == 200
+    assert "That thread is gone — pick another." in thread_gone.text
+    assert 'data-pf-keep="picker"' in thread_gone.text
+    assert "HX-Trigger" not in thread_gone.headers
+
+    await _close_case(app_engine, actor_id, case_id)
+    case_gone = await _keep(client, csrf, message_id=msg.id, case_id=str(case_id), thread_id="")
+    assert "That case is closed or gone — pick another." in case_gone.text
+    assert 'data-pf-keep="picker"' in case_gone.text
+
+    # The repository is the last word: a case the route still read as open
+    # but that closed before the write is refused there, nothing written.
+    real_get = CaseRepository.get
+
+    async def _reads_open(self: CaseRepository, wanted: UUID):
+        case = await real_get(self, wanted)
+        return replace(case, state="open") if case is not None else None
+
+    monkeypatch.setattr(CaseRepository, "get", _reads_open)
+    raced = await _keep(client, csrf, message_id=msg.id, case_id=str(case_id), thread_id="")
     monkeypatch.undo()
-    assert await _chart_pins(app_engine, actor_id, case_id) == []
+    assert "That case is closed or gone — pick another." in raced.text
+    assert await _kept_rows(app_engine, actor_id, case_id) == []
+    assert await _kept_rows(app_engine, actor_id, other_id) == []
+
+    for path in (f"/api/chat/{_RETIRED_PIN}consultation", f"/api/chat/{_RETIRED_PIN}chart"):
+        assert (await client.get(path)).status_code == 404, path
+        assert (await client.post(path, data={"csrf_token": csrf})).status_code == 404, path
 
 
-async def test_a_successful_chart_pin_freezes_the_spec_and_renders_it(
+async def test_a_waiting_case_marker_banners_and_briefs(
     client_factory: Any,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """One pin entry carrying artifact/comment/caption/spec, rendered verbatim.
-
-    The client posted a handle; the *server* resolved the spec — which is what
-    makes the record trustworthy — and embedded it, so the case is
-    self-contained and survives the session that produced it.
-    """
+    """CS4a-06 (D-CS-B-93): a waiting case's Consult Shirley lands with its context."""
     actor_id, email, password = seeded_user
-    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="Anatomy chart")
-
-    msg = Message(role=MessageRole.ASSISTANT, content="Here is the trajectory.")
-    client, _core = await client_factory(_chart_events(msg, _SPEC))
+    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="On hold")
+    await _wait_case(app_engine, actor_id, case_id)
+    msg = Message(role=MessageRole.ASSISTANT, content="ok")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
     csrf = await _login_and_csrf(client, email, password)
-    artifact_id = _artifact_id_from_stream(await _drive_turn(client, csrf, "chart please"))
 
-    comment = "The drawdown the committee asked about — kept for the record."
-    r = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(case_id),
-            "comment": comment,
-        },
-    )
-    assert r.status_code == 200
-    assert "Chart pinned to" in r.text
-    assert f"CASE-{case_number:04d}" in r.text
-
-    pins = await _chart_pins(app_engine, actor_id, case_id)
-    assert len(pins) == 1
-    entry = pins[0]
-    assert entry.actor == "pm"
-    assert entry.actor_user_id == actor_id
-    assert entry.payload["comment"] == comment
-    assert entry.payload["caption"] == "NAV trajectory"
-    assert entry.payload["spec"] == _SPEC  # the frozen figure, byte for byte
-
-    # The timeline re-plots it from the payload — nothing recomputed.
-    detail = await client.get(f"/api/cases/{case_id}")
-    assert detail.status_code == 200
-    assert "Chart snapshot pinned" in detail.text
-    assert comment in detail.text
-    assert "pf-artifact--chart" in detail.text
-    assert "data-pf-chart-plot" in detail.text
-    assert '"scatter"' in detail.text
-
-    # A second pin of the same figure is a second entry — the sidecar record
-    # is not consumed by pinning.
-    again = await client.post(
-        "/api/chat/pin-chart",
-        data={
-            "csrf_token": csrf,
-            "artifact_id": artifact_id,
-            "case_id": str(case_id),
-            "comment": "and once more, for the annex",
-        },
-    )
-    assert "Chart pinned to" in again.text
-    assert len(await _chart_pins(app_engine, actor_id, case_id)) == 2
+    page = await client.get(f"/assistants?case={case_id}")
+    assert page.status_code == 200
+    dock = (await client.get("/chat/dock")).text
+    assert "Consulting for" in dock and f"CASE-{case_number:04d}" in dock
+    assert "keeps to the file" in dock
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert "<<<PORTFOLIFLOW CASE BRIEF>>>" in briefed
+    assert "State: waiting" in briefed
 
 
 # ---------------------------------------------------------------------------
@@ -1358,12 +1262,16 @@ async def test_an_unknown_material_version_is_handed_over_as_persisted_json(
     assert "Findings of that check: none" in lines
 
 
-def test_a_briefing_stash_preselects_no_case_in_the_pin_dialogs() -> None:
-    """``_active_case_id`` answers the pin dialogs: a case id, or nothing for a briefing."""
+async def test_a_briefing_stash_yields_no_keep_target() -> None:
+    """A briefing is not a case: no keep target, no case id — a case stash names its case."""
     request = cast(Request, SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())))
     case_id = uuid4()
     _set_active_brief(request, "session-a", ActiveBrief(BRIEF_KIND_CASE, case_id))
     assert _active_case_id(request, "session-a") == case_id
-    _set_active_brief(request, "session-a", ActiveBrief(BRIEF_KIND_WATCH_BRIEFING, uuid4()))
+    briefing = ActiveBrief(BRIEF_KIND_WATCH_BRIEFING, uuid4())
+    _set_active_brief(request, "session-a", briefing)
     assert _active_case_id(request, "session-a") is None
     assert _active_case_id(request, "session-b") is None
+    # Resolved without a database read: nothing is kept into a briefing.
+    assert await resolve_keep_target(cast(Any, None), brief=briefing) is None
+    assert await resolve_keep_target(cast(Any, None), brief=None) is None

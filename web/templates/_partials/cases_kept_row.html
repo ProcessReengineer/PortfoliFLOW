@@ -1,0 +1,19 @@
+{# One kept artefact in the file (ADR-0138 §9, D-CS-B-90) — inside its thread,
+   between the prose and the status / conclusion, or in the Threads block's
+   trailing "Kept in the file" group. M-CS-2's pf-kept: the head is a pf-src
+   chip ("kept from Shirley · dd Mon", "kept from the Planning Desk · dd Mon",
+   or "document · filename"), the caption and "kept by <name>"; the body is the
+   class's anatomy from cases_artifact.html, the one a legacy pin in the Record
+   renders too. Removing a kept row (removed_at) and the comment on it are
+   P-CS-4b's and later.
+
+   Context: row — {id, artifact, caption, chip: {tone, text}, kept_by, art}
+   (_project_kept_row in web/routes/cases.py). #}
+<div class="pf-kept" id="cs-kept-{{ row.id }}" data-pf-cs="kept" data-pf-cs-kind="{{ row.artifact }}">
+    <div class="pf-kept__head">
+        <span class="pf-src pf-src--{{ row.chip.tone }}">{{ row.chip.text }}</span>
+        {% if row.caption %}<strong data-pf-cs="kept-caption">{{ row.caption }}</strong>{% endif %}
+        <span class="pf-hint">kept by {{ row.kept_by }}</span>
+    </div>
+    {% with art = row.art %}{% include "_partials/cases_artifact.html" %}{% endwith %}
+</div>

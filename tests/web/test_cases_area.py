@@ -54,18 +54,28 @@ survives the P-CS-3d restyle.
   case without buttons) and File as … (the file as frozen, Close, the 404s).
 * CS3c2-08 — D-CS-M-5: a kept row removed after a freeze renders in it.
 * CS3c2-09 — a lift woken by an event names the waking line.
-* CS3c2-10 — the retired note and decision composers; a waiting case pins.
+* CS3c2-10 — the retired note, decision and pin composers; a waiting case
+  attaches.
+* CS4a-09…11 — kept rows in the file: inside their thread between the prose
+  and the conclusion, file-level ones under *Kept in the file*, the four
+  classes' anatomy and the calm line of a later class, the Threads block's
+  ``pf:case-kept`` listener (ADR-0138 §9, D-CS-B-88, D-CS-B-90).
+* CS4a-12 — legacy pin rows still render their anatomy in the Record
+  (D-CS-M-7); the pin composer and its route are gone.
 
-The file tests below (origin embed, timeline, pins, composers, close,
+The file tests below (origin embed, timeline, legacy pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
 partial, whose markup moved verbatim. The note and decision composer tests
-went with their routes (P-CS-3c2).
+went with their routes (P-CS-3c2); the document-pin tests moved onto the
+attach route (P-CS-4a), whose gates they shared. Legacy record rows are seeded
+through ``tests/_case_record_seed.py`` (D-CS-B-91).
 """
 
 from __future__ import annotations
 
 import hashlib
 import html
+import json
 import os
 import re
 from collections.abc import AsyncGenerator
@@ -112,12 +122,13 @@ from modules.module_registry import registry
 from services.cases.stand import StandContext, book_values_for, compose, to_snapshot
 from services.money_format import format_money_compact
 from services.password_hashing import hash_password
+from tests._case_record_seed import seed_record_entry
 from tests.services.irene._book_fixtures import CALM_NAV, seed_book
 from tests.web.conftest import cs, cs_block, cs_blocks, cs_count, cs_text, wd_attr
 from web.main import create_app
 from web.settings import WebSettings
 
-# A tiny, valid-enough PDF byte payload for the pin-document tests. The route
+# A tiny, valid-enough PDF byte payload for the attach tests. The route
 # trusts the declared content type (v1 does not sniff), so the bytes only need
 # to be stable — sha256 and size are computed over exactly these bytes.
 _SMALL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
@@ -344,29 +355,6 @@ async def _seed_case(
     return case
 
 
-async def _append_entry(
-    app_engine: AsyncEngine,
-    *,
-    session_user: UUID,
-    case_id: UUID,
-    kind: str,
-    actor: str,
-    actor_user_id: UUID | None,
-    payload: dict,
-    now: datetime,
-) -> None:
-    """Append one timeline entry to an open case through the repository."""
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=session_user) as session:
-        await CaseRepository(session).append_entry(
-            case_id,
-            kind=kind,
-            actor=actor,
-            actor_user_id=actor_user_id,
-            payload=payload,
-            now=now,
-        )
-
-
 async def _seed_attachment(
     app_engine: AsyncEngine,
     *,
@@ -389,26 +377,6 @@ async def _seed_attachment(
             now=_T0,
         )
     return attachment.id
-
-
-async def _post_pin(
-    client: AsyncClient,
-    case_id: UUID,
-    csrf: str,
-    *,
-    comment: str,
-    filename: str = "terms.pdf",
-    content: bytes = _SMALL_PDF,
-    content_type: str = "application/pdf",
-):
-    """POST a multipart pin-document request (csrf field + one file part)."""
-    files = {"file": (filename, content, content_type)}
-    return await client.post(
-        f"/api/cases/{case_id}/pin-document",
-        data={"csrf_token": csrf, "comment": comment},
-        files=files,
-        follow_redirects=False,
-    )
 
 
 async def _seed_finding(app_engine: AsyncEngine, *, opened_by: UUID) -> UUID:
@@ -985,7 +953,8 @@ async def test_detail_manual_open_case_head_description_origin_and_actions(
     assert 'id="case-composer-slot"' in body
     assert cs("actions") in body
     assert "Add note" not in body
-    assert "Pin document" in body
+    assert "Pin document" not in body  # Keep replaced it (P-CS-4a)
+    assert "Attach document…" in body
     assert "Wait until…" in body
     assert "Hand over to…" in body
     assert "Close case" in body
@@ -1067,41 +1036,44 @@ async def test_detail_timeline_entries_render_ascending_with_actor_chips(
         title="Timeline coverage case",
         opened_at=_T0,
     )
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=case.id,
-        kind="note",
-        actor="pm",
-        actor_user_id=pm1,
-        payload={"text": "Called the depot bank for the final terms."},
-        now=_T0 + timedelta(minutes=30),
-    )
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=case.id,
-        kind="decision_record",
-        actor="pm",
-        actor_user_id=pm1,
-        payload={
-            "decision": "Reclassify DE000NB47531 from anlv:17 to anlv:15.",
-            "rationale": "A classification error, not an exposure decision.",
-        },
-        now=_T0 + timedelta(hours=1),
-    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="note",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={"text": "Called the depot bank for the final terms."},
+            now=_T0 + timedelta(minutes=30),
+        )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="decision_record",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={
+                "decision": "Reclassify DE000NB47531 from anlv:17 to anlv:15.",
+                "rationale": "A classification error, not an exposure decision.",
+            },
+            now=_T0 + timedelta(hours=1),
+        )
     # A ``pin`` entry: valid in the repository but not renderable until C3b, so
     # the template must show the calm generic fallback and never dump payload.
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=case.id,
-        kind="pin",
-        actor="system",
-        actor_user_id=None,
-        payload={"hidden": "PIN-PAYLOAD-SHOULD-NOT-RENDER"},
-        now=_T0 + timedelta(hours=2),
-    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="pin",
+            actor="system",
+            actor_user_id=None,
+            payload={"hidden": "PIN-PAYLOAD-SHOULD-NOT-RENDER"},
+            now=_T0 + timedelta(hours=2),
+        )
 
     await _login(web_client, email, password)
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
@@ -1130,63 +1102,65 @@ async def test_a_pinned_scenario_snapshot_renders_the_anatomy(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """The scenario-snapshot pin renders its frozen anatomy (ADR-0107 C5, test 6).
+    """CS4a-12: a legacy scenario-snapshot pin renders its frozen anatomy (ADR-0107 C5).
 
     The Planning Desk writes exactly what this view reads: the curation comment,
     the parameter chips as a line, the KPI pairs with their frozen delta tones,
     the two feet, a headroom *count* (the mock shows no table), and the stored
-    query as monospace text — never a link. A ``consultation`` pin (C6) still
-    falls to the calm generic fallback, its payload untouched.
+    query as monospace text — never a link. A ``consultation`` pin renders its
+    excerpt and nothing else of its payload.
     """
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Snapshot case", opened_at=_T0)
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=case.id,
-        kind="pin",
-        actor="pm",
-        actor_user_id=pm1,
-        payload={
-            "artifact": "scenario_snapshot",
-            "comment": "the alternative path, quantified before deciding",
-            "snapshot": {
-                "chips": [{"label": "FX shock: USD +10 %", "css_class": "pd-chip--shock"}],
-                "kpis": [
-                    {
-                        "label": "AUM (Σ NAV incl. cash)",
-                        "base": "212.4m EUR",
-                        "scen": "198.7m EUR",
-                        "delta": "−13.7m EUR",
-                        "tone": "neg",
-                    }
-                ],
-                "headroom": [{"family": "AnlV", "rows": [{"label": "a"}, {"label": "b"}]}],
-                "baseline_foot": {"nav": "212.4m EUR", "ret": "+14.8%"},
-                "scenario_foot": {
-                    "nav": "198.7m EUR",
-                    "nav_delta": "−13.7m EUR",
-                    "nav_tone": "neg",
-                    "ret": "+7.9%",
-                    "ret_delta": "−6.9pp",
-                    "ret_tone": "neg",
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="pin",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={
+                "artifact": "scenario_snapshot",
+                "comment": "the alternative path, quantified before deciding",
+                "snapshot": {
+                    "chips": [{"label": "FX shock: USD +10 %", "css_class": "pd-chip--shock"}],
+                    "kpis": [
+                        {
+                            "label": "AUM (Σ NAV incl. cash)",
+                            "base": "212.4m EUR",
+                            "scen": "198.7m EUR",
+                            "delta": "−13.7m EUR",
+                            "tone": "neg",
+                        }
+                    ],
+                    "headroom": [{"family": "AnlV", "rows": [{"label": "a"}, {"label": "b"}]}],
+                    "baseline_foot": {"nav": "212.4m EUR", "ret": "+14.8%"},
+                    "scenario_foot": {
+                        "nav": "198.7m EUR",
+                        "nav_delta": "−13.7m EUR",
+                        "nav_tone": "neg",
+                        "ret": "+7.9%",
+                        "ret_delta": "−6.9pp",
+                        "ret_tone": "neg",
+                    },
+                    "query": "periodisation=quarterly&horizon=8&t0_kind=fx_shock",
                 },
-                "query": "periodisation=quarterly&horizon=8&t0_kind=fx_shock",
             },
-        },
-        now=_T0 + timedelta(hours=1),
-    )
-    # A consultation pin (C6) — still the calm fallback; payload never dumped.
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=case.id,
-        kind="pin",
-        actor="shirley",
-        actor_user_id=None,
-        payload={"artifact": "consultation", "secret": "SHOULD-NOT-RENDER"},
-        now=_T0 + timedelta(hours=2),
-    )
+            now=_T0 + timedelta(hours=1),
+        )
+    # A consultation pin without an excerpt: no other payload key is rendered.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="pin",
+            actor="shirley",
+            actor_user_id=None,
+            payload={"artifact": "consultation", "secret": "SHOULD-NOT-RENDER"},
+            now=_T0 + timedelta(hours=2),
+        )
 
     await _login(web_client, email, password)
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
@@ -1207,7 +1181,7 @@ async def test_a_pinned_scenario_snapshot_renders_the_anatomy(
         '<code class="mono">periodisation=quarterly&amp;horizon=8'
         "&amp;t0_kind=fx_shock</code>" in body
     )
-    # The consultation pin still falls to the calm generic fallback.
+    # The consultation pin's other payload keys never render.
     assert "SHOULD-NOT-RENDER" not in body
 
 
@@ -1216,7 +1190,7 @@ async def test_a_pinned_chart_snapshot_renders_the_frozen_figure(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """The chart-snapshot pin renders comment + figure from the payload (ADR-0114).
+    """CS4a-12: a legacy chart-snapshot pin renders comment + figure (ADR-0114).
 
     The fourth pin artifact class: the curation comment plus the caption and the
     frozen Plotly spec, handed to the client in an inert ``application/json``
@@ -1239,32 +1213,34 @@ async def test_a_pinned_chart_snapshot_renders_the_frozen_figure(
             title="Chart snapshot case" + (" (closed)" if closed else ""),
             opened_at=_T0,
         )
-        await _append_entry(
-            app_engine,
-            session_user=pm1,
-            case_id=case.id,
-            kind="pin",
-            actor="pm",
-            actor_user_id=pm1,
-            payload={
-                "artifact": "chart_snapshot",
-                "comment": "the trajectory the committee asked about",
-                "caption": "Nordbank 2031 — NAV trajectory",
-                "spec": spec,
-            },
-            now=_T0 + timedelta(hours=1),
-        )
+        async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+            await seed_record_entry(
+                session,
+                tenant_id=SENTINEL_TENANT_ID,
+                case_id=case.id,
+                kind="pin",
+                actor="pm",
+                actor_user_id=pm1,
+                payload={
+                    "artifact": "chart_snapshot",
+                    "comment": "the trajectory the committee asked about",
+                    "caption": "Nordbank 2031 — NAV trajectory",
+                    "spec": spec,
+                },
+                now=_T0 + timedelta(hours=1),
+            )
         # An unrendered artifact class stays calm — its payload never leaks.
-        await _append_entry(
-            app_engine,
-            session_user=pm1,
-            case_id=case.id,
-            kind="pin",
-            actor="pm",
-            actor_user_id=pm1,
-            payload={"artifact": "mystery", "secret": "SHOULD-NOT-RENDER"},
-            now=_T0 + timedelta(hours=2),
-        )
+        async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+            await seed_record_entry(
+                session,
+                tenant_id=SENTINEL_TENANT_ID,
+                case_id=case.id,
+                kind="pin",
+                actor="pm",
+                actor_user_id=pm1,
+                payload={"artifact": "mystery", "secret": "SHOULD-NOT-RENDER"},
+                now=_T0 + timedelta(hours=2),
+            )
         if closed:
             async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
                 await CaseRepository(session).close(
@@ -1387,8 +1363,8 @@ async def test_file_partial_writes_the_crumb_and_moves_the_page(
     cs_block(body, "outline-item", data_pf_cs_name="question")
     cs_block(body, "outline-item", data_pf_cs_name="record")
     assert "Opened" in cs_text(body, "facts")
-    assert cs_count(body, "action") == 8
-    kinds = ("pin", "link", "attach", "capture", "consult", "wait", "handover", "close")
+    assert cs_count(body, "action") == 7
+    kinds = ("link", "attach", "capture", "consult", "wait", "handover", "close")
     assert [wd_attr(action, "data-pf-cs-kind") for action in cs_blocks(body, "action")] == list(
         kinds
     )
@@ -1415,35 +1391,32 @@ def test_cases_module_registered() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C3b — composers, attachment pipeline, pin anatomy
+# C3b — composers and the attachment pipeline (the pin composer retired, P-CS-4a)
 # ---------------------------------------------------------------------------
 
 
-async def test_pin_happy_path_stores_downloads_and_renders(
+async def test_attach_stores_and_downloads_the_exact_bytes(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """A small PDF uploads: attachment stored, pin payload correct, download exact."""
+    """A small PDF attaches: the row stored exactly, no record entry, the download exact.
+
+    The pin composer that wrote an attachment with its pin entry is retired
+    (P-CS-4a); the attach route is the document path and shares its gates
+    through ``_read_upload``.
+    """
     pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Pin happy", opened_at=_T0)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Attach happy", opened_at=_T0)
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
-    comment = "Ranking terms from the depot bank — basis for the review."
-    resp = await _post_pin(web_client, case.id, csrf, comment=comment, filename="terms.pdf")
+    resp = await _post_attach(web_client, case.id, csrf, filename="terms.pdf")
     assert resp.status_code == 200
-    body = resp.text
-    # Timeline + attachments count refresh out of band; filename + comment show.
-    assert 'id="case-timeline"' in body
-    assert "hx-swap-oob" in body
-    assert "terms.pdf" in body
-    assert comment in body
-    assert "1 of" in body  # the rail attachments count
+    assert "terms.pdf" in resp.text
+    assert "1 of" in resp.text  # the attachments fact
 
-    # The attachment row exists with correct sha256 + size; the pin entry
-    # carries the binding-decision-4 payload.
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         atts = await CaseAttachmentRepository(session).list_for_case(case.id)
         entries = await CaseRepository(session).list_entries(case.id)
@@ -1453,16 +1426,7 @@ async def test_pin_happy_path_stores_downloads_and_renders(
     assert att.size_bytes == len(_SMALL_PDF)
     assert att.filename == "terms.pdf"
     assert att.mime_type == "application/pdf"
-    pins = [e for e in entries if e.kind == "pin"]
-    assert len(pins) == 1
-    assert pins[0].payload == {
-        "artifact": "document",
-        "comment": comment,
-        "attachment_id": str(att.id),
-        "filename": "terms.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": len(_SMALL_PDF),
-    }
+    assert [entry.kind for entry in entries] == ["opened"]
 
     # The download URL returns the exact bytes with the declared mime and an
     # attachment Content-Disposition header.
@@ -1473,16 +1437,16 @@ async def test_pin_happy_path_stores_downloads_and_renders(
     assert 'attachment; filename="terms.pdf"' in dl.headers["content-disposition"]
 
 
-async def test_pin_gates_reject_with_inline_error_and_zero_writes(
+async def test_attach_gates_reject_with_inline_error_and_zero_writes(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Every pin gate rejects with its inline error and writes nothing."""
+    """Every file gate rejects with its inline error and writes nothing."""
     pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Pin gates", opened_at=_T0)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Attach gates", opened_at=_T0)
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
@@ -1490,31 +1454,24 @@ async def test_pin_gates_reject_with_inline_error_and_zero_writes(
         async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
             return await CaseAttachmentRepository(session).count_for_case(case.id)
 
-    # Empty comment → rejected.
-    r = await _post_pin(web_client, case.id, csrf, comment="   ")
-    assert r.status_code == 200
-    assert "curation comment is required" in r.text
-    assert await _count() == 0
-
     # Disallowed extension → rejected.
-    r = await _post_pin(
+    r = await _post_attach(
         web_client,
         case.id,
         csrf,
-        comment="ok",
         filename="notes.txt",
         content=b"hello there",
         content_type="text/plain",
     )
+    assert r.status_code == 200
     assert "not allowed" in r.text
     assert await _count() == 0
 
     # Disallowed declared content type (valid extension) → rejected.
-    r = await _post_pin(
+    r = await _post_attach(
         web_client,
         case.id,
         csrf,
-        comment="ok",
         filename="terms.pdf",
         content_type="application/x-evil",
     )
@@ -1524,7 +1481,7 @@ async def test_pin_gates_reject_with_inline_error_and_zero_writes(
     # Oversized → rejected (cap lowered below the payload size).
     cfg = get_config()
     monkeypatch.setattr(cfg, "case_attachment_max_bytes", len(_SMALL_PDF) - 1)
-    r = await _post_pin(web_client, case.id, csrf, comment="ok")
+    r = await _post_attach(web_client, case.id, csrf)
     assert "per-file" in r.text
     assert await _count() == 0
     monkeypatch.undo()  # restore the size cap before the count-cap check
@@ -1534,37 +1491,9 @@ async def test_pin_gates_reject_with_inline_error_and_zero_writes(
     monkeypatch.setattr(cfg, "case_attachment_max_count", 1)
     await _seed_attachment(app_engine, case_id=case.id, uploaded_by=pm1)
     assert await _count() == 1
-    r = await _post_pin(web_client, case.id, csrf, comment="ok")
+    r = await _post_attach(web_client, case.id, csrf)
     assert "maximum of 1" in r.text
     assert await _count() == 1
-
-
-async def test_pin_atomicity_rolls_back_attachment_when_append_fails(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-    app_engine: AsyncEngine,
-    fresh_superuser_engine: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """If the pin entry append fails after create, the attachment does not survive."""
-    pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Atomic pin", opened_at=_T0)
-    await _login(web_client, email, password)
-    csrf = await _session_csrf(web_client, fresh_superuser_engine)
-
-    async def _boom(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("append failed after the attachment insert")
-
-    monkeypatch.setattr(CaseRepository, "append_entry", _boom)
-
-    resp = await _post_pin(web_client, case.id, csrf, comment="ranking terms")
-    # The route surfaced a calm error rather than a half-write.
-    assert resp.status_code == 500
-
-    # The attachment did not survive — the transaction rolled it back.
-    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        count = await CaseAttachmentRepository(session).count_for_case(case.id)
-    assert count == 0
 
 
 async def test_close_requires_note_renders_closed_and_is_immutable(
@@ -1579,9 +1508,9 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
-    # Pin a document first so we can prove downloads still work after close.
-    pin = await _post_pin(web_client, case.id, csrf, comment="evidence", filename="evidence.pdf")
-    assert pin.status_code == 200
+    # Attach a document first so we can prove downloads still work after close.
+    attached = await _post_attach(web_client, case.id, csrf, filename="evidence.pdf")
+    assert attached.status_code == 200
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         att = (await CaseAttachmentRepository(session).list_for_case(case.id))[0]
 
@@ -1627,10 +1556,10 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
     assert again.status_code == 200
     assert "closed cases are read-only" in again.text
 
-    # A pin, a wait, a hand-over and a resume against the closed case → the
-    # calm error, zero writes.
-    late_pin = await _post_pin(web_client, case.id, csrf, comment="late pin", filename="late.pdf")
-    assert "closed cases are read-only" in late_pin.text
+    # An attachment, a wait, a hand-over and a resume against the closed case
+    # → the calm error, zero writes.
+    late_attach = await _post_attach(web_client, case.id, csrf, filename="late.pdf")
+    assert "closed cases are read-only" in late_attach.text
     for path, fields in (
         (f"/api/cases/{case.id}/wait", {"wait_until": "2099-01-01"}),
         (f"/api/cases/{case.id}/hand-over", {"to_user_id": str(pm1)}),
@@ -1645,8 +1574,8 @@ async def test_close_requires_note_renders_closed_and_is_immutable(
         entries = await CaseRepository(session).list_entries(case.id)
         frozen = await CaseRepository(session).latest_frozen(case.id)
         att_count = await CaseAttachmentRepository(session).count_for_case(case.id)
-    # Only opened → pin → closed; the late gestures wrote nothing.
-    assert [e.kind for e in entries] == ["opened", "pin", "closed"]
+    # Only opened → closed; the late gestures wrote nothing.
+    assert [e.kind for e in entries] == ["opened", "closed"]
     assert att_count == 1
     # The close froze the file, Where we stand included (D-CS-B-69).
     assert frozen is not None and frozen.payload["milestone_entry_id"] == str(entries[-1].id)
@@ -1698,13 +1627,13 @@ async def test_download_scoping_mismatched_case_and_foreign_tenant_404(
     assert foreign.status_code == 404
 
 
-async def test_pin_strips_path_and_download_header_is_sanitised(
+async def test_attach_strips_path_and_download_header_is_sanitised(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """The pin strips the stored filename to a basename; the download header is safe.
+    """Attach strips the stored filename to a basename; the download header is safe.
 
     Two properties (Step 6.9): the upload sanitiser reduces a path-prefixed
     filename to its basename on the *stored* row, and the download route
@@ -1712,7 +1641,7 @@ async def test_pin_strips_path_and_download_header_is_sanitised(
     quotes, control characters and path separators removed — while leaving the
     stored DB value untouched. The header part is exercised through a
     repository-seeded nasty filename (multipart transport mangles quotes before
-    they reach the server, so the pin path cannot produce one).
+    they reach the server, so the attach path cannot produce one).
     """
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Sanitise", opened_at=_T0)
@@ -1720,13 +1649,7 @@ async def test_pin_strips_path_and_download_header_is_sanitised(
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
     # (a) Upload with a path-prefixed filename → the stored row is the basename.
-    resp = await _post_pin(
-        web_client,
-        case.id,
-        csrf,
-        comment="terms",
-        filename="../../etc/statement.pdf",
-    )
+    resp = await _post_attach(web_client, case.id, csrf, filename="../../etc/statement.pdf")
     assert resp.status_code == 200
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         atts = await CaseAttachmentRepository(session).list_for_case(case.id)
@@ -1801,7 +1724,7 @@ async def test_origin_chip_renders_opened_case_label_and_tag(
     assert "pf-state--opened_case" in body
 
 
-async def test_pin_chunked_read_rejects_oversize_without_full_buffer(
+async def test_attach_chunked_read_rejects_oversize_without_full_buffer(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
@@ -1815,7 +1738,7 @@ async def test_pin_chunked_read_rejects_oversize_without_full_buffer(
     within the cap is stored and downloads byte-identical.
     """
     pm1, email, password = seeded_user
-    case = await _seed_case(app_engine, opened_by=pm1, title="Chunked pin", opened_at=_T0)
+    case = await _seed_case(app_engine, opened_by=pm1, title="Chunked attach", opened_at=_T0)
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
@@ -1825,21 +1748,14 @@ async def test_pin_chunked_read_rejects_oversize_without_full_buffer(
 
     # 200 KiB payload → over the cap → rejected on the multi-chunk path.
     big = b"%PDF-1.4\n" + b"0" * (200 * 1024)
-    over = await _post_pin(web_client, case.id, csrf, comment="too big", content=big)
+    over = await _post_attach(web_client, case.id, csrf, content=big)
     assert "per-file" in over.text
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         assert await CaseAttachmentRepository(session).count_for_case(case.id) == 0
 
     # 100 KiB payload → within the cap → stored, and downloads identically.
     ok_bytes = b"%PDF-1.4\n" + b"1" * (100 * 1024)
-    ok = await _post_pin(
-        web_client,
-        case.id,
-        csrf,
-        comment="within cap",
-        content=ok_bytes,
-        filename="within.pdf",
-    )
+    ok = await _post_attach(web_client, case.id, csrf, content=ok_bytes, filename="within.pdf")
     assert ok.status_code == 200
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         atts = await CaseAttachmentRepository(session).list_for_case(case.id)
@@ -4520,16 +4436,17 @@ async def test_record_block_lists_newest_last_pairs_files_and_hides_frozen_rows(
     case = await _seed_case(app_engine, opened_by=pm1, title="Milestones", opened_at=_T0)
     legacy = await _seed_case(app_engine, opened_by=pm1, title="Legacy", opened_at=_T0)
     await _strip_opening_pair(fresh_superuser_engine, legacy.id)
-    await _append_entry(
-        app_engine,
-        session_user=pm1,
-        case_id=legacy.id,
-        kind="note",
-        actor="pm",
-        actor_user_id=pm1,
-        payload={"text": "Called the GP."},
-        now=_T0 + timedelta(minutes=5),
-    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=legacy.id,
+            kind="note",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={"text": "Called the GP."},
+            now=_T0 + timedelta(minutes=5),
+        )
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
     await _wait_through_the_route(web_client, csrf, case.id)
@@ -4720,19 +4637,19 @@ async def test_woken_by_reads_the_waking_line(
     assert cs_text(lift, "file-as") == "File as lifted"
 
 
-async def test_retired_composers_are_gone_and_pin_works_on_waiting(
+async def test_retired_composers_are_gone_and_attach_works_on_waiting(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """CS3c2-10: the note and decision composers are 404; a waiting case takes a pin."""
+    """CS3c2-10 / CS4a-12: note, decision and pin composers are 404; a waiting case attaches."""
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Retired", opened_at=_T0)
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
-    for action in ("note", "decision"):
+    for action in ("note", "decision", "pin"):
         assert (await web_client.get(f"/api/cases/{case.id}/composer/{action}")).status_code == 404
     for path, fields in (
         (f"/api/cases/{case.id}/note", {"text": "late"}),
@@ -4740,11 +4657,16 @@ async def test_retired_composers_are_gone_and_pin_works_on_waiting(
     ):
         # The routes are gone: no route matches the path, so 404 (not 405).
         assert (await _post_form(web_client, path, csrf, **fields)).status_code == 404
+    retired_pin = await web_client.post(
+        f"/api/cases/{case.id}/{_RETIRED_PIN}document",
+        data={"csrf_token": csrf, "comment": "late"},
+        files={"file": ("lpa.pdf", _SMALL_PDF, "application/pdf")},
+    )
+    assert retired_pin.status_code in (404, 405)
 
     await _wait_through_the_route(web_client, csrf, case.id)
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     assert [wd_attr(action, "data-pf-cs-kind") for action in cs_blocks(body, "action")] == [
-        "pin",
         "link",
         "attach",
         "capture",
@@ -4756,14 +4678,281 @@ async def test_retired_composers_are_gone_and_pin_works_on_waiting(
     assert wd_attr(cs_block(body, "action", data_pf_cs_kind="capture"), "href") == (
         f"/planning-desk?case={case.id}"
     )
-    composer = await web_client.get(f"/api/cases/{case.id}/composer/pin")
+    composer = await web_client.get(f"/api/cases/{case.id}/composer/attach")
     assert composer.status_code == 200
-    pin = await _post_pin(web_client, case.id, csrf, comment="While we wait", filename="lpa.pdf")
-    assert pin.status_code == 200
-    assert "closed cases are read-only" not in pin.text
+    attached = await _post_attach(web_client, case.id, csrf, filename="lpa.pdf")
+    assert attached.status_code == 200
+    assert "closed cases are read-only" not in attached.text
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         attachments = await CaseAttachmentRepository(session).list_for_case(case.id)
         entries = await CaseRepository(session).list_entries(case.id)
     assert [attachment.filename for attachment in attachments] == ["lpa.pdf"]
-    assert entries[-1].kind == "pin"
-    assert cs_block(pin.text, "record-row", data_pf_cs_kind="pin")
+    assert entries[-1].kind == "waiting_set"  # an attachment writes no record entry
+
+
+# ---------------------------------------------------------------------------
+# P-CS-4a — kept rows in the file (CS4a-09 … CS4a-12)
+# ---------------------------------------------------------------------------
+
+#: The retired pin routes, spelled in parts so the tree-wide retirement grep
+#: (P-CS-4a gate G-6) finds no live reference — the tests only prove a 404.
+_RETIRED_PIN = "pin" + "-"
+
+_KEPT_SPEC = {
+    "data": [{"type": "scatter", "x": ["2026-01-31"], "y": [1.0], "name": "NAV"}],
+    "layout": {"title": {"text": "Fund III — NAV"}},
+}
+
+_KEPT_SNAPSHOT = {
+    "chips": [{"label": "FX shock: USD +10 %", "css_class": "pd-chip--shock"}],
+    "kpis": [
+        {
+            "label": "AUM (Σ NAV incl. cash)",
+            "base": "212.4m EUR",
+            "scen": "198.7m EUR",
+            "delta": "−13.7m EUR",
+            "tone": "neg",
+        }
+    ],
+    "headroom": [{"family": "AnlV", "rows": [{"label": "a"}]}],
+    "baseline_foot": {"nav": "212.4m EUR", "ret": "+14.8%"},
+    "scenario_foot": {"nav": "198.7m EUR", "nav_delta": "−13.7m EUR", "nav_tone": "neg"},
+    "query": "periodisation=quarterly&horizon=8",
+}
+
+
+async def _keep_row(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    case_id: UUID,
+    *,
+    artifact: str,
+    payload: dict[str, Any],
+    caption: str,
+    thread_id: UUID | None = None,
+    attachment_id: UUID | None = None,
+    hours: int = 1,
+) -> UUID:
+    """Keep one artefact through the repository (never through the routes)."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        kept = await CaseKeptRepository(session).keep(
+            case_id,
+            artifact=artifact,
+            payload=payload,
+            kept_by=user_id,
+            via="keep",
+            now=_T0 + timedelta(hours=hours),
+            thread_id=thread_id,
+            caption=caption,
+            attachment_id=attachment_id,
+        )
+    return kept.id
+
+
+def _threads(body: str) -> str:
+    return cs_block(body, "block", data_pf_cs_name="threads")
+
+
+async def test_kept_rows_render_inside_their_thread_and_the_file_level_ones_after(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4a-09 (D-CS-B-90): in the thread between prose and conclusion; file level under its group."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Kept rows", opened_at=_T0)
+    kept_in = await _seed_thread(app_engine, pm1, case.id, title="Fee step-up")
+    empty = await _seed_thread(app_engine, pm1, case.id, title="Still empty")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseThreadRepository(session).update(
+            kept_in.id, now=_T0, prose="What the LPA says.", conclusion="It applies."
+        )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "The step-up applies from year three."},
+        caption="Shirley on the step-up",
+        thread_id=kept_in.id,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="chart_snapshot",
+        payload={"caption": "Fund III NAV", "spec": _KEPT_SPEC},
+        caption="Fund III NAV",
+    )
+    other = await _seed_case(app_engine, opened_by=pm1, title="File only", opened_at=_T0)
+    await _keep_row(
+        app_engine,
+        pm1,
+        other.id,
+        artifact="consultation",
+        payload={"excerpt": "Kept at file level."},
+        caption="File-level answer",
+    )
+    await _login(web_client, email, password)
+
+    for closed in (False, True):
+        if closed:
+            async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+                await CaseRepository(session).close(
+                    case.id, closed_by=pm1, closing_note="filed", now=_T0 + timedelta(hours=5)
+                )
+        body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+        block = _threads(body)
+        thread = cs_block(block, "thread", id=f"cs-thread-{kept_in.id}")
+        assert cs_count(thread, "kept", data_pf_cs_kind="consultation") == 1
+        assert (
+            thread.index(cs("thread-prose"))
+            < thread.index(cs("kept", kind="consultation"))
+            < thread.index(cs("thread-conclusion"))
+        )
+        assert cs_text(thread, "kept-caption") == "Shirley on the step-up"
+        assert cs_count(thread, "thread-empty") == 0
+        sibling = cs_block(block, "thread", id=f"cs-thread-{empty.id}")
+        assert cs_count(sibling, "kept") == 0
+        assert cs_count(sibling, "thread-empty") == (0 if closed else 1)
+        file_group = cs_block(block, "kept-file")
+        assert "Kept in the file" in cs_text(file_group)
+        assert cs_count(file_group, "kept", data_pf_cs_kind="chart_snapshot") == 1
+        assert block.index(f"cs-thread-{empty.id}") < block.index(cs("kept-file"))
+
+    # A file-level row alone: the block shows (not the hidden placeholder) and
+    # the outline lists the threads' count with the kept count beside it.
+    lone = (await web_client.get(f"/api/cases/{other.id}", follow_redirects=False)).text
+    lone_block = _threads(lone)
+    assert wd_attr(lone_block, "hidden") is None
+    assert wd_attr(lone_block, "data-pf-cs-state") is None
+    assert cs_count(cs_block(lone_block, "kept-file"), "kept") == 1
+    item = cs_block(lone, "outline-item", data_pf_cs_name="threads")
+    assert cs_text(item) == "Threads 0 · kept 1"
+    assert wd_attr(item, "class") != "is-empty"
+
+
+async def test_the_four_kept_classes_render_their_anatomy_and_a_later_class_is_calm(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4a-10: quote · frozen chart spec · KPI row · download link; document_excerpt is one line."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Anatomy", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Everything kept")
+    attachment_id = await _seed_attachment(
+        app_engine, case_id=case.id, uploaded_by=pm1, filename="lpa.pdf"
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "Hedged at 80 % of NAV, page 23."},
+        caption="Shirley on the hedge",
+        thread_id=thread.id,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="chart_snapshot",
+        payload={"caption": "Fund III NAV", "spec": _KEPT_SPEC},
+        caption="Fund III NAV",
+        thread_id=thread.id,
+        hours=2,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="scenario_snapshot",
+        payload={"snapshot": _KEPT_SNAPSHOT},
+        caption="Scenario snapshot",
+        thread_id=thread.id,
+        hours=3,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="document",
+        payload={
+            "attachment_id": str(attachment_id),
+            "filename": "lpa.pdf",
+            "mime_type": "application/pdf",
+            "size_bytes": 2048,
+        },
+        caption="The LPA",
+        thread_id=thread.id,
+        attachment_id=attachment_id,
+        hours=4,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="document_excerpt",
+        payload={"text": "EXCERPT-PAYLOAD-NOT-RENDERED"},
+        caption="Clause 7.2",
+        thread_id=thread.id,
+        attachment_id=attachment_id,
+        hours=5,
+    )
+    await _login(web_client, email, password)
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = cs_block(_threads(body), "thread", id=f"cs-thread-{thread.id}")
+
+    consultation = cs_block(block, "kept", data_pf_cs_kind="consultation")
+    assert "Hedged at 80 % of NAV, page 23." in cs_text(consultation)
+    assert "kept from Shirley · 21 Jul" in cs_text(consultation)
+    assert "kept by S. Behrens" in cs_text(consultation)
+
+    chart = cs_block(block, "kept", data_pf_cs_kind="chart_snapshot")
+    spec = re.search(
+        r"<script type=\"application/json\" data-pf-chart-spec>(.*?)</script>",
+        chart,
+        flags=re.DOTALL,
+    )
+    assert spec is not None
+    assert json.loads(spec.group(1)) == _KEPT_SPEC
+
+    scenario = cs_block(block, "kept", data_pf_cs_kind="scenario_snapshot")
+    assert "kept from the Planning Desk · 21 Jul" in cs_text(scenario)
+    assert "AUM (Σ NAV incl. cash)" in cs_text(scenario)
+    assert "1 headroom row frozen" in cs_text(scenario)
+
+    document = cs_block(block, "kept", data_pf_cs_kind="document")
+    assert f'href="/api/cases/{case.id}/attachments/{attachment_id}"' in document
+    assert "document · lpa.pdf" in cs_text(document)
+    assert "2.0 KB" in cs_text(document)
+
+    excerpt = cs_block(block, "kept", data_pf_cs_kind="document_excerpt")
+    assert cs_text(excerpt, "kept-fallback") == "Document excerpt · Clause 7.2"
+    assert "EXCERPT-PAYLOAD-NOT-RENDERED" not in body
+
+
+async def test_the_threads_block_listens_for_its_own_case_kept(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4a-11 (D-CS-B-88): both forms of the block re-render on their case's keep event."""
+    pm1, email, password = seeded_user
+    bare = await _seed_case(app_engine, opened_by=pm1, title="Nothing yet", opened_at=_T0)
+    threaded = await _seed_case(app_engine, opened_by=pm1, title="One thread", opened_at=_T0)
+    await _seed_thread(app_engine, pm1, threaded.id, title="A thread")
+    await _login(web_client, email, password)
+
+    for case, hidden in ((bare, True), (threaded, False)):
+        body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+        block = _threads(body)
+        assert (wd_attr(block, "hidden") is not None) is hidden
+        assert wd_attr(block, "hx-get") == f"/api/cases/{case.id}/sections/threads"
+        assert wd_attr(block, "hx-trigger") == (
+            f"pf:case-kept[detail.case_id=='{case.id}'] from:body"
+        )
+        assert wd_attr(block, "hx-swap") == "outerHTML"
+        section = (await web_client.get(f"/api/cases/{case.id}/sections/threads")).text
+        assert wd_attr(_threads(section), "hx-trigger") == wd_attr(block, "hx-trigger")

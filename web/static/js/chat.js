@@ -25,7 +25,7 @@
 //      ``chart_snapshot.js``, the same path the rehydrated history and
 //      the Cases timeline use (ADR-0114). A plotly payload also carries
 //      an ``artifact_id`` when the server archived the spec — the handle
-//      the figure's "Pin to case…" affordance posts.
+//      the figure's Keep gestures post (ADR-0138 §8).
 
 (function () {
     "use strict";
@@ -140,50 +140,31 @@
         });
     }
 
-    // ADR-0107 C6: a quiet "Pin to case…" affordance on a completed assistant
-    // bubble. It carries the message's server-side id, so the dialog can
-    // prefill the excerpt from that message in the session history. Inserted by
-    // raw JS (not an HTMX swap), so HTMX has not wired its hx-* attributes yet
-    // — process the subtree so the click opens the dialog.
-    function addPinAffordance(bubbleId, messageId) {
-        const wrap = document.getElementById(bubbleId + "-wrap");
-        // One per message — but a chart affordance may already sit in the same
-        // wrap, so the guard keys on the kind, not on the shared class.
-        if (!wrap || wrap.querySelector('[data-pf-pin="message"]')) return;
-        appendPinButton(
-            wrap,
-            "message",
-            "/api/chat/pin-consultation?message_id=" + encodeURIComponent(messageId)
+    // ADR-0138 §8: Keep's two gestures ("Keep →" · "Keep to…") under a
+    // completed answer (kind "message", the message's server-side id) or a
+    // figure (kind "chart", the server's sidecar handle — the client never
+    // posts the spec, so an unarchived figure without an ``artifact_id`` gets
+    // none). A placeholder that fetches the gestures from the server on
+    // ``load``, so the markup has one source — the template the rehydrated
+    // history includes. Inserted by raw JS, not an HTMX swap, so the subtree
+    // is processed by hand. One per artefact: the guard keys on the handle,
+    // which every Keep partial carries as ``data-pf-keep-ref``.
+    function addKeepActions(wrap, kind, id) {
+        if (!wrap || !id) return;
+        if (wrap.querySelector('[data-pf-keep-ref="' + CSS.escape(id) + '"]')) return;
+        const param = kind === "chart" ? "artifact_id" : "message_id";
+        const holder = document.createElement("div");
+        holder.className = "chat-keep";
+        holder.dataset.pfKeep = kind;
+        holder.dataset.pfKeepRef = id;
+        holder.setAttribute(
+            "hx-get",
+            "/api/chat/keep/actions?" + param + "=" + encodeURIComponent(id)
         );
-    }
-
-    // ADR-0114: the same quiet affordance under a chart figure, carrying the
-    // server's sidecar handle. The client never posts the spec — the server
-    // resolves it from its own store — so an unarchived figure (oversized, no
-    // ``artifact_id``) simply gets no affordance. One per figure, appended
-    // right after it, so a multi-chart turn reads figure/pin, figure/pin.
-    function addChartPinAffordance(wrap, artifactId) {
-        if (!wrap || !artifactId) return;
-        appendPinButton(
-            wrap,
-            "chart",
-            "/api/chat/pin-chart?artifact_id=" + encodeURIComponent(artifactId)
-        );
-    }
-
-    // Inserted by raw JS (not an HTMX swap), so HTMX has not wired its hx-*
-    // attributes yet — process the button so the click opens the dialog.
-    function appendPinButton(wrap, kind, url) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "chat-pin-affordance";
-        button.dataset.pfPin = kind;
-        button.textContent = "Pin to case…";
-        button.setAttribute("hx-get", url);
-        button.setAttribute("hx-target", "#chat-pin-dialog");
-        button.setAttribute("hx-swap", "innerHTML");
-        wrap.appendChild(button);
-        if (window.htmx) window.htmx.process(button);
+        holder.setAttribute("hx-trigger", "load");
+        holder.setAttribute("hx-swap", "outerHTML");
+        wrap.appendChild(holder);
+        if (window.htmx) window.htmx.process(holder);
     }
 
     function attachSseListeners(container) {
@@ -295,8 +276,8 @@
             }
             wrap.appendChild(figure);
             // The server archived this spec and handed back its handle
-            // (ADR-0114): offer the pin right under the live figure.
-            addChartPinAffordance(wrap, payload.artifact_id);
+            // (ADR-0114): offer Keep right under the live figure.
+            addKeepActions(wrap, "chart", payload.artifact_id);
 
             if (plotDiv) {
                 // One render path for live and restored figures — the helper
@@ -344,9 +325,15 @@
             }
             // ``done`` carries the completed assistant message's server-side id
             // (empty when no assistant message was produced, e.g. a bare
-            // error). Offer "Pin to case…" for exactly that message.
+            // error). Offer Keep for exactly that message.
             const messageId = (event && event.data ? event.data : "").trim();
-            if (messageId) addPinAffordance(bubbleId, messageId);
+            if (messageId) {
+                addKeepActions(
+                    document.getElementById(bubbleId + "-wrap"),
+                    "message",
+                    messageId
+                );
+            }
             el.remove();
             scrollHistoryToBottom();
         });

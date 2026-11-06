@@ -40,7 +40,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-# Case-attachment type whitelist (ADR-0107 §7 / Gate-C0). The pin-document
+# Case-attachment type whitelist (ADR-0107 §7 / Gate-C0). The attach
 # route validates BOTH the uploaded filename's extension and the declared
 # content type against this map: the extension must be a key, and the declared
 # MIME must be one of that key's accepted values. Content *sniffing* — verifying
@@ -80,7 +80,7 @@ class Settings:
             bypass RLS (ADR-0078).
         case_attachment_max_bytes: Per-file size cap for case
             attachments (ADR-0107 §7). Default 10 MB. Enforced at the
-            pin-document route, never in the repository.
+            attach route, never in the repository.
         case_attachment_max_count: Per-case attachment count cap
             (ADR-0107 §7). Default 20. Enforced at the route.
         case_attachment_allowed_types: Type whitelist for case
@@ -97,7 +97,7 @@ class Settings:
     db_url: str | None = field(default_factory=lambda: os.getenv("DB_URL"))
     APP_DB_ROLE: str = field(default_factory=lambda: os.getenv("APP_DB_ROLE", "portfoliflow_app"))
     # Case-attachment caps (ADR-0107 §7). Configuration, not schema: the caps
-    # live here and are enforced at the pin-document route, never hard-coded at
+    # live here and are enforced at the attach route, never hard-coded at
     # the call site and never in the repository.
     case_attachment_max_bytes: int = field(
         default_factory=lambda: _env_int("CASE_ATTACHMENT_MAX_BYTES", 10 * 1024 * 1024)

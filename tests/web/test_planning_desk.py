@@ -18,6 +18,10 @@ Two strands live in this module:
 * **S2.6 — the hypothetical-transaction block.** An entry form over
   ``insert_transaction``, a row table rendered from the parameter set, and
   removal through the same link the strip's chip carries.
+* **C5 / P-CS-4a — capture and Keep.** The ``case=`` capture marker (an open or
+  a waiting case) and Keep: the results region's ``Keep →`` / ``Keep to…``
+  write a ``scenario_snapshot`` kept row into the target case (CS4a-08); the
+  pin dialog is retired.
 
 The live-DB fixture pattern is copied from
 ``tests/web/test_overview_section_routes.py`` (ASGITransport, sentinel tenant,
@@ -26,13 +30,14 @@ superuser-seeded user, inline repository seeding).
 
 from __future__ import annotations
 
+import html
+import json
 import os
 import re
 from collections.abc import AsyncGenerator
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
@@ -54,6 +59,11 @@ from core.repositories import (
     tenant_context,
 )
 from core.repositories.case_repository import CaseRepository
+from core.repositories.case_working_file_repository import (
+    CaseKeptDTO,
+    CaseKeptRepository,
+    CaseThreadRepository,
+)
 from core.tenant_constants import SENTINEL_TENANT_ID
 from modules.module_registry import registry
 from services.investments.cash_plan_materialisation import CASH_PLAN_SOURCE
@@ -2144,16 +2154,20 @@ async def test_the_composition_endpoint_returns_the_lazy_drill_down(
 
 
 # ---------------------------------------------------------------------------
-# C5 — the capture marker + the scenario-snapshot pin (ADR-0107)
+# C5 — the capture marker; P-CS-4a — Keep the scenario snapshot (ADR-0138 §8)
 # ---------------------------------------------------------------------------
 
-PIN_URL = "/api/planning-desk/pin-scenario"
+KEEP_URL = "/api/planning-desk/keep"
+
+#: The retired pin route, spelled in parts so the tree-wide retirement grep
+#: (P-CS-4a gate G-6) finds no live reference — the test only proves a 404.
+_RETIRED_PIN_URL = "/api/planning-desk/" + "pin" + "-scenario"
 
 
 async def _session_csrf(client: AsyncClient, engine: AsyncEngine) -> str:
     """Read the logged-in session's CSRF token straight from the DB.
 
-    The pin POST is CSRF-guarded like every write; the token is the session's
+    The Keep POST is CSRF-guarded like every write; the token is the session's
     own value (mirrors ``tests/web/test_cases_area.py``).
     """
     cookie = client.cookies.get("portfoliflow_session")
@@ -2195,20 +2209,57 @@ async def _seed_case(
         await engine.dispose()
 
 
-async def _snapshot_pins(actor_id: UUID, case_id: UUID) -> list[Any]:
-    """Return a case's ``scenario_snapshot`` pin entries (app-role read)."""
-    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+def _app_engine() -> AsyncEngine:
+    """A fresh app-role engine (RLS as in production) for one seeding or read."""
+    assert DATABASE_URL is not None
+    return create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+
+
+async def _kept_snapshots(actor_id: UUID, case_id: UUID) -> list[CaseKeptDTO]:
+    """Return a case's kept ``scenario_snapshot`` rows (app-role read)."""
+    engine = _app_engine()
     try:
         async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
-            entries = await CaseRepository(session).list_entries(case_id)
-            return [
-                entry
-                for entry in entries
-                if entry.kind == "pin"
-                and (entry.payload or {}).get("artifact") == "scenario_snapshot"
-            ]
+            rows = await CaseKeptRepository(session).list_for_case(case_id)
+            return [row for row in rows if row.artifact == "scenario_snapshot"]
     finally:
         await engine.dispose()
+
+
+async def _wait_case(actor_id: UUID, case_id: UUID) -> None:
+    """Set a case waiting through the milestone path."""
+    engine = _app_engine()
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+            await CaseRepository(session).wait(
+                case_id, wait_until=date(2099, 1, 1), by=actor_id, now=datetime.now(UTC)
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _add_thread(actor_id: UUID, case_id: UUID, title: str) -> UUID:
+    """Add a thread to a case's working file; return its id."""
+    engine = _app_engine()
+    try:
+        async with tenant_context(engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+            thread = await CaseThreadRepository(session).add(
+                case_id, title=title, now=datetime.now(UTC)
+            )
+            return thread.id
+    finally:
+        await engine.dispose()
+
+
+#: The page state the Keep tests freeze: four toggles and one hypothetical buy.
+def _keep_state(equity_id: UUID) -> list[tuple[str, str]]:
+    return [
+        ("periodisation", "quarterly"),
+        ("horizon", "8"),
+        ("currency_view", "per-currency"),
+        ("view", "scenario"),
+        *_txn(0, equity_id, trade_date="2026-06-30"),
+    ]
 
 
 def test_the_marker_never_enters_the_overlay_serialisation() -> None:
@@ -2242,9 +2293,10 @@ async def test_the_capture_marker_rides_every_control_link(
 
     With an active overlay and all four view toggles off-default, every link the
     page emits — the toggles, the chip's remove ✕, reset-all, the pacing and
-    hypothetical-transaction forms, the composition drill-down and the pin
-    affordance — carries ``case=``. The one deliberate exception is the capturing
-    chip's own dismiss, which exists to drop the marker.
+    hypothetical-transaction forms and the composition drill-down — carries
+    ``case=``, and Keep's form carries the marker as its hidden ``case`` input.
+    The one deliberate exception is the capturing chip's own dismiss, which
+    exists to drop the marker.
     """
     actor_id, email, password = seeded_user
     equity_id = await _seed_book(actor_id)
@@ -2276,6 +2328,11 @@ async def test_the_capture_marker_rides_every_control_link(
 
     # The canonical copy-scenario link carries it too (a rendered link).
     assert marker in body
+    # Keep's form posts the marker beside the state, never inside it.
+    keep_form = re.search(r'<form class="pd-keep__form".*?</form>', body, flags=re.DOTALL)
+    assert keep_form is not None
+    assert f'name="case" value="{case_id}"' in keep_form.group(0)
+    assert "t0_case" not in keep_form.group(0)
 
 
 async def test_a_stale_or_bad_marker_never_breaks_the_desk(
@@ -2311,18 +2368,18 @@ async def test_a_stale_or_bad_marker_never_breaks_the_desk(
     assert "case=" not in dismiss.group(1).replace("&amp;", "&")
 
 
-async def test_a_pinned_snapshot_equals_the_rendered_results(
+async def test_a_kept_snapshot_equals_the_rendered_results(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """The snapshot serialises exactly what the results region renders (test 3).
+    """CS4a-08a: Keep → under the capturing marker keeps exactly what the region renders.
 
-    Pin a scenario state, then read the stored ``snapshot`` and the section
-    rendered from the *same* state: every KPI pair string, both feet and every
-    parameter chip the snapshot froze is the string the region shows — the C0
-    sentence made literal. The stored query is scenario state, so it carries no
-    ``case=`` marker.
+    The kept row's ``payload["snapshot"]`` serialises the results region of the
+    same state: every KPI pair string, both feet and every parameter chip it
+    froze is the string the region shows — the C0 sentence made literal. The
+    stored query is scenario state, so it carries no ``case=`` marker. No
+    comment, ``via="keep"``, file level, caption *Scenario snapshot*.
     """
     actor_id, email, password = seeded_user
     equity_id = await _seed_book(actor_id)
@@ -2331,30 +2388,23 @@ async def test_a_pinned_snapshot_equals_the_rendered_results(
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
-    state = [
-        ("periodisation", "quarterly"),
-        ("horizon", "8"),
-        ("currency_view", "per-currency"),
-        ("view", "scenario"),
-        *_txn(0, equity_id, trade_date="2026-06-30"),
-    ]
+    state = _keep_state(equity_id)
     response = await web_client.post(
-        PIN_URL,
-        data={
-            "csrf_token": csrf,
-            "case_id": str(case_id),
-            "comment": "kept as the assessed-and-rejected option",
-            **dict(state),
-        },
+        KEEP_URL,
+        data={"csrf_token": csrf, "pick": "", "case": str(case_id), **dict(state)},
     )
-    assert response.status_code == 200
-    assert "Snapshot pinned to" in response.text
-    assert f"CASE-{case_number:04d}" in response.text
+    assert response.status_code == 200, response.text
+    assert 'data-pf-keep="done"' in response.text
+    assert f'href="/cases/{case_id}#cs-threads">CASE-{case_number:04d}</a>' in response.text
+    assert "· the file ·" in response.text
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger == {"pf:case-kept": {"case_id": str(case_id)}}
 
-    pins = await _snapshot_pins(actor_id, case_id)
-    assert len(pins) == 1
-    snap = pins[0].payload["snapshot"]
-    assert pins[0].payload["comment"] == "kept as the assessed-and-rejected option"
+    (row,) = await _kept_snapshots(actor_id, case_id)
+    assert (row.via, row.thread_id, row.comment) == ("keep", None, None)
+    assert row.caption == "Scenario snapshot"
+    assert set(row.payload) == {"snapshot"}
+    snap = row.payload["snapshot"]
     # The stored query is documentation, and it is scenario state: no marker.
     assert "case=" not in snap["query"]
     assert "t0_kind=insert_transaction" in snap["query"]
@@ -2373,24 +2423,79 @@ async def test_a_pinned_snapshot_equals_the_rendered_results(
     for chip in snap["chips"]:
         assert chip["label"] in section
         assert "remove_query" not in chip  # a frozen record has no live links
+    # The region offers both gestures in one form, the slot beside it.
+    assert "Keep &rarr;" in section and "Keep to&hellip;" in section
+    assert 'id="pd-keep-slot"' in section
 
 
-async def test_the_pin_endpoint_gates_write_nothing_on_failure(
+async def test_keep_without_a_target_answers_the_picker_and_refuses_a_closed_case(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """Each gate re-renders the dialog with its error and writes nothing (test 4).
+    """CS4a-08b: no marker and no stash → the picker; a closed marker is silent; a closed pick refused."""
+    actor_id, email, password = seeded_user
+    equity_id = await _seed_book(actor_id)
+    await _seed_limit_sets(actor_id)
+    open_id, open_number = await _seed_case(actor_id, title="Live case")
+    other_id, other_number = await _seed_case(actor_id, title="Other live case")
+    closed_id, _ = await _seed_case(actor_id, title="Shut case", closed=True)
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    state = dict(_keep_state(equity_id))
 
-    The book carries **no** limit set, so a well-formed request reaches the
-    fourth gate and finds nothing to score — the "nothing to pin" case. The
-    first three gates (comment, case exists, case open) fail before any
-    projection.
+    for extra in ({}, {"case": str(closed_id)}):
+        picked = await web_client.post(KEEP_URL, data={"csrf_token": csrf, **state, **extra})
+        assert picked.status_code == 200
+        assert 'data-pf-keep="picker"' in picked.text
+        assert "The file" in picked.text
+        assert "Shut case" not in picked.text
+        assert 'name="case"' not in picked.text  # no marker survives a closed one
+        assert "HX-Trigger" not in picked.headers
+        # The picker carries the state, so its own POST freezes the same scenario.
+        assert 'name="t0_kind" value="insert_transaction"' in picked.text
+
+    # The select re-renders the picker for another case; Cancel clears the slot.
+    query = urlencode([*state.items(), ("case_id", str(other_id))])
+    other = (await web_client.get(f"{KEEP_URL}/picker?{query}")).text
+    assert f'<a href="/cases/{other_id}">CASE-{other_number:04d}</a>' in other
+    assert f"CASE-{open_number:04d} — Live case" in other
+    assert (await web_client.get(f"{KEEP_URL}?cancel=1")).text == ""
+
+    refused = await web_client.post(
+        KEEP_URL,
+        data={"csrf_token": csrf, **state, "case_id": str(closed_id), "thread_id": ""},
+    )
+    assert "That case is closed or gone — pick another." in refused.text
+    assert 'data-pf-keep="picker"' in refused.text
+    for case_id in (open_id, other_id, closed_id):
+        assert await _kept_snapshots(actor_id, case_id) == []
+
+    # The picker's choice keeps there and becomes the brief.
+    chosen = await web_client.post(
+        KEEP_URL, data={"csrf_token": csrf, **state, "case_id": str(other_id), "thread_id": ""}
+    )
+    assert "pf:brief-changed" in json.loads(chosen.headers["HX-Trigger"])
+    assert len(await _kept_snapshots(actor_id, other_id)) == 1
+    # Keep → now has a target without a marker: the stash's case.
+    again = await web_client.post(KEEP_URL, data={"csrf_token": csrf, **state, "pick": ""})
+    assert 'data-pf-keep="done"' in again.text
+    assert len(await _kept_snapshots(actor_id, other_id)) == 2
+
+
+async def test_keep_of_a_state_without_a_result_writes_nothing_and_the_pin_route_is_gone(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4a-08c: a state that cannot be scored keeps nothing; the pin route answers 404.
+
+    The book carries **no** limit set, so a well-formed request with a target
+    finds nothing to score — an empty snapshot is never kept.
     """
     actor_id, email, password = seeded_user
     await _seed_book(actor_id)  # deliberately no _seed_limit_sets
-    open_id, _ = await _seed_case(actor_id, title="Gate case")
-    closed_id, _ = await _seed_case(actor_id, title="Closed case", closed=True)
+    case_id, _ = await _seed_case(actor_id, title="Gate case")
     await _login(web_client, email, password)
     csrf = await _session_csrf(web_client, fresh_superuser_engine)
 
@@ -2400,84 +2505,69 @@ async def test_the_pin_endpoint_gates_write_nothing_on_failure(
         "currency_view": "per-currency",
         "view": "scenario",
     }
+    empty = await web_client.post(KEEP_URL, data={"csrf_token": csrf, "case": str(case_id), **base})
+    assert empty.status_code == 200
+    assert 'data-pf-keep="empty"' in empty.text
+    assert "no result to keep" in empty.text
+    assert "HX-Trigger" not in empty.headers
+    assert await _kept_snapshots(actor_id, case_id) == []
 
-    # Gate 1 — empty comment.
-    r = await web_client.post(
-        PIN_URL,
-        data={"csrf_token": csrf, "case_id": str(open_id), "comment": "  ", **base},
+    # A malformed state is a hand-built request: an empty slot, nothing kept.
+    malformed = await web_client.post(
+        KEEP_URL, data={"csrf_token": csrf, "case": str(case_id), **base, "view": "sideways"}
     )
-    assert r.status_code == 200
-    assert "capture comment is required" in r.text
-    assert await _snapshot_pins(actor_id, open_id) == []
+    assert malformed.text == ""
 
-    # Gate 2 — the case does not exist.
-    r = await web_client.post(
-        PIN_URL,
-        data={"csrf_token": csrf, "case_id": str(uuid4()), "comment": "x", **base},
-    )
-    assert "could not be found" in r.text
-
-    # Gate 3 — the case is closed.
-    r = await web_client.post(
-        PIN_URL,
-        data={"csrf_token": csrf, "case_id": str(closed_id), "comment": "x", **base},
-    )
-    assert "closed" in r.text.lower()
-    assert await _snapshot_pins(actor_id, closed_id) == []
-
-    # Gate 4 — a valid, open case but no scorable result (no limit set).
-    r = await web_client.post(
-        PIN_URL,
-        data={"csrf_token": csrf, "case_id": str(open_id), "comment": "x", **base},
-    )
-    assert "no result to pin" in r.text
-    assert await _snapshot_pins(actor_id, open_id) == []
+    assert (await web_client.get(f"{_RETIRED_PIN_URL}?periodisation=quarterly")).status_code == 404
+    assert (
+        await web_client.post(_RETIRED_PIN_URL, data={"csrf_token": csrf, **base})
+    ).status_code == 404
 
 
-async def test_the_pin_dialog_preselects_the_marker_case(
+async def test_a_waiting_marker_captures_and_the_stash_thread_follows_the_same_case(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """The dialog preselects the marker's case, else nothing (test 5)."""
+    """CS4a-08 (D-CS-B-89, D-CS-B-93): a waiting case captures; its stashed thread applies."""
     actor_id, email, password = seeded_user
-    id_a, _ = await _seed_case(actor_id, title="Alpha")
-    id_b, _ = await _seed_case(actor_id, title="Bravo")
+    equity_id = await _seed_book(actor_id)
+    await _seed_limit_sets(actor_id)
+    case_id, case_number = await _seed_case(actor_id, title="On hold")
+    thread_id = await _add_thread(actor_id, case_id, "Liquidity in 2027")
+    await _wait_case(actor_id, case_id)
     await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    state = dict(_keep_state(equity_id))
 
-    base = "periodisation=quarterly&horizon=8&currency_view=per-currency&view=scenario"
+    body = (await web_client.get(f"{SECTION_URL}?case={case_id}")).text
+    assert "pd-capturing" in body and f"CASE-{case_number:04d}" in body
 
-    under_marker = (await web_client.get(f"{PIN_URL}?{base}&case={id_a}")).text
-    assert re.search(rf'<option value="{id_a}"[^>]*selected', under_marker)
-    assert not re.search(rf'<option value="{id_b}"[^>]*selected', under_marker)
-
-    no_marker = (await web_client.get(f"{PIN_URL}?{base}")).text
-    assert "selected" not in no_marker
-    # Both cases are still offered — the picker is list_open, not the marker.
-    assert f'value="{id_a}"' in no_marker
-    assert f'value="{id_b}"' in no_marker
-
-    # Cancel clears the slot.
-    cancelled = await web_client.get(f"{PIN_URL}?{base}&cancel=1")
-    assert cancelled.text.strip() == ""
-
-
-async def test_the_pin_dialog_is_calm_with_no_open_cases(
-    web_client: AsyncClient,
-    seeded_user: tuple[UUID, str, str],
-) -> None:
-    """With no open cases the dialog is calm and offers no dead dropdown (test 5)."""
-    actor_id, email, password = seeded_user
-    await _seed_case(actor_id, title="Only a closed one", closed=True)
-    await _login(web_client, email, password)
-
-    body = (
-        await web_client.get(
-            f"{PIN_URL}?periodisation=quarterly&horizon=8&currency_view=per-currency&view=scenario"
-        )
-    ).text
-    assert "no open cases" in body
-    assert "Go to Cases" in body
-    assert 'name="case_id"' not in body
+    # The picker under the marker offers the waiting case's thread; keep into it.
+    picker = await web_client.post(
+        KEEP_URL, data={"csrf_token": csrf, **state, "case": str(case_id), "pick": "1"}
+    )
+    assert f'name="thread_id" value="{thread_id}"' in picker.text
+    into = await web_client.post(
+        KEEP_URL,
+        data={
+            "csrf_token": csrf,
+            **state,
+            "case": str(case_id),
+            "case_id": str(case_id),
+            "thread_id": str(thread_id),
+        },
+    )
+    assert f'href="/cases/{case_id}#cs-thread-{thread_id}"' in into.text
+    # Keep → under the marker: the stash names the same case, so its thread applies.
+    follow = await web_client.post(
+        KEEP_URL, data={"csrf_token": csrf, **state, "case": str(case_id), "pick": ""}
+    )
+    assert 'thread "Liquidity in 2027"' in html.unescape(follow.text)
+    assert [row.thread_id for row in await _kept_snapshots(actor_id, case_id)] == [
+        thread_id,
+        thread_id,
+    ]
 
 
 # ---------------------------------------------------------------------------

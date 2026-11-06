@@ -1014,10 +1014,10 @@ table.pd-hyp__table thead th {
     background: color-mix(in srgb, var(--ui-accent-primary) 18%, transparent);
 }
 
-/* The "Pin to case…" affordance sits below the composition drill-down; the
- * dialog swaps into #pd-pin-dialog beside the button, which stays put so a
- * success confirmation leaves it in place. */
-.pd-pin {
+/* Keep (ADR-0138 §8) sits below the composition drill-down: one form, two
+ * gestures; the picker and the kept line render into #pd-keep-slot beside
+ * them, which stay put so the PM can keep another state straight after. */
+.pd-keep {
     margin-top: 14px;
     display: flex;
     flex-direction: column;
@@ -1025,13 +1025,21 @@ table.pd-hyp__table thead th {
     align-items: flex-start;
 }
 
-.pd-pin__dialog:not(:empty) {
+.pd-keep__form {
+    display: flex;
+    gap: 8px;
+}
+
+.pd-keep__btn--quiet {
+    border-color: transparent;
+}
+
+.pd-keep__slot:not(:empty) {
     align-self: stretch;
 }
 
-/* The dialog — the Desk's framed-form look (mirrors .pd-shock__card), reusing
- * the field grid the shock builders established. */
-.pd-pin-dialog {
+/* The picker — the Desk's framed-form look (mirrors .pd-shock__card). */
+.pd-keep-picker {
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1041,38 +1049,59 @@ table.pd-hyp__table thead th {
     border-radius: 8px;
 }
 
-.pd-pin-dialog__title {
+.pd-keep-picker__form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pd-keep-picker__title {
     margin: 0;
     font-size: 0.86rem;
     font-weight: 600;
     color: var(--ui-text-primary);
 }
 
-.pd-pin-dialog__error {
+.pd-keep-picker__title a {
+    color: var(--ui-accent-primary);
+    text-decoration: none;
+}
+
+.pd-keep-picker__error {
     margin: 0;
     font-size: 0.82rem;
     color: var(--ui-semantic-error);
 }
 
-.pd-pin-dialog__empty {
+.pd-keep-picker__empty {
     margin: 0;
     font-size: 0.82rem;
     color: var(--ui-text-secondary);
     line-height: 1.4;
 }
 
-.pd-pin-dialog__field {
+.pd-keep-picker__places {
     display: flex;
     flex-direction: column;
     gap: 5px;
-    font-size: 0.78rem;
+    margin: 0;
+    padding: 0;
+    border: none;
+    font-size: 0.8rem;
 }
 
-.pd-pin-dialog__label {
+.pd-keep-picker__place {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--ui-text-primary);
+}
+
+.pd-keep-picker__status {
     color: var(--ui-text-secondary);
 }
 
-.pd-pin-dialog__input {
+.pd-keep-picker__input {
     width: 100%;
     padding: 6px 8px;
     background: var(--ui-background-primary);
@@ -1083,50 +1112,30 @@ table.pd-hyp__table thead th {
     font-size: 0.8rem;
 }
 
-textarea.pd-pin-dialog__input {
-    resize: vertical;
-}
-
-.pd-pin-dialog__input:focus {
+.pd-keep-picker__input:focus {
     border-color: var(--ui-accent-primary);
 }
 
-.pd-pin-dialog__actions {
+.pd-keep-picker__actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
 }
 
-/* The quiet in-place confirmation that replaces the dialog on a successful
- * pin — a success tint, a link to the case, and a dismiss. */
-.pd-pin-confirm {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-size: 0.82rem;
-    color: var(--ui-text-secondary);
-    background: color-mix(in srgb, var(--ui-semantic-success) 8%, transparent);
-    border: 1px solid
-        color-mix(in srgb, var(--ui-semantic-success) 35%, transparent);
+/* The kept line — M-CS-2's .bubble__kept tone — and the no-result notice. */
+.pd-keep__done,
+.pd-keep__empty {
+    margin: 0;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
 }
 
-.pd-pin-confirm__icon {
-    color: var(--ui-semantic-success);
-    font-weight: 700;
-}
-
-.pd-pin-confirm__text {
-    flex: 1;
-}
-
-.pd-pin-confirm__case {
-    font-weight: 600;
+.pd-keep__done a {
     color: var(--ui-accent-primary);
+    font-weight: 600;
     text-decoration: none;
 }
 
-.pd-pin-confirm__case:hover {
+.pd-keep__done a:hover {
     text-decoration: underline;
 }

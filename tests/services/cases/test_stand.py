@@ -67,6 +67,7 @@ from services.investments.investment_service import InvestmentService
 from services.money_format import format_money_compact
 from services.watch_desk.family_status import read_family_status
 from services.watch_desk.overlay import resolve_watch_desk
+from tests._case_record_seed import seed_record_entry
 from tests.services.irene._book_fixtures import (
     BREACH_NAV,
     CALM_NAV,
@@ -530,8 +531,10 @@ async def test_st08_system_lines_only(
         )
         assert line is not None
         for kind in ("note", "pin"):
-            await repo.append_entry(
-                case.id,
+            await seed_record_entry(
+                session,
+                tenant_id=tenant_id,
+                case_id=case.id,
                 kind=kind,
                 actor="pm",
                 actor_user_id=user_id,

@@ -1,0 +1,84 @@
+{# Keep on the Planning Desk (ADR-0138 §8 channel 2, D-CS-B-89) — what answers
+   into #pd-keep-slot beside the results region's two gestures. One partial,
+   three modes:
+
+     picker — "Keep to…", or "Keep →" with no target: the chat picker's shape
+              (_partials/chat_keep_picker.html) with the Desk's hidden page
+              state and capturing marker, so the POST freezes exactly the state
+              on screen. "Another case…" re-renders the picker for the chosen
+              case (hx-include="closest form"); Cancel clears the slot. A
+              refusal re-renders it with ``error``; with no case that takes
+              writes, the no-case state links to Cases (D-4a-5).
+     done   — the kept line: "Kept to CASE-nnnn · thread "…" · HH:MM" (or "· the
+              file"), the badge opening the case there (D-4a-2).
+     empty  — the state yields no result: an empty snapshot is never kept.
+
+   Context: mode; picker — csrf_token, keep_url, picker_url, cases_area_url,
+   state_pairs, marker, options ({case, threads, others} or None),
+   selected_thread, error; done — badge, href, where, when; empty — message. #}
+{% if mode == "done" %}
+<p class="pd-keep__done" role="status" data-pf-keep="done">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}</p>
+{% elif mode == "empty" %}
+<p class="pd-keep__empty" role="status" data-pf-keep="empty">{{ message }}</p>
+{% else %}
+<div class="pd-keep-picker" data-pf-keep="picker">
+    {% if not options %}
+        <p class="pd-keep-picker__empty">There is no open case to keep this in. Open a case first.</p>
+        <div class="pd-keep-picker__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ keep_url }}?cancel=1"
+                    hx-target="#pd-keep-slot"
+                    hx-swap="innerHTML">Cancel</button>
+            <a class="btn" href="{{ cases_area_url }}">Go to Cases</a>
+        </div>
+    {% else %}
+        <form class="pd-keep-picker__form" hx-post="{{ keep_url }}" hx-target="#pd-keep-slot" hx-swap="innerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% for key, value in state_pairs %}
+                <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+            {% if marker %}<input type="hidden" name="case" value="{{ marker }}">{% endif %}
+            <p class="pd-keep-picker__title">Keep this in… <a href="/cases/{{ options.case.id }}">{{ options.case.badge }}</a> · {{ options.case.title }}</p>
+            {% if error %}<p class="pd-keep-picker__error" role="alert" data-pf-keep="error">{{ error }}</p>{% endif %}
+            <fieldset class="pd-keep-picker__places">
+                <legend class="pf-sr">Where in {{ options.case.badge }}</legend>
+                <label class="pd-keep-picker__place">
+                    <input type="radio" name="thread_id" value=""{% if not selected_thread %} checked{% endif %}>
+                    The file
+                </label>
+                {% for thread in options.threads %}
+                <label class="pd-keep-picker__place">
+                    <input type="radio" name="thread_id" value="{{ thread.id }}"{% if selected_thread == thread.id %} checked{% endif %}>
+                    {{ thread.title }} <span class="pd-keep-picker__status">· {{ thread.status_label }}</span>
+                </label>
+                {% endfor %}
+            </fieldset>
+            {% if options.others %}
+            <label class="pd-keep-picker__other">
+                <span class="pf-sr">Another case</span>
+                <select class="pd-keep-picker__input" name="case_id"
+                        hx-get="{{ picker_url }}"
+                        hx-trigger="change"
+                        hx-include="closest form"
+                        hx-target="#pd-keep-slot"
+                        hx-swap="innerHTML">
+                    <option value="{{ options.case.id }}" selected>Another case…</option>
+                    {% for other in options.others %}
+                    <option value="{{ other.id }}">{{ other.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% else %}
+            <input type="hidden" name="case_id" value="{{ options.case.id }}">
+            {% endif %}
+            <div class="pd-keep-picker__actions">
+                <button type="button" class="btn btn--ghost"
+                        hx-get="{{ keep_url }}?cancel=1"
+                        hx-target="#pd-keep-slot"
+                        hx-swap="innerHTML">Cancel</button>
+                <button type="submit" class="btn btn--primary">Keep</button>
+            </div>
+        </form>
+    {% endif %}
+</div>
+{% endif %}

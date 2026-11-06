@@ -63,6 +63,7 @@ from core.repositories.case_working_file_repository import (
     CaseThreadRepository,
     kept_payload_sha256,
 )
+from tests._case_record_seed import seed_record_entry
 
 _T0 = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
 _MIN = timedelta(minutes=1)
@@ -774,15 +775,17 @@ async def test_cm09_read_side(app_engine: AsyncEngine, seed_tenant) -> None:
     async with tenant_context(app_engine, tenant_a) as session:
         repo = CaseRepository(session)
         case = await repo.create(title="Read", opened_by=user_a, opened_actor="pm", now=_T0)
-        note = await repo.append_entry(
-            case.id,
+        note_id = await seed_record_entry(
+            session,
+            tenant_id=tenant_a,
+            case_id=case.id,
             kind="note",
             actor="pm",
             actor_user_id=user_a,
             payload={},
             now=_T0 + _MIN,
         )
-        assert await repo.get_frozen_for(note.id) is None
+        assert await repo.get_frozen_for(note_id) is None
         (opened,) = [e for e in await repo.list_entries(case.id) if e.kind == "opened"]
         latest = await repo.latest_frozen(case.id)
         assert latest is not None

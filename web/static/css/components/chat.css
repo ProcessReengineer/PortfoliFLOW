@@ -395,8 +395,8 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Case brief (ADR-0107 C6) — the "Consulting for CASE-NNNN" banner,
- * the per-bubble "Pin to case…" affordance, and the pin dialog.
+ * Case brief (ADR-0107 C6) — the "Consulting for CASE-NNNN" banner —
+ * and Keep (ADR-0138 §8): the per-bubble gestures, the picker, the kept line.
  * Chat furniture, not message bubbles; the info tone echoes the case
  * timeline's actor--shirley chip. Dismiss empties the banner container.
  * ------------------------------------------------------------------ */
@@ -439,6 +439,11 @@
     white-space: nowrap;
 }
 
+.chat-brief__target {
+    color: var(--ui-text-secondary);
+    white-space: nowrap;
+}
+
 .chat-brief__dismiss {
     padding: 2px 10px;
     background-color: transparent;
@@ -454,10 +459,20 @@
     border-color: var(--ui-accent-primary);
 }
 
-/* The quiet per-bubble affordance — subordinate to the answer it sits under. */
-.chat-pin-affordance {
+/* Keep (ADR-0138 §8): one container per answer or figure — the two gestures,
+ * the picker and the kept line take turns in it. The gestures are quiet,
+ * subordinate to the answer they sit under; "Keep to…" is quieter still. */
+.chat-keep {
     align-self: flex-start;
     margin-top: 4px;
+}
+
+.chat-keep__form {
+    display: flex;
+    gap: 6px;
+}
+
+.chat-keep__btn {
     padding: 2px 8px;
     background-color: transparent;
     color: var(--ui-text-secondary);
@@ -467,13 +482,24 @@
     cursor: pointer;
 }
 
-.chat-pin-affordance:hover {
+.chat-keep__btn:hover {
     color: var(--ui-accent-primary);
     border-color: var(--ui-accent-primary);
 }
 
-/* The pin dialog — a small framed form swapped into #chat-pin-dialog. */
-.chat-pin-dialog {
+.chat-keep__btn--quiet {
+    border-color: transparent;
+}
+
+/* The calm state: an answer or figure that can no longer be kept. */
+.chat-keep--calm {
+    color: var(--ui-text-secondary);
+    font-size: 0.82rem;
+}
+
+/* The picker — a small framed form in the artefact's own container. */
+.chat-keep-picker {
+    align-self: stretch;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -483,13 +509,25 @@
     background-color: var(--ui-background-section);
 }
 
-.chat-pin-dialog__title {
+.chat-keep-picker__form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.chat-keep-picker__title {
     margin: 0;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     color: var(--ui-text-primary);
 }
 
-.chat-pin-dialog__error {
+.chat-keep-picker__title a {
+    color: var(--ui-accent-primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.chat-keep-picker__error {
     margin: 0;
     padding: 6px 10px;
     border-radius: 6px;
@@ -498,24 +536,34 @@
     font-size: 0.82rem;
 }
 
-.chat-pin-dialog__empty {
+.chat-keep-picker__empty {
     margin: 0;
     color: var(--ui-text-secondary);
     font-size: 0.85rem;
 }
 
-.chat-pin-dialog__field {
+.chat-keep-picker__places {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: none;
 }
 
-.chat-pin-dialog__label {
-    font-size: 0.75rem;
+.chat-keep-picker__place {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--ui-text-primary);
+}
+
+.chat-keep-picker__status {
     color: var(--ui-text-secondary);
 }
 
-.chat-pin-dialog__input {
+.chat-keep-picker__input {
     padding: 6px 8px;
     border: 1px solid var(--ui-border-default);
     border-radius: 6px;
@@ -525,58 +573,25 @@
     font-family: inherit;
 }
 
-.chat-pin-dialog__excerpt {
-    resize: vertical;
-    min-height: 96px;
-}
-
-/* The chart dialog identifies its artefact by caption rather than offering an
- * editable excerpt (ADR-0114) — a read-only line, not a field. */
-.chat-pin-dialog__artifact {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: 0;
-}
-
-.chat-pin-dialog__artifact-name {
-    font-size: 0.85rem;
-    color: var(--ui-text-primary);
-}
-
-.chat-pin-dialog__actions {
+.chat-keep-picker__actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
 }
 
-/* Quiet in-place confirmation after a successful pin. */
-.chat-pin-confirm {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border: 1px solid color-mix(in srgb, var(--ui-semantic-success) 45%, transparent);
-    border-radius: 8px;
-    background-color: color-mix(in srgb, var(--ui-semantic-success) 6%, transparent);
-    font-size: 0.85rem;
+/* The kept line after a keep — M-CS-2's .bubble__kept. */
+.chat-keep--done {
+    margin-top: 8px;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
 }
 
-.chat-pin-confirm__icon {
-    color: var(--ui-semantic-success);
-}
-
-.chat-pin-confirm__text {
-    flex: 1 1 auto;
-    color: var(--ui-text-primary);
-}
-
-.chat-pin-confirm__case {
+.chat-keep--done a {
     color: var(--ui-accent-primary);
-    font-weight: 600;
+    font-weight: 500;
     text-decoration: none;
 }
 
-.chat-pin-confirm__case:hover {
+.chat-keep--done a:hover {
     text-decoration: underline;
 }

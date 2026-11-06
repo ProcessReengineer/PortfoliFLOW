@@ -100,8 +100,9 @@ from core.repositories.case_working_file_repository import CaseDecisionRepositor
 # model). The columns are plain TEXT; the vocabularies are enforced here,
 # not as SQL enums, matching the codebase's TEXT-for-status convention.
 _VALID_STATES: frozenset[str] = frozenset({"open", "waiting", "closed"})
-# ``note`` / ``pin`` / ``decision_record`` stay writable until their last
-# route writer is replaced (D-CS-B-1, staged retirement).
+# ``note`` / ``pin`` / ``decision_record`` stay in the vocabulary: legacy rows
+# are read and validated against it (D-CS-M-7), though none is written any
+# more (_RETIRED_ENTRY_KINDS below; D-CS-B-1, closed with P-CS-4a).
 _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
     {
         "opened",
@@ -121,6 +122,11 @@ _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
 _PROGRAM_ONLY_KINDS: frozenset[str] = frozenset(
     {"closed", "handed_over", "waiting_set", "waiting_lifted", "frozen", "system_line"}
 )
+# Retired for new writes (ADR-0138 §9; D-CS-B-1's staged retirement closed with
+# P-CS-4a): Keep replaced the pins, the Decision block the decision composer,
+# and the note composer went with P-CS-3c2. append_entry refuses them; the
+# method itself retires with the legacy sweep (D-CS-B-38, D-CS-B-91).
+_RETIRED_ENTRY_KINDS: frozenset[str] = frozenset({"note", "pin", "decision_record"})
 _VALID_ACTORS: frozenset[str] = frozenset({"pm", "shirley", "system"})
 _VALID_FRAMINGS: frozenset[str] = frozenset({"question", "task"})
 # The kinds a milestone entry may carry (the snapshot itself is ``frozen``).
@@ -730,14 +736,16 @@ class CaseRepository(BaseRepository):
         by the milestone path (:meth:`wait`, :meth:`lift_wait`,
         :meth:`hand_over`, :meth:`close`), and ``system_line`` only by
         :meth:`add_system_line` (ADR-0138 §7, D-CS-B-25). ``note``, ``pin``
-        and ``decision_record`` stay writable until their last route writer
-        is replaced (D-CS-B-1) (the note and decision composers went with
-        P-CS-3c2; the set closes with P-CS-4a).
+        and ``decision_record`` are retired for new writes (ADR-0138 §9):
+        D-CS-B-1's staged retirement closed with P-CS-4a, when Keep replaced
+        the last route writer. The method has no production caller since and
+        retires with the legacy sweep (D-CS-B-38); tests seed legacy rows
+        through ``tests/_case_record_seed.py``.
 
         Args:
             case_id: The case to append to.
-            kind: One of ``opened`` / ``note`` / ``pin`` /
-                ``decision_record`` (the program-only kinds are rejected).
+            kind: ``opened`` (the program-only and the retired kinds are
+                rejected).
             actor: One of ``pm`` / ``shirley`` / ``system``.
             actor_user_id: The acting user when a user acted, else ``None``.
             payload: Opaque JSONB for the entry.
@@ -747,9 +755,10 @@ class CaseRepository(BaseRepository):
             The newly appended :class:`CaseEntryDTO`.
 
         Raises:
-            CaseEntryKindInvalid: If ``kind`` is outside the vocabulary, or is
+            CaseEntryKindInvalid: If ``kind`` is outside the vocabulary, is
                 a program-only kind (which only the milestone path or
-                :meth:`add_system_line` writes).
+                :meth:`add_system_line` writes), or is retired for new
+                writes (``note``, ``pin``, ``decision_record``).
             CaseActorInvalid: If ``actor`` is outside the vocabulary.
             CaseStateInvalid: If no such case exists in the active tenant.
             CaseClosedError: If the case is already closed.
@@ -764,6 +773,12 @@ class CaseRepository(BaseRepository):
                 f"The {kind!r} entry is written only by the milestone path or "
                 "add_system_line (the milestone + freeze transaction, or the one "
                 f"system-line writer); append_entry does not accept kind={kind!r}.",
+                field="kind",
+            )
+        if kind in _RETIRED_ENTRY_KINDS:
+            raise CaseEntryKindInvalid(
+                f"The {kind!r} entry is retired for new writes — ADR-0138 §9; "
+                "legacy rows stay readable, Keep writes the working file.",
                 field="kind",
             )
         if actor not in _VALID_ACTORS:
@@ -1156,6 +1171,21 @@ class CaseRepository(BaseRepository):
             stmt = stmt.order_by(Case.updated_at.desc(), Case.case_number.desc())
         result = await self._session.execute(stmt.limit(limit))
         return [CaseDTO(**row._mapping) for row in result.all()]
+
+    async def list_unclosed(self) -> list[CaseDTO]:
+        """Return the cases that take writes: open, then waiting (D-CS-B-65, D-CS-B-92).
+
+        Two state-filtered reads — :meth:`list_cases` with ``state="open"``
+        (by ``updated_at`` descending), then ``state="waiting"`` (by
+        ``wait_until`` ascending) — so the row cap applies per state, after
+        the closed cases are left out. The one picker read of its three
+        callers: the Transactions composer's Provenance picker and the two
+        Keep pickers (the dock and the Planning Desk, ``web/case_keep.py``).
+
+        Returns:
+            The open cases, then the waiting ones.
+        """
+        return [*await self.list_cases(state="open"), *await self.list_cases(state="waiting")]
 
     async def count_by_state(self) -> dict[str, int]:
         """Return the number of cases in each state, every state present.

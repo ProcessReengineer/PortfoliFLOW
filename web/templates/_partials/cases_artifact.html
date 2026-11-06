@@ -1,0 +1,124 @@
+{# One artefact's class body (ADR-0138 §9, D-CS-B-90) — shared by a legacy pin in
+   the Record (cases_detail_timeline.html) and a kept row in the file
+   (cases_kept_row.html), so both render one anatomy. The four bodies moved here
+   verbatim from the timeline (P-CS-4a); their variables read one ``art`` dict,
+   projected by _project_kept_payload in web/routes/cases.py.
+
+     document          — the attached document, filename linking to the
+                         download endpoint, and its human-legible size.
+     scenario_snapshot — the frozen Planning Desk snapshot (ADR-0107 C5): the
+                         parameter chips as a compact line, the four KPI pairs
+                         (base → scenario with the frozen delta tone), the two
+                         horizon feet, a headroom *count* (the mock shows no
+                         headroom table), and the stored query as monospace
+                         text — never a link (decision 2). Verbatim, nothing
+                         recomputed.
+     consultation      — the Shirley excerpt (ADR-0107 C6), quoted and
+                         attributed to her. Plain text, autoescaped — never raw
+                         HTML.
+     chart_snapshot    — the frozen Shirley chart (ADR-0114): the figure,
+                         re-plotted from the stored spec through the shared
+                         render helper (chart_snapshot.js), and the caption.
+                         The spec rides in an inert ``application/json`` block
+                         via ``|tojson`` (which escapes ``<``/``>``/``&``/``'``),
+                         never interpolated into JavaScript source.
+
+   Any other class — document_excerpt and generated_document until P-CS-4b —
+   reads as the calm one-liner *{class} · caption*; the payload never renders.
+
+   Context: art — {artifact, the class's keys; label and kept_caption for the
+   one-liner}. #}
+{% if art.artifact == "document" %}
+                        <div class="pf-artifact pf-artifact--doc">
+                            <span class="icon" aria-hidden="true">⎘</span>
+                            <div>
+                                <div class="pf-artifact__title">
+                                    <a href="{{ art.download_href }}">{{ art.filename }}</a>
+                                </div>
+                                <span class="mono">{{ art.size_human }}</span>
+                            </div>
+                        </div>
+{% elif art.artifact == "scenario_snapshot" %}
+                        <div class="pf-artifact pf-artifact--scenario">
+                            <span class="pf-artifact__title">Scenario snapshot</span>
+
+                            {% if art.chips %}
+                                <div class="pf-snap__chips">
+                                    {% for chip in art.chips %}
+                                        <span class="pf-snap__chip">{{ chip.label }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="pf-snap__baseline">
+                                    Baseline — no scenario parameters were in force.
+                                </p>
+                            {% endif %}
+
+                            {% if art.kpis %}
+                                <dl class="pf-snap__kpis">
+                                    {% for kpi in art.kpis %}
+                                        <div class="pf-artifact__row pf-snap__kpi">
+                                            <dt>{{ kpi.label }}</dt>
+                                            <dd>
+                                                <span class="pf-snap__base">{{ kpi.base }}</span>
+                                                <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                                <span class="pf-snap__scen">{{ kpi.scen }}</span>
+                                                <span class="pf-snap-delta pf-snap-delta--{{ kpi.tone }}">{{ kpi.delta }}</span>
+                                            </dd>
+                                        </div>
+                                    {% endfor %}
+                                </dl>
+                            {% endif %}
+
+                            <dl class="pf-snap__feet">
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>End-of-horizon NAV</dt>
+                                    <dd>
+                                        <span class="pf-snap__base">{{ art.baseline_foot.nav }}</span>
+                                        <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                        <span class="pf-snap__scen">{{ art.scenario_foot.nav }}</span>
+                                        <span class="pf-snap-delta pf-snap-delta--{{ art.scenario_foot.nav_tone }}">{{ art.scenario_foot.nav_delta }}</span>
+                                    </dd>
+                                </div>
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>Total return</dt>
+                                    <dd>
+                                        <span class="pf-snap__base">{{ art.baseline_foot.ret }}</span>
+                                        <span class="pf-snap__arrow" aria-hidden="true">&rarr;</span>
+                                        <span class="pf-snap__scen">{{ art.scenario_foot.ret }}</span>
+                                        <span class="pf-snap-delta pf-snap-delta--{{ art.scenario_foot.ret_tone }}">{{ art.scenario_foot.ret_delta }}</span>
+                                    </dd>
+                                </div>
+                                <div class="pf-artifact__row pf-snap__foot">
+                                    <dt>Headroom</dt>
+                                    <dd>
+                                        {{ art.headroom_count }}
+                                        headroom row{{ '' if art.headroom_count == 1 else 's' }} frozen
+                                    </dd>
+                                </div>
+                            </dl>
+
+                            <div class="pf-snap__query">
+                                <span class="pf-snap__query-label">Captured parameters</span>
+                                <code class="mono">{{ art.query }}</code>
+                            </div>
+                        </div>
+{% elif art.artifact == "consultation" %}
+                        <div class="pf-artifact pf-artifact--consultation">
+                            <span class="pf-artifact__title">Shirley — pinned excerpt</span>
+                            <blockquote class="pf-quote">{{ art.excerpt }}</blockquote>
+                        </div>
+{% elif art.artifact == "chart_snapshot" %}
+                        <div class="pf-artifact pf-artifact--chart">
+                            <span class="pf-artifact__title">Shirley — pinned chart</span>
+                            <div class="pf-chartsnap" data-pf-chart>
+                                <div class="pf-chartsnap__plot" data-pf-chart-plot></div>
+                                <script type="application/json" data-pf-chart-spec>{{ art.spec | tojson }}</script>
+                            </div>
+                            {% if art.caption %}
+                                <span class="pf-chartsnap__caption">{{ art.caption }}</span>
+                            {% endif %}
+                        </div>
+{% else %}
+                        <p class="pf-hint" data-pf-cs="kept-fallback">{{ art.label }}{% if art.kept_caption %} · {{ art.kept_caption }}{% endif %}</p>
+{% endif %}

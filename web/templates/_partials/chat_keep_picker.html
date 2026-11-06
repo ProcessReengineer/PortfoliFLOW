@@ -1,0 +1,77 @@
+{# Keep's picker (ADR-0138 §8 channel 2, D-CS-B-87) — "Keep to…", or "Keep →"
+   with no target. Swapped into the artefact's own .chat-keep container.
+
+   The case it shows: its live threads and "The file" as radios (the target's
+   thread preselected when this is the target's case, else the file), and the
+   other open and waiting cases in an "Another case…" select that re-renders
+   this picker for the chosen case (hx-include="closest form" — a GET does not
+   carry its form by itself). Keep posts the place; Cancel brings the gestures
+   back. A refusal (the case closed or the thread went since) re-renders this
+   with ``error``. With no case that takes writes at all, the no-case state
+   links to Cases (the C6 posture, D-4a-5).
+
+   Context: csrf_token, keep_url, picker_url, actions_url, cases_area_url,
+   kind, message_id, artifact_id, ref, ref_query, options ({case: {id, badge,
+   title}, threads: [{id, title, status_label}], others: [{id, label}]} or
+   None), selected_thread ("" = the file), error. #}
+<div class="chat-keep chat-keep-picker" data-pf-keep="picker" data-pf-keep-ref="{{ ref }}">
+    {% if not options %}
+        <p class="chat-keep-picker__empty">There is no open case to keep this in. Open a case first.</p>
+        <div class="chat-keep-picker__actions">
+            <button type="button" class="btn btn--ghost"
+                    hx-get="{{ actions_url }}?{{ ref_query }}"
+                    hx-target="closest .chat-keep"
+                    hx-swap="outerHTML">Cancel</button>
+            <a class="btn" href="{{ cases_area_url }}">Go to Cases</a>
+        </div>
+    {% else %}
+        <form class="chat-keep-picker__form" hx-post="{{ keep_url }}" hx-target="closest .chat-keep" hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% if kind == "chart" %}
+            <input type="hidden" name="artifact_id" value="{{ artifact_id }}">
+            {% else %}
+            <input type="hidden" name="message_id" value="{{ message_id }}">
+            {% endif %}
+            <p class="chat-keep-picker__title">Keep this in… <a href="/cases/{{ options.case.id }}">{{ options.case.badge }}</a> · {{ options.case.title }}</p>
+            {% if error %}<p class="chat-keep-picker__error" role="alert" data-pf-keep="error">{{ error }}</p>{% endif %}
+            <fieldset class="chat-keep-picker__places">
+                <legend class="pf-sr">Where in {{ options.case.badge }}</legend>
+                <label class="chat-keep-picker__place">
+                    <input type="radio" name="thread_id" value=""{% if not selected_thread %} checked{% endif %}>
+                    The file
+                </label>
+                {% for thread in options.threads %}
+                <label class="chat-keep-picker__place">
+                    <input type="radio" name="thread_id" value="{{ thread.id }}"{% if selected_thread == thread.id %} checked{% endif %}>
+                    {{ thread.title }} <span class="chat-keep-picker__status">· {{ thread.status_label }}</span>
+                </label>
+                {% endfor %}
+            </fieldset>
+            {% if options.others %}
+            <label class="chat-keep-picker__other">
+                <span class="pf-sr">Another case</span>
+                <select class="chat-keep-picker__input" name="case_id"
+                        hx-get="{{ picker_url }}"
+                        hx-trigger="change"
+                        hx-include="closest form"
+                        hx-target="closest .chat-keep"
+                        hx-swap="outerHTML">
+                    <option value="{{ options.case.id }}" selected>Another case…</option>
+                    {% for other in options.others %}
+                    <option value="{{ other.id }}">{{ other.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% else %}
+            <input type="hidden" name="case_id" value="{{ options.case.id }}">
+            {% endif %}
+            <div class="chat-keep-picker__actions">
+                <button type="button" class="btn btn--ghost"
+                        hx-get="{{ actions_url }}?{{ ref_query }}"
+                        hx-target="closest .chat-keep"
+                        hx-swap="outerHTML">Cancel</button>
+                <button type="submit" class="btn btn--primary">Keep</button>
+            </div>
+        </form>
+    {% endif %}
+</div>

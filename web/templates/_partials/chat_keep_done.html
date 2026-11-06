@@ -1,0 +1,7 @@
+{# The kept line (ADR-0138 §8, D-CS-B-88, D-4a-2) — replaces the gestures after
+   a keep, the mock's .bubble__kept: "Kept to CASE-nnnn · thread "…" · HH:MM"
+   (or "· the file"). The badge opens the case at the thread, or at its Threads
+   block for a file-level keep. Undo arrives with P-CS-4b's removed_at.
+
+   Context: badge, href, where, when, ref. #}
+<div class="chat-keep chat-keep--done" role="status" data-pf-keep="done" data-pf-keep-ref="{{ ref }}">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}</div>

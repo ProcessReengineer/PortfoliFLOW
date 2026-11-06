@@ -11,23 +11,34 @@
    hx-swap="none" (the OOB bundle answers); the title and the status
    re-render the block (?rerender=1), so the summary follows, the thread kept
    open. Remove re-renders the block after a native confirm. The form's stamp
-   is the block's #cs-stamp-threads (hx-include). Kept rows inside a thread
-   arrive with P-CS-4a / 4b; until then every body reads the hint.
+   is the block's #cs-stamp-threads (hx-include).
 
-   A closed case renders the threads read-only: the prose as text, the
-   conclusion, no form.
+   Kept rows (ADR-0138 §9, D-CS-B-90) render inside their thread between the
+   prose and the status / conclusion (cases_kept_row.html); the "Nothing kept
+   yet" hint shows only in a thread without one. File-level kept rows follow
+   the threads as the group "Kept in the file", on the thread card. A keep from
+   the dock or the Planning Desk raises the case-kept event with the case id;
+   both forms of the section below listen for their own case and re-render
+   the block (D-CS-B-88), so a case on screen shows the row without a reload —
+   the placeholder too, since a file-level row makes the block visible.
+
+   A closed case renders the threads read-only: the prose as text, the kept
+   rows, the conclusion, no form.
 
    The note slot renders `block.note` itself when the block is re-rendered
    (see cases_file_conversations.html; the 3c report's F-3c-5).
 
    Context: case_id, csrf_token, is_mutable, stamp, threads — {threads:
-   [{id, title, prose, status, status_label, conclusion, dates}], empty,
-   reveal, focus_id, open_id, statuses: [{value, label}]}. #}
+   [{id, title, prose, status, status_label, conclusion, dates, kept}],
+   file_kept, empty (no thread and no file-level kept row), reveal, focus_id,
+   open_id, statuses: [{value, label}]}. #}
 {% set block = threads %}
 {% if block.empty and not block.reveal %}
-<section class="pf-blk" id="cs-threads" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="threads"></section>
+<section class="pf-blk" id="cs-threads" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="threads"
+         hx-get="/api/cases/{{ case_id }}/sections/threads" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML"></section>
 {% else %}
-<section class="pf-blk" id="cs-threads" data-pf-cs="block" data-pf-cs-name="threads">
+<section class="pf-blk" id="cs-threads" data-pf-cs="block" data-pf-cs-name="threads"
+         hx-get="/api/cases/{{ case_id }}/sections/threads" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML">
     <div class="pf-blk__head">
         <h3 class="pf-blk__title">Threads</h3>
         <span class="pf-blk__sub">one thing you are chasing, with what you kept while chasing it</span>
@@ -66,6 +77,7 @@
                             <textarea class="pf-textarea" name="prose" rows="3" data-pf-cs="thread-prose"
                                       {% if is_focus %}autofocus{% endif %}>{{ thread.prose }}</textarea>
                         </label>
+                        {% for row in thread.kept %}{% include "_partials/cases_kept_row.html" %}{% endfor %}
                         <div class="pf-field">
                             <span class="pf-label" id="cs-thread-{{ thread.id }}-status-label">Status</span>
                             <div class="pf-seg" role="radiogroup" aria-labelledby="cs-thread-{{ thread.id }}-status-label" data-pf-cs="thread-status-switch">
@@ -86,7 +98,7 @@
                             <textarea class="pf-textarea" name="conclusion" rows="2" data-pf-cs="thread-conclusion"
                                       placeholder="One line: what this thread established.">{{ thread.conclusion }}</textarea>
                         </label>
-                        <p class="pf-hint" data-pf-cs="thread-empty">Nothing kept yet — ask Shirley in the dock, attach a document, or type a figure.</p>
+                        {% if not thread.kept %}<p class="pf-hint" data-pf-cs="thread-empty">Nothing kept yet — ask Shirley in the dock, attach a document, or type a figure.</p>{% endif %}
                         <div class="pf-thread__tools">
                             <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="thread-remove"
                                     hx-post="/api/cases/{{ case_id }}/threads/{{ thread.id }}/remove"
@@ -97,6 +109,7 @@
                     </form>
                 {% else %}
                     {% if thread.prose %}<p class="pf-prose" data-pf-cs="thread-prose">{{ thread.prose }}</p>{% endif %}
+                    {% for row in thread.kept %}{% include "_partials/cases_kept_row.html" %}{% endfor %}
                     {% if thread.conclusion %}
                         <div class="pf-thread__concl" data-pf-cs="thread-conclusion"><p>{{ thread.conclusion }}</p></div>
                     {% endif %}
@@ -104,6 +117,20 @@
             </div>
         </details>
     {% endfor %}
+
+    {% if block.file_kept %}
+        {# The file-level kept rows (thread_id null) — "Kept in the file", the
+           frozen file's wording (D-4a-8), on the thread card. #}
+        <details class="pf-thread" id="cs-kept-file" data-pf-cs="kept-file" open>
+            <summary>
+                <p class="pf-thread__q">Kept in the file</p>
+                <span class="pf-thread__meta">{{ block.file_kept|length }}</span>
+            </summary>
+            <div class="pf-thread__body">
+                {% for row in block.file_kept %}{% include "_partials/cases_kept_row.html" %}{% endfor %}
+            </div>
+        </details>
+    {% endif %}
 
     {% if is_mutable %}
         {% if block.empty %}<p class="pf-hint" data-pf-cs="threads-empty">No thread yet — add the first below.</p>{% endif %}

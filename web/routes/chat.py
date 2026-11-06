@@ -30,12 +30,17 @@ shell consumes:
 * ``POST /chat/call/end``        — append the call's end line and re-render
   the history.
 
+* ``GET /api/chat/keep/actions`` · ``GET /api/chat/keep/picker`` ·
+  ``POST /api/chat/keep`` — Keep an answer or a figure into the active case
+  in one click, or choose another target (ADR-0138 §8 channel 2, §9).
+
 Two further per-session in-memory stores ride alongside the history
 (``app.state.chat_histories``, ADR-0050): the consultation-brief stash
 (``app.state.brief_stash``, ADR-0107 C6 — since ADR-0133 §6 of kind
-``case`` or ``watch_briefing``, one active, each replacing the other) and
+``case`` or ``watch_briefing``, one active, each replacing the other; since
+ADR-0138 §8 also the keep target, ``web/brief_stash.py``) and
 the chart-artefact sidecar (``app.state.chat_chart_artifacts``, ADR-0114)
-that lets a chart survive a tab reload and be pinned to a case. Both share
+that lets a chart survive a tab reload and be kept in a case. Both share
 the history's lifecycle exactly — see their sections below. A voice call
 (ADR-0137) adds two more: the call-line sidecar
 (``app.state.chat_call_lines``), which holds the "Call started" / "Call
@@ -78,9 +83,9 @@ import uuid
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import aclosing, asynccontextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -94,9 +99,10 @@ from fastapi.responses import (
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from core.exceptions import CaseClosedError, CaseStateInvalid
+from core.exceptions import CaseClosedError, CaseStateInvalid, CaseWorkingFileInvalid
 from core.models.watchpoint import WATCHPOINT_FAMILIES
 from core.repositories import ScopedSettingRepository
+from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.irene_briefing_repository import (
@@ -168,6 +174,27 @@ from services.voice_call import (
     speakable_messages,
 )
 from web.auth import require_session, verify_csrf
+from web.brief_stash import (
+    BRIEF_KIND_CASE,
+    BRIEF_KIND_WATCH_BRIEFING,
+    ActiveBrief,
+    _clear_active_brief,
+    _get_active_brief,
+    _set_active_brief,
+)
+from web.case_keep import (
+    KEEP_CASE_GONE_MESSAGE,
+    KEEP_THREAD_GONE_MESSAGE,
+    KeepTarget,
+    consultation_caption,
+    keep_artifact,
+    keep_trigger,
+    kept_line_context,
+    picker_options,
+    posted_target,
+    resolve_keep_target,
+    target_label,
+)
 from web.errors import user_safe_error
 from web.permissions import require_role
 
@@ -631,11 +658,15 @@ def _history_items(
         artifacts: The session's sidecar records.
         call_lines: The session's call-line records.
 
+    An assistant bubble carries its ``message_id`` — the handle Keep posts
+    (ADR-0138 §8, D-CS-B-95), so a reloaded answer is keepable like a live
+    one; a user bubble carries ``""``.
+
     Returns:
-        Render items — ``{"kind": "message", role, content, channel}``,
-        ``{"kind": "chart", artifact_id, caption, spec, oversized}`` and
-        ``{"kind": "call_line", content}`` — in the order the surface shows
-        them.
+        Render items — ``{"kind": "message", role, content, channel,
+        message_id}``, ``{"kind": "chart", artifact_id, caption, spec,
+        oversized}`` and ``{"kind": "call_line", content}`` — in the order
+        the surface shows them.
     """
     anchored: dict[str, list[dict[str, Any]]] = {}
     for record in artifacts:
@@ -657,6 +688,7 @@ def _history_items(
                     "role": message.role.value,
                     "content": message.content,
                     "channel": message.channel,
+                    "message_id": message.id if message.role == MessageRole.ASSISTANT else "",
                 }
             )
         for record in anchored.get(message.id, []):
@@ -687,17 +719,14 @@ def _history_items(
 # or a briefing that vanished, clears the stash silently and the turn runs
 # unbriefed. One context is active at a time — a briefing replaces a case and
 # a case replaces a briefing; dismiss clears either. Web chat only — the
-# Telegram surface is untouched (it has neither the banner nor the pin loop a
-# brief presumes), so its prompt assembly never sees this.
+# Telegram surface is untouched (it has neither the banner nor the keep loop a
+# brief presumes), so its prompt assembly never sees this. The stash
+# primitives live in ``web/brief_stash.py`` (P-CS-4a), which the Planning
+# Desk's Keep reads too; a case stash is also the session's keep target
+# (ADR-0138 §8, D-CS-B-86).
 #
 # The two brief block formats (below) are the one place each is defined; the
 # strands' closure notes reference them.
-
-_BRIEF_STASH_LIMIT = 100
-
-#: The two consultation-context kinds the stash can hold (ADR-0133 §6).
-BRIEF_KIND_CASE: str = "case"
-BRIEF_KIND_WATCH_BRIEFING: str = "watch_briefing"
 
 #: The in-place hand-off endpoint (ADR-0133 §6, D-WD-23): the Watch Desk's
 #: "Discuss briefing with Shirley" action POSTs here with the briefing id in
@@ -715,31 +744,25 @@ BRIEF_BANNER_URL: str = "/chat/brief/banner"
 #: the banner on ``pf:brief-changed``. Neither fires on a dropped id.
 _DISCUSS_TRIGGER: str = "pf:brief-changed, pf:shirley-dock"
 
-#: The consultation-pin endpoint (ADR-0107 C6). One URL, two verbs — the C5
-#: ``PIN_SCENARIO_URL`` idiom: ``GET`` renders the dialog, ``POST`` writes the
-#: curated excerpt to the chosen case's timeline.
-PIN_CONSULTATION_URL: str = "/api/chat/pin-consultation"
-
 #: The brief-dismiss endpoint — clears the stash and removes the banner.
 DISMISS_BRIEF_URL: str = "/chat/brief/dismiss"
 
-#: The Cases area page the empty-picker dialog links out to (no open cases to
-#: pin into — point the PM at Cases rather than a dead dropdown).
+#: The Cases area page the empty picker links out to (no open or waiting case
+#: to keep into — point the PM at Cases rather than a dead dropdown).
 _CASES_AREA_URL: str = "/cases"
 
-#: The chart-snapshot pin endpoint (ADR-0114). Same one-URL-two-verbs idiom as
-#: ``PIN_CONSULTATION_URL``: ``GET`` renders the dialog, ``POST`` writes the
-#: frozen Plotly spec to the chosen case's timeline.
-PIN_CHART_URL: str = "/api/chat/pin-chart"
+#: The Keep endpoints (ADR-0138 §8 channel 2, §9): the two gestures under an
+#: answer or a figure, the picker, and the write.
+KEEP_URL: str = "/api/chat/keep"
+KEEP_ACTIONS_URL: str = "/api/chat/keep/actions"
+KEEP_PICKER_URL: str = "/api/chat/keep/picker"
 
-#: The pin artifact class this surface writes — the third, after C3b's
-#: ``document`` and C5's ``scenario_snapshot`` (binding decision 3). Documented
-#: beside them in the cases module docstring; the timeline reads exactly this.
+#: The kept class a Shirley answer becomes (ADR-0138 §9) — the payload is the
+#: pin contract minus the comment: ``{"excerpt": <the message text>}``.
 _CONSULTATION_ARTIFACT: str = "consultation"
 
-#: The fourth pin artifact class (ADR-0114) — a frozen chart snapshot, written
-#: from the session sidecar above. Documented beside the other three in the
-#: cases module docstring; the timeline reads exactly this.
+#: The kept class a Shirley figure becomes (ADR-0114 §2, ADR-0138 §9) —
+#: ``{"caption", "spec"}``, resolved from the session sidecar above.
 _CHART_SNAPSHOT_ARTIFACT: str = "chart_snapshot"
 
 _BRIEF_OPEN: str = "<<<PORTFOLIFLOW CASE BRIEF>>>"
@@ -767,96 +790,34 @@ _WATCH_BRIEF_LEAD: str = (
 _BRIEF_DIGEST_MAX_ENTRIES: int = 12
 _BRIEF_DIGEST_LINE_CHARS: int = 160
 
-#: Shared by both pin flows on this surface (consultation and chart snapshot):
-#: closed-case immutability is one rule (ADR-0107 §4), so it reads as one
-#: sentence wherever it is refused.
-_PIN_CLOSED_MESSAGE: str = (
-    "This case is closed — closed cases are read-only and cannot be pinned into. Pick an open case."
+#: The calm state an answer that left the session history resolves to — the
+#: C6 "no longer available" posture, never a wrong excerpt.
+_MESSAGE_UNAVAILABLE_MESSAGE: str = (
+    "That answer is no longer available to keep — it has scrolled out of this "
+    "session's memory. Ask again, then keep the fresh answer."
 )
 
 #: The calm state a stale, evicted or never-archived chart handle resolves to —
 #: the C6 "no longer available" posture (ADR-0114 §3), never a wrong figure.
 _CHART_UNAVAILABLE_MESSAGE: str = (
-    "That chart is no longer available to pin — it has scrolled out of this "
-    "session's memory. Ask Shirley for it again, then pin the fresh figure."
+    "That chart is no longer available to keep — it has scrolled out of this "
+    "session's memory. Ask Shirley for it again, then keep the fresh figure."
 )
 
 #: An oversized figure was streamed live but never archived, so there is no
-#: spec to freeze onto the case record. Guidance, not a bare refusal.
+#: spec to keep in the case file. Guidance, not a bare refusal.
 _CHART_OVERSIZED_MESSAGE: str = (
-    "This chart is too large to pin to a case record. Ask Shirley for a "
-    "narrower range or a single investment, then pin that figure."
+    "This chart is too large to keep. Ask Shirley for a narrower range or a "
+    "single investment, then keep that figure."
 )
-
-
-@dataclass(frozen=True)
-class ActiveBrief:
-    """The session's active consultation context: its kind and the row id.
-
-    ``kind`` is :data:`BRIEF_KIND_CASE` (``id`` a case) or
-    :data:`BRIEF_KIND_WATCH_BRIEFING` (``id`` an ``irene_briefing`` row).
-    """
-
-    kind: str
-    id: UUID
-
-
-def _brief_stash(request: Request) -> OrderedDict[str, ActiveBrief]:
-    """Return (and lazily initialise) the per-app consultation-brief stash.
-
-    Keyed by the authenticated session UUID (string), value the active
-    :class:`ActiveBrief` — a case or a written briefing, never both
-    (ADR-0133 §6). Bounded LRU at the session level, mirroring
-    :func:`_chat_histories`. Single-worker only; a multi-worker deployment
-    needs Redis or equivalent.
-    """
-    store = getattr(request.app.state, "brief_stash", None)
-    if store is None:
-        store = OrderedDict()
-        request.app.state.brief_stash = store
-    return cast("OrderedDict[str, ActiveBrief]", store)
-
-
-def _set_active_brief(request: Request, session_id: str, brief: ActiveBrief) -> None:
-    """Set the session's active brief to ``brief``, replacing any previous.
-
-    One context per session, whatever its kind: a briefing replaces a case
-    and a case replaces a briefing. Evicts the oldest entry when the per-app
-    cap is reached (the history-store idiom). Re-inserting moves the entry
-    to the most-recently-used end.
-    """
-    store = _brief_stash(request)
-    store.pop(session_id, None)
-    while len(store) >= _BRIEF_STASH_LIMIT:
-        evicted_key, _ = store.popitem(last=False)
-        logger.warning(
-            "chat: evicting consultation brief for session %s (LRU cap %d)",
-            evicted_key,
-            _BRIEF_STASH_LIMIT,
-        )
-    store[session_id] = brief
-
-
-def _get_active_brief(request: Request, session_id: str) -> ActiveBrief | None:
-    """Return the session's active brief, or ``None`` if unset."""
-    store = _brief_stash(request)
-    if session_id in store:
-        store.move_to_end(session_id)
-        return store[session_id]
-    return None
-
-
-def _clear_active_brief(request: Request, session_id: str) -> None:
-    """Drop the session's active brief, of either kind. Safe on absent keys."""
-    _brief_stash(request).pop(session_id, None)
 
 
 def _active_case_id(request: Request, session_id: str) -> UUID | None:
     """Return the stashed case id, or ``None`` when no *case* brief is active.
 
-    The pin dialogs preselect the case under consultation; a briefing stash
-    preselects nothing — a briefing is not a case, and there is no pin kind
-    for one (ADR-0133 §6).
+    A briefing stash names no case — a briefing is not a case, and nothing is
+    kept into one (ADR-0133 §6); :func:`web.case_keep.resolve_keep_target`
+    answers the same for Keep.
     """
     brief = _get_active_brief(request, session_id)
     if brief is None or brief.kind != BRIEF_KIND_CASE:
@@ -909,16 +870,19 @@ async def resolve_active_brief_banner(
 ) -> dict[str, str] | None:
     """Adopt a fresh ``?case=`` marker and return the banner context, or ``None``.
 
-    Marker hygiene (binding decision 5): a valid **open** case replaces any
-    previous stash — a stashed briefing included; a malformed, unknown,
-    foreign-tenant (RLS → ``None``) or **closed** marker is dropped silently
-    — no banner, no stash change, no error (consulting *about* a closed case
-    is legitimate reading, but the guided context is open-cases-only). The
-    banner is then rendered from the current stash, **validated fresh**: a
-    stale (closed-since / vanished) stash clears silently and yields no
-    banner. A stashed briefing (ADR-0133 §6) renders through
-    :func:`_watch_briefing_banner`. Called by the assistants area page
-    render, the dock and the banner endpoint.
+    Marker hygiene (binding decision 5): a valid **open or waiting** case
+    (D-CS-B-93) replaces any previous stash — a stashed briefing included;
+    a malformed, unknown, foreign-tenant (RLS → ``None``) or **closed**
+    marker is dropped silently — no banner, no stash change, no error
+    (consulting *about* a closed case is legitimate reading, but the guided
+    context is for cases that still take writes). A marker naming the case
+    already stashed keeps the stash's thread. The banner is then rendered
+    from the current stash, **validated fresh**: a stale (closed-since /
+    vanished) stash clears silently and yields no banner, and a thread
+    removed since reads as the file. Its ``target`` names where Keep writes
+    (ADR-0138 §8, D-CS-B-86). A stashed briefing (ADR-0133 §6) renders
+    through :func:`_watch_briefing_banner`. Called by the assistants area
+    page render, the dock and the banner endpoint.
     """
     engine = getattr(request.app.state, "engine", None)
     if engine is None:
@@ -927,29 +891,41 @@ async def resolve_active_brief_banner(
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         repo = CaseRepository(db)
         case: CaseDTO | None = None
+        stashed = _get_active_brief(request, session_id)
         marker_id = _parse_case_marker(case_marker)
         if marker_id is not None:
             candidate = await repo.get(marker_id)
-            if candidate is not None and candidate.state == "open":
-                _set_active_brief(request, session_id, ActiveBrief(BRIEF_KIND_CASE, candidate.id))
+            if candidate is not None and candidate.state in _MUTABLE_STATES:
+                keeps_thread = (
+                    stashed is not None
+                    and stashed.kind == BRIEF_KIND_CASE
+                    and stashed.id == candidate.id
+                )
+                stashed = ActiveBrief(
+                    BRIEF_KIND_CASE,
+                    candidate.id,
+                    stashed.thread_id if keeps_thread and stashed is not None else None,
+                )
+                _set_active_brief(request, session_id, stashed)
                 case = candidate
         if case is None:
-            stashed = _get_active_brief(request, session_id)
             if stashed is not None and stashed.kind == BRIEF_KIND_WATCH_BRIEFING:
                 return await _watch_briefing_banner(request, db, session_id, stashed.id)
             if stashed is not None:
                 candidate = await repo.get(stashed.id)
-                if candidate is not None and candidate.state == "open":
+                if candidate is not None and candidate.state in _MUTABLE_STATES:
                     case = candidate
                 else:  # stale stash — the case closed or vanished since.
                     _clear_active_brief(request, session_id)
-    if case is None:
-        return None
+        if case is None or stashed is None:
+            return None
+        target = await resolve_keep_target(db, brief=stashed, marker_case=case)
     return {
         "kind": BRIEF_KIND_CASE,
         "badge": f"CASE-{case.case_number:04d}",
         "title": case.title,
         "href": f"/cases/{case.id}",
+        "target": target_label(target.thread if target is not None else None),
     }
 
 
@@ -1265,7 +1241,7 @@ async def _briefed_system_prompt(request: Request, session: SessionDTO, base_pro
             brief = await _compose_watch_briefing_brief(db, row)
         else:
             case = await CaseRepository(db).get(stashed.id)
-            if case is None or case.state != "open":
+            if case is None or case.state not in _MUTABLE_STATES:
                 _clear_active_brief(request, session_id)
                 return base_prompt
             brief = await _compose_case_brief(db, case)
@@ -1276,9 +1252,9 @@ def _assistant_message_text(conversation: Conversation | None, message_id: str) 
     """Return the text of the assistant message with ``message_id``, or ``None``.
 
     Robust to trimming: the id is the :class:`Message`'s own stable id, so a
-    message trimmed out of history is simply not found — the dialog then says
-    the message is no longer available rather than prefilling the wrong one
-    (Step 2). An existing but empty (chart-only) message returns ``""``.
+    message trimmed out of history is simply not found — Keep then says the
+    answer is no longer available rather than keeping the wrong one. An
+    existing but empty (chart-only) message returns ``""``.
     """
     if conversation is None or not message_id:
         return None
@@ -1286,22 +1262,6 @@ def _assistant_message_text(conversation: Conversation | None, message_id: str) 
         if message.id == message_id and message.role == MessageRole.ASSISTANT:
             return message.content or ""
     return None
-
-
-def _consultation_picker_options(
-    cases: list[CaseDTO],
-) -> list[dict[str, str]]:
-    """Project open cases into the dialog's picker (``CASE-NNNN — title``).
-
-    Order is the repository's — newest ``opened_at`` first; never re-sorted.
-    """
-    return [
-        {
-            "id": str(case.id),
-            "label": f"CASE-{case.case_number:04d} — {case.title}",
-        }
-        for case in cases
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -2427,9 +2387,9 @@ async def chat_stream(
                         # so it is also the one capture point. The record is
                         # anchored to the turn's assistant message below; the
                         # browser is handed its ``artifact_id`` so the live
-                        # figure can carry the "Pin to case…" affordance. An
+                        # figure can carry Keep's gestures. An
                         # oversized spec streams unchanged but is not archived
-                        # and gets no id — hence no pin affordance for it. The
+                        # and gets no id — hence no Keep for it. The
                         # SSE event vocabulary is untouched: same ``chart``
                         # event, one additive key in the plotly payload.
                         record = _new_chart_record(spec, caption)
@@ -2477,10 +2437,10 @@ async def chat_stream(
                             m.attachments = []
                             break
                     # Carry the final assistant message's stable id on the
-                    # ``done`` frame so the client can offer "Pin to case…" for
-                    # exactly this message (ADR-0107 C6, Step 2). The id is the
-                    # one the recorder just appended to history, so the pin
-                    # dialog can prefill its text server-side. Empty when no
+                    # ``done`` frame so the client can offer Keep for exactly
+                    # this message (ADR-0138 §8). The id is the one the
+                    # recorder just appended to history, so Keep resolves its
+                    # text server-side. Empty when no
                     # assistant message was produced (a bare error), in which
                     # case the client renders no affordance.
                     final_message = payload.get("message")
@@ -3288,7 +3248,7 @@ async def post_call_end(
     session_id = str(session.id)
     _append_call_line(request, session_id, "ended", body.at)
     _call_seq(request).pop((session_id, body.call_id), None)
-    return _render_history(request, session_id)
+    return _render_history(request, session_id, session.csrf_token)
 
 
 # ---------------------------------------------------------------------------
@@ -3353,10 +3313,10 @@ async def get_chat_history(
     A voice call's bubbles carry the "Call" chip and its start and end
     lines are restored at their positions (ADR-0137 §5).
     """
-    return _render_history(request, str(session.id))
+    return _render_history(request, str(session.id), session.csrf_token)
 
 
-def _render_history(request: Request, session_id: str) -> HTMLResponse:
+def _render_history(request: Request, session_id: str, csrf_token: str) -> HTMLResponse:
     """Render the session's history fragment — shared by the reload and the call's end.
 
     The empty-state placeholder is returned only when the session has
@@ -3365,6 +3325,8 @@ def _render_history(request: Request, session_id: str) -> HTMLResponse:
     Args:
         request: The active request (carries the Jinja environment).
         session_id: The owning session's UUID (string form).
+        csrf_token: The session's CSRF token — the Keep forms under the
+            rehydrated answers and figures post it (D-CS-B-95).
 
     Returns:
         ``_partials/chat_history.html``, or ``_partials/chat_empty.html``.
@@ -3389,7 +3351,7 @@ def _render_history(request: Request, session_id: str) -> HTMLResponse:
         templates.TemplateResponse(
             request,
             "_partials/chat_history.html",
-            {"items": items, "pin_chart_url": PIN_CHART_URL},
+            {"items": items, "csrf_token": csrf_token, "keep_url": KEEP_URL},
         ),
     )
 
@@ -3557,242 +3519,25 @@ async def get_brief_banner(
 
 
 # ---------------------------------------------------------------------------
-# Consultation pin (ADR-0107 C6) — the loop's second half. One URL, two verbs:
-# GET renders the dialog, POST writes the curated excerpt to the case timeline.
+# Keep (ADR-0138 §8 channel 2, §9) — every Shirley answer and every figure
+# carries "Keep →" (one click into the active target) and "Keep to…" (the
+# picker). No comment, no dialog: the consultation and chart pin dialogs
+# (ADR-0107 C6, ADR-0114 §2) are retired. The three endpoints answer into the
+# bubble's own ``.chat-keep`` container (``hx-target="closest .chat-keep"``,
+# ``outerHTML``), so the gestures, the picker and the kept line take turns in
+# one place. Transport by reference: the client posts a message id or the
+# sidecar ``artifact_id``; the server resolves the artefact.
 # ---------------------------------------------------------------------------
 
-
-def _pin_dialog_context(
-    session: SessionDTO,
-    *,
-    cases: list[CaseDTO],
-    message_id: str,
-    preselect: str | None,
-    excerpt: str,
-    unavailable: bool,
-    comment: str,
-    error: str | None,
-) -> dict[str, Any]:
-    """Assemble the consultation pin dialog's Jinja context (one shape)."""
-    return {
-        "csrf_token": session.csrf_token,
-        "pin_url": PIN_CONSULTATION_URL,
-        "cases_area_url": _CASES_AREA_URL,
-        "message_id": message_id,
-        "cases": _consultation_picker_options(cases),
-        "preselect": preselect,
-        "excerpt": excerpt,
-        "unavailable": unavailable,
-        "comment": comment,
-        "error": error,
-    }
-
-
-@router.get("/api/chat/pin-consultation", response_class=HTMLResponse)
-async def get_pin_consultation_dialog(
-    request: Request,
-    message_id: str = "",
-    cancel: bool = False,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Render the "Pin to case…" dialog into ``#chat-pin-dialog`` (Step 2).
-
-    The excerpt textarea is **prefilled server-side** from the identified
-    assistant message in the session history, and is editable — the PM trims it
-    to what belongs on the record (binding decision 2). A message no longer in
-    history (trimmed away, or a stale id) yields the calm "no longer available"
-    state rather than a wrong prefill. The picker is the tenant's open cases,
-    newest first, preselected to the active brief's case; with none, the dialog
-    says so and links to Cases rather than offering a dead dropdown. ``cancel``
-    clears the slot — the composer-cancel idiom.
-    """
-    if cancel:
-        return HTMLResponse("")
-    session_id = str(session.id)
-    conversation = _chat_histories(request).get(session_id)
-    text = _assistant_message_text(conversation, message_id)
-
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        open_cases = await CaseRepository(db).list_open()
-
-    preselect = _active_case_id(request, session_id)
-    preselect_str = str(preselect) if preselect is not None else None
-    context = _pin_dialog_context(
-        session,
-        cases=open_cases,
-        message_id=message_id,
-        preselect=preselect_str,
-        excerpt=text or "",
-        unavailable=text is None,
-        comment="",
-        error=None,
-    )
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(request, "_partials/chat_pin_dialog.html", context),
-    )
-
-
-@router.post("/api/chat/pin-consultation", response_class=HTMLResponse)
-async def post_pin_consultation(
-    request: Request,
-    message_id: str = Form(""),
-    case_id: str = Form(""),
-    comment: str = Form(""),
-    excerpt: str = Form(""),
-    session: SessionDTO = Depends(require_session),
-    _csrf: None = Depends(verify_csrf),
-) -> HTMLResponse:
-    """Pin a curated Shirley excerpt to a case (Step 2, binding decision 3).
-
-    The client posts the **curated** text (never scraped bubble HTML). Gates in
-    the C5 order and idiom, each re-rendering the dialog with an inline error
-    and the inputs preserved: comment non-empty → excerpt non-empty (stripped;
-    the PM may have deleted everything) → case exists → case open. On success one
-    ``pin`` entry is appended — ``actor="pm"`` with the session user id (pinning
-    is the PM's curation act; the anatomy attributes the *words* to Shirley) —
-    carrying ``{artifact: "consultation", comment, excerpt}``. A quiet
-    confirmation with a case link replaces the dialog; the conversation stays.
-    """
-    clean_comment = comment.strip()
-    clean_excerpt = excerpt.strip()
-    case_id_raw = case_id.strip()
-
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        open_cases = await CaseRepository(db).list_open()
-
-        def _dialog_error(message: str, *, status_code: int = 200) -> HTMLResponse:
-            """Re-render the dialog inline with an error and preserved inputs.
-
-            200 for a reliable HTMX swap (the composer idiom); the picked case,
-            the comment and the edited excerpt survive so the PM does not retype.
-            """
-            return cast(
-                HTMLResponse,
-                _templates(request).TemplateResponse(
-                    request,
-                    "_partials/chat_pin_dialog.html",
-                    _pin_dialog_context(
-                        session,
-                        cases=open_cases,
-                        message_id=message_id,
-                        preselect=case_id_raw or None,
-                        excerpt=excerpt,
-                        unavailable=False,
-                        comment=comment,
-                        error=message,
-                    ),
-                    status_code=status_code,
-                ),
-            )
-
-        # Gate 1: a curation comment is mandatory.
-        if not clean_comment:
-            return _dialog_error(
-                "A curation comment is required — say why this belongs on the case record."
-            )
-        # Gate 2: the excerpt must not be empty after the PM's edits.
-        if not clean_excerpt:
-            return _dialog_error(
-                "The excerpt is empty — keep the part of Shirley's answer that "
-                "belongs on the record."
-            )
-        # Gate 3: the case exists in this tenant. The picker only offers real
-        # open cases, so a miss is a race (closed since) or a hand-built id.
-        try:
-            case_uuid = UUID(case_id_raw)
-        except ValueError:
-            return _dialog_error("Choose a case to pin to.")
-        case = await CaseRepository(db).get(case_uuid)
-        if case is None:
-            return _dialog_error("That case could not be found — it may have just been closed.")
-        # Gate 4: the case is open (closed cases are immutable, ADR-0107 §4).
-        if case.state != "open":
-            return _dialog_error(_PIN_CLOSED_MESSAGE)
-
-        try:
-            await CaseRepository(db).append_entry(
-                case_uuid,
-                kind="pin",
-                actor="pm",
-                actor_user_id=session.user_id,
-                payload={
-                    "artifact": _CONSULTATION_ARTIFACT,
-                    "comment": clean_comment,
-                    "excerpt": clean_excerpt,
-                },
-                now=datetime.now(timezone.utc),
-            )
-        except (CaseClosedError, CaseStateInvalid):
-            # Raced to closed between the open-gate and the write.
-            return _dialog_error(_PIN_CLOSED_MESSAGE)
-
-    logger.info(
-        "chat pin-consultation: tenant=%s user=%s case=%s",
-        session.tenant_id,
-        session.user_id,
-        case_uuid,
-    )
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(
-            request,
-            "_partials/chat_pin_confirm.html",
-            {
-                "pinned_label": "Excerpt",
-                "case_badge": f"CASE-{case.case_number:04d}",
-                "case_href": f"/cases/{case_uuid}",
-                "pin_url": PIN_CONSULTATION_URL,
-            },
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Chart-snapshot pin (ADR-0114) — the sidecar's second consumer. Same one-URL-
-# two-verbs shape as the consultation pin above, one artefact class further on.
-# ---------------------------------------------------------------------------
-
-
-def _chart_pin_dialog_context(
-    session: SessionDTO,
-    *,
-    cases: list[CaseDTO],
-    artifact_id: str,
-    preselect: str | None,
-    caption: str,
-    unavailable_message: str | None,
-    comment: str,
-    error: str | None,
-) -> dict[str, Any]:
-    """Assemble the chart pin dialog's Jinja context (one shape).
-
-    The sibling of :func:`_pin_dialog_context`, differing in exactly what the
-    artefact classes differ in: a chart carries no editable excerpt, so the
-    dialog identifies the figure by its stored caption and posts the
-    ``artifact_id`` — never the spec (ADR-0114: transport by reference; the
-    server resolves the spec from its own sidecar).
-    """
-    return {
-        "csrf_token": session.csrf_token,
-        "pin_url": PIN_CHART_URL,
-        "cases_area_url": _CASES_AREA_URL,
-        "artifact_id": artifact_id,
-        "cases": _consultation_picker_options(cases),
-        "preselect": preselect,
-        "caption": caption,
-        "unavailable_message": unavailable_message,
-        "comment": comment,
-        "error": error,
-    }
+_KEEP_ACTIONS_TEMPLATE: str = "_partials/chat_keep_actions.html"
+_KEEP_PICKER_TEMPLATE: str = "_partials/chat_keep_picker.html"
+_KEEP_DONE_TEMPLATE: str = "_partials/chat_keep_done.html"
 
 
 def _chart_unavailable_message(record: dict[str, Any] | None) -> str | None:
     """Return the calm state a chart handle resolves to, or ``None`` when fine.
 
-    Two distinct non-pinnable states, told apart because the remedies differ:
+    Two distinct non-keepable states, told apart because the remedies differ:
     a handle that no longer resolves (trimmed, a new chat, a restart, or a
     stale id) versus a figure that was streamed live but never archived
     because it exceeded the cap.
@@ -3804,171 +3549,247 @@ def _chart_unavailable_message(record: dict[str, Any] | None) -> str | None:
     return None
 
 
-@router.get(PIN_CHART_URL, response_class=HTMLResponse)
-async def get_pin_chart_dialog(
-    request: Request,
-    artifact_id: str = "",
-    cancel: bool = False,
-    session: SessionDTO = Depends(require_session),
-) -> HTMLResponse:
-    """Render the chart "Pin to case…" dialog into ``#chat-pin-dialog``.
+def _keep_ref(message_id: str, artifact_id: str) -> dict[str, str]:
+    """The artefact one ``.chat-keep`` container speaks of.
 
-    The C6 dialog, one artefact class on: the figure is identified by its
-    stored caption (there is nothing to curate in a frozen spec — the curation
-    is the comment), the picker is the tenant's open cases, newest first,
-    preselected to the active brief's case. A handle that no longer resolves in
-    this session's sidecar yields the calm "no longer available" state rather
-    than an empty pin; an oversized figure says so and points at a narrower
-    ask. ``cancel`` clears the slot — the composer-cancel idiom.
+    ``kind`` is ``chart`` (a sidecar handle) or ``message`` (an assistant
+    message id); ``ref`` is the handle itself, ``ref_query`` the query string
+    the container's GETs carry.
     """
-    if cancel:
-        return HTMLResponse("")
-    session_id = str(session.id)
-    record = _find_chart_artifact(request, session_id, artifact_id)
-    unavailable = _chart_unavailable_message(record)
+    if artifact_id:
+        return {
+            "kind": "chart",
+            "message_id": "",
+            "artifact_id": artifact_id,
+            "ref": artifact_id,
+            "ref_query": urlencode({"artifact_id": artifact_id}),
+        }
+    return {
+        "kind": "message",
+        "message_id": message_id,
+        "artifact_id": "",
+        "ref": message_id,
+        "ref_query": urlencode({"message_id": message_id}),
+    }
 
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        open_cases = await CaseRepository(db).list_open()
 
-    preselect = _active_case_id(request, session_id)
-    context = _chart_pin_dialog_context(
-        session,
-        cases=open_cases,
-        artifact_id=artifact_id,
-        preselect=str(preselect) if preselect is not None else None,
-        caption=str(record["caption"]) if record is not None else "",
-        unavailable_message=unavailable,
-        comment="",
-        error=None,
-    )
+def _keep_context(session: SessionDTO, ref: dict[str, str], **extra: Any) -> dict[str, Any]:
+    """The shared context of the three Keep partials."""
+    return {
+        **ref,
+        "csrf_token": session.csrf_token,
+        "keep_url": KEEP_URL,
+        "actions_url": KEEP_ACTIONS_URL,
+        "picker_url": KEEP_PICKER_URL,
+        "cases_area_url": _CASES_AREA_URL,
+        **extra,
+    }
+
+
+def _keep_render(
+    request: Request,
+    template: str,
+    context: dict[str, Any],
+    *,
+    headers: dict[str, str] | None = None,
+) -> HTMLResponse:
+    """Render one Keep partial (200, the composer idiom)."""
     return cast(
         HTMLResponse,
-        _templates(request).TemplateResponse(
-            request, "_partials/chat_pin_chart_dialog.html", context
-        ),
+        _templates(request).TemplateResponse(request, template, context, headers=headers),
     )
 
 
-@router.post(PIN_CHART_URL, response_class=HTMLResponse)
-async def post_pin_chart(
+def _resolve_keep_artifact(
+    request: Request, session_id: str, ref: dict[str, str]
+) -> tuple[str, dict[str, Any], str] | str:
+    """Resolve the artefact to ``(class, payload, caption)``, or the calm state's text.
+
+    The payloads are the pin contracts minus the comment (D-CS-B-85): a chart
+    is ``{"caption", "spec"}`` from *this* session's sidecar — a stale handle
+    or an oversized record is its calm message; an answer is ``{"excerpt"}``,
+    the message's text as stored — one that left the history, or a
+    chart-only answer without prose, is the calm "no longer available".
+    """
+    if ref["kind"] == "chart":
+        record = _find_chart_artifact(request, session_id, ref["artifact_id"])
+        unavailable = _chart_unavailable_message(record)
+        if unavailable is not None or record is None:
+            return unavailable or _CHART_UNAVAILABLE_MESSAGE
+        caption = str(record["caption"] or "")
+        return _CHART_SNAPSHOT_ARTIFACT, {"caption": caption, "spec": record["spec"]}, caption
+    text = _assistant_message_text(_chat_histories(request).get(session_id), ref["message_id"])
+    if not text or not text.strip():
+        return _MESSAGE_UNAVAILABLE_MESSAGE
+    return _CONSULTATION_ARTIFACT, {"excerpt": text}, consultation_caption(text)
+
+
+async def _picker_context(
+    db: Any,
+    session: SessionDTO,
+    ref: dict[str, str],
+    *,
+    target: KeepTarget | None,
+    requested: str = "",
+    error: str | None = None,
+) -> dict[str, Any]:
+    """The picker's context: :func:`web.case_keep.picker_options` plus the artefact.
+
+    With no case that takes writes the partial renders the no-case state
+    (D-4a-5).
+    """
+    options, selected = await picker_options(db, requested=requested, target=target)
+    return _keep_context(session, ref, options=options, selected_thread=selected, error=error)
+
+
+@router.get(KEEP_ACTIONS_URL, response_class=HTMLResponse)
+async def get_keep_actions(
     request: Request,
+    message_id: str = "",
+    artifact_id: str = "",
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The two gestures under one answer or figure — ``Keep →`` · ``Keep to…`` (D-CS-B-87).
+
+    Loaded by the live path (``chat.js`` appends a placeholder that fetches
+    this on ``load``) and rendered inline by the rehydrated history, so the
+    gestures' markup has one source; the picker's Cancel re-renders it. An
+    answer without prose (a chart-only turn) has nothing to keep and answers
+    an empty body, as does a request naming neither handle.
+    """
+    if not message_id and not artifact_id:
+        return HTMLResponse("")
+    ref = _keep_ref(message_id, artifact_id)
+    if ref["kind"] == "message":
+        text = _assistant_message_text(_chat_histories(request).get(str(session.id)), message_id)
+        if text is not None and not text.strip():
+            return HTMLResponse("")
+    return _keep_render(request, _KEEP_ACTIONS_TEMPLATE, _keep_context(session, ref))
+
+
+@router.get(KEEP_PICKER_URL, response_class=HTMLResponse)
+async def get_keep_picker(
+    request: Request,
+    message_id: str = "",
+    artifact_id: str = "",
+    case_id: str = "",
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The picker for one artefact (D-CS-B-87): ``case_id`` when it takes writes, else the target's.
+
+    Re-rendered by the *Another case…* select (``hx-include="closest form"``):
+    the case's live threads and *The file* as radios, the other open and
+    waiting cases in the select. Nothing is written.
+    """
+    ref = _keep_ref(message_id, artifact_id)
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        target = await resolve_keep_target(db, brief=_get_active_brief(request, str(session.id)))
+        context = await _picker_context(db, session, ref, target=target, requested=case_id)
+    return _keep_render(request, _KEEP_PICKER_TEMPLATE, context)
+
+
+@router.post(KEEP_URL, response_class=HTMLResponse)
+async def post_keep(  # noqa: PLR0913 — one flat form
+    request: Request,
+    message_id: str = Form(""),
     artifact_id: str = Form(""),
     case_id: str = Form(""),
-    comment: str = Form(""),
+    thread_id: str = Form(""),
+    pick: str = Form(""),
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Pin a frozen chart snapshot to a case — the fourth artifact class.
+    """Keep an answer or a figure into a case (ADR-0138 §8 channel 2, §9; D-CS-B-85…88).
 
-    The client posts the sidecar **handle**, never the figure: the server
-    resolves the spec from its own store, which is what makes the record
-    trustworthy (ADR-0114 §2, the analog of C6's "the client never scrapes
-    bubble HTML"). Gates in the C5/C6 order, each re-rendering the dialog with
-    the inputs preserved: comment non-empty → the artefact resolves in *this*
-    session's sidecar → case exists → case open. On success one ``pin`` entry
-    is appended — ``actor="pm"`` with the session user id, pinning being the
-    PM's curation act — carrying
-    ``{artifact: "chart_snapshot", comment, caption, spec}``. The spec is
-    embedded, so the case record is self-contained: no reference back into an
-    ephemeral session store.
+    Gates in order, nothing written on any of them: the artefact resolves
+    (the calm unavailable / oversized states otherwise) → a target exists —
+    the posted ``case_id`` / ``thread_id`` from the picker (``""`` = the
+    file), else the session's target (:func:`resolve_keep_target`); none,
+    or ``pick=1`` (*Keep to…*), answers the picker → the case still takes
+    writes (else the picker with *That case is closed or gone*; a thread
+    removed since, *That thread is gone*). Then one ``case_kept`` row,
+    ``via="keep"``, no comment.
+
+    A posted target that differs from the stash becomes the brief — one
+    active case per session, the brief and the keep target the same
+    (D-CS-B-86). The kept line replaces the gestures; ``HX-Trigger`` carries
+    ``pf:case-kept`` with the case id (a case on screen re-renders its
+    Threads block) and ``pf:brief-changed`` when the brief changed (the
+    dock's banner follows).
     """
-    clean_comment = comment.strip()
-    case_id_raw = case_id.strip()
     session_id = str(session.id)
-
-    record = _find_chart_artifact(request, session_id, artifact_id)
-    unavailable = _chart_unavailable_message(record)
+    ref = _keep_ref(message_id, artifact_id)
+    resolved = _resolve_keep_artifact(request, session_id, ref)
+    if isinstance(resolved, str):
+        return _keep_render(
+            request, _KEEP_ACTIONS_TEMPLATE, _keep_context(session, ref, unavailable=resolved)
+        )
+    artifact, payload, caption = resolved
+    stashed = _get_active_brief(request, session_id)
 
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        open_cases = await CaseRepository(db).list_open()
-
-        def _dialog(
-            *,
-            error: str | None = None,
-            unavailable_message: str | None = None,
-        ) -> HTMLResponse:
-            """Re-render the dialog inline (200, the composer idiom).
-
-            200 rather than 4xx so the HTMX swap is reliable; the picked case
-            and the comment survive so the PM does not retype.
-            """
-            return cast(
-                HTMLResponse,
-                _templates(request).TemplateResponse(
-                    request,
-                    "_partials/chat_pin_chart_dialog.html",
-                    _chart_pin_dialog_context(
-                        session,
-                        cases=open_cases,
-                        artifact_id=artifact_id,
-                        preselect=case_id_raw or None,
-                        caption=str(record["caption"]) if record is not None else "",
-                        unavailable_message=unavailable_message,
-                        comment=comment,
-                        error=error,
-                    ),
-                ),
+        current = await resolve_keep_target(db, brief=stashed)
+        target: KeepTarget | None = current
+        refusal: str | None = None
+        if case_id.strip():
+            posted = await posted_target(db, case_id=case_id, thread_id=thread_id)
+            if isinstance(posted, str):
+                refusal, target = posted, None
+            else:
+                target = posted
+        elif pick == "1":
+            target = None
+        if target is not None:
+            try:
+                kept = await keep_artifact(
+                    db,
+                    target=target,
+                    artifact=artifact,
+                    payload=payload,
+                    caption=caption,
+                    kept_by=session.user_id,
+                    now=datetime.now(timezone.utc),
+                )
+            except (CaseClosedError, CaseStateInvalid):
+                # Closed or vanished between the gate and the write.
+                refusal, target = KEEP_CASE_GONE_MESSAGE, None
+            except CaseWorkingFileInvalid as exc:
+                if exc.field != "thread_id":
+                    raise
+                refusal, target = KEEP_THREAD_GONE_MESSAGE, None
+        if target is None:
+            context = await _picker_context(
+                db,
+                session,
+                ref,
+                target=current,
+                requested=case_id if refusal == KEEP_THREAD_GONE_MESSAGE else "",
+                error=refusal,
             )
+            return _keep_render(request, _KEEP_PICKER_TEMPLATE, context)
+        line = kept_line_context(kept, target)
 
-        # Gate 1: a curation comment is mandatory.
-        if not clean_comment:
-            return _dialog(
-                error="A curation comment is required — say why this belongs on the case record."
-            )
-        # Gate 2: the artefact must still resolve in this session's sidecar.
-        # A stale or evicted handle is calm, not an error the PM can retry.
-        if unavailable is not None or record is None:
-            return _dialog(unavailable_message=unavailable or _CHART_UNAVAILABLE_MESSAGE)
-        # Gate 3: the case exists in this tenant. The picker only offers real
-        # open cases, so a miss is a race (closed since) or a hand-built id.
-        try:
-            case_uuid = UUID(case_id_raw)
-        except ValueError:
-            return _dialog(error="Choose a case to pin to.")
-        case = await CaseRepository(db).get(case_uuid)
-        if case is None:
-            return _dialog(error="That case could not be found — it may have just been closed.")
-        # Gate 4: the case is open (closed cases are immutable, ADR-0107 §4).
-        if case.state != "open":
-            return _dialog(error=_PIN_CLOSED_MESSAGE)
-
-        try:
-            await CaseRepository(db).append_entry(
-                case_uuid,
-                kind="pin",
-                actor="pm",
-                actor_user_id=session.user_id,
-                payload={
-                    "artifact": _CHART_SNAPSHOT_ARTIFACT,
-                    "comment": clean_comment,
-                    "caption": record["caption"],
-                    "spec": record["spec"],
-                },
-                now=datetime.now(timezone.utc),
-            )
-        except (CaseClosedError, CaseStateInvalid):
-            # Raced to closed between the open-gate and the write.
-            return _dialog(error=_PIN_CLOSED_MESSAGE)
-
+    # A target the picker posted becomes the brief (one active case per
+    # session, D-CS-B-86); the default target already is the brief.
+    kept_brief = ActiveBrief(
+        BRIEF_KIND_CASE, target.case.id, target.thread.id if target.thread is not None else None
+    )
+    brief_changed = bool(case_id.strip()) and kept_brief != stashed
+    if brief_changed:
+        _set_active_brief(request, session_id, kept_brief)
     logger.info(
-        "chat pin-chart: tenant=%s user=%s case=%s artifact=%s",
+        "chat keep: tenant=%s user=%s case=%s artifact=%s thread=%s",
         session.tenant_id,
         session.user_id,
-        case_uuid,
-        artifact_id,
+        target.case.id,
+        artifact,
+        target.thread.id if target.thread is not None else None,
     )
-    return cast(
-        HTMLResponse,
-        _templates(request).TemplateResponse(
-            request,
-            "_partials/chat_pin_confirm.html",
-            {
-                "pinned_label": "Chart",
-                "case_badge": f"CASE-{case.case_number:04d}",
-                "case_href": f"/cases/{case_uuid}",
-                "pin_url": PIN_CHART_URL,
-            },
-        ),
+    return _keep_render(
+        request,
+        _KEEP_DONE_TEMPLATE,
+        _keep_context(session, ref, **line),
+        headers={"HX-Trigger": keep_trigger(target.case.id, brief_changed=brief_changed)},
     )

@@ -30,8 +30,13 @@ composers are retired. P-CS-4a retires the pin composer — Keep (ADR-0138 §8)
 writes kept rows from the dock and the Planning Desk — and renders the kept
 rows inside their threads, the file-level ones after them; the legacy pin rows
 keep their anatomy in the Record (D-CS-M-7), from the same class partial
-(``_partials/cases_artifact.html``). The attachment download pipeline and its
-caps are unchanged.
+(``_partials/cases_artifact.html``). P-CS-4b renders the six kept classes —
+``document_excerpt`` (the quoted passage and its page) and
+``generated_document`` (a memo, the one class edited in place) besides the
+four — with Remove (``removed_at``) on a mutable case, addresses every
+attached document through a ``document`` kept row, and renders the frozen
+file's kept rows with the same anatomy. The attachment download pipeline and
+its caps are unchanged.
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -130,11 +135,14 @@ Keep writes the kept ``chart_snapshot`` there now.
 
 Attachments
 -----------
-The attach route stores a document without a record entry (D-CS-B-47); the
-pin composer that wrote an attachment and its pin entry in one transaction is
-retired (P-CS-4a), and P-CS-4b's document keep shares the attach route's gates
-(:func:`_read_upload`). No standalone manager, no delete, no re-upload
-(ADR-0107 §7, the DMS boundary).
+Every attach writes the attachment **and** a kept row in one transaction
+(ADR-0138 §5, D-CS-B-96): a ``document`` row in the file, or with a passage a
+``document_excerpt`` row in the file or a live thread (D-CS-B-97) — still no
+record entry (D-CS-B-47). An attachment with no kept row is an upload in
+progress (the ADR's object model); the question block lists the file-level
+``document`` rows, not the attachments table. A passage may also be kept from
+an attachment already on the case. No standalone manager, no delete, no
+re-upload (ADR-0107 §7, the DMS boundary).
 
 Caps (ADR-0107 §7) are configuration, read from ``core.config`` and enforced
 here at the route — never hard-coded at the call site, never in the repository.
@@ -166,15 +174,23 @@ Endpoints
   the entity-detail idiom (``web/routes/investments.py``).
 * ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
   (``question`` · ``stand`` · ``threads`` · ``figures`` · ``conversations`` ·
-  ``points`` · ``decision`` · ``record``; ``reveal=1`` for the outline's ``+``).
+  ``points`` · ``decision`` · ``record``; ``reveal=1`` for the outline's ``+``;
+  ``oob=1`` appends the OOB bundle, so the outline follows a keep, D-CS-B-104).
 * ``POST /api/cases/{case_id}/question`` — the question's autosave
   (D-CS-B-44): the title, prose, counterparty, due date and framing, last
   write wins with a note (D-CS-B-45); answers the OOB bundle, ``rerender=1``
   the block too.
 * ``POST /api/cases/{case_id}/link-investment`` · ``…/unlink-investment`` —
   the case's investment links; answer Where we stand and the bundle.
-* ``POST /api/cases/{case_id}/attachments`` — attach a document without a
-  record entry (D-CS-B-47); answers the question block and the bundle.
+* ``POST /api/cases/{case_id}/attachments`` — attach a document, or keep a
+  passage of one already attached, as a ``document`` / ``document_excerpt``
+  kept row without a record entry (D-CS-B-96, D-CS-B-97); answers the
+  question block, the Threads block out of band and the bundle.
+* ``POST /api/cases/{case_id}/kept/{kept_id}/remove`` — a kept row leaves the
+  file (``removed_at``, D-CS-B-99). ``GET …/kept/{kept_id}/generated/edit`` ·
+  ``POST …/kept/{kept_id}/generated`` — the in-place edit of a
+  ``generated_document``, the one kept class whose payload is mutable
+  (ADR-0138 §9, D-CS-B-98).
 * ``POST /api/cases/{case_id}/threads`` · ``…/threads/{thread_id}`` ·
   ``…/threads/{thread_id}/remove`` — add, update (title · prose · status ·
   conclusion, partial by presence) and remove a thread (D-CS-B-53).
@@ -223,7 +239,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import pathlib
+import re
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
@@ -239,12 +257,14 @@ from starlette.datastructures import UploadFile
 from core.config import get_config
 from core.exceptions import (
     CaseClosedError,
+    CaseKeptImmutable,
     CasePointLinked,
     CaseStateInvalid,
     CaseWorkingFileInvalid,
 )
 from core.repositories._session import tenant_context
 from core.repositories.case_attachment_repository import (
+    CaseAttachmentDTO,
     CaseAttachmentRepository,
 )
 from core.repositories.case_repository import (
@@ -287,6 +307,7 @@ from services.money_format import format_money_compact
 from services.transactions.constants import STATUS_BOOKED, STATUS_CANCELLED
 from services.watch_desk.family_status import FIGURE_UNIT_DAYS, FIGURE_UNIT_RATIO
 from web.auth import require_session, verify_csrf
+from web.case_keep import consultation_caption, live_thread
 from web.routes.watch_desk import JOURNAL_DEEP_LINK, resolution_label
 from web.routes.planning_desk import AREA_URL as PLANNING_DESK_AREA_URL
 
@@ -967,26 +988,63 @@ _PIN_KIND_LABELS: dict[str, str] = {
 }
 
 
+def _attachment_href(case_id: UUID, attachment_id: Any) -> str:
+    """The download endpoint of one attachment of ``case_id``."""
+    return f"/api/cases/{case_id}/attachments/{attachment_id}"
+
+
+def _in_app_href(raw: Any) -> str | None:
+    """A generated document's source link, only when it is an in-app path (D-CS-B-98).
+
+    A path starting with one ``/`` — a case, an attachment download, an
+    investment. A protocol-relative ``//host`` (or ``/\\host``, which browsers
+    read the same), every absolute URL and any href carrying a control
+    character render as the plain label — a browser drops tabs and newlines
+    from a URL, so ``/<tab>/host`` would otherwise reach another host.
+    """
+    if not isinstance(raw, str) or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
+        return None
+    if not raw.startswith("/") or raw.startswith(("//", "/\\")):
+        return None
+    return raw
+
+
+def _paragraphs(body: Any) -> list[str]:
+    """A plain-text body as paragraphs, split on blank lines (D-CS-B-98) — no Markdown."""
+    text = str(body or "").replace("\r\n", "\n")
+    return [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+
+
 def _project_kept_payload(
-    artifact: str, payload: dict[str, Any], *, case_id: UUID
+    artifact: str,
+    payload: dict[str, Any],
+    *,
+    case_id: UUID,
+    attachment_id: UUID | None = None,
 ) -> dict[str, Any]:
     """Project one artefact class's payload for ``_partials/cases_artifact.html``.
 
-    The one projection of the four rendered classes, shared by a legacy pin in
-    the Record and a kept row in the file (D-CS-B-90): ``document`` — the
+    The one projection of the six classes, shared by a legacy pin in the
+    Record and a kept row in the file (D-CS-B-90): ``document`` — the
     filename linking to the download endpoint and the human-legible size;
     ``scenario_snapshot`` — the frozen Planning Desk snapshot (ADR-0107 C5:
     the parameter chips, the four KPI pairs, the headroom *count*, the two
     feet and the stored query, all read verbatim, the query text and never a
-    link); ``consultation`` — the Shirley excerpt (ADR-0107 C6); and
+    link); ``consultation`` — the Shirley excerpt (ADR-0107 C6);
     ``chart_snapshot`` — the caption and the frozen Plotly spec, passed
-    through untouched (ADR-0114). Any other class projects nothing, so the
-    partial falls to its calm one-liner and the payload never leaks.
+    through untouched (ADR-0114); ``document_excerpt`` — the filename, the
+    passage, the page and the download link (D-CS-B-97); and
+    ``generated_document`` — the title, the body as paragraphs and the sources,
+    a source linked only when it is an in-app path (D-CS-B-98). Any other
+    class projects nothing, so the partial falls to its calm one-liner and the
+    payload never leaks.
 
     Args:
         artifact: The artefact class.
         payload: The opaque payload (a pin's entry payload or a kept row's).
         case_id: The case, for a document's download link.
+        attachment_id: The kept row's attachment — an excerpt's payload
+            carries none, and a document's falls back to it.
 
     Returns:
         The class's template keys.
@@ -995,7 +1053,28 @@ def _project_kept_payload(
         return {
             "filename": payload.get("filename", ""),
             "size_human": _human_size(int(payload.get("size_bytes") or 0)),
-            "download_href": f"/api/cases/{case_id}/attachments/{payload.get('attachment_id')}",
+            "download_href": _attachment_href(
+                case_id, payload.get("attachment_id") or attachment_id
+            ),
+        }
+    if artifact == "document_excerpt":
+        page = payload.get("page")
+        return {
+            "filename": str(payload.get("filename") or ""),
+            "passage": str(payload.get("passage") or ""),
+            "page": page if isinstance(page, int) and not isinstance(page, bool) else None,
+            "download_href": _attachment_href(case_id, attachment_id),
+        }
+    if artifact == "generated_document":
+        sources = payload.get("sources")
+        return {
+            "title": str(payload.get("title") or ""),
+            "paragraphs": _paragraphs(payload.get("body")),
+            "sources": [
+                {"label": str(source.get("label") or ""), "href": _in_app_href(source.get("href"))}
+                for source in (sources if isinstance(sources, list) else [])
+                if isinstance(source, dict)
+            ],
         }
     if artifact == "scenario_snapshot":
         snapshot = payload.get("snapshot") or {}
@@ -1407,8 +1486,10 @@ def _outline(
     grey alone (``reveal_href`` is ``None``). A non-empty entry reads its
     count — Open points the **open** count (a done point still lists it),
     Decision ``draft`` / ``n recorded`` (:func:`_decision_count_label`).
-    Threads counts the threads; file-level kept rows append ``· kept m`` and
-    keep the entry from reading empty (D-CS-B-90).
+    Threads counts the threads; the rows of *Kept in the file* append
+    ``· kept m`` and keep the entry from reading empty (D-CS-B-90) — a row of
+    a removed thread among them, a ``document`` row not (it is the question
+    block's, D-CS-B-100).
     """
     is_mutable = case.state in _MUTABLE_STATES
 
@@ -1498,11 +1579,13 @@ async def _frame_context(
     owner_names = await _resolve_owner_names(UserRepository(db_session), actor_ids)
     attachments_count = await CaseAttachmentRepository(db_session).count_for_case(case.id)
     links_count = len(await CaseInvestmentRepository(db_session).list_for_case(case.id))
-    threads_count = len(await CaseThreadRepository(db_session).list_for_case(case.id))
+    threads = await CaseThreadRepository(db_session).list_for_case(case.id)
+    threads_count = len(threads)
+    live_thread_ids = {thread.id for thread in threads}
     file_kept_count = sum(
         1
         for row in await CaseKeptRepository(db_session).list_for_case(case.id)
-        if row.thread_id is None
+        if _in_file_group(row, live_thread_ids)
     )
     figures_count = len(await CaseFigureRepository(db_session).list_for_case(case.id))
     conversations_count = len(await CaseConversationRepository(db_session).list_for_case(case.id))
@@ -1567,6 +1650,12 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
     ``title`` is the block's heading (The question / The task); ``case_title``
     is the case's own title, the form's first field. ``note`` is set by the
     autosave route when it re-renders the block (the 3c report's F-3c-5).
+
+    ``documents`` are the live file-level ``document`` kept rows (D-CS-B-96)
+    — in the file, or in a thread removed since (D-CS-B-100) — not the
+    attachments table: an attachment no kept row addresses is not listed.
+    Each is ``{filename, size, kept, kept_by, href, kept_id, remove_href}``
+    (*kept dd Mon by Name*, D-4b-9); ``remove_href`` on a mutable case only.
     """
     finding: IreneFindingDTO | None = None
     entries: list[CaseEntryDTO] = []
@@ -1590,7 +1679,36 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
         active = await InvestmentRepository(db_session).list_active()
         managers = sorted({i.manager_name for i in active if i.manager_name})
 
-    attachments = await CaseAttachmentRepository(db_session).list_for_case(case.id)
+    live_thread_ids = {
+        thread.id for thread in await CaseThreadRepository(db_session).list_for_case(case.id)
+    }
+    document_rows = [
+        row
+        for row in await CaseKeptRepository(db_session).list_for_case(case.id)
+        if row.artifact == "document" and _at_file_level(row, live_thread_ids)
+    ]
+    kept_names = await _resolve_owner_names(
+        UserRepository(db_session), {row.kept_by for row in document_rows}
+    )
+    is_mutable = case.state in _MUTABLE_STATES
+    documents: list[dict[str, Any]] = []
+    for row in document_rows:
+        payload = row.payload if isinstance(row.payload, dict) else {}
+        documents.append(
+            {
+                "filename": str(payload.get("filename") or row.caption or "attachment"),
+                "size": _human_size(int(payload.get("size_bytes") or 0)),
+                "kept": f"{row.kept_at.astimezone(timezone.utc):%d %b}",
+                "kept_by": _owner_label(row.kept_by, kept_names),
+                "href": _attachment_href(
+                    case.id, payload.get("attachment_id") or row.attachment_id
+                ),
+                "kept_id": str(row.id),
+                "remove_href": (
+                    f"/api/cases/{case.id}/kept/{row.id}/remove" if is_mutable else None
+                ),
+            }
+        )
     framing = _framing(case)
     return {
         "title": _FRAMING_TITLES[framing],
@@ -1603,16 +1721,9 @@ async def _question_context(db_session: AsyncSession, case: CaseDTO) -> dict[str
         "due_on": case.due_on.isoformat() if case.due_on is not None else "",
         "due_label": _day(case.due_on) if case.due_on is not None else "",
         "managers": managers,
-        "documents": [
-            {
-                "filename": attachment.filename,
-                "size": _human_size(attachment.size_bytes),
-                "uploaded": _day(attachment.created_at),
-                "href": f"/api/cases/{case.id}/attachments/{attachment.id}",
-            }
-            for attachment in attachments
-        ],
+        "documents": documents,
         "note": None,
+        "oob": False,
     }
 
 
@@ -1935,39 +2046,114 @@ _KEPT_FROM: dict[str, str] = {
 #: The kept classes that address an attachment; their chip names the document.
 _KEPT_DOCUMENT_CLASSES: frozenset[str] = frozenset({"document", "document_excerpt"})
 
+#: The one kept class whose payload is edited in place (ADR-0138 §9, D-CS-B-98).
+_GENERATED_DOCUMENT: str = "generated_document"
 
-def _project_kept_row(row: CaseKeptDTO, owner_names: dict[UUID, str]) -> dict[str, Any]:
-    """One kept row for ``_partials/cases_kept_row.html`` (D-CS-B-90).
+
+def _at_file_level(row: CaseKeptDTO, live_thread_ids: set[UUID]) -> bool:
+    """Whether a live kept row sits at file level: no live thread holds it (D-CS-B-100).
+
+    A row kept in the file (``thread_id`` null) and a row of a thread removed
+    since — the thread no longer renders, so its rows surface in the file.
+    """
+    return row.thread_id is None or row.thread_id not in live_thread_ids
+
+
+def _in_file_group(row: CaseKeptDTO, live_thread_ids: set[UUID]) -> bool:
+    """Whether a live kept row renders under *Kept in the file* (D-CS-B-100).
+
+    File level and not a ``document``: the file's documents are the question
+    block's list (D-CS-B-96).
+    """
+    return row.artifact != "document" and _at_file_level(row, live_thread_ids)
+
+
+def _project_kept_row(
+    row: CaseKeptDTO,
+    owner_names: dict[UUID, str],
+    *,
+    case_id: UUID | None = None,
+    mutable: bool = False,
+    readonly: bool = False,
+) -> dict[str, Any]:
+    """One kept row for ``_partials/cases_kept_row.html`` (D-CS-B-90, D-CS-B-97…99, D-CS-B-105).
 
     The head: a ``pf-src`` chip — *kept from Shirley · dd Mon* / *kept from
-    the Planning Desk · dd Mon*, or *document · filename* for a document
-    class — the caption and *kept by <name>*. The body is the class's
-    projection (:func:`_project_kept_payload`) under ``art``; a class it does
-    not render yet falls to the calm *{class} · caption* line (P-CS-4b).
+    the Planning Desk · dd Mon*, *document · filename* for a document,
+    *document · filename, p. n* for an excerpt, *generated · Shirley · dd Mon*
+    for a generated document — the caption (a generated document's title)
+    and *kept by <name>*, then the actions right-aligned (D-CS-B-105):
+    ``open_href`` (a document's or an excerpt's download), ``edit_href`` and
+    ``sources`` (the count) for a generated document, ``remove_href``. Edit
+    and Remove only on a mutable case and never ``readonly`` (the frozen
+    file); Open and Sources always. The body is the class's projection
+    (:func:`_project_kept_payload`) under ``art``, an excerpt's ``attached``
+    (*attached dd Mon by Name* — the keep, which is the attach) added; a class
+    it does not render falls to the calm *{class} · caption* line.
+
+    Args:
+        row: The kept row (a frozen file passes the row with its frozen
+            caption and, for a generated document, its frozen payload).
+        owner_names: Display names by user id, ``kept_by`` among them.
+        case_id: The case, for the hrefs; the row's own when ``None``.
+        mutable: Whether the case takes writes (open or waiting).
+        readonly: A frozen file's row — no Remove, no Edit, its hook
+            ``frozen-kept`` and no element id (the live row owns it).
+
+    Returns:
+        ``{id, artifact, caption, chip, kept_by, readonly, actions, art}``.
     """
     payload = row.payload if isinstance(row.payload, dict) else {}
+    owner_case = case_id or row.case_id
     label = row.artifact.replace("_", " ").capitalize()
+    day = f"{row.kept_at.astimezone(timezone.utc):%d %b}"
+    kept_by = _owner_label(row.kept_by, owner_names)
+    art: dict[str, Any] = {
+        "artifact": row.artifact,
+        "label": label,
+        "kept_caption": row.caption or "",
+        **_project_kept_payload(
+            row.artifact, payload, case_id=owner_case, attachment_id=row.attachment_id
+        ),
+    }
+    caption = row.caption or ""
+    is_generated = row.artifact == _GENERATED_DOCUMENT
     if row.artifact in _KEPT_DOCUMENT_CLASSES:
         name = str(payload.get("filename") or row.caption or "attachment")
-        chip = {"tone": "doc", "text": f"document · {name}"}
+        page = art.get("page")
+        chip = {
+            "tone": "doc",
+            "text": f"document · {name}" + (f", p. {page}" if page is not None else ""),
+        }
+        if row.artifact == "document_excerpt":
+            art["attached"] = f"attached {day} by {kept_by}"
+    elif is_generated:
+        chip = {"tone": "kept", "text": f"generated · Shirley · {day}"}
+        caption = art["title"] or caption
+        art["sources_id"] = None if readonly else f"cs-kept-{row.id}-sources"
     else:
-        day = f"{row.kept_at.astimezone(timezone.utc):%d %b}"
         chip = {
             "tone": "kept",
             "text": f"kept from {_KEPT_FROM.get(row.artifact, 'Shirley')} · {day}",
         }
+    writable = mutable and not readonly
+    base = f"/api/cases/{owner_case}/kept/{row.id}"
     return {
         "id": str(row.id),
         "artifact": row.artifact,
-        "caption": row.caption or "",
+        "caption": caption,
         "chip": chip,
-        "kept_by": _owner_label(row.kept_by, owner_names),
-        "art": {
-            "artifact": row.artifact,
-            "label": label,
-            "kept_caption": row.caption or "",
-            **_project_kept_payload(row.artifact, payload, case_id=row.case_id),
+        "kept_by": kept_by,
+        "readonly": readonly,
+        "actions": {
+            "open_href": (
+                art.get("download_href") if row.artifact in _KEPT_DOCUMENT_CLASSES else None
+            ),
+            "edit_href": f"{base}/generated/edit" if writable and is_generated else None,
+            "sources": len(art["sources"]) if is_generated else 0,
+            "remove_href": f"{base}/remove" if writable else None,
         },
+        "art": art,
     }
 
 
@@ -1976,7 +2162,7 @@ async def _threads_context(
 ) -> dict[str, Any]:
     """Threads (D-CS-B-53, D-CS-B-90): ``{threads[{id, title, prose, status,
     status_label, conclusion, dates, kept}], file_kept, empty, reveal, focus_id,
-    open_id, note, statuses}``.
+    open_id, note, oob, statuses}``.
 
     The case's threads in ``position`` order; removed threads never render.
     A closed case reads the same rows — its working file is read-only, so they
@@ -1986,21 +2172,29 @@ async def _threads_context(
     the block they answer with.
 
     The kept rows are read **once** (``list_for_case``, removed rows left
-    out) and grouped by ``thread_id``: each thread carries its own under
-    ``kept``, the file-level ones are ``file_kept``. The ``kept_by`` names
-    resolve in one batch. ``empty`` — the block hidden — is no thread *and*
-    no file-level kept row. A kept row of a removed thread renders nowhere
-    live; the record and the frozen files still name it (D-CS-M-5).
+    out) and grouped by ``thread_id``: each live thread carries its own under
+    ``kept``, the rows of *Kept in the file* are ``file_kept`` — every live
+    row no live thread holds, a removed thread's among them (D-CS-B-100), but
+    no ``document`` row: the file's documents are the question block's list
+    (D-CS-B-96). The ``kept_by`` names resolve in one batch. ``empty`` — the
+    block hidden — is no thread *and* no row in the file group. ``oob`` is set
+    when the block rides out of band (the attach route, D-CS-B-96).
     """
     threads = await CaseThreadRepository(db_session).list_for_case(case.id)
     kept_rows = await CaseKeptRepository(db_session).list_for_case(case.id)
     owner_names = await _resolve_owner_names(
         UserRepository(db_session), {row.kept_by for row in kept_rows}
     )
-    kept_by_thread: dict[UUID | None, list[dict[str, Any]]] = {}
+    mutable = case.state in _MUTABLE_STATES
+    live_thread_ids = {thread.id for thread in threads}
+    kept_by_thread: dict[UUID, list[dict[str, Any]]] = {}
+    file_kept: list[dict[str, Any]] = []
     for row in kept_rows:
-        kept_by_thread.setdefault(row.thread_id, []).append(_project_kept_row(row, owner_names))
-    file_kept = kept_by_thread.get(None, [])
+        projected = _project_kept_row(row, owner_names, case_id=case.id, mutable=mutable)
+        if row.thread_id is not None and row.thread_id in live_thread_ids:
+            kept_by_thread.setdefault(row.thread_id, []).append(projected)
+        elif _in_file_group(row, live_thread_ids):
+            file_kept.append(projected)
     return {
         "threads": [
             {
@@ -2023,6 +2217,7 @@ async def _threads_context(
         "focus_id": None,
         "open_id": None,
         "note": None,
+        "oob": False,
         "statuses": [
             {"value": value, "label": label} for value, label in _THREAD_STATUS_LABELS.items()
         ],
@@ -2577,13 +2772,18 @@ async def get_case_section(
     case_id: UUID,
     name: str,
     reveal: bool = False,
+    oob: bool = False,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """One block of the file, alone (D-CS-B-49): the stand's Refresh, the outline's ``+``.
 
     ``name`` is one of ``_SECTION_NAMES``; anything else, like an unknown or
     foreign case, is a 404. ``reveal=1`` renders a hidden-when-empty block
-    visible with its add control focused. No OOB bundle: a render writes nothing.
+    visible with its add control focused. A render writes nothing, so it
+    answers no OOB bundle — unless ``oob=1``: the Threads block's
+    ``pf:case-kept`` listeners ask for it after a keep or an undo elsewhere
+    wrote to the file, so the outline's counts, the facts and the stamps
+    follow (D-CS-B-104). The block itself never carries ``hx-swap-oob``.
     """
     template = _SECTION_TEMPLATES.get(name)
     if template is None:
@@ -2594,7 +2794,10 @@ async def get_case_section(
         if case is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
         context = await load_section_context(db_session, case, session, name, reveal=reveal)
-    return _render(request, template, context)
+        if not oob:
+            return _render(request, template, context)
+        bundle = await _bundle_context(db_session, case, session, section=name, note=None)
+    return _render_parts(request, [(template, context), (_OOB_TEMPLATE, bundle)])
 
 
 # ---------------------------------------------------------------------------
@@ -2694,11 +2897,14 @@ async def get_case_composer(
     ``action='cancel'`` clears the slot (an empty body). The real actions
     render their form — DB-free, exactly like ``GET /api/cases/new`` — because
     the gate that matters lives on the write endpoints the composers post to.
-    Two read: ``link-investment`` its candidates, the tenant's active
+    Three read: ``link-investment`` its candidates, the tenant's active
     investments not yet linked, by name (D-CS-B-47); ``handover`` the tenant's
-    active users but the owner, by name (an unknown or foreign case is then a
-    404). ``wait`` proposes today + 30 days (D-CS-B-70). An unknown action —
+    active users but the owner, by name; ``attach`` its two selects (for the
+    last two an unknown or foreign case is then a 404). ``wait`` proposes today + 30 days (D-CS-B-70). An unknown action —
     the retired ``note``, ``decision`` and ``pin`` among them — is a 404.
+    ``attach`` reads its two selects (:func:`_attach_options`): the case's
+    attachments, so a passage is kept from one without a second upload, and
+    its live threads for *Keep in* (D-CS-B-97).
     """
     if action == "cancel":
         return HTMLResponse("")
@@ -2711,6 +2917,12 @@ async def get_case_composer(
     }
     if action == "attach":
         context["caps_hint"] = _caps_hint(get_config())
+        context["hint"] = _ATTACH_HINT
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            if await CaseRepository(db).get(case_id) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
+            context.update(await _attach_options(db, case_id))
     if action == "wait":
         context.update(_wait_dates())
     if action == "handover":
@@ -2744,7 +2956,8 @@ async def get_case_composer(
 async def _read_upload(request: Request, cfg: Any) -> tuple[str, str, bytes, str] | str:
     """Validate and read the multipart ``file`` field — the attach route's gates.
 
-    P-CS-4b's excerpt keep shares them.
+    The attach route runs them only when a new file comes (D-CS-B-96); a
+    passage kept from an attachment already on the case reads no upload.
 
     Returns ``(filename, mime_type, content, sha256)`` or the refusal text. Extension
     AND declared content type in the whitelist; the size gate reads bounded 64 KiB
@@ -3096,6 +3309,58 @@ async def post_case_unlink_investment(
     return await _write_link(request, case_id, session, link=False)
 
 
+#: The attach composer's refusals and hint (D-4b-2).
+_CHOOSE_DOCUMENT_TEXT = "Choose a document to upload or one already attached."
+_ATTACH_THREAD_GONE_TEXT = "That thread is gone — pick another."
+_ATTACH_HINT = (
+    "A passage makes this an excerpt kept where you choose; "
+    "without one the document itself is kept in the file."
+)
+_PAGE_TEXT = "{raw!r} is not a page — write a page number from 1, or leave it empty."
+
+
+def _parse_page(raw: str) -> int | None:
+    """An excerpt's page: ``None`` when empty, else a whole number from 1 (``ValueError`` otherwise)."""
+    if not raw:
+        return None
+    if not raw.isdigit() or int(raw) < 1:
+        raise ValueError(raw)
+    return int(raw)
+
+
+async def _attach_options(db: AsyncSession, case_id: UUID) -> dict[str, Any]:
+    """The attach composer's two selects (D-CS-B-97).
+
+    ``attachments`` — every attachment of the case (metadata only), so a
+    second passage from the same document needs no second upload; ``threads``
+    — the live threads, for *Keep in* after *The file*.
+    """
+    attachments = await CaseAttachmentRepository(db).list_for_case(case_id)
+    threads = await CaseThreadRepository(db).list_for_case(case_id)
+    return {
+        "attachments": [
+            {
+                "id": str(attachment.id),
+                "filename": attachment.filename,
+                "size": _human_size(attachment.size_bytes),
+            }
+            for attachment in attachments
+        ],
+        "threads": [{"id": str(thread.id), "title": thread.title} for thread in threads],
+    }
+
+
+def _document_payload(attachment: CaseAttachmentDTO) -> dict[str, Any]:
+    """A ``document`` kept row's payload: the ADR-0107 pin contract minus the comment."""
+    return {
+        "filename": attachment.filename,
+        "mime_type": attachment.mime_type,
+        "size_bytes": attachment.size_bytes,
+        "sha256": attachment.sha256,
+        "attachment_id": str(attachment.id),
+    }
+
+
 @router.post("/api/cases/{case_id}/attachments", response_class=HTMLResponse)
 async def post_case_attachment(
     request: Request,
@@ -3103,18 +3368,54 @@ async def post_case_attachment(
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Attach a document to the case — the attachment alone, no record entry (D-CS-B-47).
+    """Attach a document and keep it in the file — or keep a passage of it (D-CS-B-96, D-CS-B-97).
 
-    The file gates of :func:`_read_upload`, then the count cap; on an open
-    or waiting case. On success the question block (its documents list) and
-    the bundle (the attachments fact); a refusal re-renders the attach
-    composer with ``error`` into the composer slot (``HX-Retarget`` /
-    ``HX-Reswap``), the composer idiom.
+    One multipart form: ``file`` (a new upload) **or** ``attachment_id`` (one
+    already on the case), ``passage``, ``page``, ``caption`` and
+    ``thread_id`` (*Keep in*; ``""`` is the file). The gates, in order, each
+    re-rendering the attach composer with its ``error`` into the composer
+    slot (``HX-Retarget`` / ``HX-Reswap``, the composer idiom) and writing
+    nothing: the case is open or waiting → exactly one of the file and the
+    attachment (a known attachment of this case) → the file gates of
+    :func:`_read_upload` when a file comes → the count cap, for a new upload
+    only → with a passage, the page a whole number from 1 or empty and the
+    thread a live thread of the case.
+
+    Then **one** transaction: the attachment created (a new upload) and one
+    kept row, ``via="keep"`` — without a passage a ``document`` row in the
+    file (caption the filename; a page is dropped), with one a
+    ``document_excerpt`` row ``{filename, passage, page}`` where *Keep in*
+    says, captioned by *Caption* or the passage's first line. A refusal of
+    the keep under the write (the thread removed, the case closed in between)
+    rolls the attachment back. An attachment already kept in the file and
+    chosen again without a passage writes nothing (no second listing). No
+    record entry (D-CS-B-47).
+
+    Answers the question block (``#cs-question``, its documents list), the
+    Threads block out of band (an excerpt shows at once) and the bundle (the
+    attachments fact; the composer slot emptied).
     """
     cfg = get_config()
     engine = _engine(request)
+    form = await _request_form(request)
+    file_field = form.get("file")
+    has_file = isinstance(file_field, UploadFile) and bool(file_field.filename)
+    raw_attachment = str(form.get("attachment_id") or "").strip()
+    passage = str(form.get("passage") or "").replace("\r\n", "\n").strip()
+    raw_page = str(form.get("page") or "").strip()
+    caption_text = str(form.get("caption") or "").strip()
+    raw_thread = str(form.get("thread_id") or "").strip()
+    posted = {
+        "attachment_id": raw_attachment,
+        "passage": passage,
+        "page": raw_page,
+        "caption": caption_text,
+        "thread_id": raw_thread,
+    }
 
-    def _attach_error(message: str, *, status_code: int = 200) -> HTMLResponse:
+    async def _attach_error(message: str) -> HTMLResponse:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            options = await _attach_options(db, case_id)
         response = _render(
             request,
             _COMPOSER_TEMPLATES["attach"],
@@ -3122,74 +3423,147 @@ async def post_case_attachment(
                 "case_id": str(case_id),
                 "csrf_token": session.csrf_token,
                 "caps_hint": _caps_hint(cfg),
+                "hint": _ATTACH_HINT,
                 "error": message,
+                "posted": posted,
+                **options,
             },
-            status_code=status_code,
         )
         response.headers["HX-Retarget"] = "#case-composer-slot"
         response.headers["HX-Reswap"] = "innerHTML"
         return response
 
+    chosen: CaseAttachmentDTO | None = None
+    thread: CaseThreadDTO | None = None
+    thread_gone = False
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         case = await CaseRepository(db).get(case_id)
         if case is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found.")
-        if case.state not in _MUTABLE_STATES:
-            logger.warning(
-                "cases attach: closed-case write blocked tenant=%s user=%s case=%s",
-                session.tenant_id,
-                session.user_id,
-                case_id,
-            )
-            return _attach_error(_CLOSED_CASE_ERROR)
         current_count = await CaseAttachmentRepository(db).count_for_case(case_id)
+        attachment_uuid = _parse_uuid(raw_attachment)
+        if attachment_uuid is not None:
+            chosen = await CaseAttachmentRepository(db).get(attachment_uuid)
+            if chosen is not None and chosen.case_id != case_id:
+                chosen = None
+        if passage and raw_thread:
+            thread_uuid = _parse_uuid(raw_thread)
+            thread = (
+                await live_thread(db, case_id, thread_uuid) if thread_uuid is not None else None
+            )
+            thread_gone = thread is None
+        already_kept = False
+        if chosen is not None and not passage:
+            live_ids = {t.id for t in await CaseThreadRepository(db).list_for_case(case_id)}
+            already_kept = any(
+                row.artifact == "document"
+                and row.attachment_id == chosen.id
+                and _at_file_level(row, live_ids)
+                for row in await CaseKeptRepository(db).list_for_case(case_id)
+            )
 
-    upload = await _read_upload(request, cfg)
-    if isinstance(upload, str):
-        return _attach_error(upload)
-    if current_count >= cfg.case_attachment_max_count:
-        return _attach_error(
-            f"This case already has the maximum of {cfg.case_attachment_max_count} attachments."
+    if case.state not in _MUTABLE_STATES:
+        logger.warning(
+            "cases attach: closed-case write blocked tenant=%s user=%s case=%s",
+            session.tenant_id,
+            session.user_id,
+            case_id,
         )
-    filename, mime_type, content, sha256 = upload
+        return await _attach_error(_CLOSED_CASE_ERROR)
+    if has_file == bool(raw_attachment) or (raw_attachment and chosen is None):
+        return await _attach_error(_CHOOSE_DOCUMENT_TEXT)
+    upload: tuple[str, str, bytes, str] | None = None
+    if has_file:
+        read = await _read_upload(request, cfg)
+        if isinstance(read, str):
+            return await _attach_error(read)
+        if current_count >= cfg.case_attachment_max_count:
+            return await _attach_error(
+                f"This case already has the maximum of {cfg.case_attachment_max_count} attachments."
+            )
+        upload = read
+    page: int | None = None
+    if passage:
+        try:
+            page = _parse_page(raw_page)
+        except ValueError:
+            return await _attach_error(_PAGE_TEXT.format(raw=raw_page))
+        if thread_gone:
+            return await _attach_error(_ATTACH_THREAD_GONE_TEXT)
 
+    now = _now()
+    kept: CaseKeptDTO | None = None
     try:
         async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-            attachment = await CaseAttachmentRepository(db).create(
+            if upload is not None:
+                filename, mime_type, content, sha256 = upload
+                attachment = await CaseAttachmentRepository(db).create(
+                    case_id,
+                    filename=filename,
+                    mime_type=mime_type,
+                    size_bytes=len(content),
+                    sha256=sha256,
+                    content=content,
+                    uploaded_by=session.user_id,
+                    now=now,
+                )
+            else:
+                assert chosen is not None
+                attachment = chosen
+            if passage:
+                kept = await CaseKeptRepository(db).keep(
+                    case_id,
+                    artifact="document_excerpt",
+                    payload={"filename": attachment.filename, "passage": passage, "page": page},
+                    kept_by=session.user_id,
+                    via="keep",
+                    now=now,
+                    thread_id=thread.id if thread is not None else None,
+                    caption=caption_text or consultation_caption(passage),
+                    attachment_id=attachment.id,
+                )
+            elif not already_kept:
+                kept = await CaseKeptRepository(db).keep(
+                    case_id,
+                    artifact="document",
+                    payload=_document_payload(attachment),
+                    kept_by=session.user_id,
+                    via="keep",
+                    now=now,
+                    caption=attachment.filename,
+                    attachment_id=attachment.id,
+                )
+            parts = await _answer_parts(
+                db,
                 case_id,
-                filename=filename,
-                mime_type=mime_type,
-                size_bytes=len(content),
-                sha256=sha256,
-                content=content,
-                uploaded_by=session.user_id,
-                now=_now(),
+                session,
+                "question",
+                rerender=True,
+                note=None,
+                also=("threads",),
+                clear_composer=True,
             )
-            updated = await CaseRepository(db).get(case_id)
-            assert updated is not None
-            parts = [
-                (
-                    _SECTION_TEMPLATES["question"],
-                    await load_section_context(db, updated, session, "question"),
-                ),
-                (
-                    _OOB_TEMPLATE,
-                    await _bundle_context(
-                        db, updated, session, section="question", note=None, clear_composer=True
-                    ),
-                ),
-            ]
+    except CaseWorkingFileInvalid as exc:
+        # The keep refused under the write — the transaction rolled the upload back.
+        logger.warning(
+            "cases attach: keep refused under the write case=%s field=%s", case_id, exc.field
+        )
+        return await _attach_error(
+            _ATTACH_THREAD_GONE_TEXT if exc.field == "thread_id" else _CHOOSE_DOCUMENT_TEXT
+        )
     except (CaseClosedError, CaseStateInvalid):
         logger.warning("cases attach: case no longer writable under the write case=%s", case_id)
-        return _attach_error(_CLOSED_CASE_ERROR)
+        return await _attach_error(_CLOSED_CASE_ERROR)
 
     logger.info(
-        "cases attach: tenant=%s user=%s case=%s attachment=%s bytes=%d",
+        "cases attach: tenant=%s user=%s case=%s attachment=%s new=%s kept=%s artifact=%s",
         session.tenant_id,
         session.user_id,
         case_id,
         attachment.id,
-        len(content),
+        upload is not None,
+        kept.id if kept is not None else None,
+        kept.artifact if kept is not None else None,
     )
     return _render_parts(request, parts)
 
@@ -3251,6 +3625,21 @@ async def _case_thread(db: AsyncSession, case_id: UUID, thread_id: UUID) -> Case
     return thread
 
 
+async def _case_kept_row(db: AsyncSession, case_id: UUID, kept_id: UUID) -> CaseKeptDTO:
+    """The live kept row ``kept_id`` of ``case_id``.
+
+    Another case's row, a removed one or an unknown id is a 404 — the
+    ``_case_<row>`` idiom: a removed row never renders live and refuses every
+    write (D-CS-B-99).
+    """
+    row = await CaseKeptRepository(db).get(kept_id)
+    if row is None or row.case_id != case_id or row.removed_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Kept artefact not found."
+        )
+    return row
+
+
 async def _case_figure(db: AsyncSession, case_id: UUID, figure_id: UUID) -> CaseFigureDTO:
     """The figure ``figure_id`` of ``case_id``; another case's or an unknown id is a 404."""
     figure = await CaseFigureRepository(db).get(figure_id)
@@ -3269,6 +3658,7 @@ async def _answer_parts(
     note: dict[str, str] | None,
     block_keys: dict[str, Any] | None = None,
     also: Sequence[str] = (),
+    clear_composer: bool = False,
 ) -> list[tuple[str, dict[str, Any]]]:
     """A write's answer: the section's block (``rerender``), then the bundle (D-CS-B-44).
 
@@ -3278,8 +3668,11 @@ async def _answer_parts(
     empty slot over it (the 3c report's D-7 and F-3c-5). ``block_keys`` are
     set on the block's own context (the thread to open or focus). ``also``
     names further blocks rendered out of band after it — the Record after a
-    recorded decision (D-CS-B-70). The figures block composes Where we stand
-    once, after the write, when it holds a ``book`` figure (D-CS-B-55).
+    recorded decision (D-CS-B-70), the Threads block after an attach, the
+    question block after a document's removal (D-CS-B-96, D-CS-B-99).
+    ``clear_composer`` empties the composer slot (a composer saved). The
+    figures block composes Where we stand once, after the write, when it
+    holds a ``book`` figure (D-CS-B-55).
     """
     updated = await CaseRepository(db).get(case_id)
     if updated is None:
@@ -3296,7 +3689,12 @@ async def _answer_parts(
         extra[name]["oob"] = True
         parts.append((_SECTION_TEMPLATES[name], extra))
     parts.append(
-        (_OOB_TEMPLATE, await _bundle_context(db, updated, session, section=section, note=note))
+        (
+            _OOB_TEMPLATE,
+            await _bundle_context(
+                db, updated, session, section=section, note=note, clear_composer=clear_composer
+            ),
+        )
     )
     return parts
 
@@ -3456,6 +3854,179 @@ async def post_case_thread_remove(
         session.user_id,
         case_id,
         thread_id,
+    )
+    return _render_parts(request, parts)
+
+
+# --- Kept rows (P-CS-4b): Remove, and the generated document's Edit --------
+
+#: The 400 note a payload edit of any class but a generated document answers (D-4b-5).
+_KEPT_IMMUTABLE_TEXT = (
+    "Only a generated document is edited in place; everything else is immutable once kept."
+)
+_GENERATED_TITLE_TEXT = "A generated document needs a title."
+_GENERATED_EDIT_TEMPLATE = "_partials/cases_kept_generated_edit.html"
+
+
+def _thread_open_keys(row: CaseKeptDTO) -> dict[str, Any] | None:
+    """Keep the row's thread open on the re-render (a file-level row has none)."""
+    return {"open_id": str(row.thread_id)} if row.thread_id is not None else None
+
+
+@router.post("/api/cases/{case_id}/kept/{kept_id}/remove", response_class=HTMLResponse)
+async def post_case_kept_remove(
+    request: Request,
+    case_id: UUID,
+    kept_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Remove a kept row from the file (ADR-0138 §9, D-CS-B-99): ``removed_at``, never a delete.
+
+    The UI asks first (a native ``hx-confirm``, the walk-1 ruling). The row
+    stays in the record and in every file frozen before (D-CS-M-5). Answers
+    the Threads block re-rendered without the row (its thread kept open) —
+    and the question block out of band when the row is a ``document`` (the
+    documents list) — then the bundle. Another case's row, a removed or an
+    unknown one → 404; a closed case → the calm closed note, nothing written.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="kept remove"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        row = await _case_kept_row(db, case_id, kept_id)
+        try:
+            await CaseKeptRepository(db).remove(kept_id, now=_now())
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "threads", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "threads",
+            rerender=True,
+            note=None,
+            block_keys=_thread_open_keys(row),
+            also=("question",) if row.artifact == "document" else (),
+        )
+
+    logger.info(
+        "cases kept remove: tenant=%s user=%s case=%s kept=%s artifact=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        kept_id,
+        row.artifact,
+    )
+    return _render_parts(request, parts)
+
+
+@router.get("/api/cases/{case_id}/kept/{kept_id}/generated/edit", response_class=HTMLResponse)
+async def get_case_kept_generated_edit(
+    request: Request,
+    case_id: UUID,
+    kept_id: UUID,
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The generated document's in-place Edit form (D-CS-B-98), swapped over its body.
+
+    Title and body on native controls, *Save* · *Cancel* (Cancel re-renders
+    the Threads block). Only a ``generated_document`` opens one — any other
+    class answers the 400 immutability note; a closed case the calm closed
+    note; another case's, a removed or an unknown row → 404.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="generated edit"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        row = await _case_kept_row(db, case_id, kept_id)
+    if row.artifact != _GENERATED_DOCUMENT:
+        return _note_refusal(
+            request, "threads", _KEPT_IMMUTABLE_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+        )
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    return _render(
+        request,
+        _GENERATED_EDIT_TEMPLATE,
+        {
+            "case_id": str(case_id),
+            "csrf_token": session.csrf_token,
+            "kept": {
+                "id": str(row.id),
+                "title": str(payload.get("title") or ""),
+                "body": str(payload.get("body") or ""),
+            },
+        },
+    )
+
+
+@router.post("/api/cases/{case_id}/kept/{kept_id}/generated", response_class=HTMLResponse)
+async def post_case_kept_generated(
+    request: Request,
+    case_id: UUID,
+    kept_id: UUID,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Save a generated document's title and body in place (ADR-0138 §9, D-CS-B-98).
+
+    :meth:`CaseKeptRepository.update_generated_document` rewrites the payload
+    and its hash; the sources (and any other key) are carried over unchanged.
+    The body is plain text — paragraphs split on blank lines when rendered.
+    A file frozen before keeps the text it froze (the class is frozen by
+    value). Any other class → :class:`CaseKeptImmutable` → the 400 note
+    *Only a generated document is edited in place …*, nothing written; an
+    empty title → 400; a closed case → the calm closed note. Answers the
+    Threads block (the row's thread kept open) and the bundle.
+    """
+    form = await _request_form(request)
+    title = str(form.get("title") or "").strip()
+    body = str(form.get("body") or "").replace("\r\n", "\n").strip()
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="threads", action="generated update"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        row = await _case_kept_row(db, case_id, kept_id)
+        payload = row.payload if isinstance(row.payload, dict) else {}
+        if row.artifact == _GENERATED_DOCUMENT and not title:
+            return _note_refusal(
+                request, "threads", _GENERATED_TITLE_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            await CaseKeptRepository(db).update_generated_document(
+                kept_id, payload={**payload, "title": title, "body": body}, now=_now()
+            )
+        except CaseKeptImmutable:
+            return _note_refusal(
+                request, "threads", _KEPT_IMMUTABLE_TEXT, status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "threads", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(
+            db,
+            case_id,
+            session,
+            "threads",
+            rerender=True,
+            note=None,
+            block_keys=_thread_open_keys(row),
+        )
+
+    logger.info(
+        "cases generated update: tenant=%s user=%s case=%s kept=%s",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        kept_id,
     )
     return _render_parts(request, parts)
 
@@ -4737,28 +5308,47 @@ def _snapshot_rows(source: Any, name: str) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: int(row.get("position") or 0))
 
 
-async def _frozen_kept_lines(kept: CaseKeptRepository, refs: Any) -> list[str]:
-    """A snapshot's kept references as *{artifact} · {caption}* lines (D-CS-M-5).
+def _snapshot_refs(refs: Any) -> list[dict[str, Any]]:
+    """The dict kept-refs of a snapshot list, in stored order."""
+    return [ref for ref in refs if isinstance(ref, dict)] if isinstance(refs, list) else []
+
+
+async def _frozen_kept_rows(
+    db_session: AsyncSession, refs: Any, owner_names: dict[UUID, str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """A snapshot's kept references rendered with their class anatomy (D-CS-B-101, D-CS-M-5).
 
     Each reference is resolved through :meth:`CaseKeptRepository.get`, which
-    returns a removed row too, so a freeze made before a removal still names
-    its artefact; the caption is the one frozen. The classes' full rendering
-    is P-CS-4b's.
+    returns a removed row too, so a freeze made before a removal still
+    renders its artefact. The row is projected by :func:`_project_kept_row`
+    ``readonly`` — no Remove, no Edit — with the caption frozen in the
+    reference; a ``generated_document`` renders the **payload frozen by
+    value** in the reference, never the live row, so a later edit leaves the
+    frozen text alone (ADR-0138 §9). One ``get`` per reference.
+
+    Returns:
+        ``(rows, missing)`` — the projected rows in stored order, and the
+        *{class} · caption · not found* line of each reference that no
+        longer resolves.
     """
-    lines: list[str] = []
-    for ref in refs if isinstance(refs, list) else []:
-        if not isinstance(ref, dict):
-            continue
+    kept = CaseKeptRepository(db_session)
+    rows: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for ref in _snapshot_refs(refs):
         kept_id = _parse_uuid(ref.get("kept_id"))
         resolved = await kept.get(kept_id) if kept_id is not None else None
-        artifact = resolved.artifact if resolved is not None else str(ref.get("artifact") or "")
-        label = artifact.replace("_", " ").capitalize() or "Kept"
-        caption = str(
-            ref.get("caption") or (resolved.caption if resolved is not None else "") or ""
-        )
-        line = f"{label} · {caption}" if caption else label
-        lines.append(line if resolved is not None else f"{line} · not found")
-    return lines
+        if resolved is None:
+            label = str(ref.get("artifact") or "").replace("_", " ").capitalize() or "Kept"
+            caption = str(ref.get("caption") or "")
+            missing.append(
+                f"{label} · {caption} · not found" if caption else f"{label} · not found"
+            )
+            continue
+        frozen = replace(resolved, caption=ref.get("caption", resolved.caption))
+        if frozen.artifact == _GENERATED_DOCUMENT and isinstance(ref.get("payload"), dict):
+            frozen = replace(frozen, payload=ref["payload"])
+        rows.append(_project_kept_row(frozen, owner_names, readonly=True))
+    return rows, missing
 
 
 def _frozen_recorded(decision: dict[str, Any]) -> dict[str, str]:
@@ -4790,17 +5380,19 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
     Reads ``frozen.payload["file"]`` (:mod:`core.repositories.case_snapshot`):
     the case head as it stood (title, framing, state, counterparty, due, owner),
     the question's prose, Where we stand through :func:`_project_stand` under
-    *as frozen HH:MM dd Mon YYYY*, the threads with their kept references and
-    the file-level ones (:func:`_frozen_kept_lines`), the figures with the
-    values frozen (a ``book`` value as applied at the freeze), the
-    conversations, the open points and the decisions — recorded and the
-    draft. Nothing here reads the book; the names (users, investments) and the
-    finding's subject label are the only live reads.
+    *as frozen HH:MM dd Mon YYYY*, the threads with their kept rows and the
+    file-level ones in their class anatomy (:func:`_frozen_kept_rows`), the
+    figures with the values frozen (a ``book`` value as applied at the
+    freeze), the conversations, the open points and the decisions — recorded
+    and the draft. Nothing here reads the book; the names (users — the
+    keepers among them — and investments), the kept rows the references
+    resolve to and the finding's subject label are the only live reads.
 
     Returns:
         ``{entry_id, head, close_href, case, question_title, description,
-        stand_chip, stand, stand_missing, threads, kept, figures,
-        conversations, points_title, points, recorded, draft}``.
+        stand_chip, stand, stand_missing, threads, kept, kept_missing,
+        figures, conversations, points_title, points, recorded, draft}`` —
+        each thread with its own ``kept`` and ``kept_missing``.
     """
     payload = frozen.payload or {}
     file_block = _snapshot_dict(payload, "file")
@@ -4813,10 +5405,15 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
     framing = framing or "question"
 
     points = _snapshot_rows(file_block, "open_points")
+    thread_rows = _snapshot_rows(file_block, "threads")
+    all_refs = [
+        ref for thread in thread_rows for ref in _snapshot_refs(thread.get("kept"))
+    ] + _snapshot_refs(file_block.get("kept"))
     user_ids = {
         user_id
         for user_id in [_parse_uuid(snap_case.get("owner_user_id"))]
         + [_parse_uuid(point.get("owner_user_id")) for point in points]
+        + [_parse_uuid(ref.get("kept_by")) for ref in all_refs]
         if user_id is not None
     }
     names = await _resolve_owner_names(UserRepository(db_session), user_ids)
@@ -4828,19 +5425,22 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
         subject_key = finding.subject_key if finding is not None else None
     stand_source = file_block.get("where_we_stand")
 
-    kept = CaseKeptRepository(db_session)
-    threads = [
-        {
-            "title": str(thread.get("title") or ""),
-            "status_label": _THREAD_STATUS_LABELS.get(
-                str(thread.get("status") or ""), str(thread.get("status") or "").capitalize()
-            ),
-            "prose": str(thread.get("prose") or ""),
-            "conclusion": str(thread.get("conclusion") or ""),
-            "kept": await _frozen_kept_lines(kept, thread.get("kept")),
-        }
-        for thread in _snapshot_rows(file_block, "threads")
-    ]
+    threads: list[dict[str, Any]] = []
+    for thread in thread_rows:
+        thread_kept, thread_missing = await _frozen_kept_rows(db_session, thread.get("kept"), names)
+        threads.append(
+            {
+                "title": str(thread.get("title") or ""),
+                "status_label": _THREAD_STATUS_LABELS.get(
+                    str(thread.get("status") or ""), str(thread.get("status") or "").capitalize()
+                ),
+                "prose": str(thread.get("prose") or ""),
+                "conclusion": str(thread.get("conclusion") or ""),
+                "kept": thread_kept,
+                "kept_missing": thread_missing,
+            }
+        )
+    file_kept, file_missing = await _frozen_kept_rows(db_session, file_block.get("kept"), names)
 
     figure_rows = _snapshot_rows(file_block, "figures")
     investment_names = await _investment_names(db_session, figure_rows, {})
@@ -4918,7 +5518,8 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
         ),
         "stand_missing": _NOT_FROZEN_STAND_TEXT,
         "threads": threads,
-        "kept": await _frozen_kept_lines(kept, file_block.get("kept")),
+        "kept": file_kept,
+        "kept_missing": file_missing,
         "figures": figures,
         "conversations": conversations,
         "points_title": _POINTS_TITLES[framing],

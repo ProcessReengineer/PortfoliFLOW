@@ -185,6 +185,7 @@ from web.brief_stash import (
 from web.case_keep import (
     KEEP_CASE_GONE_MESSAGE,
     KEEP_THREAD_GONE_MESSAGE,
+    UNDO_ALREADY_REMOVED_MESSAGE,
     KeepTarget,
     consultation_caption,
     keep_artifact,
@@ -194,6 +195,7 @@ from web.case_keep import (
     posted_target,
     resolve_keep_target,
     target_label,
+    undo_keep,
 )
 from web.errors import user_safe_error
 from web.permissions import require_role
@@ -752,10 +754,12 @@ DISMISS_BRIEF_URL: str = "/chat/brief/dismiss"
 _CASES_AREA_URL: str = "/cases"
 
 #: The Keep endpoints (ADR-0138 §8 channel 2, §9): the two gestures under an
-#: answer or a figure, the picker, and the write.
+#: answer or a figure, the picker, the write, and the kept line's Undo
+#: (D-CS-B-99).
 KEEP_URL: str = "/api/chat/keep"
 KEEP_ACTIONS_URL: str = "/api/chat/keep/actions"
 KEEP_PICKER_URL: str = "/api/chat/keep/picker"
+KEEP_UNDO_URL: str = "/api/chat/keep/undo"
 
 #: The kept class a Shirley answer becomes (ADR-0138 §9) — the payload is the
 #: pin contract minus the comment: ``{"excerpt": <the message text>}``.
@@ -3574,13 +3578,14 @@ def _keep_ref(message_id: str, artifact_id: str) -> dict[str, str]:
 
 
 def _keep_context(session: SessionDTO, ref: dict[str, str], **extra: Any) -> dict[str, Any]:
-    """The shared context of the three Keep partials."""
+    """The shared context of the three Keep partials (and the kept line's Undo)."""
     return {
         **ref,
         "csrf_token": session.csrf_token,
         "keep_url": KEEP_URL,
         "actions_url": KEEP_ACTIONS_URL,
         "picker_url": KEEP_PICKER_URL,
+        "undo_url": KEEP_UNDO_URL,
         "cases_area_url": _CASES_AREA_URL,
         **extra,
     }
@@ -3792,4 +3797,55 @@ async def post_keep(  # noqa: PLR0913 — one flat form
         _KEEP_DONE_TEMPLATE,
         _keep_context(session, ref, **line),
         headers={"HX-Trigger": keep_trigger(target.case.id, brief_changed=brief_changed)},
+    )
+
+
+@router.post(KEEP_UNDO_URL, response_class=HTMLResponse)
+async def post_keep_undo(
+    request: Request,
+    kept_id: str = Form(""),
+    message_id: str = Form(""),
+    artifact_id: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Undo a keep from its kept line (D-CS-B-99): the row's ``removed_at``, never a delete.
+
+    Answers the two gestures again in the artefact's container, so the PM can
+    keep elsewhere, with ``HX-Trigger`` ``pf:case-kept`` (a case on screen
+    re-renders its Threads block without the row). A row already removed, an
+    unknown or another tenant's id answers the calm *Already removed.*; a
+    case closed since, *That case is closed.* — the container's calm state,
+    nothing written (:func:`web.case_keep.undo_keep`).
+    """
+    ref = _keep_ref(message_id, artifact_id)
+    try:
+        kept_uuid = UUID(kept_id.strip())
+    except ValueError:
+        kept_uuid = None
+    if kept_uuid is None:
+        return _keep_render(
+            request,
+            _KEEP_ACTIONS_TEMPLATE,
+            _keep_context(session, ref, unavailable=UNDO_ALREADY_REMOVED_MESSAGE),
+        )
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        undone = await undo_keep(db, kept_id=kept_uuid)
+    if isinstance(undone, str):
+        return _keep_render(
+            request, _KEEP_ACTIONS_TEMPLATE, _keep_context(session, ref, unavailable=undone)
+        )
+    logger.info(
+        "chat keep undo: tenant=%s user=%s case=%s kept=%s",
+        session.tenant_id,
+        session.user_id,
+        undone.case_id,
+        undone.id,
+    )
+    return _keep_render(
+        request,
+        _KEEP_ACTIONS_TEMPLATE,
+        _keep_context(session, ref),
+        headers={"HX-Trigger": keep_trigger(undone.case_id, brief_changed=False)},
     )

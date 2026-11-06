@@ -15,30 +15,36 @@
 
    Kept rows (ADR-0138 §9, D-CS-B-90) render inside their thread between the
    prose and the status / conclusion (cases_kept_row.html); the "Nothing kept
-   yet" hint shows only in a thread without one. File-level kept rows follow
-   the threads as the group "Kept in the file", on the thread card. A keep from
-   the dock or the Planning Desk raises the case-kept event with the case id;
-   both forms of the section below listen for their own case and re-render
-   the block (D-CS-B-88), so a case on screen shows the row without a reload —
-   the placeholder too, since a file-level row makes the block visible.
+   yet" hint shows only in a thread without one. Every live row no live thread
+   holds — kept in the file, or in a thread removed since — follows the
+   threads as the group "Kept in the file", on the thread card; a `document`
+   row never does: the file's documents are the question block's list
+   (D-CS-B-100, D-CS-B-96). Each row's Remove re-renders this block
+   (D-CS-B-99). A keep or an undo from the dock or the Planning Desk raises
+   the case-kept event with the case id; both forms of the section below
+   listen for their own case and re-render the block with the OOB bundle
+   (?oob=1, D-CS-B-88, D-CS-B-104), so a case on screen shows the row and the
+   outline's count without a reload — the placeholder too, since a row in the
+   file group makes the block visible. With `block.oob` (the attach route,
+   D-CS-B-96) the block rides out of band, both forms alike.
 
    A closed case renders the threads read-only: the prose as text, the kept
-   rows, the conclusion, no form.
+   rows (Open and Sources only), the conclusion, no form.
 
    The note slot renders `block.note` itself when the block is re-rendered
    (see cases_file_conversations.html; the 3c report's F-3c-5).
 
    Context: case_id, csrf_token, is_mutable, stamp, threads — {threads:
    [{id, title, prose, status, status_label, conclusion, dates, kept}],
-   file_kept, empty (no thread and no file-level kept row), reveal, focus_id,
-   open_id, statuses: [{value, label}]}. #}
+   file_kept, empty (no thread and no row in the file group), reveal,
+   focus_id, open_id, note, oob, statuses: [{value, label}]}. #}
 {% set block = threads %}
 {% if block.empty and not block.reveal %}
-<section class="pf-blk" id="cs-threads" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="threads"
-         hx-get="/api/cases/{{ case_id }}/sections/threads" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML"></section>
+<section class="pf-blk" id="cs-threads" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="threads"{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}
+         hx-get="/api/cases/{{ case_id }}/sections/threads?oob=1" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML"></section>
 {% else %}
-<section class="pf-blk" id="cs-threads" data-pf-cs="block" data-pf-cs-name="threads"
-         hx-get="/api/cases/{{ case_id }}/sections/threads" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML">
+<section class="pf-blk" id="cs-threads" data-pf-cs="block" data-pf-cs-name="threads"{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}
+         hx-get="/api/cases/{{ case_id }}/sections/threads?oob=1" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML">
     <div class="pf-blk__head">
         <h3 class="pf-blk__title">Threads</h3>
         <span class="pf-blk__sub">one thing you are chasing, with what you kept while chasing it</span>
@@ -119,8 +125,9 @@
     {% endfor %}
 
     {% if block.file_kept %}
-        {# The file-level kept rows (thread_id null) — "Kept in the file", the
-           frozen file's wording (D-4a-8), on the thread card. #}
+        {# The file group — every live row no live thread holds, documents
+           aside (D-CS-B-100) — "Kept in the file", the frozen file's wording
+           (D-4a-8), on the thread card. #}
         <details class="pf-thread" id="cs-kept-file" data-pf-cs="kept-file" open>
             <summary>
                 <p class="pf-thread__q">Kept in the file</p>

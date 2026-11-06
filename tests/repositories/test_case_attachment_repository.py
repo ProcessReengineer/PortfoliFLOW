@@ -17,6 +17,8 @@ Coverage
 * CA-04: cross-tenant invisibility (RLS smoke).
 * CA-05: a waiting case accepts ``create`` and the upload bumps
   ``cases.updated_at``; a closed case still refuses (ADR-0138 §4, D-CS-B-5).
+* CA-06: ``get`` reads one attachment's metadata without its bytes; unknown
+  and foreign ids are ``None`` (P-CS-4b, D-CS-B-97).
 """
 
 from __future__ import annotations
@@ -260,3 +262,39 @@ async def test_ca05_waiting_case_accepts_and_bumps_updated_at(
     assert after is not None
     assert after.state == "waiting"
     assert after.updated_at == upload_at
+
+
+# ---------------------------------------------------------------------------
+# CA-06: get reads metadata only; unknown and foreign ids are None
+# ---------------------------------------------------------------------------
+
+
+async def test_ca06_get_reads_metadata_only(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_a = await seed_tenant(name="CA-06-A")
+    tenant_b = await seed_tenant(name="CA-06-B")
+    user_id = await _seed_user(app_engine, tenant_a, "pm@ca06.example")
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        case = await CaseRepository(session).create(
+            title="Get", opened_by=user_id, opened_actor="pm", now=_T0
+        )
+        created = await CaseAttachmentRepository(session).create(
+            case.id,
+            filename="terms.pdf",
+            mime_type="application/pdf",
+            size_bytes=3,
+            sha256="h6",
+            content=b"abc",
+            uploaded_by=user_id,
+            now=_T0,
+        )
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        arepo = CaseAttachmentRepository(session)
+        fetched = await arepo.get(created.id)
+        assert await arepo.get(uuid4()) is None
+    assert fetched == created
+    assert not hasattr(fetched, "content")
+
+    async with tenant_context(app_engine, tenant_b) as session:
+        assert await CaseAttachmentRepository(session).get(created.id) is None

@@ -579,12 +579,25 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
 .pf-thread__form { display: flex; flex-direction: column; gap: var(--ui-space-3); }
 .pf-thread__tools { display: flex; justify-content: flex-end; }
 
-/* ---- pf-kept: an artefact kept in a file — its provenance chip, its title and an action on the right.
-        Source: M-CS-2 (kept artefacts); used by Cases from P-CS-4a (Keep) — no template draws it yet. */
+/* ---- pf-kept: an artefact kept in a file — its provenance chip, its title and its actions on the right.
+        Source: M-CS-2 (kept artefacts); used by Cases — the kept rows in the file and in a frozen file. Several actions stay together on the right (the pf-gen head's idiom). */
 .pf-kept { display: flex; flex-direction: column; gap: 6px; }
 .pf-kept__head { display: flex; align-items: center; gap: var(--ui-space-2); color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
 .pf-kept__head strong { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
 .pf-kept__head .pf-btn { margin-left: auto; }
+.pf-kept__head .pf-btn + .pf-btn { margin-left: 0; }
+
+/* ---- pf-gen: a generated document — a card with a head (provenance, title, actions) over plain prose; its sources fold below.
+        Source: M-CS-2 (pf-gen; the sources list is the head's "Sources (n)", its own summary hidden); used by Cases — a kept generated document. */
+.pf-gen { border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
+.pf-gen__head { display: flex; align-items: center; gap: var(--ui-space-2); padding: 10px 16px; border-bottom: 1px solid var(--ui-border-soft); color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-gen__head .pf-btn { margin-left: auto; } .pf-gen__head .pf-btn + .pf-btn { margin-left: 0; }
+.pf-gen__body { padding: 12px 16px 16px; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); line-height: 1.55; max-width: 78ch; }
+.pf-gen__body h4 { margin: 0 0 4px; color: var(--ui-text-primary); font-size: var(--ui-font-scale-sm); font-weight: var(--ui-font-weight-semibold); }
+.pf-gen__body p { margin: 0 0 .6em; } .pf-gen__body ul { margin: 0 0 .6em; padding-left: 18px; }
+.pf-gen__sources { padding: 0 16px 12px; color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); }
+.pf-gen__sources > summary { display: none; }
+.pf-gen__sources ul { margin: 0; padding-left: 18px; } .pf-gen__sources a { color: var(--ui-text-secondary); }
 
 /* ---- pf-quote: a quoted passage with its attribution — Shirley's words, a document's sentence.
         Source: M-CS-2; used by Cases — the consultation pin's excerpt. */

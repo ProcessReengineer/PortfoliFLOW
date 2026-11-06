@@ -1,0 +1,37 @@
+{# A generated document's in-place Edit (ADR-0138 §9, D-CS-B-98) — swapped over
+   the row's body (.pf-gen__body, outerHTML) by the head's Edit, from
+   GET /api/cases/{id}/kept/{kept_id}/generated/edit. The title and the body on
+   native controls (ui-standards §2.11); the body is plain text, a blank line
+   between paragraphs. Save posts to …/kept/{kept_id}/generated and re-renders
+   the Threads block; Cancel re-renders it unchanged. The sources are not
+   edited here — they are carried over.
+
+   A row in a thread sits inside the thread's form, so this form lands nested
+   in it (inserted by htmx, never parsed so): its controls belong to this form,
+   and "submit consume" stops the submit at it, so the thread's own form never
+   posts. Every request names its own hx-swap (#cs-threads' outerHTML would
+   otherwise be inherited — the P-CS-4a report's F-10).
+
+   Context: case_id, csrf_token, kept — {id, title, body}. #}
+<form class="pf-gen__body pf-thread__form" data-pf-cs="kept-edit-form"
+      hx-post="/api/cases/{{ case_id }}/kept/{{ kept.id }}/generated"
+      hx-trigger="submit consume"
+      hx-target="#cs-threads"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Title</span>
+        <input class="pf-input" type="text" name="title" value="{{ kept.title }}" required autocomplete="off" autofocus>
+    </label>
+    <label class="pf-field pf-field--full">
+        <span class="pf-label">Text</span>
+        <textarea class="pf-textarea" name="body" rows="10">{{ kept.body }}</textarea>
+    </label>
+    <div class="pf-blk__tools">
+        <button type="button" class="pf-btn"
+                hx-get="/api/cases/{{ case_id }}/sections/threads"
+                hx-target="#cs-threads"
+                hx-swap="outerHTML">Cancel</button>
+        <button type="submit" class="pf-btn pf-btn--primary">Save</button>
+    </div>
+</form>

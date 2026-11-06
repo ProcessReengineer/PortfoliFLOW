@@ -17,7 +17,9 @@ imports), so it reads the persistence layer directly.
 
 Keep writes ``case_kept`` rows with ``via = "keep"`` through
 :meth:`CaseKeptRepository.keep` and nothing else; the record is untouched (a
-keep is no milestone).
+keep is no milestone). Its *Undo* (D-CS-B-99) is :func:`undo_keep` — the
+row's ``removed_at`` through :meth:`CaseKeptRepository.remove`, never a
+delete, so a file frozen in between still renders it (D-CS-M-5).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import CaseClosedError, CaseStateInvalid, CaseWorkingFileInvalid
 from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
@@ -47,6 +50,11 @@ _CAPTION_LINE_CHARS: int = 120
 #: The picker's two refusals (D-4a-6): the target moved under the PM's feet.
 KEEP_CASE_GONE_MESSAGE: str = "That case is closed or gone — pick another."
 KEEP_THREAD_GONE_MESSAGE: str = "That thread is gone — pick another."
+
+#: Undo's two calm refusals (D-4b-6): the row left the file already (or never
+#: was this tenant's), or its case closed since the keep.
+UNDO_ALREADY_REMOVED_MESSAGE: str = "Already removed."
+UNDO_CASE_CLOSED_MESSAGE: str = "That case is closed."
 
 #: The event a successful keep raises, and the one a changed brief raises
 #: (D-CS-B-88): the case's Threads block re-renders on the first, the dock's
@@ -269,10 +277,11 @@ async def keep_artifact(
 
 
 def kept_line_context(kept: CaseKeptDTO, target: KeepTarget) -> dict[str, str]:
-    """The kept line's context: ``{badge, href, where, when}`` (D-CS-B-88, D-4a-2).
+    """The kept line's context: ``{badge, href, where, when, kept_id}`` (D-CS-B-88, D-4a-2).
 
     ``href`` opens the case at the thread (``#cs-thread-{id}``) or at the
-    Threads block (``#cs-threads``); ``when`` is ``HH:MM`` in UTC.
+    Threads block (``#cs-threads``); ``when`` is ``HH:MM`` in UTC;
+    ``kept_id`` is the row the line's *Undo* removes (D-CS-B-99).
     """
     case = target.case
     anchor = f"cs-thread-{target.thread.id}" if target.thread is not None else "cs-threads"
@@ -281,7 +290,42 @@ def kept_line_context(kept: CaseKeptDTO, target: KeepTarget) -> dict[str, str]:
         "href": f"/cases/{case.id}#{anchor}",
         "where": target_label(target.thread),
         "when": f"{kept.kept_at.astimezone(timezone.utc):%H:%M}",
+        "kept_id": str(kept.id),
     }
+
+
+async def undo_keep(db: AsyncSession, *, kept_id: UUID) -> CaseKeptDTO | str:
+    """Undo one keep — the kept line's *Undo* on both surfaces (D-CS-B-99).
+
+    The row leaves the file by ``removed_at`` (:meth:`CaseKeptRepository.remove`);
+    it is never deleted, so every file frozen before the undo still renders
+    it (D-CS-M-5).
+
+    Args:
+        db: A tenant-scoped session.
+        kept_id: The kept row the line names.
+
+    Returns:
+        The removed row, or the calm refusal to show:
+        :data:`UNDO_ALREADY_REMOVED_MESSAGE` for a row already removed, an
+        unknown one or another tenant's (``None`` under RLS);
+        :data:`UNDO_CASE_CLOSED_MESSAGE` when its case closed since.
+    """
+    kept = CaseKeptRepository(db)
+    row = await kept.get(kept_id)
+    if row is None or row.removed_at is not None:
+        return UNDO_ALREADY_REMOVED_MESSAGE
+    case = await CaseRepository(db).get(row.case_id)
+    if case is None:
+        return UNDO_ALREADY_REMOVED_MESSAGE
+    if case.state not in _MUTABLE_STATES:
+        return UNDO_CASE_CLOSED_MESSAGE
+    try:
+        return await kept.remove(kept_id, now=datetime.now(timezone.utc))
+    except CaseClosedError:
+        return UNDO_CASE_CLOSED_MESSAGE
+    except (CaseStateInvalid, CaseWorkingFileInvalid):
+        return UNDO_ALREADY_REMOVED_MESSAGE
 
 
 def keep_trigger(case_id: UUID, *, brief_changed: bool) -> str:
@@ -292,12 +336,22 @@ def keep_trigger(case_id: UUID, *, brief_changed: bool) -> str:
     return json.dumps(events)
 
 
+def clip_caption(text: str) -> str:
+    """``text`` clipped to 120 characters, an ellipsis replacing the cut (D-CS-B-85).
+
+    The one clipping rule of every kept caption: a kept answer's
+    (:func:`consultation_caption`), a document excerpt's and the Planning
+    Desk's (D-CS-B-97, D-CS-B-103).
+    """
+    if len(text) > _CAPTION_LINE_CHARS:
+        return text[: _CAPTION_LINE_CHARS - 1].rstrip() + "…"
+    return text
+
+
 def consultation_caption(text: str) -> str:
     """A kept answer's caption: its first non-empty line, clipped to 120 characters (D-CS-B-85)."""
     for line in text.splitlines():
         snippet = line.strip()
         if snippet:
-            if len(snippet) > _CAPTION_LINE_CHARS:
-                return snippet[: _CAPTION_LINE_CHARS - 1].rstrip() + "…"
-            return snippet
+            return clip_caption(snippet)
     return ""

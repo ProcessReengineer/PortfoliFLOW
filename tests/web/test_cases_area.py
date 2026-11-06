@@ -62,6 +62,18 @@ survives the P-CS-3d restyle.
   ``pf:case-kept`` listener (ADR-0138 §9, D-CS-B-88, D-CS-B-90).
 * CS4a-12 — legacy pin rows still render their anatomy in the Record
   (D-CS-M-7); the pin composer and its route are gone.
+* CS4b-01/02 — the attach composer keeps: a passage as a ``document_excerpt``
+  in a thread (the Threads block out of band), a passage of an attachment
+  already on the case, the refusals and the atomicity of the upload with its
+  kept row (D-CS-B-96, D-CS-B-97).
+* CS4b-03/04 — a ``generated_document``: the pf-gen anatomy, its sources, the
+  in-place Edit and the immutability of every other class (D-CS-B-98).
+* CS4b-05 — Remove on a kept row and on a document (D-CS-B-99).
+* CS4b-06/07 — the frozen file renders the anatomy: an excerpt removed since,
+  a generated document edited since (D-CS-B-101, D-CS-M-5).
+* CS4b-08 — a removed thread's kept rows surface at file level (D-CS-B-100).
+* CS4b-09 — ``?oob=1`` carries the outline (D-CS-B-104).
+* CS4b-10 — the legacy pins' titles (D-CS-B-102).
 
 The file tests below (origin embed, timeline, legacy pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -2137,13 +2149,18 @@ async def test_link_and_unlink_investment_rerender_where_we_stand(
         assert await CaseInvestmentRepository(session).list_for_case(case.id) == []
 
 
-async def test_attach_document_stores_without_a_record_entry_and_lists_it(
+async def test_attach_document_stores_a_document_kept_row_and_lists_it_from_the_row(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """CS3b-07: an attachment alone — listed in the question block, no record entry."""
+    """CS3b-07 (D-CS-B-96): the attachment and one ``document`` kept row — listed from the row.
+
+    No record entry; the question block's documents list reads the file-level
+    ``document`` kept rows, not the attachments table, so an attachment no
+    kept row addresses is not listed.
+    """
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Attach", opened_at=_T0)
     await _login(web_client, email, password)
@@ -2161,14 +2178,35 @@ async def test_attach_document_stores_without_a_record_entry_and_lists_it(
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
         atts = await CaseAttachmentRepository(session).list_for_case(case.id)
         entries_after = len(await CaseRepository(session).list_entries(case.id))
+        kept_rows = await CaseKeptRepository(session).list_for_case(case.id)
     assert len(atts) == 1
     assert atts[0].sha256 == hashlib.sha256(_SMALL_PDF).hexdigest()
     assert entries_after == entries_before
+    (row,) = kept_rows
+    assert (row.artifact, row.thread_id, row.attachment_id, row.via, row.comment) == (
+        "document",
+        None,
+        atts[0].id,
+        "keep",
+        None,
+    )
+    assert row.caption == "memo.pdf"
+    assert row.payload == {
+        "filename": "memo.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": len(_SMALL_PDF),
+        "sha256": hashlib.sha256(_SMALL_PDF).hexdigest(),
+        "attachment_id": str(atts[0].id),
+    }
 
     block = cs_block(response.text, "block", data_pf_cs_name="question")
-    document = cs_block(block, "document")
+    document = cs_block(block, "document", data_pf_cs_kind="document")
     assert "memo.pdf" in document
     assert f'href="/api/cases/{case.id}/attachments/{atts[0].id}"' in document
+    assert f"kept {row.kept_at.astimezone(timezone.utc):%d %b} by S. Behrens" in cs_text(document)
+    assert cs_count(document, "kept-remove") == 1
+    # A document lives in the documents list, never in the Threads block's file group.
+    assert cs_count(_threads(response.text), "kept") == 0
     cap = get_config().case_attachment_max_count
     assert (
         cs_text(response.text, "fact", data_pf_cs_name="attachments") == f"Attachments 1 of {cap}"
@@ -2178,6 +2216,12 @@ async def test_attach_document_stores_without_a_record_entry_and_lists_it(
     # The documents list is part of the file's first render too.
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     assert "memo.pdf" in cs_text(body, "documents")
+
+    # An attachment no kept row addresses (dev data, a legacy pinned document)
+    # is not listed (D-CS-B-96, no data migration).
+    await _seed_attachment(app_engine, case_id=case.id, uploaded_by=pm1, filename="legacy.pdf")
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert "legacy.pdf" not in cs_text(body, "documents")
 
 
 async def test_attach_document_gates_reuse_the_pin_gates(
@@ -4563,7 +4607,10 @@ async def test_a_freeze_before_a_removal_still_renders_its_artefact(
     app_engine: AsyncEngine,
     fresh_superuser_engine: AsyncEngine,
 ) -> None:
-    """CS3c2-08 (D-CS-M-5): a kept row removed after a freeze still renders in that freeze."""
+    """CS3c2-08 (D-CS-M-5, D-CS-B-101): a kept row removed after a freeze renders in that freeze.
+
+    With its class anatomy since P-CS-4b — the quote, read-only (no Remove).
+    """
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Kept", opened_at=_T0)
     thread = await _seed_thread(app_engine, pm1, case.id, title="Fee step-up")
@@ -4590,9 +4637,14 @@ async def test_a_freeze_before_a_removal_still_renders_its_artefact(
     view = (await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file")).text
     thread_view = cs_block(view, "frozen-thread")
     assert "Fee step-up" in cs_text(thread_view)
-    assert cs_text(thread_view, "frozen-kept") == "Consultation · Shirley on the step-up"
+    frozen_row = cs_block(thread_view, "frozen-kept", data_pf_cs_kind="consultation")
+    assert cs_text(frozen_row, "kept-caption") == "Shirley on the step-up"
+    assert "The step-up applies from year three." in cs_text(frozen_row)
+    assert cs_count(frozen_row, "kept-remove") == 0
+    assert wd_attr(frozen_row, "id") is None  # the live row owns the id
     live = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
     assert "Shirley on the step-up" not in live
+    assert "The step-up applies from year three." not in live
 
 
 async def test_woken_by_reads_the_waking_line(
@@ -4732,6 +4784,7 @@ async def _keep_row(
     thread_id: UUID | None = None,
     attachment_id: UUID | None = None,
     hours: int = 1,
+    via: str = "keep",
 ) -> UUID:
     """Keep one artefact through the repository (never through the routes)."""
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
@@ -4740,7 +4793,7 @@ async def _keep_row(
             artifact=artifact,
             payload=payload,
             kept_by=user_id,
-            via="keep",
+            via=via,
             now=_T0 + timedelta(hours=hours),
             thread_id=thread_id,
             caption=caption,
@@ -4832,12 +4885,16 @@ async def test_kept_rows_render_inside_their_thread_and_the_file_level_ones_afte
     assert wd_attr(item, "class") != "is-empty"
 
 
-async def test_the_four_kept_classes_render_their_anatomy_and_a_later_class_is_calm(
+async def test_the_kept_classes_render_their_anatomy(
     web_client: AsyncClient,
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """CS4a-10: quote · frozen chart spec · KPI row · download link; document_excerpt is one line."""
+    """CS4a-10: quote · frozen chart spec · KPI row · download link · the excerpt's anatomy.
+
+    The excerpt was the calm one-liner until P-CS-4b (D-CS-B-97): now the
+    passage quoted with its cite, its chip naming the page.
+    """
     pm1, email, password = seeded_user
     case = await _seed_case(app_engine, opened_by=pm1, title="Anatomy", opened_at=_T0)
     thread = await _seed_thread(app_engine, pm1, case.id, title="Everything kept")
@@ -4894,7 +4951,7 @@ async def test_the_four_kept_classes_render_their_anatomy_and_a_later_class_is_c
         pm1,
         case.id,
         artifact="document_excerpt",
-        payload={"text": "EXCERPT-PAYLOAD-NOT-RENDERED"},
+        payload={"filename": "lpa.pdf", "passage": "Fees step up in year three.", "page": 7},
         caption="Clause 7.2",
         thread_id=thread.id,
         attachment_id=attachment_id,
@@ -4929,8 +4986,13 @@ async def test_the_four_kept_classes_render_their_anatomy_and_a_later_class_is_c
     assert "2.0 KB" in cs_text(document)
 
     excerpt = cs_block(block, "kept", data_pf_cs_kind="document_excerpt")
-    assert cs_text(excerpt, "kept-fallback") == "Document excerpt · Clause 7.2"
-    assert "EXCERPT-PAYLOAD-NOT-RENDERED" not in body
+    assert cs_count(excerpt, "kept-fallback") == 0
+    assert "document · lpa.pdf, p. 7" in cs_text(excerpt)
+    assert cs_text(excerpt, "kept-caption") == "Clause 7.2"
+    assert "Fees step up in year three." in cs_text(excerpt, "excerpt-quote")
+    assert cs_text(excerpt, "excerpt-cite") == "lpa.pdf · page 7 · attached 21 Jul by S. Behrens"
+    assert f'href="/api/cases/{case.id}/attachments/{attachment_id}"' in excerpt
+    assert cs_count(excerpt, "kept-open") == 1
 
 
 async def test_the_threads_block_listens_for_its_own_case_kept(
@@ -4938,7 +5000,7 @@ async def test_the_threads_block_listens_for_its_own_case_kept(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """CS4a-11 (D-CS-B-88): both forms of the block re-render on their case's keep event."""
+    """CS4a-11 (D-CS-B-88, D-CS-B-104): both forms re-render on their case's keep event, with the bundle."""
     pm1, email, password = seeded_user
     bare = await _seed_case(app_engine, opened_by=pm1, title="Nothing yet", opened_at=_T0)
     threaded = await _seed_case(app_engine, opened_by=pm1, title="One thread", opened_at=_T0)
@@ -4949,10 +5011,725 @@ async def test_the_threads_block_listens_for_its_own_case_kept(
         body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
         block = _threads(body)
         assert (wd_attr(block, "hidden") is not None) is hidden
-        assert wd_attr(block, "hx-get") == f"/api/cases/{case.id}/sections/threads"
+        assert wd_attr(block, "hx-get") == f"/api/cases/{case.id}/sections/threads?oob=1"
         assert wd_attr(block, "hx-trigger") == (
             f"pf:case-kept[detail.case_id=='{case.id}'] from:body"
         )
         assert wd_attr(block, "hx-swap") == "outerHTML"
         section = (await web_client.get(f"/api/cases/{case.id}/sections/threads")).text
         assert wd_attr(_threads(section), "hx-trigger") == wd_attr(block, "hx-trigger")
+
+
+# ---------------------------------------------------------------------------
+# P-CS-4b — document excerpts, generated documents, removal, the frozen file
+# renders every class (CS4b-01 … CS4b-10)
+# ---------------------------------------------------------------------------
+
+_BOUNDARY = "pf-cs4b-boundary"
+_REMOVE_KEPT_CONFIRM = "Remove this from the file? It stays in the record and in the frozen files."
+_GENERATED_SOURCES = [
+    {
+        "label": "CASE-0031 — the hedge question",
+        "href": "/cases/00000000-0000-0000-0000-000000000031",
+    },
+    {"label": "GP letter of 30 Sep", "href": "//gp.example/letter"},
+]
+
+
+async def _attach(
+    client: AsyncClient,
+    case_id: UUID,
+    csrf: str,
+    *,
+    upload: tuple[str, bytes, str] | None = None,
+    **fields: str,
+):
+    """POST the attach composer as a browser does: multipart, the file part always present.
+
+    Without ``upload`` the file part is the empty one a browser sends for an
+    untouched file input (``filename=""``, no bytes).
+    """
+    filename, content, content_type = upload or ("", b"", "application/octet-stream")
+    parts = [
+        f'--{_BOUNDARY}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+        for name, value in {"csrf_token": csrf, **fields}.items()
+    ]
+    parts.append(
+        (
+            f'--{_BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"'
+            f"\r\nContent-Type: {content_type}\r\n\r\n"
+        ).encode()
+        + content
+        + b"\r\n"
+    )
+    parts.append(f"--{_BOUNDARY}--\r\n".encode())
+    return await client.post(
+        f"/api/cases/{case_id}/attachments",
+        content=b"".join(parts),
+        headers={"Content-Type": f"multipart/form-data; boundary={_BOUNDARY}"},
+        follow_redirects=False,
+    )
+
+
+async def _kept_now(app_engine: AsyncEngine, user_id: UUID, case_id: UUID) -> list[Any]:
+    """A case's kept rows, removed ones included."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseKeptRepository(session).list_for_case(case_id, include_removed=True)
+
+
+async def _attachments_now(app_engine: AsyncEngine, user_id: UUID, case_id: UUID) -> list[Any]:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        return await CaseAttachmentRepository(session).list_for_case(case_id)
+
+
+def _question(body: str) -> str:
+    return cs_block(body, "block", data_pf_cs_name="question")
+
+
+async def _keep_generated(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    case_id: UUID,
+    *,
+    title: str = "Memo · GP X Fund III",
+    body: str = "Position at 30 Sep.\n\nWorth raising: the hedge.",
+    thread_id: UUID | None = None,
+) -> UUID:
+    """Seed a generated document the way P-CS-5b's proposal path will write it."""
+    return await _keep_row(
+        app_engine,
+        user_id,
+        case_id,
+        artifact="generated_document",
+        payload={"title": title, "body": body, "sources": _GENERATED_SOURCES},
+        caption=title,
+        thread_id=thread_id,
+        via="proposal",
+    )
+
+
+async def test_attach_a_passage_into_a_thread_keeps_an_excerpt_there(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-01 (D-CS-B-97): passage, page 23, a thread → one excerpt there, shown out of band."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Hedge", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Was the hedge kept?")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    composer = (await web_client.get(f"/api/cases/{case.id}/composer/attach")).text
+    assert cs_count(composer, "attach-passage") == 1
+    assert cs_count(composer, "attach-existing") == 0  # nothing attached yet
+    target = cs_block(composer, "attach-target")
+    assert ">The file</option>" in target and f'value="{thread.id}"' in target
+    assert 'type="number"' not in composer  # ui-standards R10
+    assert "without one the document itself is kept in the file" in composer
+
+    passage = "The Fund will hedge its non-USD exposure at a minimum of 80 % of NAV."
+    response = await _attach(
+        web_client,
+        case.id,
+        csrf,
+        upload=("GPX_FundIII_PPM.pdf", _SMALL_PDF, "application/pdf"),
+        passage=passage,
+        page="23",
+        caption="Hedging undertaking",
+        thread_id=str(thread.id),
+    )
+    assert response.status_code == 200, response.text
+    (attachment,) = await _attachments_now(app_engine, pm1, case.id)
+    (row,) = await _kept_now(app_engine, pm1, case.id)
+    assert (row.artifact, row.thread_id, row.attachment_id, row.via) == (
+        "document_excerpt",
+        thread.id,
+        attachment.id,
+        "keep",
+    )
+    assert row.payload == {"filename": "GPX_FundIII_PPM.pdf", "passage": passage, "page": 23}
+    assert row.caption == "Hedging undertaking"
+
+    # The question block is the main swap; the Threads block rides out of band.
+    question = _question(response.text)
+    assert wd_attr(question, "hx-swap-oob") is None
+    assert cs_count(question, "document") == 0  # an excerpt is not a listed document
+    threads = _threads(response.text)
+    assert wd_attr(threads, "hx-swap-oob") == "outerHTML"
+    excerpt = cs_block(
+        cs_block(threads, "thread", id=f"cs-thread-{thread.id}"),
+        "kept",
+        data_pf_cs_kind="document_excerpt",
+    )
+    day = f"{row.kept_at.astimezone(timezone.utc):%d %b}"
+    assert "document · GPX_FundIII_PPM.pdf, p. 23" in cs_text(excerpt)
+    assert passage in cs_text(excerpt, "excerpt-quote")
+    assert cs_text(excerpt, "excerpt-cite") == (
+        f"GPX_FundIII_PPM.pdf · page 23 · attached {day} by S. Behrens"
+    )
+    assert f'href="/api/cases/{case.id}/attachments/{attachment.id}"' in excerpt
+    assert wd_attr(cs_block(response.text, "facts"), "hx-swap-oob") == "true"
+
+    # A second attach offers the first in the "already attached" select.
+    again = (await web_client.get(f"/api/cases/{case.id}/composer/attach")).text
+    assert f'value="{attachment.id}"' in cs_block(again, "attach-existing")
+
+
+async def test_attach_against_an_existing_attachment_refusals_and_atomicity(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CS4b-02 (D-CS-B-96, D-CS-B-97): a second passage, the composer's refusals, the rollback."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Excerpts", opened_at=_T0)
+    attachment_id = await _seed_attachment(
+        app_engine, case_id=case.id, uploaded_by=pm1, filename="lpa.pdf"
+    )
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Fees")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    # (a) A passage of an attachment already on the case: no second upload.
+    first_line = "Clause 7.2 — the management fee steps up " + "in the third year " * 8
+    response = await _attach(
+        web_client,
+        case.id,
+        csrf,
+        attachment_id=str(attachment_id),
+        passage=f"{first_line}\nThe second line stays out of the caption.",
+    )
+    assert response.status_code == 200, response.text
+    assert len(await _attachments_now(app_engine, pm1, case.id)) == 1
+    (row,) = await _kept_now(app_engine, pm1, case.id)
+    assert (row.artifact, row.thread_id, row.attachment_id) == (
+        "document_excerpt",
+        None,
+        attachment_id,
+    )
+    assert row.payload["page"] is None
+    assert row.caption is not None and len(row.caption) == 120 and row.caption.endswith("…")
+    assert cs_count(cs_block(_threads(response.text), "kept-file"), "kept") == 1
+
+    # (b) Atomicity: the thread is removed between the composer and the post.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        removed = await CaseThreadRepository(session).remove(
+            thread.id, now=datetime.now(timezone.utc)
+        )
+    gone = await _attach(
+        web_client,
+        case.id,
+        csrf,
+        upload=("terms.pdf", _SMALL_PDF, "application/pdf"),
+        passage="A passage for a gone thread.",
+        thread_id=str(thread.id),
+    )
+    assert gone.headers.get("HX-Retarget") == "#case-composer-slot"
+    assert cs_text(gone.text, "error") == "That thread is gone — pick another."
+    assert "A passage for a gone thread." in gone.text  # what was typed survives
+    assert len(await _attachments_now(app_engine, pm1, case.id)) == 1
+    assert len(await _kept_now(app_engine, pm1, case.id)) == 1
+
+    # ...and when the gate saw the thread live but the keep refuses under the
+    # write (the race), the upload rolls back with the kept row.
+    async def _stale_live_thread(_db: Any, _case_id: UUID, _thread_id: UUID | None) -> Any:
+        return removed
+
+    monkeypatch.setattr(cases_module, "live_thread", _stale_live_thread)
+    caplog.set_level("WARNING", logger="web.routes.cases")
+    raced = await _attach(
+        web_client,
+        case.id,
+        csrf,
+        upload=("terms.pdf", _SMALL_PDF, "application/pdf"),
+        passage="A passage racing the removal.",
+        thread_id=str(thread.id),
+    )
+    monkeypatch.undo()
+    assert cs_text(raced.text, "error") == "That thread is gone — pick another."
+    # The refusal came from the keep inside the write, after the upload's insert.
+    assert "keep refused under the write" in caplog.text and "field=thread_id" in caplog.text
+    assert len(await _attachments_now(app_engine, pm1, case.id)) == 1
+    assert len(await _kept_now(app_engine, pm1, case.id)) == 1
+
+    # (c) Exactly one document: both, or neither (a passage alone among them).
+    for upload, fields in (
+        (("terms.pdf", _SMALL_PDF, "application/pdf"), {"attachment_id": str(attachment_id)}),
+        (None, {}),
+        (None, {"passage": "A passage without a document."}),
+        (None, {"attachment_id": str(uuid4()), "passage": "An unknown document."}),
+    ):
+        refused = await _attach(web_client, case.id, csrf, upload=upload, **fields)
+        assert cs_text(refused.text, "error") == (
+            "Choose a document to upload or one already attached."
+        )
+        assert len(await _attachments_now(app_engine, pm1, case.id)) == 1
+        assert len(await _kept_now(app_engine, pm1, case.id)) == 1
+    # A page that is no page, with a passage.
+    bad_page = await _attach(
+        web_client, case.id, csrf, attachment_id=str(attachment_id), passage="p", page="0"
+    )
+    assert "is not a page" in cs_text(bad_page.text, "error")
+    assert len(await _kept_now(app_engine, pm1, case.id)) == 1
+
+    # Without a passage the document itself is kept in the file: the page is
+    # dropped and Keep in does not apply.
+    plain = await _attach(
+        web_client,
+        case.id,
+        csrf,
+        upload=("side-letter.pdf", _SMALL_PDF, "application/pdf"),
+        page="4",
+        caption="ignored without a passage",
+    )
+    assert plain.status_code == 200
+    document = next(
+        row for row in await _kept_now(app_engine, pm1, case.id) if row.artifact == "document"
+    )
+    assert document.thread_id is None
+    assert "page" not in document.payload
+    assert document.caption == "side-letter.pdf"
+    assert "side-letter.pdf" in cs_text(_question(plain.text), "documents")
+
+    # Choosing a document already kept in the file again, without a passage,
+    # writes nothing — it is listed once.
+    before = len(await _kept_now(app_engine, pm1, case.id))
+    repeat = await _attach(web_client, case.id, csrf, attachment_id=str(document.attachment_id))
+    assert repeat.status_code == 200
+    assert len(await _kept_now(app_engine, pm1, case.id)) == before
+    assert cs_count(_question(repeat.text), "document") == 1
+
+
+async def test_a_generated_document_renders_the_pf_gen_anatomy(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4b-03 (D-CS-B-98): title, paragraphs from a blank-line body, Sources (2); no record entry."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Memos", opened_at=_T0)
+    entries_before = [entry.kind for entry in await _entries(app_engine, pm1, case.id)]
+    await _keep_generated(
+        app_engine,
+        pm1,
+        case.id,
+        body="Position: TVPI 1.21×.\n\n<b>Worth raising</b>: the hedge\nand the covenant.",
+    )
+    await _login(web_client, email, password)
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+
+    memo = cs_block(
+        cs_block(_threads(body), "kept-file"), "kept", data_pf_cs_kind="generated_document"
+    )
+    assert "pf-gen" in (wd_attr(memo, "class") or "").split()
+    assert "generated · Shirley · 21 Jul" in cs_text(memo)
+    assert cs_text(memo, "kept-caption") == "Memo · GP X Fund III"
+    paragraphs = re.findall(r"<p>(.*?)</p>", cs_block(memo, "generated-body"), flags=re.DOTALL)
+    assert [html.unescape(" ".join(p.split())) for p in paragraphs] == [
+        "Position: TVPI 1.21×.",
+        "<b>Worth raising</b>: the hedge and the covenant.",
+    ]
+    assert "<b>Worth raising</b>" not in memo  # plain text, autoescaped
+    assert cs_text(memo, "kept-sources") == "Sources (2)"
+    sources = cs_block(memo, "generated-sources")
+    assert '<a href="/cases/00000000-0000-0000-0000-000000000031">' in sources
+    assert "GP letter of 30 Sep" in cs_text(sources)
+    assert "gp.example" not in sources  # not an in-app path: the plain label
+    assert cs_count(memo, "kept-edit") == 1 and cs_count(memo, "kept-remove") == 1
+    assert cs_count(memo, "kept-open") == 0  # no PDF, no download (KO-CS-B §4)
+    assert [entry.kind for entry in await _entries(app_engine, pm1, case.id)] == entries_before
+    # The guard itself: only a one-slash in-app path links — a browser drops a
+    # tab from a URL, so "/<tab>/host" would be protocol-relative.
+    for href in ("//gp.example", "/\\gp.example", "/\t/gp.example", "https://gp.example", None):
+        assert cases_module._in_app_href(href) is None, href
+    assert cases_module._in_app_href("/cases/x") == "/cases/x"
+
+
+async def test_a_generated_document_is_edited_in_place_and_nothing_else_is(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-04 (ADR-0138 §9, D-CS-B-98): Edit rewrites title and body; any other class is immutable."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Edit", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Memos")
+    memo_id = await _keep_generated(app_engine, pm1, case.id, thread_id=thread.id)
+    answer_id = await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "Kept as said."},
+        caption="Shirley",
+        thread_id=thread.id,
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    (before,) = [row for row in await _kept_now(app_engine, pm1, case.id) if row.id == memo_id]
+
+    form = await web_client.get(f"/api/cases/{case.id}/kept/{memo_id}/generated/edit")
+    assert form.status_code == 200
+    edit = cs_block(form.text, "kept-edit-form")
+    assert wd_attr(edit, "hx-post") == f"/api/cases/{case.id}/kept/{memo_id}/generated"
+    assert wd_attr(edit, "hx-trigger") == "submit consume"
+    assert 'value="Memo · GP X Fund III"' in edit
+    assert "Worth raising: the hedge." in edit
+
+    saved = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/kept/{memo_id}/generated",
+        csrf,
+        title="Memo · Fund III, revised",
+        body="One.\r\n\r\nTwo.\r\n\r\nThree.",
+    )
+    assert saved.status_code == 200, saved.text
+    (after,) = [row for row in await _kept_now(app_engine, pm1, case.id) if row.id == memo_id]
+    assert after.payload == {
+        "title": "Memo · Fund III, revised",
+        "body": "One.\n\nTwo.\n\nThree.",
+        "sources": _GENERATED_SOURCES,
+    }
+    assert after.payload_sha256 != before.payload_sha256
+    memo = cs_block(_threads(saved.text), "kept", data_pf_cs_kind="generated_document")
+    assert cs_text(memo, "kept-caption") == "Memo · Fund III, revised"
+    assert cs_text(memo, "generated-body") == "One. Two. Three."
+    assert wd_attr(cs_block(saved.text, "thread", id=f"cs-thread-{thread.id}"), "open") == ""
+
+    # Any other class: the 400 note, the payload untouched.
+    for path in (f"{answer_id}/generated", f"{answer_id}/generated/edit"):
+        if path.endswith("edit"):
+            refused = await web_client.get(f"/api/cases/{case.id}/kept/{path}")
+        else:
+            refused = await _post_form(
+                web_client, f"/api/cases/{case.id}/kept/{path}", csrf, title="x", body="y"
+            )
+        assert refused.status_code == 400
+        assert refused.headers.get("HX-Reswap") == "none"
+        assert cs_text(refused.text, "note") == (
+            "Only a generated document is edited in place; everything else is immutable once kept."
+        )
+    (answer,) = [row for row in await _kept_now(app_engine, pm1, case.id) if row.id == answer_id]
+    assert answer.payload == {"excerpt": "Kept as said."}
+    untitled = await _post_form(
+        web_client, f"/api/cases/{case.id}/kept/{memo_id}/generated", csrf, title=" ", body="z"
+    )
+    assert untitled.status_code == 400
+
+    # A closed case is read-only: no Edit, no Remove; Sources stays.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).close(
+            case.id, closed_by=pm1, closing_note="filed", now=_T0 + timedelta(days=1)
+        )
+    closed = _threads((await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text)
+    assert cs_count(closed, "kept-edit") == 0
+    assert cs_count(closed, "kept-remove") == 0
+    assert cs_count(closed, "kept-sources") == 1
+    late = await _post_form(
+        web_client, f"/api/cases/{case.id}/kept/{memo_id}/generated", csrf, title="t", body="b"
+    )
+    assert "closed cases are read-only" in cs_text(late.text, "note")
+
+
+async def test_remove_takes_a_kept_row_and_a_document_out_of_the_file(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-05 (D-CS-B-99): removed_at, the block without the row; a document leaves the list."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Remove", opened_at=_T0)
+    other = await _seed_case(app_engine, opened_by=pm1, title="Other", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Fee step-up")
+    kept_id = await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "The step-up applies from year three."},
+        caption="Shirley on the step-up",
+        thread_id=thread.id,
+    )
+    foreign_id = await _keep_row(
+        app_engine,
+        pm1,
+        other.id,
+        artifact="consultation",
+        payload={"excerpt": "Another case's answer."},
+        caption="Elsewhere",
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    button = cs_block(cs_block(_threads(body), "kept"), "kept-remove")
+    assert wd_attr(button, "hx-post") == f"/api/cases/{case.id}/kept/{kept_id}/remove"
+    assert wd_attr(button, "hx-confirm") == _REMOVE_KEPT_CONFIRM
+    assert wd_attr(button, "type") == "button"
+
+    removed = await _post_form(web_client, f"/api/cases/{case.id}/kept/{kept_id}/remove", csrf)
+    assert removed.status_code == 200, removed.text
+    (row,) = [row for row in await _kept_now(app_engine, pm1, case.id) if row.id == kept_id]
+    assert row.removed_at is not None
+    rerendered = cs_block(_threads(removed.text), "thread", id=f"cs-thread-{thread.id}")
+    assert cs_count(rerendered, "kept") == 0
+    assert cs_count(rerendered, "thread-empty") == 1
+    assert wd_attr(rerendered, "open") == ""
+    assert cs_count(removed.text, "block", data_pf_cs_name="question") == 0  # not a document
+
+    # Removed already, another case's, unknown → 404; nothing changes.
+    for target in (kept_id, foreign_id, uuid4()):
+        missing = await _post_form(web_client, f"/api/cases/{case.id}/kept/{target}/remove", csrf)
+        assert missing.status_code == 404
+    assert all(row.removed_at is None for row in await _kept_now(app_engine, pm1, other.id))
+
+    # A document leaves the question block's list, which rides out of band.
+    attached = await _post_attach(web_client, case.id, csrf, filename="lpa.pdf")
+    (document,) = [
+        row for row in await _kept_now(app_engine, pm1, case.id) if row.artifact == "document"
+    ]
+    listed = cs_block(_question(attached.text), "document", data_pf_cs_kind="document")
+    assert wd_attr(cs_block(listed, "kept-remove"), "hx-post") == (
+        f"/api/cases/{case.id}/kept/{document.id}/remove"
+    )
+    gone = await _post_form(web_client, f"/api/cases/{case.id}/kept/{document.id}/remove", csrf)
+    question = _question(gone.text)
+    assert wd_attr(question, "hx-swap-oob") == "outerHTML"
+    assert cs_count(question, "document") == 0
+    assert len(await _attachments_now(app_engine, pm1, case.id)) == 1  # the bytes stay
+
+    # A closed case refuses calmly; the row stays.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).close(
+            other.id, closed_by=pm1, closing_note="filed", now=_T0 + timedelta(days=1)
+        )
+    closed = await _post_form(web_client, f"/api/cases/{other.id}/kept/{foreign_id}/remove", csrf)
+    assert closed.status_code == 200
+    assert "closed cases are read-only" in cs_text(closed.text, "note")
+    assert all(row.removed_at is None for row in await _kept_now(app_engine, pm1, other.id))
+
+
+async def test_file_as_renders_an_excerpt_removed_since_with_its_quote(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-06 (D-CS-M-5, D-CS-B-101): freeze, remove the excerpt — File as … still quotes it."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Frozen excerpt", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Hedge")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    quote = "Hedged at a minimum of 80 % of NAV at all times."
+    await _attach(
+        web_client,
+        case.id,
+        csrf,
+        upload=("ppm.pdf", _SMALL_PDF, "application/pdf"),
+        passage=quote,
+        page="23",
+        thread_id=str(thread.id),
+    )
+    (excerpt,) = await _kept_now(app_engine, pm1, case.id)
+    await _record_decision(
+        app_engine,
+        pm1,
+        case.id,
+        options=[{"key": "a", "text": "Raise it with the GP"}],
+        chosen_key="a",
+        rationale="The undertaking was not kept.",
+        now=datetime.now(timezone.utc),
+    )
+    removed = await _post_form(web_client, f"/api/cases/{case.id}/kept/{excerpt.id}/remove", csrf)
+    assert removed.status_code == 200
+
+    live = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert quote not in cs_text(_threads(live))
+    (decision,) = [
+        e for e in await _entries(app_engine, pm1, case.id) if e.kind == "decision_record"
+    ]
+    view = (await web_client.get(f"/api/cases/{case.id}/record/{decision.id}/file")).text
+    frozen = cs_block(
+        cs_block(view, "frozen-thread"), "frozen-kept", data_pf_cs_kind="document_excerpt"
+    )
+    assert quote in cs_text(frozen, "excerpt-quote")
+    assert "ppm.pdf · page 23 · attached" in cs_text(frozen, "excerpt-cite")
+    assert cs_count(frozen, "kept-remove") == 0 and cs_count(frozen, "kept-open") == 1
+    assert "<form" not in view
+
+
+async def test_file_as_keeps_the_generated_text_it_froze(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-07 (ADR-0138 §9, D-CS-B-101): frozen by value — an edit after leaves the freeze alone."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Frozen memo", opened_at=_T0)
+    memo_id = await _keep_generated(app_engine, pm1, case.id, body="The text as it was frozen.")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    await _wait_through_the_route(web_client, csrf, case.id)
+    edited = await _post_form(
+        web_client,
+        f"/api/cases/{case.id}/kept/{memo_id}/generated",
+        csrf,
+        title="Memo · GP X Fund III",
+        body="The text as edited after.",
+    )
+    assert edited.status_code == 200
+
+    (wait,) = [e for e in await _entries(app_engine, pm1, case.id) if e.kind == "waiting_set"]
+    view = (await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file")).text
+    frozen = cs_block(
+        cs_block(view, "frozen-kept-file"), "frozen-kept", data_pf_cs_kind="generated_document"
+    )
+    assert cs_text(frozen, "generated-body") == "The text as it was frozen."
+    assert cs_count(frozen, "kept-edit") == 0 and cs_count(frozen, "kept-sources") == 1
+    live = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    memo = cs_block(_threads(live), "kept", data_pf_cs_kind="generated_document")
+    assert cs_text(memo, "generated-body") == "The text as edited after."
+
+
+async def test_a_removed_threads_kept_rows_surface_in_the_file(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-08 (D-CS-B-100): the thread goes, its answer joins *Kept in the file*, its document the list."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Orphans", opened_at=_T0)
+    thread = await _seed_thread(app_engine, pm1, case.id, title="Dropped line")
+    attachment_id = await _seed_attachment(
+        app_engine, case_id=case.id, uploaded_by=pm1, filename="annex.pdf"
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "An answer worth keeping."},
+        caption="Shirley on the annex",
+        thread_id=thread.id,
+    )
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="document",
+        payload={
+            "attachment_id": str(attachment_id),
+            "filename": "annex.pdf",
+            "mime_type": "application/pdf",
+            "size_bytes": 13,
+        },
+        caption="annex.pdf",
+        thread_id=thread.id,
+        attachment_id=attachment_id,
+    )
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    before = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    assert cs_count(_question(before), "document") == 0  # in a live thread, not listed
+    assert cs_count(cs_block(_threads(before), "thread"), "kept", data_pf_cs_kind="document") == 1
+
+    removed = await _post_form(web_client, f"/api/cases/{case.id}/threads/{thread.id}/remove", csrf)
+    assert removed.status_code == 200
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    block = _threads(body)
+    assert wd_attr(block, "hidden") is None
+    group = cs_block(block, "kept-file")
+    assert cs_count(group, "kept", data_pf_cs_kind="consultation") == 1
+    assert cs_count(group, "kept", data_pf_cs_kind="document") == 0
+    assert "annex.pdf" in cs_text(_question(body), "documents")
+    item = cs_block(body, "outline-item", data_pf_cs_name="threads")
+    assert cs_text(item) == "Threads 0 · kept 1"
+
+
+async def test_the_threads_section_with_oob_carries_the_outline(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4b-09 (D-CS-B-104): ``?oob=1`` appends the bundle; without it no OOB element."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Outline", opened_at=_T0)
+    await _seed_thread(app_engine, pm1, case.id, title="One")
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="consultation",
+        payload={"excerpt": "Kept at file level."},
+        caption="File-level answer",
+    )
+    await _login(web_client, email, password)
+
+    plain = (await web_client.get(f"/api/cases/{case.id}/sections/threads")).text
+    assert "hx-swap-oob" not in plain
+    response = await web_client.get(f"/api/cases/{case.id}/sections/threads?oob=1")
+    assert response.status_code == 200
+    assert wd_attr(_threads(response.text), "hx-swap-oob") is None  # the block is the main swap
+    outline = cs_block(response.text, "outline")
+    assert wd_attr(outline, "hx-swap-oob") == "outerHTML"
+    assert cs_text(cs_block(outline, "outline-item", data_pf_cs_name="threads")) == (
+        "Threads 1 · kept 1"
+    )
+    assert response.text.index(cs("block", name="threads")) < response.text.index(cs("outline"))
+
+
+async def test_legacy_pins_read_whose_answer_and_chart_they_are(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4b-10 (D-CS-M-7, D-CS-B-102): the Record's legacy pins read *Shirley's answer* / *chart*."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Legacy", opened_at=_T0)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="pin",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={
+                "artifact": "consultation",
+                "comment": "the ranking, in Shirley's words",
+                "excerpt": "The 2031 ranks below the AT1.",
+            },
+            now=_T0 + timedelta(hours=1),
+        )
+        await seed_record_entry(
+            session,
+            tenant_id=SENTINEL_TENANT_ID,
+            case_id=case.id,
+            kind="pin",
+            actor="pm",
+            actor_user_id=pm1,
+            payload={
+                "artifact": "chart_snapshot",
+                "comment": "the trajectory",
+                "caption": "NAV",
+                "spec": _KEPT_SPEC,
+            },
+            now=_T0 + timedelta(hours=2),
+        )
+    await _login(web_client, email, password)
+    record = _record((await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text)
+    text_of_record = cs_text(record)
+    assert "Shirley's answer" in text_of_record and "Shirley's chart" in text_of_record
+    assert "pinned excerpt" not in text_of_record and "pinned chart" not in text_of_record
+    assert "the ranking, in Shirley's words" in text_of_record  # the comment says it was pinned
+    assert "The 2031 ranks below the AT1." in text_of_record

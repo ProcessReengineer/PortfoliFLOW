@@ -3,8 +3,11 @@
    by GET /api/cases/{id}/record/{entry_id}/file. Every key is read by name
    off the frozen payload (_frozen_file_context in web/routes/cases.py): the
    case head at that instant, the question's prose, Where we stand under
-   "as frozen …", the threads with their kept artefacts (references resolved,
-   removed rows included — D-CS-M-5; their full rendering is P-CS-4b's), the
+   "as frozen …", the threads with their kept artefacts and the ones kept in
+   the file, each in its class anatomy through cases_kept_row.html with
+   ``readonly`` (D-CS-B-101: references resolved, removed rows included —
+   D-CS-M-5; a generated document as frozen by value; no Remove, no Edit; the
+   hook frozen-kept), a reference that no longer resolves as its one line, the
    figures with their values as frozen, the conversations, the open points
    and the decisions, recorded and draft. Nothing here reads the book, and
    there is no form: the frozen file is a record. "Close" empties the slot.
@@ -12,8 +15,9 @@
    Context: frozen — {entry_id, head, close_href, case {title, state,
    state_label, wait_until, counterparty, due, owner}, question_title,
    description, stand_chip, stand (the _project_stand dict) | none,
-   stand_missing, threads [{title, status_label, prose, conclusion, kept}],
-   kept, figures, conversations, points_title, points, recorded, draft}. #}
+   stand_missing, threads [{title, status_label, prose, conclusion, kept,
+   kept_missing}], kept (rows, _project_kept_row), kept_missing (lines),
+   figures, conversations, points_title, points, recorded, draft}. #}
 <div class="pf-frozen" data-pf-cs="frozen-file">
     <div class="pf-frozen__head">
         <span class="pf-src pf-src--frozen" data-pf-cs="frozen-head">{{ frozen.head }}</span>
@@ -100,7 +104,7 @@
         {% endif %}
     </div>
 
-    {% if frozen.threads or frozen.kept %}
+    {% if frozen.threads or frozen.kept or frozen.kept_missing %}
         <div class="pf-frozen__block" data-pf-cs="frozen-threads">
             <h4 class="pf-frozen__title">Threads</h4>
             {% for thread in frozen.threads %}
@@ -108,13 +112,20 @@
                     <p class="pf-decision__line"><strong>{{ thread.title }}</strong> <span class="pf-hint">· {{ thread.status_label }}</span></p>
                     {% if thread.prose %}<p class="pf-prose">{{ thread.prose }}</p>{% endif %}
                     {% if thread.conclusion %}<p class="pf-hint">Conclusion: {{ thread.conclusion }}</p>{% endif %}
-                    {% if thread.kept %}
-                        <ul class="pf-case__lines" aria-label="Kept">{% for line in thread.kept %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
+                    {% for row in thread.kept %}{% include "_partials/cases_kept_row.html" %}{% endfor %}
+                    {% if thread.kept_missing %}
+                        <ul class="pf-case__lines" aria-label="Kept">{% for line in thread.kept_missing %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
                     {% endif %}
                 </div>
             {% endfor %}
-            {% if frozen.kept %}
-                <ul class="pf-case__lines" aria-label="Kept in the file">{% for line in frozen.kept %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
+            {% if frozen.kept or frozen.kept_missing %}
+                <div class="pf-frozen__thread" data-pf-cs="frozen-kept-file">
+                    <p class="pf-decision__line"><strong>Kept in the file</strong></p>
+                    {% for row in frozen.kept %}{% include "_partials/cases_kept_row.html" %}{% endfor %}
+                    {% if frozen.kept_missing %}
+                        <ul class="pf-case__lines" aria-label="Kept in the file">{% for line in frozen.kept_missing %}<li data-pf-cs="frozen-kept">{{ line }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
             {% endif %}
         </div>
     {% endif %}

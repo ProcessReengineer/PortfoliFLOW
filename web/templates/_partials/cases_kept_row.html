@@ -1,19 +1,47 @@
 {# One kept artefact in the file (ADR-0138 §9, D-CS-B-90) — inside its thread,
-   between the prose and the status / conclusion, or in the Threads block's
-   trailing "Kept in the file" group. M-CS-2's pf-kept: the head is a pf-src
-   chip ("kept from Shirley · dd Mon", "kept from the Planning Desk · dd Mon",
-   or "document · filename"), the caption and "kept by <name>"; the body is the
-   class's anatomy from cases_artifact.html, the one a legacy pin in the Record
-   renders too. Removing a kept row (removed_at) and the comment on it are
-   P-CS-4b's and later.
+   between the prose and the status / conclusion, in the Threads block's
+   trailing "Kept in the file" group, or in a frozen file. M-CS-2's pf-kept:
+   the head is a pf-src chip ("kept from Shirley · dd Mon", "kept from the
+   Planning Desk · dd Mon", "document · filename", "document · filename, p. n"
+   or "generated · Shirley · dd Mon"), the caption (a generated document's
+   title) and "kept by <name>", then the actions right-aligned (D-CS-B-105):
+   Open (a document's or an excerpt's download), Edit and Sources (n) (a
+   generated document), Remove. The body is the class's anatomy from
+   cases_artifact.html, the one a legacy pin in the Record renders too. A
+   generated document draws on M-CS-2's pf-gen card.
 
-   Context: row — {id, artifact, caption, chip: {tone, text}, kept_by, art}
-   (_project_kept_row in web/routes/cases.py). #}
-<div class="pf-kept" id="cs-kept-{{ row.id }}" data-pf-cs="kept" data-pf-cs-kind="{{ row.artifact }}">
-    <div class="pf-kept__head">
+   Remove (D-CS-B-99) asks first with a native confirm (the walk-1 ruling) and
+   re-renders the Threads block; Edit swaps the in-place form over the
+   generated document's body (cases_kept_generated_edit.html); Sources opens
+   the body's <details> list. Every control is type="button" — a row in a
+   thread sits inside the thread's form — and Remove carries its own token, so
+   it works in the file-level group too. On a closed case and with
+   ``row.readonly`` (a frozen file: the hook is frozen-kept, no element id —
+   the live row owns it) only Open and Sources remain.
+
+   Context: row — {id, artifact, caption, chip: {tone, text}, kept_by,
+   readonly, actions: {open_href, edit_href, sources, remove_href}, art}
+   (_project_kept_row in web/routes/cases.py); csrf_token. #}
+{% set gen = row.artifact == "generated_document" %}
+<div class="pf-kept{% if gen %} pf-gen{% endif %}"{% if not row.readonly %} id="cs-kept-{{ row.id }}"{% endif %} data-pf-cs="{{ 'frozen-kept' if row.readonly else 'kept' }}" data-pf-cs-kind="{{ row.artifact }}">
+    <div class="pf-kept__head{% if gen %} pf-gen__head{% endif %}">
         <span class="pf-src pf-src--{{ row.chip.tone }}">{{ row.chip.text }}</span>
         {% if row.caption %}<strong data-pf-cs="kept-caption">{{ row.caption }}</strong>{% endif %}
         <span class="pf-hint">kept by {{ row.kept_by }}</span>
+        {% if row.actions.open_href %}<a class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="kept-open" href="{{ row.actions.open_href }}">Open</a>{% endif %}
+        {% if row.actions.edit_href %}<button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="kept-edit"
+                hx-get="{{ row.actions.edit_href }}"
+                hx-target="next .pf-gen__body"
+                hx-swap="outerHTML">Edit</button>{% endif %}
+        {% if row.actions.sources %}<button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="kept-sources"
+                aria-expanded="false"{% if row.art.sources_id %} aria-controls="{{ row.art.sources_id }}"{% endif %}
+                hx-on:click="const d=this.closest('.pf-kept').querySelector('.pf-gen__sources'); d.open=!d.open; this.setAttribute('aria-expanded', String(d.open))">Sources ({{ row.actions.sources }})</button>{% endif %}
+        {% if row.actions.remove_href %}<button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="kept-remove"
+                hx-post="{{ row.actions.remove_href }}"
+                hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'
+                hx-target="#cs-threads"
+                hx-swap="outerHTML"
+                hx-confirm="Remove this from the file? It stays in the record and in the frozen files.">Remove</button>{% endif %}
     </div>
     {% with art = row.art %}{% include "_partials/cases_artifact.html" %}{% endwith %}
 </div>

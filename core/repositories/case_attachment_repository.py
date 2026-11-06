@@ -6,12 +6,13 @@
 Backs the ``case_attachments`` table (migration b031), kept separate from
 :class:`~core.repositories.case_repository.CaseRepository` so byte handling
 stays out of the case timeline's way. Attachments are addressed **only**
-through their pin entry (ADR-0107 §7, the DMS boundary): there are no
-folders, no versioning, no content search.
+through a kept artefact of class ``document`` or ``document_excerpt``
+(ADR-0138 §5; a legacy pin entry before it, ADR-0107 §7, the DMS boundary):
+there are no folders, no versioning, no content search.
 
 The metadata DTO deliberately omits ``content`` — the bytes are loaded only
-by :meth:`CaseAttachmentRepository.get_with_content`, and the list / count
-reads never touch the BYTEA column. Size / count caps and the MIME-type
+by :meth:`CaseAttachmentRepository.get_with_content`, and the get / list /
+count reads never touch the BYTEA column. Size / count caps and the MIME-type
 whitelist are configuration enforced at the route layer, not here; the only
 guard this layer owns is closed-case immutability (ADR-0107 §4).
 """
@@ -155,6 +156,20 @@ class CaseAttachmentRepository(BaseRepository):
         if model is None:
             return None
         return _attachment_to_dto(model), model.content
+
+    async def get(self, attachment_id: UUID) -> CaseAttachmentDTO | None:
+        """Return one attachment's metadata, or ``None`` if absent (or foreign under RLS).
+
+        The BYTEA ``content`` column is never selected — the read the attach
+        composer uses when a passage is kept from a document already on the
+        case (ADR-0138 §5, D-CS-B-97).
+        """
+        row = (
+            await self._session.execute(
+                select(*_ATTACHMENT_METADATA_COLUMNS).where(CaseAttachment.id == attachment_id)
+            )
+        ).one_or_none()
+        return CaseAttachmentDTO(**row._mapping) if row is not None else None
 
     async def list_for_case(self, case_id: UUID) -> list[CaseAttachmentDTO]:
         """Return a case's attachments (metadata only), oldest first.

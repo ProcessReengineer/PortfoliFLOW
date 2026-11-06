@@ -1,15 +1,26 @@
-{# Attach-document composer (ADR-0138 §5, D-CS-B-47). Opened into
+{# Attach-document composer (ADR-0138 §5, D-CS-B-96, D-CS-B-97). Opened into
    #case-composer-slot by the actions row's "Attach document…"; posts a
-   multipart body to /api/cases/{id}/attachments. The attachment alone is the
-   document link — no comment, no record entry (§9 retires the pin ceremony).
-   On success the route re-renders The question (#cs-question, its documents
-   list) and, out of band, the facts with the attachments count and an empty
-   composer slot. A refusal (the pin composer's gates and caps) re-renders
-   this form into the slot carrying ``error``; the file input cannot survive
-   a re-render, so the file is chosen again.
+   multipart body to /api/cases/{id}/attachments. The Document is either a new
+   upload or one of the case's attachments (a second passage from the same PDF
+   needs no second upload) — exactly one. Without a passage the document
+   itself is kept in the file (a `document` kept row; a page is dropped); with
+   one the passage is kept where Keep in says, as a `document_excerpt` with its
+   page and caption (the passage's first line when the caption is empty). No
+   comment, no record entry (§9 retires the pin ceremony).
 
-   Context: case_id, csrf_token, caps_hint (the visible caps line), error
-   (optional). #}
+   On success the route re-renders The question (#cs-question, its documents
+   list), the Threads block out of band (an excerpt shows at once) and, out of
+   band, the facts with the attachments count and an empty composer slot. A
+   refusal (the file gates and caps, the choice of document, the page, a
+   thread gone since) re-renders this form into the slot carrying ``error``
+   and what was typed; the file input cannot survive a re-render, so a file is
+   chosen again. The page is text with a numeric keyboard (ui-standards R10:
+   no native number field), read on the server.
+
+   Context: case_id, csrf_token, caps_hint (the visible caps line), hint,
+   attachments [{id, filename, size}], threads [{id, title}] (live), error
+   and posted ({attachment_id, passage, page, caption, thread_id}) — both
+   optional. #}
 <form class="pf-case-composer" data-pf-cs="composer" data-pf-cs-kind="attach"
       hx-post="/api/cases/{{ case_id }}/attachments"
       hx-target="#cs-question"
@@ -20,11 +31,47 @@
     {% if error %}
         <p class="pf-case-composer__error" role="alert" data-pf-cs="error">{{ error }}</p>
     {% endif %}
+    <div class="pf-case__meta">
+        <label class="pf-field">
+            <span class="pf-label">Document</span>
+            <input class="pf-input" type="file" name="file" autofocus>
+        </label>
+        {% if attachments %}
+            <label class="pf-field">
+                <span class="pf-sr">A document already attached</span>
+                <select class="pf-select" name="attachment_id" data-pf-cs="attach-existing">
+                    <option value="">— or one already attached —</option>
+                    {% for attachment in attachments %}
+                        <option value="{{ attachment.id }}"{% if posted and posted.attachment_id == attachment.id %} selected{% endif %}>{{ attachment.filename }} · {{ attachment.size }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        {% endif %}
+    </div>
     <label class="pf-field pf-field--full">
-        <span class="pf-label">Document</span>
-        <input class="pf-input" type="file" name="file" required autofocus>
+        <span class="pf-label">Passage <span class="pf-optional">(optional — makes this an excerpt)</span></span>
+        <textarea class="pf-textarea" name="passage" rows="4" data-pf-cs="attach-passage">{{ posted.passage if posted else "" }}</textarea>
     </label>
-    <p class="pf-case-composer__hint">{{ caps_hint }}</p>
+    <div class="pf-case__meta">
+        <label class="pf-field">
+            <span class="pf-label">Page</span>
+            <input class="pf-input" type="text" inputmode="numeric" name="page" autocomplete="off" value="{{ posted.page if posted else '' }}">
+        </label>
+        <label class="pf-field">
+            <span class="pf-label">Caption</span>
+            <input class="pf-input" type="text" name="caption" autocomplete="off" value="{{ posted.caption if posted else '' }}">
+        </label>
+        <label class="pf-field">
+            <span class="pf-label">Keep in</span>
+            <select class="pf-select" name="thread_id" data-pf-cs="attach-target">
+                <option value="">The file</option>
+                {% for thread in threads %}
+                    <option value="{{ thread.id }}"{% if posted and posted.thread_id == thread.id %} selected{% endif %}>{{ thread.title }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+    <p class="pf-case-composer__hint">{{ caps_hint }} {{ hint }}</p>
     <div class="pf-case-composer__actions">
         <button type="button" class="pf-btn"
                 hx-get="/api/cases/{{ case_id }}/composer/cancel"

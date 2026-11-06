@@ -1,8 +1,11 @@
 {# One artefact's class body (ADR-0138 §9, D-CS-B-90) — shared by a legacy pin in
-   the Record (cases_detail_timeline.html) and a kept row in the file
-   (cases_kept_row.html), so both render one anatomy. The four bodies moved here
-   verbatim from the timeline (P-CS-4a); their variables read one ``art`` dict,
-   projected by _project_kept_payload in web/routes/cases.py.
+   the Record (cases_detail_timeline.html) and a kept row in the file or in a
+   frozen file (cases_kept_row.html), so all render one anatomy. The first four
+   bodies moved here verbatim from the timeline (P-CS-4a); P-CS-4b adds the two
+   kept classes no pin ever carried. Their variables read one ``art`` dict,
+   projected by _project_kept_payload in web/routes/cases.py. The titles say
+   whose words or figure it is — "Shirley's answer", "Shirley's chart"
+   (D-CS-B-102); a legacy pin's pf-pin__comment says what was pinned.
 
      document          — the attached document, filename linking to the
                          download endpoint, and its human-legible size.
@@ -22,12 +25,21 @@
                          The spec rides in an inert ``application/json`` block
                          via ``|tojson`` (which escapes ``<``/``>``/``&``/``'``),
                          never interpolated into JavaScript source.
+     document_excerpt  — M-CS-2's excerpt (D-CS-B-97): the passage quoted, its
+                         cite "filename · page n · attached dd Mon by Name",
+                         the filename linking to the download.
+     generated_document — M-CS-2's pf-gen body (D-CS-B-98): plain-text
+                         paragraphs, autoescaped (no Markdown), and the sources
+                         as a <details> list the head's "Sources (n)" opens (its
+                         own summary stays hidden), a source linked only when
+                         it is an in-app path. The head's Edit swaps the form
+                         over the body.
 
-   Any other class — document_excerpt and generated_document until P-CS-4b —
-   reads as the calm one-liner *{class} · caption*; the payload never renders.
+   Any other class reads as the calm one-liner *{class} · caption*; the payload
+   never renders.
 
    Context: art — {artifact, the class's keys; label and kept_caption for the
-   one-liner}. #}
+   one-liner; an excerpt's attached, a generated document's sources_id}. #}
 {% if art.artifact == "document" %}
                         <div class="pf-artifact pf-artifact--doc">
                             <span class="icon" aria-hidden="true">⎘</span>
@@ -105,12 +117,12 @@
                         </div>
 {% elif art.artifact == "consultation" %}
                         <div class="pf-artifact pf-artifact--consultation">
-                            <span class="pf-artifact__title">Shirley — pinned excerpt</span>
+                            <span class="pf-artifact__title">Shirley's answer</span>
                             <blockquote class="pf-quote">{{ art.excerpt }}</blockquote>
                         </div>
 {% elif art.artifact == "chart_snapshot" %}
                         <div class="pf-artifact pf-artifact--chart">
-                            <span class="pf-artifact__title">Shirley — pinned chart</span>
+                            <span class="pf-artifact__title">Shirley's chart</span>
                             <div class="pf-chartsnap" data-pf-chart>
                                 <div class="pf-chartsnap__plot" data-pf-chart-plot></div>
                                 <script type="application/json" data-pf-chart-spec>{{ art.spec | tojson }}</script>
@@ -119,6 +131,22 @@
                                 <span class="pf-chartsnap__caption">{{ art.caption }}</span>
                             {% endif %}
                         </div>
+{% elif art.artifact == "document_excerpt" %}
+                        <blockquote class="pf-quote" data-pf-cs="excerpt-quote">{{ art.passage }}<cite data-pf-cs="excerpt-cite"><a href="{{ art.download_href }}">{{ art.filename }}</a>{% if art.page %} · page {{ art.page }}{% endif %}{% if art.attached %} · {{ art.attached }}{% endif %}</cite></blockquote>
+{% elif art.artifact == "generated_document" %}
+                        <div class="pf-gen__body" data-pf-cs="generated-body">
+                            {% for paragraph in art.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+                        </div>
+                        {% if art.sources %}
+                            <details class="pf-gen__sources"{% if art.sources_id %} id="{{ art.sources_id }}"{% endif %} data-pf-cs="generated-sources">
+                                <summary>Sources</summary>
+                                <ul>
+                                    {% for source in art.sources %}
+                                        <li>{% if source.href %}<a href="{{ source.href }}">{{ source.label }}</a>{% else %}{{ source.label }}{% endif %}</li>
+                                    {% endfor %}
+                                </ul>
+                            </details>
+                        {% endif %}
 {% else %}
                         <p class="pf-hint" data-pf-cs="kept-fallback">{{ art.label }}{% if art.kept_caption %} · {{ art.kept_caption }}{% endif %}</p>
 {% endif %}

@@ -15,8 +15,8 @@ ASGI-level tests over a live Postgres. Three surfaces are exercised:
 * **Keep** — every answer and every figure carries ``Keep →`` (one click into
   the session's keep target: the stashed case, at file level or in its thread)
   and ``Keep to…`` (the picker). No comment, no dialog: a ``case_kept`` row,
-  ``via="keep"`` (CS4a-01…06). The consultation and chart pin dialogs are
-  retired;
+  ``via="keep"`` (CS4a-01…06); the kept line's *Undo* removes the row again
+  (CS4b-11). The consultation and chart pin dialogs are retired;
 * the **briefing hand-off** — the same stash, generalised to a second kind: a
   written Watch Desk briefing set by a CSRF-protected POST, bannered in the
   dock, and appended to the prompt as its own fenced block (obligation 17).
@@ -875,6 +875,72 @@ async def test_a_waiting_case_marker_banners_and_briefs(
     briefed = core.last_system_prompt or ""
     assert "<<<PORTFOLIFLOW CASE BRIEF>>>" in briefed
     assert "State: waiting" in briefed
+
+
+async def test_the_kept_line_undoes_the_keep(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS4b-11 (D-CS-B-99): Undo removes the row (removed_at), the gestures return; twice is calm."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Undo target")
+    msg = Message(role=MessageRole.ASSISTANT, content="An answer kept by mistake.")
+    client, _core = await client_factory(_finish_events(msg))
+    csrf = await _login_and_csrf(client, email, password)
+    await _drive_turn(client, csrf)
+    await client.get(f"/assistants?case={case_id}")
+
+    kept = await _keep(client, csrf, message_id=msg.id, pick="")
+    (row,) = await _kept_rows(app_engine, actor_id, case_id)
+    undo = re.search(r'<button[^>]*data-pf-keep="undo"[^>]*>', kept.text, flags=re.DOTALL)
+    assert undo is not None, kept.text
+    raw_vals = re.search(r"hx-vals='([^']*)'", undo.group(0))
+    assert raw_vals is not None
+    vals = json.loads(html.unescape(raw_vals.group(1)))
+    assert vals == {"kept_id": str(row.id), "message_id": msg.id, "artifact_id": ""}
+    assert 'hx-post="/api/chat/keep/undo"' in undo.group(0)
+    assert 'hx-target="closest .chat-keep"' in undo.group(0)
+
+    undone = await client.post(
+        "/api/chat/keep/undo",
+        data={"kept_id": str(row.id), "message_id": msg.id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert undone.status_code == 200, undone.text
+    assert _trigger(undone) == {"pf:case-kept": {"case_id": str(case_id)}}
+    assert 'data-pf-keep="message"' in undone.text and "Keep to…" in undone.text
+    assert f'data-pf-keep-ref="{msg.id}"' in undone.text
+    assert await _kept_rows(app_engine, actor_id, case_id) == []  # removed, not deleted:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        gone = await CaseKeptRepository(session).get(row.id)
+    assert gone is not None and gone.removed_at is not None
+
+    again = await client.post(
+        "/api/chat/keep/undo",
+        data={"kept_id": str(row.id), "message_id": msg.id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert 'data-pf-keep="unavailable"' in again.text and "Already removed." in again.text
+    assert "HX-Trigger" not in again.headers
+    unknown = await client.post(
+        "/api/chat/keep/undo",
+        data={"kept_id": "not-an-id", "message_id": msg.id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert "Already removed." in unknown.text
+
+    # A case closed since the keep: the calm state, the row stays.
+    await _keep(client, csrf, message_id=msg.id, pick="")
+    (second,) = await _kept_rows(app_engine, actor_id, case_id)
+    await _close_case(app_engine, actor_id, case_id)
+    closed = await client.post(
+        "/api/chat/keep/undo",
+        data={"kept_id": str(second.id), "message_id": msg.id},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert "That case is closed." in closed.text
+    assert [kept.id for kept in await _kept_rows(app_engine, actor_id, case_id)] == [second.id]
 
 
 # ---------------------------------------------------------------------------

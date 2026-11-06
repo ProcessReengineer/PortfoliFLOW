@@ -18,11 +18,17 @@
    The note slot renders `question.note` itself when the block is re-rendered
    (see cases_file_conversations.html; the 3c report's F-3c-5).
 
+   The documents are the file's `document` kept rows (ADR-0138 §5,
+   D-CS-B-96): the filename linking to the download, the size, "kept dd Mon by
+   Name"; on an open or waiting case a quiet Remove (D-CS-B-99, a native
+   confirm) answers the Threads block, with this block out of band. With
+   `question.oob` the block rides out of band so (the P-CS-3c points idiom).
+
    Context: case_id, csrf_token, is_mutable, stamp, reveal, question —
    {title, case_title, framing, sub, origin, description, counterparty,
-   due_on, due_label, managers, documents: [{filename, size, uploaded,
-   href}]}. #}
-<section class="pf-blk" id="cs-question" data-pf-cs="block" data-pf-cs-name="question">
+   due_on, due_label, managers, documents: [{filename, size, kept, kept_by,
+   href, kept_id, remove_href}], note, oob}. #}
+<section class="pf-blk" id="cs-question" data-pf-cs="block" data-pf-cs-name="question"{% if question.oob %} hx-swap-oob="outerHTML"{% endif %}>
     <div class="pf-blk__head">
         <h3 class="pf-blk__title">{{ question.title }}</h3>
         <span class="pf-blk__sub">{{ question.sub }}</span>
@@ -97,7 +103,13 @@
     {% if question.documents %}
         <ul class="pf-case__documents" id="cs-documents" data-pf-cs="documents" aria-label="Documents">
             {% for doc in question.documents %}
-                <li data-pf-cs="document"><a href="{{ doc.href }}">{{ doc.filename }}</a> <span class="pf-hint">· {{ doc.size }} · uploaded {{ doc.uploaded }}</span></li>
+                <li data-pf-cs="document" data-pf-cs-kind="document"><a href="{{ doc.href }}">{{ doc.filename }}</a> <span class="pf-hint">· {{ doc.size }} · kept {{ doc.kept }} by {{ doc.kept_by }}</span>
+                    {%- if doc.remove_href %} <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-cs="kept-remove"
+                            hx-post="{{ doc.remove_href }}"
+                            hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'
+                            hx-target="#cs-threads"
+                            hx-swap="outerHTML"
+                            hx-confirm="Remove this from the file? It stays in the record and in the frozen files.">Remove</button>{% endif %}</li>
             {% endfor %}
         </ul>
     {% endif %}

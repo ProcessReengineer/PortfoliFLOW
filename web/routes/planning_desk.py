@@ -90,7 +90,7 @@ from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -182,13 +182,16 @@ from web.brief_stash import BRIEF_KIND_CASE, ActiveBrief, _get_active_brief, _se
 from web.case_keep import (
     KEEP_CASE_GONE_MESSAGE,
     KEEP_THREAD_GONE_MESSAGE,
+    UNDO_ALREADY_REMOVED_MESSAGE,
     KeepTarget,
+    clip_caption,
     keep_artifact,
     keep_trigger,
     kept_line_context,
     picker_options,
     posted_target,
     resolve_keep_target,
+    undo_keep,
 )
 
 logger = logging.getLogger(__name__)
@@ -212,9 +215,11 @@ AREA_URL: str = "/planning-desk"
 #: Keep (ADR-0138 §8 channel 2, §9): ``POST`` keeps the result on screen as a
 #: ``scenario_snapshot`` into the target case (or answers the picker); ``GET``
 #: clears the slot. The picker re-renders for another case from
-#: ``KEEP_PICKER_URL``.
+#: ``KEEP_PICKER_URL``; the kept line's Undo posts to ``KEEP_UNDO_URL``
+#: (D-CS-B-99).
 KEEP_URL: str = "/api/planning-desk/keep"
 KEEP_PICKER_URL: str = "/api/planning-desk/keep/picker"
+KEEP_UNDO_URL: str = "/api/planning-desk/keep/undo"
 
 #: The `case=` query key — the navigation marker a case sets when it sends the PM
 #: to the Desk "capturing for" it (ADR-0107 C5, binding decision 4). It is *not*
@@ -2877,8 +2882,9 @@ def _composition_notice(request: Request, message: str) -> HTMLResponse:
 #: to select the scenario-snapshot anatomy.
 _SNAPSHOT_ARTIFACT: str = "scenario_snapshot"
 
-#: Every kept scenario's caption (D-CS-B-85).
-_SNAPSHOT_CAPTION: str = "Scenario snapshot"
+#: A kept scenario's caption leads with this; the parameter chips follow
+#: (D-CS-B-85, D-CS-B-103).
+_SNAPSHOT_CAPTION_LEAD: str = "Scenario snapshot"
 
 #: The Cases area page the picker's no-case state links out to.
 _CASES_AREA_URL: str = "/cases"
@@ -2903,6 +2909,24 @@ def _partial(
             request, template, context, status_code=status_code, headers=headers
         ),
     )
+
+
+def _snapshot_caption(chips: list[dict[str, Any]]) -> str:
+    """A kept scenario's caption from its parameter chips (D-CS-B-103, D-4b-8).
+
+    *Scenario snapshot · {the chip labels joined by ", "}*, clipped to 120
+    characters (:func:`web.case_keep.clip_caption`), so several snapshots kept
+    in one thread read apart in the head; *Scenario snapshot · baseline* when
+    no parameter is in force.
+
+    Args:
+        chips: The snapshot's frozen chips (``label`` · ``css_class``).
+
+    Returns:
+        The caption.
+    """
+    labels = ", ".join(str(chip.get("label") or "") for chip in chips if chip.get("label"))
+    return clip_caption(f"{_SNAPSHOT_CAPTION_LEAD} · {labels or 'baseline'}")
 
 
 def _snapshot_chips(chips: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -3139,12 +3163,12 @@ async def post_keep(
     none, or ``pick=1``, answers the picker → the state yields a result (else
     *no result to keep*) → the case still takes writes (else the picker with
     the refusal). Then one ``case_kept`` row, ``scenario_snapshot``,
-    ``via="keep"``, caption *Scenario snapshot*.
+    ``via="keep"``, its caption from the chips (:func:`_snapshot_caption`).
 
     The kept line answers into ``#pd-keep-slot`` with ``HX-Trigger``
     ``pf:case-kept`` (and ``pf:brief-changed`` when a posted target became
-    the brief, D-CS-B-86). The Desk keeps its state, so the PM can keep
-    another right away.
+    the brief, D-CS-B-86), and carries *Undo* (D-CS-B-99). The Desk keeps
+    its state, so the PM can keep another right away.
     """
     form = getattr(request.state, "form", None)
     if form is None:
@@ -3201,7 +3225,7 @@ async def post_keep(
                     target=target,
                     artifact=_SNAPSHOT_ARTIFACT,
                     payload={"snapshot": snapshot},
-                    caption=_SNAPSHOT_CAPTION,
+                    caption=_snapshot_caption(snapshot["chips"]),
                     kept_by=session.user_id,
                     now=datetime.now(timezone.utc),
                 )
@@ -3242,6 +3266,53 @@ async def post_keep(
     return _partial(
         request,
         _KEEP_TEMPLATE,
-        {"mode": "done", **line},
+        {
+            "mode": "done",
+            "csrf_token": session.csrf_token,
+            "undo_url": KEEP_UNDO_URL,
+            **line,
+        },
         headers={"HX-Trigger": keep_trigger(target.case.id, brief_changed=brief_changed)},
+    )
+
+
+@router.post(KEEP_UNDO_URL, response_class=HTMLResponse)
+async def post_keep_undo(
+    request: Request,
+    kept_id: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Undo a keep from the Desk's kept line (D-CS-B-99): ``removed_at``, never a delete.
+
+    The gestures stay in the results region, so a successful undo empties
+    ``#pd-keep-slot`` and raises ``pf:case-kept`` (a case on screen drops the
+    row). A row already removed, unknown or another tenant's answers the calm
+    *Already removed.*; a case closed since, *That case is closed.* — in the
+    slot, nothing written (:func:`web.case_keep.undo_keep`).
+    """
+    try:
+        kept_uuid: UUID | None = UUID(kept_id.strip())
+    except ValueError:
+        kept_uuid = None
+    if kept_uuid is None:
+        return _partial(
+            request,
+            _KEEP_TEMPLATE,
+            {"mode": "unavailable", "message": UNDO_ALREADY_REMOVED_MESSAGE},
+        )
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
+        undone = await undo_keep(db_session, kept_id=kept_uuid)
+    if isinstance(undone, str):
+        return _partial(request, _KEEP_TEMPLATE, {"mode": "unavailable", "message": undone})
+    logger.info(
+        "planning desk: keep undone tenant=%s user=%s case=%s kept=%s",
+        session.tenant_id,
+        session.user_id,
+        undone.case_id,
+        undone.id,
+    )
+    return HTMLResponse(
+        "", headers={"HX-Trigger": keep_trigger(undone.case_id, brief_changed=False)}
     )

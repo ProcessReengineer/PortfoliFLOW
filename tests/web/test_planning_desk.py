@@ -2379,7 +2379,8 @@ async def test_a_kept_snapshot_equals_the_rendered_results(
     same state: every KPI pair string, both feet and every parameter chip it
     froze is the string the region shows — the C0 sentence made literal. The
     stored query is scenario state, so it carries no ``case=`` marker. No
-    comment, ``via="keep"``, file level, caption *Scenario snapshot*.
+    comment, ``via="keep"``, file level, caption *Scenario snapshot · {chips}*
+    (D-CS-B-103; CS4b-12 pins the caption itself).
     """
     actor_id, email, password = seeded_user
     equity_id = await _seed_book(actor_id)
@@ -2402,7 +2403,7 @@ async def test_a_kept_snapshot_equals_the_rendered_results(
 
     (row,) = await _kept_snapshots(actor_id, case_id)
     assert (row.via, row.thread_id, row.comment) == ("keep", None, None)
-    assert row.caption == "Scenario snapshot"
+    assert row.caption is not None and row.caption.startswith("Scenario snapshot · ")
     assert set(row.payload) == {"snapshot"}
     snap = row.payload["snapshot"]
     # The stored query is documentation, and it is scenario state: no marker.
@@ -2568,6 +2569,69 @@ async def test_a_waiting_marker_captures_and_the_stash_thread_follows_the_same_c
         thread_id,
         thread_id,
     ]
+
+
+async def test_a_kept_snapshot_is_captioned_by_its_chips_and_the_kept_line_undoes_it(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS4b-12 (D-CS-B-103, D-CS-B-99): *Scenario snapshot · {chips}* / *· baseline*; Undo."""
+    actor_id, email, password = seeded_user
+    equity_id = await _seed_book(actor_id)
+    await _seed_limit_sets(actor_id)
+    case_id, _ = await _seed_case(actor_id, title="Captions")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    kept = await web_client.post(
+        KEEP_URL,
+        data={"csrf_token": csrf, "pick": "", "case": str(case_id), **dict(_keep_state(equity_id))},
+    )
+    assert 'data-pf-keep="done"' in kept.text, kept.text
+    (row,) = await _kept_snapshots(actor_id, case_id)
+    labels = [chip["label"] for chip in row.payload["snapshot"]["chips"]]
+    assert labels, "the state froze no chip"
+    assert row.caption == "Scenario snapshot · " + ", ".join(labels)
+
+    baseline = {
+        "periodisation": "quarterly",
+        "horizon": "8",
+        "currency_view": "per-currency",
+        "view": "scenario",
+    }
+    plain = await web_client.post(
+        KEEP_URL, data={"csrf_token": csrf, "pick": "", "case": str(case_id), **baseline}
+    )
+    assert 'data-pf-keep="done"' in plain.text, plain.text
+    captions = sorted(str(r.caption) for r in await _kept_snapshots(actor_id, case_id))
+    assert "Scenario snapshot · baseline" in captions
+
+    # The kept line's Undo: removed_at, the slot emptied, the case told.
+    undo = re.search(r'<button[^>]*data-pf-keep="undo"[^>]*>', plain.text, flags=re.DOTALL)
+    assert undo is not None
+    assert 'hx-post="/api/planning-desk/keep/undo"' in undo.group(0)
+    assert 'hx-target="#pd-keep-slot"' in undo.group(0)
+    (baseline_row,) = [
+        r for r in await _kept_snapshots(actor_id, case_id) if str(r.caption).endswith("baseline")
+    ]
+    assert f"{baseline_row.id}" in html.unescape(undo.group(0))
+    undone = await web_client.post(
+        f"{KEEP_URL}/undo",
+        data={"kept_id": str(baseline_row.id)},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert undone.status_code == 200
+    assert undone.text == ""
+    assert json.loads(undone.headers["HX-Trigger"]) == {"pf:case-kept": {"case_id": str(case_id)}}
+    assert [r.id for r in await _kept_snapshots(actor_id, case_id)] == [row.id]
+    again = await web_client.post(
+        f"{KEEP_URL}/undo",
+        data={"kept_id": str(baseline_row.id)},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert 'data-pf-keep="unavailable"' in again.text and "Already removed." in again.text
+    assert "HX-Trigger" not in again.headers
 
 
 # ---------------------------------------------------------------------------

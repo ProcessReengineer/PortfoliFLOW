@@ -1,7 +1,16 @@
 {# The kept line (ADR-0138 §8, D-CS-B-88, D-4a-2) — replaces the gestures after
    a keep, the mock's .bubble__kept: "Kept to CASE-nnnn · thread "…" · HH:MM"
    (or "· the file"). The badge opens the case at the thread, or at its Threads
-   block for a file-level keep. Undo arrives with P-CS-4b's removed_at.
+   block for a file-level keep. Undo (D-CS-B-99) removes the row (removed_at) and
+   answers the two gestures again into the same container, so the PM can keep
+   elsewhere; a lone button, so it carries its own token and handles.
 
-   Context: badge, href, where, when, ref. #}
-<div class="chat-keep chat-keep--done" role="status" data-pf-keep="done" data-pf-keep-ref="{{ ref }}">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}</div>
+   Context: badge, href, where, when, ref, kept_id, undo_url, csrf_token, kind,
+   message_id, artifact_id. #}
+<div class="chat-keep chat-keep--done" role="status" data-pf-keep="done" data-pf-keep-ref="{{ ref }}">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}
+    <button type="button" class="chat-keep__btn chat-keep__btn--quiet" data-pf-keep="undo"
+            hx-post="{{ undo_url }}"
+            hx-vals='{{ {"kept_id": kept_id, "message_id": message_id, "artifact_id": artifact_id}|tojson }}'
+            hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'
+            hx-target="closest .chat-keep"
+            hx-swap="outerHTML">Undo</button></div>

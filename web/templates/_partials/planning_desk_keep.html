@@ -1,6 +1,6 @@
 {# Keep on the Planning Desk (ADR-0138 §8 channel 2, D-CS-B-89) — what answers
    into #pd-keep-slot beside the results region's two gestures. One partial,
-   three modes:
+   four modes:
 
      picker — "Keep to…", or "Keep →" with no target: the chat picker's shape
               (_partials/chat_keep_picker.html) with the Desk's hidden page
@@ -10,16 +10,29 @@
               refusal re-renders it with ``error``; with no case that takes
               writes, the no-case state links to Cases (D-4a-5).
      done   — the kept line: "Kept to CASE-nnnn · thread "…" · HH:MM" (or "· the
-              file"), the badge opening the case there (D-4a-2).
+              file"), the badge opening the case there (D-4a-2), and Undo
+              (D-CS-B-99): the row's removed_at, the slot emptied — the
+              gestures beside it stay. A lone button, so it carries its token.
      empty  — the state yields no result: an empty snapshot is never kept.
+     unavailable — Undo's calm refusal: "Already removed." / "That case is
+              closed." (D-4b-6).
 
    Context: mode; picker — csrf_token, keep_url, picker_url, cases_area_url,
    state_pairs, marker, options ({case, threads, others} or None),
-   selected_thread, error; done — badge, href, where, when; empty — message. #}
+   selected_thread, error; done — badge, href, where, when, kept_id,
+   undo_url, csrf_token; empty, unavailable — message. #}
 {% if mode == "done" %}
-<p class="pd-keep__done" role="status" data-pf-keep="done">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}</p>
+<p class="pd-keep__done" role="status" data-pf-keep="done">Kept to <a href="{{ href }}">{{ badge }}</a> · {{ where }} · {{ when }}
+    <button type="button" class="btn btn--ghost pd-keep__btn pd-keep__btn--quiet" data-pf-keep="undo"
+            hx-post="{{ undo_url }}"
+            hx-vals='{{ {"kept_id": kept_id}|tojson }}'
+            hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'
+            hx-target="#pd-keep-slot"
+            hx-swap="innerHTML">Undo</button></p>
 {% elif mode == "empty" %}
 <p class="pd-keep__empty" role="status" data-pf-keep="empty">{{ message }}</p>
+{% elif mode == "unavailable" %}
+<p class="pd-keep__empty" role="status" data-pf-keep="unavailable">{{ message }}</p>
 {% else %}
 <div class="pd-keep-picker" data-pf-keep="picker">
     {% if not options %}

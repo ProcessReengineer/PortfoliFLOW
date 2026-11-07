@@ -1392,6 +1392,50 @@ async def test_file_partial_writes_the_crumb_and_moves_the_page(
     assert "View in Journal ↗" in facts
 
 
+async def test_the_actions_row_consults_in_place_on_open_and_waiting_cases(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5a-04: Consult Shirley is a form posting to the chat surface; a closed case has none.
+
+    D-CS-B-110: the PM stays on the case — the form hands the case to the dock
+    in place, its button keeping the row's action hooks.
+    """
+    pm1, email, password = seeded_user
+    open_case = await _seed_case(app_engine, opened_by=pm1, title="Open case", opened_at=_T0)
+    waiting_case = await _seed_case(
+        app_engine, opened_by=pm1, title="Waiting case", opened_at=_T0 + timedelta(minutes=1)
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).wait(
+            waiting_case.id, wait_until=date(2099, 1, 1), by=pm1, now=_T0 + timedelta(minutes=2)
+        )
+    closed_case = await _seed_case(
+        app_engine,
+        opened_by=pm1,
+        title="Closed case",
+        opened_at=_T0 + timedelta(minutes=3),
+        close_note="Done.",
+    )
+    await _login(web_client, email, password)
+
+    for case in (open_case, waiting_case):
+        body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+        assert cs_count(body, "consult-form") == 1
+        form = cs_block(body, "consult-form")
+        assert wd_attr(form, "hx-post") == f"/chat/brief/case/{case.id}"
+        assert wd_attr(form, "hx-swap") == "outerHTML"
+        assert 'name="csrf_token"' in form
+        button = cs_block(form, "action", data_pf_cs_kind="consult")
+        assert "Consult Shirley" in button
+        assert f"/assistants?case={case.id}" not in body
+
+    closed = (await web_client.get(f"/api/cases/{closed_case.id}", follow_redirects=False)).text
+    assert cs_count(closed, "consult-form") == 0
+    assert "Consult Shirley" not in closed
+
+
 def test_cases_module_registered() -> None:
     """CS3a-11: the Area's one Module registers and constructs (ADR-0058)."""
     classes = registry.list_by_area("cases")

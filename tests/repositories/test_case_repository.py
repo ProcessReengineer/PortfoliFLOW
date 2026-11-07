@@ -41,7 +41,8 @@ Coverage
   written through ``add_system_line``, and the retired kinds refused —
   D-CS-B-1's staged retirement closed with P-CS-4a (D-CS-B-25, D-CS-B-91).
 * CR-14: ``search_working_file`` — hits across the working file, the DMS
-  boundary held (ADR-0138 §11), the state filter, escaping.
+  boundary held (ADR-0138 §11) — a ``document`` row's caption, which is its
+  filename, included (P-CS-5a) — the state filter, escaping.
 * CR-15: ``hand_over`` — the owner changes, ``opened_by`` stays.
 * CR-16: ``add_system_line`` — the one system-line writer: kind, actor,
   payload, the ``(event, subject)`` dedup, the event vocabulary, the
@@ -54,6 +55,8 @@ Coverage
   ``before`` exclusive, refused for any other state (P-CS-3a, D-CS-B-31).
 * CR-19: ``list_unclosed`` — the open cases by ``updated_at`` descending, then
   the waiting ones by ``wait_until``; a closed case absent (D-CS-B-92).
+* CR-20: ``get_by_number`` — a case by its number in the active tenant, any
+  state; another tenant's number reads ``None`` (P-CS-5a, ``get_case``).
 
 Legacy record rows (``note``, ``pin``, ``decision_record``) are seeded through
 ``tests/_case_record_seed.py`` — ``append_entry`` refuses them (D-CS-B-91).
@@ -1067,6 +1070,29 @@ async def test_cr14_search_working_file(app_engine: AsyncEngine, seed_tenant) ->
         await threads.remove(gone.id, now=_T0 + 8 * minute)
         percent = await new_case("100% sure", 9)
         await new_case("1000 units", 10)
+        # A document row as the attach route keeps it: captioned with the
+        # filename (P-CS-5a) — its caption is the filename, so it is not searched.
+        document = await new_case("Lease file", 11)
+        lpa = await CaseAttachmentRepository(session).create(
+            document.id,
+            filename="tapirfilename.pdf",
+            mime_type="application/pdf",
+            size_bytes=13,
+            sha256="h2",
+            content=b"tapircontents",
+            uploaded_by=user_id,
+            now=_T0 + 11 * minute,
+        )
+        await CaseKeptRepository(session).keep(
+            document.id,
+            artifact="document",
+            payload={"filename": "tapirfilename.pdf", "attachment_id": str(lpa.id)},
+            kept_by=user_id,
+            via="keep",
+            caption="tapirfilename.pdf",
+            attachment_id=lpa.id,
+            now=_T0 + 11 * minute,
+        )
 
         async def hits(query: str, state: str | None = None) -> list:
             return [x.id for x in await repo.search_working_file(query, state=state)]
@@ -1083,6 +1109,7 @@ async def test_cr14_search_working_file(app_engine: AsyncEngine, seed_tenant) ->
         assert await hits("bytescontents") == []
         assert await hits("lemurchart") == []
         assert await hits("axolotl") == []
+        assert await hits("tapirfilename") == []
         # The state filter, the empty query, the escaped wildcard.
         assert await hits("pangolin", state="closed") == [closed.id]
         assert await hits("zebrathread", state="closed") == []
@@ -1348,3 +1375,46 @@ async def test_cr19_list_unclosed_orders_open_then_waiting(
     assert [case.id for case in unclosed] == [older.id, newer.id, soon.id, late.id]
     assert [case.state for case in unclosed] == ["open", "open", "waiting", "waiting"]
     assert shut.id not in {case.id for case in unclosed}
+
+
+# ---------------------------------------------------------------------------
+# CR-20: get_by_number — the read behind Shirley's get_case (P-CS-5a)
+# ---------------------------------------------------------------------------
+
+
+async def test_cr20_get_by_number_reads_the_tenants_case_only(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    """CR-20: a number resolves in its tenant, in any state; another tenant's reads ``None``."""
+    tenant_a = await seed_tenant("CR-20 A")
+    tenant_b = await seed_tenant("CR-20 B")
+    user_a = await _seed_user(app_engine, tenant_a, "pm@cr20a.example")
+    user_b = await _seed_user(app_engine, tenant_b, "pm@cr20b.example")
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        repo = CaseRepository(session)
+        first = await repo.create(title="A one", opened_by=user_a, opened_actor="pm", now=_T0)
+        second = await repo.create(
+            title="A two", opened_by=user_a, opened_actor="pm", now=_T0 + timedelta(minutes=1)
+        )
+        await repo.close(
+            second.id, closed_by=user_a, closing_note="done", now=_T0 + timedelta(minutes=2)
+        )
+    async with tenant_context(app_engine, tenant_b) as session:
+        only_b = await CaseRepository(session).create(
+            title="B one", opened_by=user_b, opened_actor="pm", now=_T0
+        )
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        repo = CaseRepository(session)
+        found = await repo.get_by_number(first.case_number)
+        assert found is not None and found.id == first.id
+        closed = await repo.get_by_number(second.case_number)
+        assert closed is not None and closed.state == "closed"
+        assert await repo.get_by_number(99) is None
+    async with tenant_context(app_engine, tenant_b) as session:
+        # Both tenants number from 1: B's CASE-0001 is B's own, never A's.
+        assert only_b.case_number == first.case_number == 1
+        seen = await CaseRepository(session).get_by_number(1)
+        assert seen is not None and seen.id == only_b.id
+        assert await CaseRepository(session).get_by_number(second.case_number) is None

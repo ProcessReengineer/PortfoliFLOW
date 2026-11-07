@@ -8,10 +8,13 @@
 ASGI-level tests over a live Postgres. Three surfaces are exercised:
 
 * the **case brief** — a per-session stash the assistants surface sets from a
-  ``?case=<id>`` marker (an open or a waiting case, D-CS-B-93), appended to
-  Shirley's system prompt at the SSE call site (never an ``ai_service_core``
-  change). A scripted ``_FakeCore`` records the system prompt it was handed, so
-  the brief is observable without a live model;
+  ``?case=<id>`` marker (an open or a waiting case, D-CS-B-93), the case page
+  sets in place (``POST /chat/brief/case/<id>``) and a dock opened on a case
+  page sets from its own marker (P-CS-5a), appended to Shirley's system prompt
+  at the SSE call site (never an ``ai_service_core`` change). Since P-CS-5a the
+  brief is the working file as text (ADR-0138 §10, CS5a-01…03). A scripted
+  ``_FakeCore`` records the system prompt it was handed, so the brief is
+  observable without a live model;
 * **Keep** — every answer and every figure carries ``Keep →`` (one click into
   the session's keep target: the stashed case, at file level or in its thread)
   and ``Keep to…`` (the picker). No comment, no dialog: a ``case_kept`` row,
@@ -52,6 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseFigureRepository,
     CaseKeptDTO,
     CaseKeptRepository,
     CaseThreadRepository,
@@ -396,17 +400,29 @@ async def test_active_stash_briefs_the_turn_and_absent_stash_does_not(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """A stashed case briefs the turn; without a stash the prompt is unchanged."""
+    """A stashed case briefs the turn; without a stash the prompt is unchanged.
+
+    Opened from a finding, so the materiality frozen at opening reaches the
+    brief the way the page shows it — under Where we stand, at case opening
+    (P-CS-5a: the brief is the file).
+    """
     actor_id, email, password = seeded_user
-    case_id, case_number = await _seed_case(
-        app_engine,
-        opened_by=actor_id,
-        title="PE ceiling review",
-        opened_payload={
-            "materiality_at_opening": {"lines": ["PE at 27.4% vs a 25% ceiling — 2.4 pts over."]}
-        },
-    )
-    # A legacy note (D-CS-M-7) still reads into the digest.
+    finding_id = await _seed_finding(app_engine, actor_id)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        case = await CaseRepository(session).create(
+            title="PE ceiling review",
+            opened_by=actor_id,
+            finding_id=finding_id,
+            opened_actor="pm",
+            opened_payload={
+                "materiality_at_opening": {
+                    "lines": ["PE at 27.4% vs a 25% ceiling — 2.4 pts over."]
+                }
+            },
+            now=datetime.now(UTC),
+        )
+    case_id, case_number = case.id, case.case_number
+    # A legacy note (D-CS-M-7) still reads into the Record.
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
         await seed_record_entry(
             session,
@@ -435,8 +451,10 @@ async def test_active_stash_briefs_the_turn_and_absent_stash_does_not(
     assert "<<<PORTFOLIFLOW CASE BRIEF>>>" in briefed
     assert "<<<END PORTFOLIFLOW CASE BRIEF>>>" in briefed
     assert f"CASE-{case_number:04d} — PE ceiling review" in briefed
-    assert "PE at 27.4% vs a 25% ceiling" in briefed  # frozen materiality line
-    assert "Waiting on the Q2 statement" in briefed  # timeline digest
+    assert "Origin: finding on anlv:real_estate (band noteworthy)" in briefed
+    # The frozen materiality line, under Where we stand at case opening.
+    assert "At case opening: PE at 27.4% vs a 25% ceiling" in briefed
+    assert "· Note · Waiting on the Q2 statement" in briefed  # the Record
 
 
 async def test_a_stale_closed_since_stash_clears_and_runs_unbriefed(
@@ -528,7 +546,11 @@ async def test_consult_shirley_action_open_only(
     seeded_user: tuple[UUID, str, str],
     app_engine: AsyncEngine,
 ) -> None:
-    """Open detail offers "Consult Shirley" with the marker URL; closed does not."""
+    """Open detail offers "Consult Shirley" as the in-place form; closed does not.
+
+    Since P-CS-5a the action posts to the chat surface (D-CS-B-110) rather
+    than linking to ``/assistants?case=``.
+    """
     actor_id, email, password = seeded_user
     open_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Open one")
     closed_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Shut one", closed=True)
@@ -537,10 +559,185 @@ async def test_consult_shirley_action_open_only(
 
     open_detail = await client.get(f"/api/cases/{open_id}")
     assert "Consult Shirley" in open_detail.text
-    assert f'href="/assistants?case={open_id}"' in open_detail.text
+    assert f'hx-post="/chat/brief/case/{open_id}"' in open_detail.text
+    assert f'href="/assistants?case={open_id}"' not in open_detail.text
 
     closed_detail = await client.get(f"/api/cases/{closed_id}")
     assert "Consult Shirley" not in closed_detail.text
+
+
+# ---------------------------------------------------------------------------
+# P-CS-5a — consult in place, the file as the brief, the dock on arrival
+# ---------------------------------------------------------------------------
+
+#: The brief's lead (D-CS-B-108, D-5a-1) — prompt text, pinned verbatim.
+_CASE_BRIEF_LEAD = (
+    "You are consulting on the case below — its working file as the PM sees it now. "
+    "Ground your answer in it; cite the file's own figures and threads where they bear "
+    "on the question. The conversation is ephemeral: the PM keeps what matters into the "
+    "file with Keep, and nothing you say is written there by itself."
+)
+
+
+def _stash(client: AsyncClient) -> list[ActiveBrief]:
+    """The app's consultation stash — one session per test, so at most one entry."""
+    app = cast(ASGITransport, client._transport).app
+    return list(getattr(app.state, "brief_stash", {}).values())
+
+
+def _restash(client: AsyncClient, brief: ActiveBrief) -> None:
+    """Replace the one session's stashed brief (a thread chosen in the picker)."""
+    app = cast(ASGITransport, client._transport).app
+    store = app.state.brief_stash
+    (session_id,) = list(store)
+    store[session_id] = brief
+
+
+async def _consult(client: AsyncClient, csrf: str, marker: str) -> Any:
+    """POST the case page's Consult Shirley for ``marker`` and return the response."""
+    return await client.post(
+        f"/chat/brief/case/{marker}", data={"csrf_token": csrf}, follow_redirects=False
+    )
+
+
+async def test_consult_in_place_sets_the_stash_and_opens_the_dock(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5a-01: open and waiting cases are handed over in place; closed or unknown, nothing."""
+    actor_id, email, password = seeded_user
+    open_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Open one")
+    waiting_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Waiting one")
+    await _wait_case(app_engine, actor_id, waiting_id)
+    closed_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Shut", closed=True)
+    client, _core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+
+    handed = await _consult(client, csrf, str(open_id))
+    assert handed.status_code == 200, handed.text
+    assert handed.headers["HX-Trigger"] == "pf:brief-changed, pf:shirley-dock"
+    # The action answers with itself — a quiet swap in place.
+    assert 'data-pf-cs="consult-form"' in handed.text
+    assert f'hx-post="/chat/brief/case/{open_id}"' in handed.text
+    assert 'hx-swap="outerHTML"' in handed.text
+    assert f'name="csrf_token" value="{csrf}"' in handed.text
+    assert "Consult Shirley" in handed.text
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, open_id, None)]
+
+    handed = await _consult(client, csrf, str(waiting_id))
+    assert handed.headers["HX-Trigger"] == "pf:brief-changed, pf:shirley-dock"
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, waiting_id, None)]
+
+    # Closed, unknown, malformed: answered, but no stash change and no trigger.
+    for marker in (str(closed_id), str(uuid4()), "not-a-uuid"):
+        dropped = await _consult(client, csrf, marker)
+        assert dropped.status_code == 200, marker
+        assert "HX-Trigger" not in dropped.headers, marker
+        assert f'hx-post="/chat/brief/case/{marker}"' in dropped.text, marker
+        assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, waiting_id, None)], marker
+
+    # The thread is kept when the stash already names the case; another case drops it.
+    thread_id = await _add_thread(app_engine, actor_id, open_id, "Fee step-up")
+    _restash(client, ActiveBrief(BRIEF_KIND_CASE, open_id, thread_id))
+    await _consult(client, csrf, str(open_id))
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, open_id, thread_id)]
+    await _consult(client, csrf, str(waiting_id))
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, waiting_id, None)]
+
+    # CSRF is enforced: without the token nothing is set.
+    refused = await client.post(f"/chat/brief/case/{open_id}", data={})
+    assert refused.status_code == 403
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, waiting_id, None)]
+
+
+async def test_the_brief_is_the_working_file(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5a-02: the stashed case's file reaches the prompt; waiting briefs, closed clears."""
+    actor_id, email, password = seeded_user
+    case_id, case_number = await _seed_case(app_engine, opened_by=actor_id, title="Fund II CV")
+    await _add_thread(app_engine, actor_id, case_id, "Fee step-up")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        await CaseFigureRepository(session).add(
+            case_id,
+            label="Management fee",
+            source="typed",
+            value_text="1.5 %",
+            now=datetime.now(UTC),
+        )
+    msg = Message(role=MessageRole.ASSISTANT, content="Understood.")
+    client, core = await client_factory(_finish_events(msg), base_prompt="BASE")
+    csrf = await _login_and_csrf(client, email, password)
+
+    await _consult(client, csrf, str(case_id))
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert briefed.startswith(f"BASE\n\n{_CASE_OPEN}\n{_CASE_BRIEF_LEAD}\nThe question\n")
+    assert briefed.endswith("<<<END PORTFOLIFLOW CASE BRIEF>>>")
+    lines = briefed.splitlines()
+    assert f"  CASE-{case_number:04d} — Fund II CV" in lines
+    for heading in ("Where we stand", "Threads", "Figures", "Record"):
+        assert heading in lines, heading
+    assert "  Fee step-up · Open" in lines
+    assert "  Management fee · 1.5 % · typed" in lines
+    assert "pins" not in briefed
+
+    await _wait_case(app_engine, actor_id, case_id)
+    await _drive_turn(client, csrf)
+    briefed = core.last_system_prompt or ""
+    assert _CASE_OPEN in briefed
+    assert "  State: waiting until 01 Jan 2099" in briefed.splitlines()
+
+    # A case that closed since it was handed over clears the stash (unchanged).
+    other_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Closes later")
+    await _consult(client, csrf, str(other_id))
+    await _close_case(app_engine, actor_id, other_id)
+    await _drive_turn(client, csrf)
+    assert core.last_system_prompt == "BASE"
+    assert _stash(client) == []
+
+
+async def test_a_dock_opened_on_a_case_page_is_briefed_on_that_case(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5a-03: ``/chat/dock?case=`` banners and stashes an open case; a closed one nothing."""
+    actor_id, email, password = seeded_user
+    open_id, open_number = await _seed_case(app_engine, opened_by=actor_id, title="Alpha")
+    other_id, other_number = await _seed_case(app_engine, opened_by=actor_id, title="Bravo")
+    closed_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Shut", closed=True)
+    client, _core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+    assert _stash(client) == []
+
+    # The case page writes its case into the dock host; another page keeps it bare.
+    page = await client.get(f"/cases/{open_id}", follow_redirects=False)
+    assert page.status_code == 200
+    assert f'hx-get="/chat/dock?case={open_id}"' in page.text
+    listing = await client.get("/cases", follow_redirects=False)
+    assert 'hx-get="/chat/dock"' in listing.text
+    assert "/chat/dock?case=" not in listing.text
+
+    dock = await client.get(f"/chat/dock?case={open_id}")
+    assert "Consulting for" in dock.text and f"CASE-{open_number:04d}" in dock.text
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, open_id, None)]
+    # The bare dock renders from the stash, unchanged.
+    assert f"CASE-{open_number:04d}" in (await client.get("/chat/dock")).text
+    # The marker wins over a different stashed case.
+    dock = await client.get(f"/chat/dock?case={other_id}")
+    assert f"CASE-{other_number:04d}" in dock.text and f"CASE-{open_number:04d}" not in dock.text
+    assert _stash(client) == [ActiveBrief(BRIEF_KIND_CASE, other_id, None)]
+
+    await client.post("/chat/brief/dismiss", data={"csrf_token": csrf})
+    for marker in (str(closed_id), "not-a-uuid"):
+        dock = await client.get(f"/chat/dock?case={marker}")
+        assert dock.status_code == 200, marker
+        assert "Consulting for" not in dock.text, marker
+        assert _stash(client) == [], marker
 
 
 # ---------------------------------------------------------------------------

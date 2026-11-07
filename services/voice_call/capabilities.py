@@ -78,6 +78,12 @@ CALL_CAPABILITIES: tuple[CallCapability, ...] = (
         ("list_datasets", "get_dataset_summary", "get_dataset_slice", "list_analysis_results"),
     ),
     CallCapability(
+        "The cases: the open, waiting and closed cases of the book — what each is about, "
+        "where it stands, its threads, figures, conversations, open points and decisions; "
+        "and whether something has come up in an earlier case.",
+        ("list_cases", "get_case", "search_cases"),
+    ),
+    CallCapability(
         "Charts of any of the above; a chart appears in the chat window, not on the call.",
         ("generate_chart", "render_chart"),
     ),

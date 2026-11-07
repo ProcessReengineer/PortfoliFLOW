@@ -1568,7 +1568,7 @@ class AIServiceCore:
     def _register_default_tools(self) -> None:
         """Import tool modules to trigger their registry.register_tool calls.
 
-        Five tool modules: the three DataStore / chart / web research
+        Six tool modules: the three DataStore / chart / web research
         modules, plus ``investment_tools`` (the Postgres-native
         investment read tools for the web chat surface, ADR-0047) and
         ``analysis_tools`` (the back-office analysis tools —
@@ -1577,7 +1577,9 @@ class AIServiceCore:
         here but only become *reachable* once a consumer populates
         the tool-execution context — when no context is set they degrade
         gracefully (see ``services/tools/investment_tools.py`` and
-        ``services/tools/analysis_tools.py``).
+        ``services/tools/analysis_tools.py``). The sixth, ``case_tools``,
+        holds the three case read tools — ``list_cases``, ``get_case`` and
+        ``search_cases`` (ADR-0138 §10) — and degrades the same way.
 
         Imports happen at first instance construction; Python's import
         cache prevents re-registration on subsequent instantiations.
@@ -1592,7 +1594,8 @@ class AIServiceCore:
         import services.tools.chart_tools  # noqa: PLC0415 - see docstring
         import services.tools.web_research_tool  # noqa: PLC0415 - see docstring
         import services.tools.investment_tools  # noqa: PLC0415 - see docstring
-        import services.tools.analysis_tools  # noqa: F401, PLC0415 - see docstring
+        import services.tools.analysis_tools  # noqa: PLC0415 - see docstring
+        import services.tools.case_tools  # noqa: F401, PLC0415 - see docstring
 
         logger.info("AIServiceCore: default tools registered with ToolRegistry.")
 

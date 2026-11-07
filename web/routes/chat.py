@@ -19,6 +19,10 @@ shell consumes:
 * ``POST /chat/brief/watch-briefing/<id>`` — hand a written Watch Desk
   briefing to Shirley in place (ADR-0133 §6); ``GET /chat/brief/banner``
   re-renders the dock's consultation banner from the stash.
+* ``POST /chat/brief/case/<id>``  — hand an open or waiting case to Shirley
+  in place from its page (ADR-0138 §10, D-CS-B-110); ``GET /chat/dock``
+  takes the same case as its ``?case=`` marker, so a dock opened on a case
+  page is briefed on that case (D-CS-B-111).
 * ``POST /chat/call/session``    — start a voice call: provision the
   tenant's vendor agent lazily and mint the browser's session credential
   (ADR-0137 §4, §8).
@@ -129,6 +133,7 @@ from services.ai_service_core import (
     get_ai_service_core,
 )
 from services.auth.session import SessionDTO
+from services.cases.file_text import file_user_ids, render_case_file_text
 from services.investments.credential_resolver import (
     CredentialResolver,
     CredentialUnavailableError,
@@ -200,19 +205,14 @@ from web.case_keep import (
 from web.errors import user_safe_error
 from web.permissions import require_role
 
-# The case brief is composed from the very projections the case detail page
-# renders (ADR-0107 C6, binding decision 4) — never from raw payloads
-# reinterpreted. The import is one-directional: ``cases.py``'s own import chain
-# (``watch_desk``, ``planning_desk``) never reaches ``chat.py``, so there
+# The case brief is the working file as text (ADR-0138 §10, D-CS-B-108),
+# composed in the services layer (``services/cases/file_text.py``) — the same
+# function ``get_case`` reads — so only the name resolution is borrowed from
+# the Cases route. The import is one-directional: ``cases.py``'s own import
+# chain (``watch_desk``, ``planning_desk``) never reaches ``chat.py``, so there
 # is no cycle. ``cases.py`` therefore cannot import back the assistants URL — it
 # holds its own ``CONSULT_SHIRLEY_URL`` constant.
-from web.routes.cases import (
-    _materiality_lines,
-    _opened_text,
-    _project_entry,
-    _project_origin,
-    _resolve_owner_names,
-)
+from web.routes.cases import _resolve_owner_names
 
 # The watch-briefing banner and brief block state a check in the words the
 # Watch Desk uses (ADR-0133 §6): the family display names, the schedule-zone
@@ -736,6 +736,12 @@ def _history_items(
 #: import this module (see the import note above).
 DISCUSS_BRIEFING_URL: str = "/chat/brief/watch-briefing/{briefing_id}"
 
+#: The case page's in-place hand-off (ADR-0138 §10, D-CS-B-110 — the D-WD-23
+#: idiom): *Consult Shirley* POSTs here with the case id in the path; the case
+#: page reads the URL as ``consult_shirley_post`` (``web/routes/cases.py``
+#: writes it literally — it cannot import this module).
+DISCUSS_CASE_URL: str = "/chat/brief/case/{case_id}"
+
 #: The banner re-render endpoint: the dock's banner container fetches it on
 #: ``pf:brief-changed`` so an in-place hand-off updates a dock that is
 #: already open.
@@ -772,6 +778,16 @@ _CHART_SNAPSHOT_ARTIFACT: str = "chart_snapshot"
 _BRIEF_OPEN: str = "<<<PORTFOLIFLOW CASE BRIEF>>>"
 _BRIEF_CLOSE: str = "<<<END PORTFOLIFLOW CASE BRIEF>>>"
 
+#: The lead of the case brief (D-CS-B-108): prompt text Shirley reads, never
+#: rendered copy. The brief is the working file (ADR-0138 §10); Keep, not the
+#: conversation, is how anything reaches it.
+_BRIEF_LEAD: str = (
+    "You are consulting on the case below — its working file as the PM sees it "
+    "now. Ground your answer in it; cite the file's own figures and threads where "
+    "they bear on the question. The conversation is ephemeral: the PM keeps what "
+    "matters into the file with Keep, and nothing you say is written there by itself."
+)
+
 #: Watch-briefing block delimiters (ADR-0133 §6) — the second fenced block
 #: the chat call site can append; the same posture as the case brief.
 _WATCH_BRIEF_OPEN: str = "<<<PORTFOLIFLOW WATCH DESK BRIEFING>>>"
@@ -788,11 +804,6 @@ _WATCH_BRIEF_LEAD: str = (
     "figures, say which is the check's figure and which is today's. The "
     "briefing is immutable; nothing you say is written back to it."
 )
-
-#: The timeline digest is capped so a long-lived case never balloons the prompt:
-#: the most recent entries, each summarised to its first line.
-_BRIEF_DIGEST_MAX_ENTRIES: int = 12
-_BRIEF_DIGEST_LINE_CHARS: int = 160
 
 #: The calm state an answer that left the session history resolves to — the
 #: C6 "no longer available" posture, never a wrong excerpt.
@@ -933,104 +944,31 @@ async def resolve_active_brief_banner(
     }
 
 
-def _brief_digest_line(projected: dict[str, Any]) -> str:
-    """Summarise one projected timeline entry as ``kind label: first line``.
+def _format_brief(text: str) -> str:
+    """Render the fenced case-brief block: the lead, then the working file (D-CS-B-108).
 
-    Reads the projected entry the detail page renders (binding decision 4) — its
-    body field per kind — never the raw payload. Capped to one line, sanely
-    truncated, so the digest stays compact.
+    ``text`` is :func:`services.cases.file_text.render_case_file_text` — the
+    file as the PM sees it, the same text ``get_case`` returns, bounded there
+    (D-CS-B-107); it opens on the case's badge and title, so the block needs
+    no head of its own. The exact format lives here, in one place; the
+    closure notes reference it.
     """
-    kind = projected.get("kind", "")
-    label = projected.get("kind_label", kind)
-    if kind == "decision_record":
-        body = projected.get("decision", "")
-    elif kind == "closed":
-        body = projected.get("closing_note", "")
-    elif kind == "pin":
-        # document / scenario_snapshot / consultation all carry a comment; an
-        # unknown artifact projects none, and reads as its label alone.
-        body = projected.get("comment", "")
-    else:  # opened, note, and any body-less kind
-        body = projected.get("text", "")
-    lines = (body or "").strip().splitlines()
-    snippet = lines[0].strip() if lines else ""
-    if len(snippet) > _BRIEF_DIGEST_LINE_CHARS:
-        snippet = snippet[: _BRIEF_DIGEST_LINE_CHARS - 1].rstrip() + "…"
-    return f"{label}: {snippet}" if snippet else str(label)
-
-
-def _format_brief(
-    case: CaseDTO,
-    origin: dict[str, Any] | None,
-    materiality: list[str],
-    digest: list[str],
-) -> str:
-    """Render the fenced case-brief block (binding decisions 1/4).
-
-    Presentation strings only — badge/number, title, state, then the finding's
-    trigger/finding/basis + band + subject (from-finding) or the manual
-    description, the frozen materiality-at-opening lines, and the compact
-    timeline digest. **No linked investments** (Gate-C0 decision E). The exact
-    format lives here, in one place; the closure note references it.
-    """
-    lines = [
-        _BRIEF_OPEN,
-        (
-            "You are consulting on the open case below. Ground your answer in "
-            "it. The conversation is ephemeral; only what the PM deliberately "
-            "pins becomes part of the case record."
-        ),
-        f"Case: CASE-{case.case_number:04d} — {case.title}",
-        f"State: {case.state}",
-    ]
-    if origin is not None:
-        lines.append(
-            f"Origin: finding on {origin['subject_key']} "
-            f"(band {origin['band']}, resolution: {origin['resolution_label']})"
-        )
-        if origin.get("trigger"):
-            lines.append(f"  Trigger: {origin['trigger']}")
-        if origin.get("finding"):
-            lines.append(f"  Finding: {origin['finding']}")
-        if origin.get("basis"):
-            lines.append(f"  Basis at finding time: {origin['basis']}")
-    elif case.description:
-        lines.append(f"Description: {case.description}")
-    if materiality:
-        lines.append("Materiality at case opening:")
-        lines.extend(f"  - {line}" for line in materiality)
-    if digest:
-        lines.append("Timeline so far (oldest first within the recent window):")
-        lines.extend(f"  - {line}" for line in digest)
-    lines.append(_BRIEF_CLOSE)
-    return "\n".join(lines)
+    return "\n".join((_BRIEF_OPEN, _BRIEF_LEAD, text, _BRIEF_CLOSE))
 
 
 async def _compose_case_brief(db: Any, case: CaseDTO) -> str:
-    """Compose the case brief from the same projections the detail page renders.
+    """Compose the case brief: the working file as text (ADR-0138 §10, D-CS-B-108).
 
-    Reads the case's entries (and originating finding) once, reuses the cases
-    module's projection helpers for origin, materiality and per-entry bodies,
-    and formats the fenced block (binding decision 4). Presentation strings
-    only; the payloads are never reinterpreted here.
+    The users the file names are resolved in one batch
+    (:func:`_resolve_owner_names` over
+    :func:`~services.cases.file_text.file_user_ids`) and handed to the one
+    composition the page's readers share. An open or waiting case is
+    composed with Where we stand read now; the caller has already dropped a
+    closed or vanished stash.
     """
-    case_repo = CaseRepository(db)
-    entries = await case_repo.list_entries(case.id)
-    finding = None
-    if case.finding_id is not None:
-        finding = await IreneFindingRepository(db).get(case.finding_id)
-
-    actor_ids: set[UUID] = {case.opened_by}
-    if case.closed_by is not None:
-        actor_ids.add(case.closed_by)
-    actor_ids.update(e.actor_user_id for e in entries if e.actor_user_id is not None)
-    owner_names = await _resolve_owner_names(UserRepository(db), actor_ids)
-    opened_text = _opened_text(case, finding)
-    origin = _project_origin(finding, entries) if finding is not None else None
-    materiality = _materiality_lines(entries)
-    projected = [_project_entry(entry, owner_names, opened_text=opened_text) for entry in entries]
-    digest = [_brief_digest_line(p) for p in projected[-_BRIEF_DIGEST_MAX_ENTRIES:]]
-    return _format_brief(case, origin, materiality, digest)
+    names = await _resolve_owner_names(UserRepository(db), await file_user_ids(db, case))
+    text = await render_case_file_text(db, case, now=datetime.now(timezone.utc), user_names=names)
+    return _format_brief(text)
 
 
 def _stated(value: object) -> str:
@@ -3368,6 +3306,7 @@ def _render_history(request: Request, session_id: str, csrf_token: str) -> HTMLR
 @router.get("/chat/dock", response_class=HTMLResponse)
 async def get_chat_dock(
     request: Request,
+    case: str | None = None,
     session: SessionDTO = Depends(require_session),
 ) -> HTMLResponse:
     """Return Shirley's conversation as a bare fragment for the dock.
@@ -3387,11 +3326,24 @@ async def get_chat_dock(
     ``#chat-history`` div carries its own ``hx-get="/chat/history"`` on
     ``load``, which fires when HTMX processes this swap.
 
-    ``brief_banner`` is resolved from the **session stash** with no marker
-    of its own, so a ``?case=`` set earlier by ``GET /assistants`` is
-    picked up here — the marker sets the stash on the area page, the dock
-    renders the banner from it. A stale stash (case closed or vanished)
-    clears silently and yields no banner.
+    ``brief_banner`` is resolved from the **session stash**, so a ``?case=``
+    set earlier by ``GET /assistants`` is picked up here — the marker sets
+    the stash on the area page, the dock renders the banner from it. A stale
+    stash (case closed or vanished) clears silently and yields no banner.
+
+    ``case`` is the dock's own marker (D-CS-B-111): ``base.html`` writes it
+    into the dock host's URL on a case page (``cs_case_id``), so a dock
+    opened there — Ctrl J, the rail — is briefed on that case without a
+    click. It has the ``/assistants`` marker's semantics exactly
+    (:func:`resolve_active_brief_banner`): an open or waiting case replaces
+    the stash — a different case or a briefing included; a closed, unknown,
+    foreign or malformed one is dropped silently. Every other page keeps the
+    host bare.
+
+    Args:
+        request: The request.
+        case: The case page's case id, or ``None``.
+        session: The authenticated session.
 
     Returns:
         The ``_partials/shirley_dock.html`` fragment — no shell, no
@@ -3410,7 +3362,7 @@ async def get_chat_dock(
                 "voice_stt_enabled": stt_active,
                 "voice_tts_enabled": tts_active,
                 "voice_call_enabled": call_active,
-                "brief_banner": await resolve_active_brief_banner(request, session, None),
+                "brief_banner": await resolve_active_brief_banner(request, session, case),
             },
         ),
     )
@@ -3491,6 +3443,64 @@ async def discuss_watch_briefing(
             request,
             "_partials/watch_desk_discuss_action.html",
             {"csrf_token": session.csrf_token, "briefing_id": briefing_id},
+            headers=headers,
+        ),
+    )
+
+
+@router.post(
+    DISCUSS_CASE_URL,
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def discuss_case(
+    request: Request,
+    case_id: str,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Hand a case to Shirley in place from its page (ADR-0138 §10, D-CS-B-110).
+
+    The case page's *Consult Shirley* posts here — the D-WD-23 idiom of the
+    Watch Desk's briefing hand-off — so the PM stays on the case. The id is
+    resolved inside the reader's tenant context. An **open or waiting** case
+    sets the ``case`` stash, replacing a briefing or another case; the
+    stash's thread is kept when it already names this case (D-CS-B-86), else
+    the file is the keep target. The response then carries ``HX-Trigger`` so
+    the shell opens the dock (``pf:shirley-dock``) and a dock already open
+    re-renders its banner (``pf:brief-changed``). A closed, unknown,
+    foreign-tenant (RLS → ``None``) or malformed id is dropped silently: no
+    stash change, no trigger, no error. The body is the action itself, which
+    the form swaps in place; nothing is written anywhere.
+    """
+    session_id = str(session.id)
+    case: CaseDTO | None = None
+    try:
+        parsed: UUID | None = UUID(case_id)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            case = await CaseRepository(db).get(parsed)
+    headers: dict[str, str] = {}
+    if case is not None and case.state in _MUTABLE_STATES:
+        stashed = _get_active_brief(request, session_id)
+        keeps_thread = (
+            stashed is not None and stashed.kind == BRIEF_KIND_CASE and stashed.id == case.id
+        )
+        thread_id = stashed.thread_id if keeps_thread and stashed is not None else None
+        _set_active_brief(request, session_id, ActiveBrief(BRIEF_KIND_CASE, case.id, thread_id))
+        headers["HX-Trigger"] = _DISCUSS_TRIGGER
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/cases_consult_action.html",
+            {
+                "csrf_token": session.csrf_token,
+                "consult_shirley_post": DISCUSS_CASE_URL.format(case_id=case_id),
+            },
             headers=headers,
         ),
     )

@@ -19,8 +19,9 @@
    Consult Shirley · Wait until… (open) or Resume now (waiting) · Hand over
    to… · Close case…. Keep lives in the dock and on the Planning Desk
    (ADR-0138 §8), not here. Resume now posts at once (a small form carrying
-   the CSRF token); the others open their composer in the slot. A closed case
-   renders no actions.
+   the CSRF token); Consult Shirley hands the case to the dock in place
+   (cases_consult_action.html, D-CS-B-110); Capture scenario is a link; the
+   others open their composer in the slot. A closed case renders no actions.
 
    Context: see load_case_file_context in web/routes/cases.py. #}
 <h2 class="pf-view__title pf-crumb" id="cases-title" hx-swap-oob="outerHTML" data-pf-cs="crumb" data-pf-cs-case="{{ head.badge }}">
@@ -47,7 +48,7 @@
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="link" hx-get="/api/cases/{{ case_id }}/composer/link-investment" hx-target="#case-composer-slot" hx-swap="innerHTML">Link investment…</button>
                     <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="attach" hx-get="/api/cases/{{ case_id }}/composer/attach" hx-target="#case-composer-slot" hx-swap="innerHTML">Attach document…</button>
                     <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="capture" href="{{ capture_scenario_href }}">Capture scenario</a>
-                    <a class="pf-btn" data-pf-cs="action" data-pf-cs-kind="consult" href="{{ consult_shirley_href }}">Consult Shirley</a>
+                    {% include "_partials/cases_consult_action.html" %}
                     {% if is_open %}
                         <button type="button" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="wait" hx-get="/api/cases/{{ case_id }}/composer/wait" hx-target="#case-composer-slot" hx-swap="innerHTML">Wait until…</button>
                     {% else %}

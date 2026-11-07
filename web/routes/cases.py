@@ -316,11 +316,17 @@ router = APIRouter()
 
 #: The assistants surface a case sends the PM to, "consulting for" it (ADR-0107
 #: C6). Defined locally rather than imported from ``chat.py``: ``chat.py`` reuses
-#: this module's projections for the case brief, so it imports *this* module —
-#: importing the URL back would close an import cycle. The ``?case=<id>`` marker
-#: is appended by the detail view, the same cross-module URL idiom C5 uses for
-#: "Capture scenario".
+#: this module's name resolution for the case brief, so it imports *this* module
+#: — importing the URL back would close an import cycle. Since P-CS-5a the case
+#: page consults in place (``consult_shirley_post``, D-CS-B-110); the
+#: ``/assistants?case=<id>`` deep link is kept (D-CS-B-110) and the frame still
+#: carries it as ``consult_shirley_href``, though the page's action no longer
+#: renders it.
 CONSULT_SHIRLEY_URL: str = "/assistants"
+
+#: The in-place hand-off the case page's *Consult Shirley* posts to — the
+#: chat surface's ``DISCUSS_CASE_URL``, written literally for the reason above.
+CONSULT_SHIRLEY_POST_URL: str = "/chat/brief/case/{case_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -1634,13 +1640,17 @@ async def _frame_context(
         "show_attachments": attachments_count > 0 or is_mutable,
         # Journal deep link — closed cases only (binding decision 2).
         "journal_href": JOURNAL_DEEP_LINK if is_closed else None,
-        # "Capture scenario" (ADR-0107 C5) and "Consult Shirley" (ADR-0107 C6) —
-        # open and waiting cases (D-CS-B-76), plain links carrying the case as
-        # their marker.
+        # "Capture scenario" (ADR-0107 C5) — open and waiting cases (D-CS-B-76),
+        # a plain link carrying the case as its marker. "Consult Shirley" posts
+        # in place (consult_shirley_post, D-CS-B-110); its ``?case=`` deep link
+        # is kept in the context (D-CS-B-110).
         "capture_scenario_href": (
             f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_mutable else None
         ),
         "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_mutable else None),
+        "consult_shirley_post": (
+            CONSULT_SHIRLEY_POST_URL.format(case_id=case.id) if is_mutable else None
+        ),
     }
 
 
@@ -2711,7 +2721,8 @@ async def load_case_file_context(
     ``saved_label`` (empty on the first render), ``outline``,
     ``linked_finding``, ``linked_label``, ``attachments_count`` /
     ``attachments_cap`` / ``show_attachments``, ``journal_href``,
-    ``capture_scenario_href``, ``consult_shirley_href``. Then one key per
+    ``capture_scenario_href``, ``consult_shirley_href``,
+    ``consult_shirley_post``. Then one key per
     section (``question``, ``stand``, ``threads``, ``figures``,
     ``conversations``, ``points``, ``decision``) and the ``record`` from
     :func:`load_section_context`.

@@ -583,6 +583,19 @@ class CaseRepository(BaseRepository):
         model = result.scalar_one_or_none()
         return _case_to_dto(model) if model is not None else None
 
+    async def get_by_number(self, case_number: int) -> CaseDTO | None:
+        """Return one case by its number in the active tenant, or ``None``.
+
+        The number is tenant-sequential and unique per tenant
+        (``uq_cases_tenant_case_number``); RLS scopes the read, so another
+        tenant's case of the same number reads ``None``. The read behind
+        Shirley's ``get_case`` (ADR-0138 §10), which names a case as
+        ``CASE-nnnn`` rather than by id.
+        """
+        result = await self._session.execute(select(Case).where(Case.case_number == case_number))
+        model = result.scalar_one_or_none()
+        return _case_to_dto(model) if model is not None else None
+
     async def get_by_finding(self, finding_id: UUID) -> CaseDTO | None:
         """Return the case opened from ``finding_id``, or ``None``.
 
@@ -1613,15 +1626,17 @@ class CaseRepository(BaseRepository):
         its figures' ``label`` / ``value_text`` / ``note``; its
         conversations' ``with_whom`` / ``what_was_said`` /
         ``what_was_promised``; its decisions' ``rationale`` / ``decided_by``
-        and option texts; its kept rows' ``caption`` / ``comment`` and —
-        for ``document_excerpt`` rows only — the quoted ``passage``
-        (removed kept rows excluded). Closed cases are searched too: the
-        archive is the institution's memory.
+        and option texts; its kept rows' ``comment``, their ``caption``
+        except on a ``document`` row, and — for ``document_excerpt`` rows
+        only — the quoted ``passage`` (removed kept rows excluded). Closed
+        cases are searched too: the archive is the institution's memory.
 
         **The DMS boundary holds** (ADR-0138 §11): never an attachment's
         filename or contents, never any other kept payload field, never a
-        record entry's payload. An empty or whitespace-only query returns
-        an empty list rather than matching everything.
+        record entry's payload. A ``document`` row's caption is left out
+        because the attach route captions it with the attachment's filename
+        (P-CS-5a). An empty or whitespace-only query returns an empty list
+        rather than matching everything.
 
         Args:
             query: The search text.
@@ -1676,7 +1691,8 @@ class CaseRepository(BaseRepository):
             CaseKept.case_id == Case.id,
             CaseKept.removed_at.is_(None),
             or_(
-                matches(CaseKept.caption, CaseKept.comment),
+                matches(CaseKept.comment),
+                and_(CaseKept.artifact != "document", matches(CaseKept.caption)),
                 and_(
                     CaseKept.artifact == "document_excerpt",
                     matches(CaseKept.payload["passage"].astext),

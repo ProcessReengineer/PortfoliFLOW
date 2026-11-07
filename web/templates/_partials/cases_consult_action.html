@@ -1,0 +1,21 @@
+{# "Consult Shirley" (ADR-0138 §10, D-CS-B-110) — the case page's in-place
+   hand-off, the Watch Desk's D-WD-23 idiom. Included in the file's actions
+   row on an open or waiting case (cases_file.html); a closed case renders no
+   actions (D-CS-B-76).
+
+   The form posts to the chat surface (POST /chat/brief/case/{case_id}), which
+   sets the session's consultation stash on the case and answers with this
+   same form (a quiet swap in place) plus an HX-Trigger that opens Shirley's
+   dock and refreshes its banner; a closed, unknown or foreign case
+   re-renders without either. Nothing is written anywhere. The PM stays on
+   the case. pf-case__action-form lets the form sit in the actions row as the
+   Resume now form does; the button keeps the row's action hooks.
+
+   Context: consult_shirley_post, csrf_token. #}
+<form class="pf-case__action-form" data-pf-cs="consult-form"
+      hx-post="{{ consult_shirley_post }}"
+      hx-target="this"
+      hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="pf-btn" data-pf-cs="action" data-pf-cs-kind="consult">Consult Shirley</button>
+</form>

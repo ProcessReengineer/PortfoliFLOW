@@ -16,11 +16,13 @@ from __future__ import annotations
 
 #: Every tool a voice call's ``ask_shirley`` turn may use (ADR-0137 §3.1).
 #: Today this is the whole registry, because every registered tool is a
-#: read; the tripwire test pins the equality, so the first tool that writes
-#: — or any new tool — fails that test and forces a decision here.
+#: read — ADR-0138 §10's read tools included; the tripwire test pins the
+#: equality, so the first tool that writes — or any new tool — fails that
+#: test and forces a decision here.
 CALL_TOOL_ALLOWLIST: frozenset[str] = frozenset(
     {
         "generate_chart",
+        "get_case",
         "get_dataset_slice",
         "get_dataset_summary",
         "get_investment_data",
@@ -32,9 +34,11 @@ CALL_TOOL_ALLOWLIST: frozenset[str] = frozenset(
         "get_saa_configuration",
         "get_saa_hypothetical_comparison",
         "list_analysis_results",
+        "list_cases",
         "list_datasets",
         "list_investments",
         "render_chart",
+        "search_cases",
         "web_research",
     }
 )

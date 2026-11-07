@@ -31,7 +31,7 @@ def test_allowlist_equals_registered_tools() -> None:
     )
 
 
-def test_allowlist_has_sixteen_well_formed_names() -> None:
-    """Sixteen snake_case tool names."""
-    assert len(CALL_TOOL_ALLOWLIST) == 16
+def test_allowlist_has_nineteen_well_formed_names() -> None:
+    """Nineteen snake_case tool names."""
+    assert len(CALL_TOOL_ALLOWLIST) == 19
     assert all(re.fullmatch(r"[a-z_]+", name) for name in CALL_TOOL_ALLOWLIST)

@@ -46,7 +46,7 @@ def test_voice_call_import_stays_layering_clean() -> None:
         "    CALL_TOOL_ALLOWLIST, ElevenLabsCallProvider, ResolvedCall, assemble_call,\n"
         "    build_agent_definition,\n"
         ")\n"
-        "assert len(CALL_TOOL_ALLOWLIST) == 16\n"
+        "assert len(CALL_TOOL_ALLOWLIST) == 19\n"
         "_ = assemble_call(True, 'k', None, None, 'v', None, None, None)\n"
         "_ = build_agent_definition(\n"
         "    ResolvedCall(api_key='k', agent_id=None, model='m', voice='v', language='de',\n"

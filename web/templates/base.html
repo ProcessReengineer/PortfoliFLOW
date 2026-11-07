@@ -129,7 +129,10 @@
            never touches them: that is what lets the one chat instance —
            and a running SSE stream — survive navigation. The chat itself
            is loaded once per page life, on the first open, from
-           ``GET /chat/dock``; every area render stays DB-free. #}
+           ``GET /chat/dock``; every area render stays DB-free. On a case
+           page (``cs_case_id``) the host carries the case as its ``?case=``
+           marker, so a dock opened there is briefed on that case
+           (D-CS-B-111); every other page keeps it bare. #}
         <aside class="pf-side" id="pf-side" aria-label="Shirley">
             <div class="pf-rail">
                 <button class="pf-btn pf-btn--quiet pf-btn--icon pf-rail__btn" type="button"
@@ -139,7 +142,7 @@
                 <span class="pf-rail__name" aria-hidden="true">Shirley</span>
             </div>
             <div class="pf-dockhost" id="dock-chat-host"
-                 hx-get="/chat/dock" hx-trigger="pf:shirley-open once" hx-swap="innerHTML"></div>
+                 {% if cs_case_id %}hx-get="/chat/dock?case={{ cs_case_id }}"{% else %}hx-get="/chat/dock"{% endif %} hx-trigger="pf:shirley-open once" hx-swap="innerHTML"></div>
         </aside>
         {% endblock %}
 

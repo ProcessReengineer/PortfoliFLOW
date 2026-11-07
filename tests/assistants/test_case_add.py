@@ -72,7 +72,7 @@ DATABASE_URL_SUPERUSER = os.getenv("DATABASE_URL_SUPERUSER")
 _T0 = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 
 _NO_NUMBER = (
-    "Name the case by its number — the brief's first line has it, or `list_cases` lists them."
+    "Name the case by its number — the brief opens on the case's badge, or `list_cases` lists them."
 )
 _THREADS_LISTED = (
     "Name the thread by its exact title or as #n; the file lists them. "
@@ -301,9 +301,7 @@ async def test_ca01_a_figure_is_a_conversation_figure_with_who_said_it(
         "case_id": str(book.open_id),
     }
     assert payload["llm_response"].startswith("Added to CASE-")
-    assert payload["llm_response"] == (
-        f"Added to {badge} — figure: «Management fee: 1.5 %». You see it in the dock with Undo."
-    )
+    assert payload["llm_response"] == f"Added to {badge} — figure: «Management fee: 1.5 %»."
 
 
 async def test_ca02_a_thread_is_live_with_its_title_and_no_prose(
@@ -407,11 +405,12 @@ async def test_ca05_prose_appends_a_paragraph_by_title_or_number(
     assert by_number["undo"]["appended"] == "Fees step up."
     assert by_number["undo"]["row_id"] == str(fees.id)
     assert by_title["href"] == f"/cases/{book.open_id}#cs-thread-{liquidity.id}"
-    assert (
-        'text in thread "Liquidity terms": «The GP confirmed the gate.»'
-        in (by_title["llm_response"])
+    assert by_title["llm_response"].endswith(
+        'text in thread "Liquidity terms": «The GP confirmed the gate».'
     )
-    assert 'text in thread "Fees": «Fees step up.»' in by_number["llm_response"]
+    assert by_number["llm_response"].endswith('text in thread "Fees": «Fees step up».')
+    # The dock line keeps the summary as written; only the quote drops its stop.
+    assert by_number["summary"] == "Fees step up."
 
 
 async def test_ca06_every_refusal_writes_nothing(book: _Book, app_engine: AsyncEngine) -> None:
@@ -516,6 +515,34 @@ async def test_ca08_another_tenants_case_is_unknown(
     assert await _file_state(app_engine, book, book.open_id) == before
 
 
+async def test_cs5c08_the_acknowledgement_is_true_on_every_channel(
+    book: _Book, app_engine: AsyncEngine
+) -> None:
+    """CS5c-08 (D-CS-B-128 a–c): no dock sentence, no doubled stop, a paragraph capped."""
+    _context(book.tenant_id, book.pm)
+    badge = _badge(book.open_number)
+
+    point = _artifact(case_add(book.open_number, "point", "The gate."))
+    assert point["llm_response"] == f"Added to {badge} — open point: «The gate»."
+    assert point["llm_response"].endswith("».")
+    assert "dock" not in point["llm_response"] and "Undo" not in point["llm_response"]
+    asked = _artifact(case_add(book.open_number, "point", "Is it gated?!"))
+    assert asked["llm_response"].endswith("open point: «Is it gated».")
+
+    before = await _file_state(app_engine, book, book.open_id)
+    refusal = case_add(book.open_number, "prose", "x" * 2001, thread="Fees")
+    assert refusal == (
+        "Keep a paragraph under 2 000 characters — add a second one if you need more."
+    )
+    assert await _file_state(app_engine, book, book.open_id) == before
+
+    longest = _artifact(case_add(book.open_number, "prose", "y" * 2000, thread="Fees"))
+    assert longest["kind"] == "prose"
+    async with tenant_context(app_engine, book.tenant_id, user_id=book.pm) as session:
+        _, fees = await CaseThreadRepository(session).list_for_case(book.open_id)
+    assert fees.prose == "y" * 2000
+
+
 # ---------------------------------------------------------------------------
 # Layer 2 — no database
 # ---------------------------------------------------------------------------
@@ -587,6 +614,20 @@ def test_ca10_a_bare_core_registers_twenty_and_the_description_carries_the_behav
     assert parameters["properties"]["case_number"]["type"] == "integer"
 
 
+def test_cs5c08_the_description_names_the_badge_not_the_first_line() -> None:
+    """CS5c-08 (D-CS-B-128 d): the brief opens on the case's badge; the refusal says so too."""
+    AIServiceCore()
+    definition = next(
+        d["function"]
+        for d in get_tool_registry().get_tool_definitions()
+        if d["function"]["name"] == "case_add"
+    )
+    assert "the brief opens on the case's badge" in definition["description"]
+    assert "first line" not in definition["description"]
+    assert case_tools._NO_CASE_NUMBER_MSG == _NO_NUMBER
+    assert "the brief opens on the case's badge" in _NO_NUMBER
+
+
 _BASE_URL = "https://openrouter.ai/api/v1"
 _COMPLETIONS_URL = f"{_BASE_URL}/chat/completions"
 
@@ -601,8 +642,7 @@ async def test_ca11_the_core_turns_the_envelope_into_a_case_write_event(httpx_mo
         "summary": "Ask the GP",
         "href": "/cases/c-1#cs-points",
         "undo": {"kind": "point", "row_id": "r-1", "case_id": "c-1"},
-        "llm_response": "Added to CASE-0031 — open point: «Ask the GP». You see it in the dock "
-        "with Undo.",
+        "llm_response": "Added to CASE-0031 — open point: «Ask the GP».",
     }
     for response in (SINGLE_TOOL_CALL_RESPONSE, TOOL_CALL_THEN_TEXT_RESPONSE):
         httpx_mock.add_response(

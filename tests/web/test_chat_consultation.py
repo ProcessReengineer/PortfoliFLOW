@@ -26,7 +26,12 @@ ASGI-level tests over a live Postgres. Three surfaces are exercised:
   line and writes nothing (CS5b-02);
 * the **briefing hand-off** — the same stash, generalised to a second kind: a
   written Watch Desk briefing set by a CSRF-protected POST, bannered in the
-  dock, and appended to the prompt as its own fenced block (obligation 17).
+  dock, and appended to the prompt as its own fenced block (obligation 17);
+* **proposals** — *Summarise into the file* lands a package on the briefed
+  case between its ``job_requested`` / ``job_landed`` lines, writing nothing
+  to the file (CS5c-01/02), and *Make this a case* drafts the form the
+  manual creation route confirms (CS5c-07); the fake core's ``run_synthesis``
+  returns a scripted result. The brief lead names ``case_add`` (CS5c-09).
 
 The Telegram surface is untouched: the brief and Keep presume the web UI's
 banner and keep loop, so the boundary test asserts the briefless path still
@@ -69,8 +74,9 @@ from core.repositories.case_working_file_repository import (
 from core.repositories.irene_briefing_repository import IreneBriefingRepository
 from core.repositories.irene_finding_repository import IreneFindingRepository
 from core.tenant_constants import SENTINEL_TENANT_ID
+from core.repositories.case_working_file_repository import CaseProposalRepository
 from services.ai_models import ConnectionStatus, Message, MessageRole
-from services.ai_service_core import StreamEvent
+from services.ai_service_core import StreamEvent, SynthesisResult
 from services.irene.briefing_material import MATERIAL_VERSION
 from services.password_hashing import hash_password
 from services.tools import case_tools
@@ -78,11 +84,13 @@ from tests._case_record_seed import seed_record_entry
 from web.case_keep import CASE_WRITE_KIND_LABELS, resolve_keep_target
 from web.main import create_app
 from web.routes.chat import (
+    _BRIEF_LEAD,
     _CHART_SPEC_BYTE_CAP,
     BRIEF_KIND_CASE,
     BRIEF_KIND_WATCH_BRIEFING,
     ActiveBrief,
     _active_case_id,
+    _get_or_create_history,
     _set_active_brief,
 )
 from web.settings import WebSettings
@@ -121,6 +129,10 @@ class _FakeCore:
         self._base_prompt = base_prompt
         self._status = ConnectionStatus.CONNECTED
         self.last_system_prompt: str | None = None
+        # The proposals' one-shot (P-CS-5c): what run_synthesis returns (or
+        # raises), and the keyword arguments of every call.
+        self.synthesis: SynthesisResult | Exception | None = None
+        self.synthesis_calls: list[dict[str, Any]] = []
 
     def get_status(self) -> ConnectionStatus:
         return self._status
@@ -145,6 +157,14 @@ class _FakeCore:
         self.last_llm = llm
         for event in self._events:
             yield event
+
+    async def run_synthesis(self, **kwargs: Any) -> SynthesisResult:
+        """The scripted one-shot: record the call, then answer or raise."""
+        self.synthesis_calls.append(kwargs)
+        if isinstance(self.synthesis, Exception):
+            raise self.synthesis
+        assert self.synthesis is not None, "the test scripted no one-shot"
+        return self.synthesis
 
 
 # ---------------------------------------------------------------------------
@@ -577,12 +597,13 @@ async def test_consult_shirley_action_open_only(
 # P-CS-5a — consult in place, the file as the brief, the dock on arrival
 # ---------------------------------------------------------------------------
 
-#: The brief's lead (D-CS-B-108, D-5a-1) — prompt text, pinned verbatim.
+#: The brief's lead (D-CS-B-108, D-5a-1, D-CS-B-128 e) — prompt text, pinned verbatim.
 _CASE_BRIEF_LEAD = (
     "You are consulting on the case below — its working file as the PM sees it now. "
     "Ground your answer in it; cite the file's own figures and threads where they bear "
     "on the question. The conversation is ephemeral: the PM keeps what matters into the "
-    "file with Keep, and nothing you say is written there by itself."
+    "file with Keep, or asks you to add it with `case_add`; nothing is written without "
+    "the PM's gesture."
 )
 
 
@@ -1738,3 +1759,418 @@ async def test_a_briefing_stash_yields_no_keep_target() -> None:
     # Resolved without a database read: nothing is kept into a briefing.
     assert await resolve_keep_target(cast(Any, None), brief=briefing) is None
     assert await resolve_keep_target(cast(Any, None), brief=None) is None
+
+
+# ---------------------------------------------------------------------------
+# P-CS-5c — proposals from the dock (ADR-0138 §8; D-CS-B-121 … D-CS-B-128)
+# ---------------------------------------------------------------------------
+
+_SUMMARISE_URL = "/api/chat/proposals/summarise"
+_DRAFT_URL = "/api/chat/case-draft"
+
+#: A conversation in which the PM said something worth keeping.
+_TURNS: tuple[tuple[MessageRole, str], ...] = (
+    (MessageRole.USER, "The GP's CFO said the management fee is 1.5 % from 2027."),
+    (MessageRole.ASSISTANT, "Noted — that is above the 1.25 % in the LPA."),
+)
+
+#: Three well-formed items: a thread, a figure, a point.
+_THREE: tuple[dict[str, Any], ...] = (
+    {"kind": "thread", "title": "Fee step-up", "prose": "From 2027.", "why": "PM, turn 1"},
+    {
+        "kind": "figure",
+        "label": "Management fee",
+        "value": "1.5 %",
+        "note": "the GP's CFO",
+        "why": "PM, turn 1",
+    },
+    {"kind": "point", "text": "Check the LPA's fee clause", "why": "Shirley, turn 2"},
+)
+
+
+async def _session_id(client: AsyncClient, superuser_engine: AsyncEngine) -> str:
+    """The logged-in session's id — the key of its history and its stash."""
+    cookie = client.cookies.get("portfoliflow_session")
+    assert cookie is not None, "not logged in"
+    async with superuser_engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text("SELECT id FROM sessions WHERE session_token = :t"), {"t": cookie}
+            )
+        ).first()
+    assert row is not None
+    return str(row.id)
+
+
+def _converse(client: AsyncClient, session_id: str, *turns: tuple[MessageRole, str]) -> None:
+    """Append turns to the session's history, as the stream does after a turn."""
+    app = cast(ASGITransport, client._transport).app
+    history = _get_or_create_history(cast(Request, SimpleNamespace(app=app)), session_id)
+    for role, content in turns:
+        history.add_message(Message(role=role, content=content))
+
+
+def _scripted(name: str, arguments: dict[str, Any]) -> SynthesisResult:
+    """A one-shot's result: one call of ``name``, its arguments decoded from JSON."""
+    decoded = json.loads(json.dumps(arguments))
+    return SynthesisResult(
+        tool_calls=[{"name": name, "arguments": decoded, "id": "call-1"}], raw_text=""
+    )
+
+
+def _proposed(*items: dict[str, Any]) -> SynthesisResult:
+    return _scripted("propose_for_file", {"items": list(items)})
+
+
+async def _summarise(client: AsyncClient, csrf: str) -> Any:
+    return await client.post(_SUMMARISE_URL, headers={"X-CSRF-Token": csrf})
+
+
+def _dock_notice(response: Any) -> str:
+    """The banner's result line, as text."""
+    match = re.search(r"<p[^>]*data-pf-dock-notice[^>]*>(.*?)</p>", response.text, re.DOTALL)
+    assert match is not None, response.text
+    return html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+
+
+async def _packages(app_engine: AsyncEngine, actor_id: UUID, case_id: UUID) -> list[Any]:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        return await CaseProposalRepository(session).list_for_case(case_id)
+
+
+async def _system_lines(
+    app_engine: AsyncEngine, actor_id: UUID, case_id: UUID
+) -> list[dict[str, Any]]:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        return [entry.payload for entry in await CaseRepository(session).list_system_lines(case_id)]
+
+
+async def _file_rows(app_engine: AsyncEngine, actor_id: UUID, case_id: UUID) -> dict[str, int]:
+    """Every working-file row a package could have written, counted."""
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        return {
+            "threads": len(await CaseThreadRepository(session).list_for_case(case_id)),
+            "figures": len(await CaseFigureRepository(session).list_for_case(case_id)),
+            "points": len(await CasePointRepository(session).list_for_case(case_id)),
+            "conversations": len(await CaseConversationRepository(session).list_for_case(case_id)),
+            "kept": len(await CaseKeptRepository(session).list_for_case(case_id)),
+        }
+
+
+async def test_summarise_lands_a_package_between_the_job_lines_and_writes_nothing(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS5c-01 (D-CS-B-122/123/127): one package, two lines, the notice, nothing in the file."""
+    actor_id, email, password = seeded_user
+    case_id, number = await _seed_case(app_engine, opened_by=actor_id, title="Fee question")
+    await _add_thread(app_engine, actor_id, case_id, "Liquidity terms")
+    client, core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+    assert (await _consult(client, csrf, str(case_id))).status_code == 200
+    _converse(client, await _session_id(client, fresh_superuser_engine), *_TURNS)
+    before = await _file_rows(app_engine, actor_id, case_id)
+    core.synthesis = _proposed(*_THREE)
+
+    response = await _summarise(client, csrf)
+
+    assert response.status_code == 200, response.text
+    badge = f"CASE-{number:04d}"
+    assert _dock_notice(response) == f"Proposals landed in {badge} — review 3 items"
+    assert f'<a href="/cases/{case_id}#cs-proposals">' in response.text
+    assert _trigger(response) == {"pf:case-kept": {"case_id": str(case_id)}}
+    assert "Consulting for" in response.text  # the banner, re-rendered
+    assert 'data-pf-dock-action="summarise"' in response.text
+
+    (package,) = await _packages(app_engine, actor_id, case_id)
+    assert package.request_text == "Summarise this conversation into the file"
+    assert package.requested_by == actor_id
+    assert package.landed_at is not None and package.resolved_at is None
+    assert [item["kind"] for item in package.items] == ["thread", "figure", "point"]
+    assert {item["status"] for item in package.items} == {"pending"}
+    assert package.items[1] == {
+        "kind": "figure",
+        "status": "pending",
+        "fields": {"label": "Management fee", "value": "1.5 %", "note": "the GP's CFO"},
+        "why": "PM, turn 1",
+    }
+    lines = await _system_lines(app_engine, actor_id, case_id)
+    assert [line["event"] for line in lines] == ["job_requested", "job_landed"]
+    assert {line["proposal_id"] for line in lines} == {str(package.id)}
+    assert lines[0]["text"] == (
+        "Shirley was asked: “Summarise this conversation into the file” — working on it."
+    )
+    assert lines[1]["item_count"] == 3
+    assert await _file_rows(app_engine, actor_id, case_id) == before  # nothing in the file
+
+    (call,) = core.synthesis_calls
+    assert call["tool_choice"] == {"type": "function", "function": {"name": "propose_for_file"}}
+    assert call["tool"]["function"]["name"] == "propose_for_file"
+    assert call["llm"] is not None and call["timeout"] == 60.0
+    assert "never invent a figure" in call["system_prompt"].lower()
+    (context,) = call["context_messages"]
+    assert "Liquidity terms" in context["content"]  # the working file as text
+    assert "PM: The GP's CFO said the management fee is 1.5 % from 2027." in context["content"]
+    assert "Shirley: Noted" in context["content"]
+
+    # A second request while the first package is pending lands a second one.
+    again = await _summarise(client, csrf)
+    assert _dock_notice(again) == f"Proposals landed in {badge} — review 3 items"
+    assert len(await _packages(app_engine, actor_id, case_id)) == 2
+
+    # A waiting case is woken by the request, and the line says so.
+    waiting_id, waiting_number = await _seed_case(app_engine, opened_by=actor_id, title="Waits")
+    await _wait_case(app_engine, actor_id, waiting_id)
+    await _consult(client, csrf, str(waiting_id))
+    core.synthesis = _proposed(_THREE[2])
+    woken = await _summarise(client, csrf)
+    assert _dock_notice(woken) == (
+        f"Proposals landed in CASE-{waiting_number:04d} — review 1 item — the case is open again"
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        repo = CaseRepository(session)
+        lifted = await repo.get(waiting_id)
+        kinds = [entry.kind for entry in await repo.list_entries(waiting_id)]
+    assert lifted is not None and lifted.state == "open"
+    assert "waiting_lifted" in kinds
+    assert [line["event"] for line in await _system_lines(app_engine, actor_id, waiting_id)] == [
+        "job_requested",
+        "job_landed",
+    ]
+
+
+async def test_summarise_lands_empty_on_a_failed_call_and_refuses_calmly(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS5c-02 (D-CS-B-122/123): the record stays the truth; no case, no call, no rows."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Fee question")
+    client, core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+    session_id = await _session_id(client, fresh_superuser_engine)
+    _converse(client, session_id, *_TURNS)
+
+    # No case brief: the calm line, nothing written, no call.
+    unbriefed = await _summarise(client, csrf)
+    assert _dock_notice(unbriefed) == "Consult a case first — the dock has no case."
+    assert "HX-Trigger" not in unbriefed.headers
+    assert 'data-pf-dock-action="summarise"' not in unbriefed.text
+    assert 'data-pf-dock-action="draft"' in unbriefed.text
+    assert await _packages(app_engine, actor_id, case_id) == []
+    assert core.synthesis_calls == []
+
+    # A raising one-shot still lands — empty — and job_landed counts nothing.
+    await _consult(client, csrf, str(case_id))
+    core.synthesis = TimeoutError("the model took too long")
+    failed = await _summarise(client, csrf)
+    assert failed.status_code == 200
+    assert _dock_notice(failed) == "Shirley could not answer — try again."
+    assert _trigger(failed) == {"pf:case-kept": {"case_id": str(case_id)}}
+    (package,) = await _packages(app_engine, actor_id, case_id)
+    assert package.items == []
+    assert package.landed_at is not None and package.resolved_at is not None
+    lines = await _system_lines(app_engine, actor_id, case_id)
+    assert [line["event"] for line in lines] == ["job_requested", "job_landed"]
+    assert lines[1]["item_count"] == 0
+
+    # Prose instead of the forced call is no answer; an empty or malformed one is nothing.
+    for result, line in (
+        (SynthesisResult(tool_calls=[], raw_text="Here is a summary."), "could not answer"),
+        (_proposed(), "found nothing to propose"),
+        (_proposed({"kind": "decision", "text": "Hold.", "why": "t1"}), "found nothing"),
+    ):
+        core.synthesis = result
+        assert line in _dock_notice(await _summarise(client, csrf))
+    assert len(await _packages(app_engine, actor_id, case_id)) == 4
+    assert await _file_rows(app_engine, actor_id, case_id) == {
+        "threads": 0,
+        "figures": 0,
+        "points": 0,
+        "conversations": 0,
+        "kept": 0,
+    }
+
+    # No LLM for the tenant: the calm line, nothing requested.
+    calls = len(core.synthesis_calls)
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    unconfigured = await _summarise(client, csrf)
+    assert unconfigured.status_code == 200
+    assert _dock_notice(unconfigured) == "Shirley is not configured for this tenant."
+    assert len(await _packages(app_engine, actor_id, case_id)) == 4
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-conftest")
+
+    # A conversation in which the PM said nothing: nothing to propose, nothing asked.
+    client_b, core_b = await client_factory()
+    csrf_b = await _login_and_csrf(client_b, email, password)
+    await _consult(client_b, csrf_b, str(case_id))
+    silent = await _summarise(client_b, csrf_b)
+    assert _dock_notice(silent) == "Shirley found nothing to propose from this conversation."
+    assert core_b.synthesis_calls == []
+    assert len(await _packages(app_engine, actor_id, case_id)) == 4
+
+    # A stash closed since: the calm line, the stash dropped, nothing asked.
+    await _close_case(app_engine, actor_id, case_id)
+    closed = await _summarise(client, csrf)
+    assert _dock_notice(closed) == "Consult a case first — the dock has no case."
+    assert "Consulting for" not in closed.text
+    assert len(core.synthesis_calls) == calls
+    assert len(await _packages(app_engine, actor_id, case_id)) == 4
+
+
+def _radio_checked(markup: str, value: str) -> bool:
+    match = re.search(rf'<input type="radio" name="framing"[^>]*value="{value}"[^>]*>', markup)
+    assert match is not None, markup
+    return " checked" in match.group(0)
+
+
+async def test_make_this_a_case_drafts_the_form_the_creation_route_confirms(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS5c-07 (D-CS-B-126): the draft, the case on confirm, the manual form, the calm states."""
+    actor_id, email, password = seeded_user
+    client, core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+
+    empty = await client.post(_DRAFT_URL, headers={"X-CSRF-Token": csrf})
+    assert _dock_notice(empty) == "Nothing to draft yet — talk to Shirley first."
+    assert core.synthesis_calls == []
+
+    _converse(client, await _session_id(client, fresh_superuser_engine), *_TURNS)
+    core.synthesis = _scripted(
+        "draft_case",
+        {
+            "title": "GP X fee step-up",
+            "framing": "task",
+            "question": "Find out whether the 1.5 % fee from 2027 is in the LPA.",
+            "first_thread": {"title": "The LPA's fee clause", "prose": "1.25 % so far."},
+        },
+    )
+    draft = await client.post(_DRAFT_URL, headers={"X-CSRF-Token": csrf})
+    assert draft.status_code == 200, draft.text
+    form = html.unescape(draft.text)
+    assert 'data-pf-draft="form"' in form and "New case from this conversation" in form
+    assert 'hx-post="/api/cases/new"' in form and 'hx-target="#chat-brief-banner"' in form
+    assert 'name="title" value="GP X fee step-up"' in form
+    assert _radio_checked(draft.text, "task") and not _radio_checked(draft.text, "question")
+    assert "Find out whether the 1.5 % fee from 2027 is in the LPA.</textarea>" in form
+    assert 'name="thread_title" value="The LPA\'s fee clause"' in form
+    assert "1.25 % so far.</textarea>" in form
+    assert 'hx-get="/chat/brief/banner"' in form  # Cancel
+    assert 'data-pf-draft="hint"' not in form
+    (call,) = core.synthesis_calls
+    assert call["tool_choice"] == {"type": "function", "function": {"name": "draft_case"}}
+    assert "PM: The GP's CFO said" in call["context_messages"][0]["content"]
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        assert await CaseRepository(session).list_open() == []  # nothing exists yet
+
+    created = await client.post(
+        "/api/cases/new",
+        data={
+            "csrf_token": csrf,
+            "title": "GP X fee step-up",
+            "framing": "task",
+            "description": "Find out whether the 1.5 % fee from 2027 is in the LPA.",
+            "thread_title": "The LPA's  fee clause",
+            "thread_prose": " 1.25 % so far. ",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 200, created.text
+    new_id = UUID(created.headers["HX-Redirect"].removeprefix("/cases/"))
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        case = await CaseRepository(session).get(new_id)
+        threads = await CaseThreadRepository(session).list_for_case(new_id)
+    assert case is not None
+    assert (case.title, case.framing, case.description) == (
+        "GP X fee step-up",
+        "task",
+        "Find out whether the 1.5 % fee from 2027 is in the LPA.",
+    )
+    assert [(t.title, t.prose, t.status) for t in threads] == [
+        ("The LPA's fee clause", "1.25 % so far.", "open")
+    ]
+
+    # The manual form's two fields still open a case — no framing, no thread.
+    manual = await client.post(
+        "/api/cases/new",
+        data={"csrf_token": csrf, "title": "By hand", "description": "Typed."},
+        follow_redirects=False,
+    )
+    manual_id = UUID(manual.headers["HX-Redirect"].removeprefix("/cases/"))
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        by_hand = await CaseRepository(session).get(manual_id)
+        assert await CaseThreadRepository(session).list_for_case(manual_id) == []
+    assert by_hand is not None and (by_hand.framing, by_hand.description) == (None, "Typed.")
+
+    # A blank title from the draft form re-renders the draft form, nothing created.
+    blank = await client.post(
+        "/api/cases/new",
+        data={
+            "csrf_token": csrf,
+            "title": "   ",
+            "framing": "task",
+            "description": "Kept as typed.",
+            "thread_title": "A thread",
+        },
+        follow_redirects=False,
+    )
+    assert "HX-Redirect" not in blank.headers
+    assert 'data-pf-draft="error"' in blank.text
+    assert "A title is required to open a case." in blank.text
+    assert "Kept as typed.</textarea>" in blank.text and _radio_checked(blank.text, "task")
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        assert len(await CaseRepository(session).list_open()) == 2
+
+    # A raising one-shot: the form, empty, with the hint.
+    core.synthesis = RuntimeError("the endpoint refused")
+    failed = await client.post(_DRAFT_URL, headers={"X-CSRF-Token": csrf})
+    assert 'data-pf-draft="hint"' in failed.text
+    assert "Shirley could not draft this — fill it in yourself." in failed.text
+    assert 'name="title" value=""' in failed.text and _radio_checked(failed.text, "question")
+
+
+async def test_the_banner_carries_the_actions_row_with_or_without_a_brief(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5c-07 (D-CS-B-123/126): Make this a case always; Summarise on a case brief only."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Actions")
+    client, _core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+
+    dock = (await client.get("/chat/dock")).text
+    assert 'data-pf-dock-action="draft"' in dock
+    assert f'hx-post="{_DRAFT_URL}"' in dock
+    assert 'data-pf-dock-action="summarise"' not in dock
+
+    await _consult(client, csrf, str(case_id))
+    banner = (await client.get("/chat/brief/banner")).text
+    assert 'data-pf-dock-action="summarise"' in banner and f'hx-post="{_SUMMARISE_URL}"' in banner
+    assert 'data-pf-dock-action="draft"' in banner
+    assert "data-pf-dock-notice" not in banner
+
+    # Dismiss empties the container and asks it to render again, row included.
+    dismissed = await client.post("/chat/brief/dismiss", data={"csrf_token": csrf})
+    assert dismissed.text.strip() == ""
+    assert dismissed.headers["HX-Trigger"] == "pf:brief-changed"
+    again = (await client.get("/chat/brief/banner")).text
+    assert "Consulting for" not in again and 'data-pf-dock-action="draft"' in again
+
+
+def test_the_brief_lead_names_case_add() -> None:
+    """CS5c-09 (D-CS-B-128 e): Keep or ``case_add``; nothing written without the PM's gesture."""
+    assert "asks you to add it with `case_add`" in _BRIEF_LEAD
+    assert "by itself" not in _BRIEF_LEAD
+    assert _BRIEF_LEAD.endswith("nothing is written without the PM's gesture.")
+    assert _BRIEF_LEAD == _CASE_BRIEF_LEAD

@@ -41,6 +41,15 @@ shell consumes:
   the dock line of a write Shirley made through ``case_add`` and its *Undo*
   (ADR-0138 §8 channel 3, §10; D-CS-B-115). The stream relays each write as
   a ``case_write`` SSE event; the line is live only — the file is the record.
+* ``POST /api/chat/proposals/summarise`` — *Summarise into the file*: one
+  synchronous Shirley one-shot over the briefed case's file and the session's
+  conversation lands a proposal package on the case, bracketed by the
+  ``job_requested`` / ``job_landed`` lines (ADR-0138 §7, §8; D-CS-M-12,
+  D-CS-B-122, D-CS-B-123); the PM reviews it item by item in the case.
+* ``POST /api/chat/case-draft`` — *Make this a case*: one one-shot drafts
+  title, framing, the question and a first thread into a form the PM edits;
+  the case exists only when the form posts to ``POST /api/cases/new``
+  (ADR-0138 §8, D-CS-B-126).
 
 Two further per-session in-memory stores ride alongside the history
 (``app.state.chat_histories``, ADR-0050): the consultation-brief stash
@@ -91,6 +100,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import aclosing, asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 from urllib.parse import urlencode
@@ -113,7 +123,10 @@ from core.repositories import ScopedSettingRepository
 from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
-from core.repositories.case_working_file_repository import CaseThreadRepository
+from core.repositories.case_working_file_repository import (
+    CaseProposalRepository,
+    CaseThreadRepository,
+)
 from core.repositories.irene_briefing_repository import (
     IreneBriefingDTO,
     IreneBriefingRepository,
@@ -134,11 +147,25 @@ from services.ai_models import (
 from services.ai_service_core import (
     AIServiceCore,
     ResolvedLLM,
+    SynthesisResult,
     _StopTokenStripper,
     get_ai_service_core,
 )
 from services.auth.session import SessionDTO
 from services.cases.file_text import file_user_ids, render_case_file_text
+from services.cases.proposals import (
+    CASE_DRAFT_SYSTEM_PROMPT,
+    CASE_DRAFT_TOOL,
+    PROPOSAL_SYSTEM_PROMPT,
+    PROPOSAL_TOOL,
+    PROPOSAL_TOOL_NAME,
+    conversation_text,
+    draft_from_tool_calls,
+    draft_messages,
+    items_from_tool_calls,
+    proposal_messages,
+)
+from services.cases.system_lines import job_landed, job_requested
 from services.investments.credential_resolver import (
     CredentialResolver,
     CredentialUnavailableError,
@@ -193,6 +220,7 @@ from web.brief_stash import (
     _set_active_brief,
 )
 from web.case_keep import (
+    BRIEF_CHANGED_EVENT,
     CASE_WRITE_KIND_LABELS,
     KEEP_CASE_GONE_MESSAGE,
     KEEP_THREAD_GONE_MESSAGE,
@@ -216,11 +244,12 @@ from web.permissions import require_role
 # The case brief is the working file as text (ADR-0138 §10, D-CS-B-108),
 # composed in the services layer (``services/cases/file_text.py``) — the same
 # function ``get_case`` reads — so only the name resolution is borrowed from
-# the Cases route. The import is one-directional: ``cases.py``'s own import
-# chain (``watch_desk``, ``planning_desk``) never reaches ``chat.py``, so there
-# is no cycle. ``cases.py`` therefore cannot import back the assistants URL — it
+# the Cases route, and the draft form's template name (``POST /api/cases/new``
+# re-renders the same form on a blank title). The import is one-directional:
+# ``cases.py``'s own import chain (``watch_desk``, ``planning_desk``) never
+# reaches ``chat.py``, so there is no cycle. ``cases.py`` therefore cannot import back the assistants URL — it
 # holds its own ``CONSULT_SHIRLEY_URL`` constant.
-from web.routes.cases import _resolve_owner_names
+from web.routes.cases import CASE_DRAFT_TEMPLATE, _resolve_owner_names
 
 # The watch-briefing banner and brief block state a check in the words the
 # Watch Desk uses (ADR-0133 §6): the family display names, the schedule-zone
@@ -782,6 +811,11 @@ CASE_WRITE_LINE_URL: str = "/api/chat/case-write/line"
 CASE_WRITE_UNDO_URL: str = "/api/chat/case-write/undo"
 _CSRF_FIELD: str = "csrf_token"
 
+#: The dock's two proposal gestures (ADR-0138 §8, D-CS-B-123, D-CS-B-126):
+#: *Summarise into the file* on the briefed case, and *Make this a case*.
+PROPOSALS_SUMMARISE_URL: str = "/api/chat/proposals/summarise"
+CASE_DRAFT_URL: str = "/api/chat/case-draft"
+
 #: The kept class a Shirley answer becomes (ADR-0138 §9) — the payload is the
 #: pin contract minus the comment: ``{"excerpt": <the message text>}``.
 _CONSULTATION_ARTIFACT: str = "consultation"
@@ -793,14 +827,16 @@ _CHART_SNAPSHOT_ARTIFACT: str = "chart_snapshot"
 _BRIEF_OPEN: str = "<<<PORTFOLIFLOW CASE BRIEF>>>"
 _BRIEF_CLOSE: str = "<<<END PORTFOLIFLOW CASE BRIEF>>>"
 
-#: The lead of the case brief (D-CS-B-108): prompt text Shirley reads, never
-#: rendered copy. The brief is the working file (ADR-0138 §10); Keep, not the
-#: conversation, is how anything reaches it.
+#: The lead of the case brief (D-CS-B-108, D-CS-B-128 e): prompt text Shirley
+#: reads, never rendered copy. The brief is the working file (ADR-0138 §10);
+#: what reaches it does so by a PM gesture — Keep, a ``case_add`` the PM asks
+#: for, or a proposal the PM accepts — never from the conversation by itself.
 _BRIEF_LEAD: str = (
     "You are consulting on the case below — its working file as the PM sees it "
     "now. Ground your answer in it; cite the file's own figures and threads where "
     "they bear on the question. The conversation is ephemeral: the PM keeps what "
-    "matters into the file with Keep, and nothing you say is written there by itself."
+    "matters into the file with Keep, or asks you to add it with `case_add`; "
+    "nothing is written without the PM's gesture."
 )
 
 #: Watch-briefing block delimiters (ADR-0133 §6) — the second fenced block
@@ -971,19 +1007,27 @@ def _format_brief(text: str) -> str:
     return "\n".join((_BRIEF_OPEN, _BRIEF_LEAD, text, _BRIEF_CLOSE))
 
 
-async def _compose_case_brief(db: Any, case: CaseDTO) -> str:
-    """Compose the case brief: the working file as text (ADR-0138 §10, D-CS-B-108).
+async def _case_file_text(db: Any, case: CaseDTO) -> str:
+    """The working file as text, its users named (ADR-0138 §10, D-CS-B-108).
 
     The users the file names are resolved in one batch
     (:func:`_resolve_owner_names` over
     :func:`~services.cases.file_text.file_user_ids`) and handed to the one
     composition the page's readers share. An open or waiting case is
-    composed with Where we stand read now; the caller has already dropped a
-    closed or vanished stash.
+    composed with Where we stand read now. The case brief and the
+    *Summarise into the file* one-shot read the same text.
     """
     names = await _resolve_owner_names(UserRepository(db), await file_user_ids(db, case))
-    text = await render_case_file_text(db, case, now=datetime.now(timezone.utc), user_names=names)
-    return _format_brief(text)
+    return await render_case_file_text(db, case, now=datetime.now(timezone.utc), user_names=names)
+
+
+async def _compose_case_brief(db: Any, case: CaseDTO) -> str:
+    """Compose the case brief: the working file as text (ADR-0138 §10, D-CS-B-108).
+
+    :func:`_case_file_text` inside the fenced block; the caller has already
+    dropped a closed or vanished stash.
+    """
+    return _format_brief(await _case_file_text(db, case))
 
 
 def _stated(value: object) -> str:
@@ -3393,6 +3437,8 @@ async def get_chat_dock(
                 "voice_tts_enabled": tts_active,
                 "voice_call_enabled": call_active,
                 "brief_banner": await resolve_active_brief_banner(request, session, case),
+                "summarise_url": PROPOSALS_SUMMARISE_URL,
+                "draft_url": CASE_DRAFT_URL,
             },
         ),
     )
@@ -3418,10 +3464,12 @@ async def dismiss_brief(
     The banner's dismiss posts here; the empty body swaps the banner out of the
     DOM. Subsequent turns run unbriefed until a new ``?case=`` marker or a
     Watch Desk hand-off sets the stash again. Safe to call with no active
-    stash.
+    stash. ``HX-Trigger: pf:brief-changed`` makes the container fetch the
+    banner again, so the dock's actions row — *Make this a case* stays
+    without a brief (D-CS-B-126) — comes back at once.
     """
     _clear_active_brief(request, str(session.id))
-    return HTMLResponse("")
+    return HTMLResponse("", headers={"HX-Trigger": BRIEF_CHANGED_EVENT})
 
 
 # ---------------------------------------------------------------------------
@@ -3547,19 +3595,386 @@ async def get_brief_banner(
     hand-off response carries — so a dock that is already open shows the new
     context; a dock opened later renders the banner with its fragment. No
     marker of its own, like ``GET /chat/dock``: the stash is validated fresh
-    and a stale one yields the empty banner.
+    and a stale one yields the empty banner — the actions row stays
+    (D-CS-B-126). The draft form's *Cancel* fetches it too.
     """
+    return await _render_banner(request, session)
+
+
+# ---------------------------------------------------------------------------
+# Proposals (ADR-0138 §8, D-CS-M-12) — the dock's two gestures under the
+# banner: *Summarise into the file* on the briefed case and *Make this a case*.
+# Each is one synchronous Shirley one-shot through ``run_synthesis`` with its
+# tool forced and no registry tool offered, so it is Fetcher-free by
+# construction: it reads the working file as text and the session's
+# conversation, nothing else (``services/cases/proposals.py`` builds both and
+# parses what comes back). Nothing reaches a working file here: a package
+# lands on ``case_proposals`` for the PM to review item by item in the case,
+# and a draft is a form the PM confirms before the case exists.
+# ---------------------------------------------------------------------------
+
+_BRIEF_BANNER_TEMPLATE: str = "_partials/chat_brief_banner.html"
+
+#: What *Summarise into the file* asks: the package's request text, which its
+#: ``job_requested`` line quotes and the review block repeats.
+_SUMMARISE_REQUEST_TEXT: str = "Summarise this conversation into the file"
+
+#: The one-shot's per-request timeout, in seconds (D-CS-B-122).
+_ONE_SHOT_TIMEOUT_SECONDS: float = 60.0
+
+# The banner notices (D-5c-2) and the draft form's hint (D-5c-5).
+_LANDED_NOTICE: str = "Proposals landed in {badge} — review {count} {noun}"
+_NOTHING_TO_PROPOSE_NOTICE: str = "Shirley found nothing to propose from this conversation."
+_NO_ANSWER_NOTICE: str = "Shirley could not answer — try again."
+_NO_CASE_NOTICE: str = "Consult a case first — the dock has no case."
+_NOTHING_TO_DRAFT_NOTICE: str = "Nothing to draft yet — talk to Shirley first."
+_NO_LLM_NOTICE: str = "Shirley is not configured for this tenant."
+_REOPENED_SUFFIX: str = " — the case is open again"
+_DRAFT_FAILED_HINT: str = "Shirley could not draft this — fill it in yourself."
+
+
+def _notice(text: str, *, href: str | None = None, reopened: bool = False) -> dict[str, Any]:
+    """A banner notice: its line, the link it may carry, and the wake it may report.
+
+    A case the request woke says so at the end of the line (D-CS-B-127); a
+    line's own full stop moves behind the suffix.
+    """
+    if reopened:
+        stop = "." if text.endswith(".") else ""
+        text = text.removesuffix(".") + _REOPENED_SUFFIX + stop
+    return {"text": text, "href": href}
+
+
+async def _banner_context(
+    request: Request, session: SessionDTO, *, notice: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """The banner's context: the brief validated fresh, the two gestures, the notice."""
+    return {
+        "csrf_token": session.csrf_token,
+        "brief_banner": await resolve_active_brief_banner(request, session, None),
+        "summarise_url": PROPOSALS_SUMMARISE_URL,
+        "draft_url": CASE_DRAFT_URL,
+        "notice": notice,
+    }
+
+
+async def _render_banner(
+    request: Request,
+    session: SessionDTO,
+    *,
+    notice: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> HTMLResponse:
+    """Render ``#chat-brief-banner``'s content: the banner, the actions row, a notice."""
     return cast(
         HTMLResponse,
         _templates(request).TemplateResponse(
             request,
-            "_partials/chat_brief_banner.html",
+            _BRIEF_BANNER_TEMPLATE,
+            await _banner_context(request, session, notice=notice),
+            headers=headers,
+        ),
+    )
+
+
+def _has_user_turn(conversation: Conversation) -> bool:
+    """Whether the PM has said anything in this session's conversation."""
+    return any(
+        message.role == MessageRole.USER and (message.content or "").strip()
+        for message in conversation.messages
+    )
+
+
+def _conversation_for(request: Request, session_id: str) -> str:
+    """The session's conversation as the one-shot reads it (:func:`conversation_text`)."""
+    return conversation_text(_get_or_create_history(request, session_id).messages)
+
+
+async def _connected_or_none(
+    request: Request, session: SessionDTO
+) -> tuple[AIServiceCore, ResolvedLLM] | None:
+    """The core and this request's resolution, or ``None`` when the tenant has no LLM.
+
+    :func:`_require_connected_core`'s 503 becomes the banner's calm line: a
+    5xx is not swapped into the dock, so the PM would see nothing at all.
+    """
+    try:
+        return await _require_connected_core(request, session)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_503_SERVICE_UNAVAILABLE:
+            raise
+        return None
+
+
+async def _one_shot(
+    core: AIServiceCore,
+    llm: ResolvedLLM,
+    *,
+    system_prompt: str,
+    messages: list[dict[str, str]],
+    tool: Mapping[str, Any],
+) -> SynthesisResult | None:
+    """One non-streaming call with ``tool`` forced (D-CS-B-122); ``None`` on any failure.
+
+    The speakable idiom (``services/voice_call/speakable.py``): the tool is
+    the request's only one and its name the forced choice, so no registry
+    tool can run. A timeout, an SDK error or any other exception is logged
+    as a warning and answers ``None`` — the caller lands an empty package or
+    renders an empty form, never an error page.
+    """
+    name = str(tool["function"]["name"])
+    try:
+        return await core.run_synthesis(
+            system_prompt=system_prompt,
+            context_messages=list(messages),
+            tool=dict(tool),
+            tool_choice={"type": "function", "function": {"name": name}},
+            llm=llm,
+            timeout=_ONE_SHOT_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 — a failed one-shot answers calmly
+        logger.warning("chat proposals: the %s one-shot failed (%s).", name, type(exc).__name__)
+        return None
+
+
+@dataclass(frozen=True)
+class _RequestedPackage:
+    """What the first transaction of *Summarise into the file* hands the one-shot."""
+
+    case: CaseDTO
+    proposal_id: UUID
+    file_text: str
+    live_threads: dict[str, UUID]
+    reopened: bool
+
+
+async def _request_package(
+    db: Any, case_id: UUID, session: SessionDTO, *, now: datetime
+) -> _RequestedPackage | None:
+    """Request the package and write ``job_requested`` — one transaction (D-CS-B-123).
+
+    The file text and the live threads are read first, as the PM sees them.
+    ``job_requested`` lifts a waiting case (the 2c write-and-wake contract,
+    D-CS-B-127); ``reopened`` reports it. A closed or vanished case answers
+    ``None`` and nothing is written.
+    """
+    cases = CaseRepository(db)
+    case = await cases.get(case_id)
+    if case is None or case.state not in _MUTABLE_STATES:
+        return None
+    file_text = await _case_file_text(db, case)
+    threads = await CaseThreadRepository(db).list_for_case(case.id)
+    proposal = await CaseProposalRepository(db).request(
+        case.id,
+        requested_by=session.user_id,
+        request_text=_SUMMARISE_REQUEST_TEXT,
+        now=now,
+    )
+    await job_requested(
+        cases,
+        case=case,
+        proposal_id=proposal.id,
+        request_text=_SUMMARISE_REQUEST_TEXT,
+        now=now,
+    )
+    after = await cases.get(case.id) or case
+    return _RequestedPackage(
+        case=after,
+        proposal_id=proposal.id,
+        file_text=file_text,
+        live_threads={thread.title: thread.id for thread in threads},
+        reopened=case.state == "waiting" and after.state == "open",
+    )
+
+
+@router.post(
+    PROPOSALS_SUMMARISE_URL,
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_proposals_summarise(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """*Summarise into the file*: one package for the briefed case (ADR-0138 §8, D-CS-B-123).
+
+    The brief's case (open or waiting) is the target; no case brief, a stash
+    closed or vanished since, no LLM for the tenant, or a conversation in
+    which the PM has said nothing answers the banner with its calm line and
+    writes nothing. Otherwise, in one transaction, the package is requested
+    on ``case_proposals`` and ``job_requested`` written; the one-shot runs
+    outside any transaction (:func:`_one_shot`, ``PROPOSAL_TOOL`` forced);
+    then, in a second transaction, the normalised items land and
+    ``job_landed`` follows with their count. A failed or empty one-shot
+    still lands, empty (D-CS-B-122): the record says what was asked and
+    what came back. Nothing reaches the working file — the PM accepts item
+    by item in the case.
+
+    Answers the banner re-rendered with the result line — *Proposals landed
+    in CASE-nnnn — review n items*, linking to the case's review block, or
+    *Shirley found nothing to propose …* / *Shirley could not answer …* —
+    suffixed *the case is open again* when the request woke it; and
+    ``HX-Trigger: pf:case-kept`` with the case id, so a case page on screen
+    re-fetches its blocks and shows the package (D-CS-B-88). A second
+    request while a package is pending lands a second package.
+    """
+    session_id = str(session.id)
+    case_id = _active_case_id(request, session_id)
+    if case_id is None:
+        return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
+    connected = await _connected_or_none(request, session)
+    if connected is None:
+        return await _render_banner(request, session, notice=_notice(_NO_LLM_NOTICE))
+    core, llm = connected
+    if not _has_user_turn(_get_or_create_history(request, session_id)):
+        return await _render_banner(request, session, notice=_notice(_NOTHING_TO_PROPOSE_NOTICE))
+    conversation = _conversation_for(request, session_id)
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        requested = await _request_package(db, case_id, session, now=datetime.now(timezone.utc))
+    if requested is None:  # closed or gone since the stash; the banner render clears it
+        return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
+    case = requested.case
+
+    result = await _one_shot(
+        core,
+        llm,
+        system_prompt=PROPOSAL_SYSTEM_PROMPT,
+        messages=proposal_messages(requested.file_text, conversation),
+        tool=PROPOSAL_TOOL,
+    )
+    calls = result.tool_calls if result is not None else []
+    items, reasons = items_from_tool_calls(calls, live_threads=requested.live_threads)
+    for reason in reasons:
+        logger.info(
+            "chat proposals: case=%s proposal=%s — %s", case.id, requested.proposal_id, reason
+        )
+    answered = any(call.get("name") == PROPOSAL_TOOL_NAME for call in calls)
+
+    landed_at = datetime.now(timezone.utc)
+    try:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            await CaseProposalRepository(db).land(requested.proposal_id, items=items, now=landed_at)
+            cases = CaseRepository(db)
+            await job_landed(
+                cases,
+                case=await cases.get(case.id) or case,
+                proposal_id=requested.proposal_id,
+                item_count=len(items),
+                now=landed_at,
+            )
+    except (CaseClosedError, CaseStateInvalid):
+        logger.warning(
+            "chat proposals: case %s closed before proposal %s landed.",
+            case.id,
+            requested.proposal_id,
+        )
+        return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
+
+    logger.info(
+        "chat proposals: tenant=%s user=%s case=%s proposal=%s items=%d answered=%s",
+        session.tenant_id,
+        session.user_id,
+        case.id,
+        requested.proposal_id,
+        len(items),
+        answered,
+    )
+    if items:
+        notice = _notice(
+            _LANDED_NOTICE.format(
+                badge=f"CASE-{case.case_number:04d}",
+                count=len(items),
+                noun="item" if len(items) == 1 else "items",
+            ),
+            href=f"/cases/{case.id}#cs-proposals",
+            reopened=requested.reopened,
+        )
+    else:
+        notice = _notice(
+            _NOTHING_TO_PROPOSE_NOTICE if answered else _NO_ANSWER_NOTICE,
+            reopened=requested.reopened,
+        )
+    return await _render_banner(
+        request,
+        session,
+        notice=notice,
+        headers={"HX-Trigger": keep_trigger(case.id, brief_changed=False)},
+    )
+
+
+def _render_draft(
+    request: Request, session: SessionDTO, draft: Mapping[str, Any] | None
+) -> HTMLResponse:
+    """The draft form, prefilled from ``draft`` — or empty, with the hint, without one."""
+    first = draft.get("first_thread") if draft is not None else None
+    form = {
+        "title": draft["title"] if draft is not None else "",
+        "framing": draft["framing"] if draft is not None else "question",
+        "description": draft["question"] if draft is not None else "",
+        "thread_title": first["title"] if first else "",
+        "thread_prose": first["prose"] if first else "",
+    }
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            CASE_DRAFT_TEMPLATE,
             {
                 "csrf_token": session.csrf_token,
-                "brief_banner": await resolve_active_brief_banner(request, session, None),
+                "form": form,
+                "hint": _DRAFT_FAILED_HINT if draft is None else None,
             },
         ),
     )
+
+
+@router.post(
+    CASE_DRAFT_URL,
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def post_case_draft(
+    request: Request,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """*Make this a case*: a draft of a new case, from the conversation (D-CS-B-126).
+
+    The conversation needs at least one PM turn (else the banner's calm
+    *Nothing to draft yet …*) and the tenant an LLM (else *Shirley is not
+    configured …*). One one-shot (``CASE_DRAFT_TOOL`` forced) drafts title,
+    framing, the question and a first thread; the banner container then
+    holds the form ``chat_case_draft.html`` — prefilled, or empty with the
+    hint *Shirley could not draft this — fill it in yourself.* when the call
+    failed or drafted nothing. Nothing is written here: the form posts to
+    ``POST /api/cases/new``, and the case exists only then. Any case brief
+    stays as it is — a new case from this conversation is legitimate while
+    another is briefed.
+    """
+    session_id = str(session.id)
+    if not _has_user_turn(_get_or_create_history(request, session_id)):
+        return await _render_banner(request, session, notice=_notice(_NOTHING_TO_DRAFT_NOTICE))
+    connected = await _connected_or_none(request, session)
+    if connected is None:
+        return await _render_banner(request, session, notice=_notice(_NO_LLM_NOTICE))
+    core, llm = connected
+    result = await _one_shot(
+        core,
+        llm,
+        system_prompt=CASE_DRAFT_SYSTEM_PROMPT,
+        messages=draft_messages(_conversation_for(request, session_id)),
+        tool=CASE_DRAFT_TOOL,
+    )
+    draft = draft_from_tool_calls(result.tool_calls) if result is not None else None
+    logger.info(
+        "chat case draft: tenant=%s user=%s drafted=%s",
+        session.tenant_id,
+        session.user_id,
+        draft is not None,
+    )
+    return _render_draft(request, session, draft)
 
 
 # ---------------------------------------------------------------------------

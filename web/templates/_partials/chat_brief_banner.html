@@ -7,9 +7,24 @@
    Watch Desk briefing reads
    "Discussing the briefing of <check stamp>" and links to the Journal —
    persona-free (UI-023). The dismiss action is the same for both: it
-   clears the stash and empties the container.
+   clears the stash and empties the container, whose banner then renders
+   again without a brief (pf:brief-changed).
 
-   Context: brief_banner ({kind, …} or None), csrf_token. #}
+   Below the banner, with or without one, the actions row (ADR-0138 §8,
+   D-CS-B-123, D-CS-B-126): "Summarise into the file" on a case brief only —
+   Shirley's proposal package for that case, reviewed in the case — and
+   "Make this a case" always, a new case drafted from this conversation (a
+   case briefed meanwhile is no obstacle). Each posts with its token in the
+   header and answers into this container: the banner again with the result
+   line under the row (the notice — "Proposals landed in CASE-nnnn — review
+   n items", linking to the case's review block, or a calm line), or the
+   draft form (chat_case_draft.html). The buttons carry the
+   data-pf-dock-action hook ("summarise" / "draft"), the line
+   data-pf-dock-notice. Both one-shots are synchronous, so a button is
+   disabled while its request runs.
+
+   Context: brief_banner ({kind, …} or None), csrf_token, summarise_url,
+   draft_url, notice ({text, href} or None). #}
 {% if brief_banner %}
     <div class="chat-brief" role="status" data-brief-kind="{{ brief_banner.kind }}">
         {% if brief_banner.kind == 'watch_briefing' %}
@@ -34,4 +49,23 @@
                     hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Dismiss</button>
         {% endif %}
     </div>
+{% endif %}
+<div class="chat-brief__actions">
+    {% if brief_banner and brief_banner.kind == 'case' %}
+        <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-dock-action="summarise"
+                hx-post="{{ summarise_url }}"
+                hx-target="#chat-brief-banner"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this"
+                hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Summarise into the file</button>
+    {% endif %}
+    <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-dock-action="draft"
+            hx-post="{{ draft_url }}"
+            hx-target="#chat-brief-banner"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this"
+            hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>Make this a case</button>
+</div>
+{% if notice %}
+    <p class="chat-brief__notice" role="status" data-pf-dock-notice>{% if notice.href %}<a href="{{ notice.href }}">{{ notice.text }}</a>{% else %}{{ notice.text }}{% endif %}</p>
 {% endif %}

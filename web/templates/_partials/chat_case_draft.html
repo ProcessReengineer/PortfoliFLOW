@@ -1,0 +1,60 @@
+{# "Make this a case" — the draft form (ADR-0138 §8, D-CS-B-126). Rendered into
+   #chat-brief-banner by POST /api/chat/case-draft, prefilled from Shirley's
+   draft of this conversation — or empty, with the hint, when the one-shot
+   failed or drafted nothing: the PM still gets the form. Nothing exists yet;
+   the case is created only when the PM confirms.
+
+   Title · the framing (The question / The task, native radios on pf-seg) ·
+   the question's prose · a first thread (title and text, optional), on native
+   controls (ui-standards §2.11). "Create case" posts to POST /api/cases/new —
+   the Section's creation route, which takes the framing and the first thread
+   besides the two fields of the manual form — and answers HX-Redirect to the
+   new case's file; a blank title re-renders this form with the error.
+   "Cancel" fetches the banner again (GET /chat/brief/banner). The frame is
+   the dock's own framed-form furniture, the Keep picker's.
+
+   Context: csrf_token, form {title, framing, description, thread_title,
+   thread_prose}, hint (optional), error (optional). #}
+<div class="chat-keep-picker" data-pf-draft="form">
+    <form class="chat-keep-picker__form"
+          hx-post="/api/cases/new"
+          hx-target="#chat-brief-banner"
+          hx-swap="innerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <p class="chat-keep-picker__title">New case from this conversation</p>
+        {% if error %}<p class="chat-keep-picker__error" role="alert" data-pf-draft="error">{{ error }}</p>{% endif %}
+        {% if hint %}<p class="chat-keep-picker__empty" role="status" data-pf-draft="hint">{{ hint }}</p>{% endif %}
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">Title</span>
+            <input class="pf-input" type="text" name="title" value="{{ form.title }}" required autocomplete="off">
+        </label>
+        <div class="pf-field">
+            <span class="pf-label" id="pf-draft-framing-label">Framing</span>
+            <div class="pf-seg" role="radiogroup" aria-labelledby="pf-draft-framing-label">
+                {% for value, label in (("question", "The question"), ("task", "The task")) %}
+                    <input type="radio" name="framing" id="pf-draft-framing-{{ value }}" value="{{ value }}"{% if form.framing == value %} checked{% endif %}>
+                    <label for="pf-draft-framing-{{ value }}">{{ label }}</label>
+                {% endfor %}
+            </div>
+        </div>
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">{{ "The task" if form.framing == "task" else "The question" }}</span>
+            <textarea class="pf-textarea" name="description" rows="3">{{ form.description }}</textarea>
+        </label>
+        <label class="pf-field pf-field--full">
+            <span class="pf-label">First thread <span class="pf-optional">(optional)</span></span>
+            <input class="pf-input" type="text" name="thread_title" value="{{ form.thread_title }}" autocomplete="off">
+        </label>
+        <label class="pf-field pf-field--full">
+            <span class="pf-sr">What the first thread chases</span>
+            <textarea class="pf-textarea" name="thread_prose" rows="3">{{ form.thread_prose }}</textarea>
+        </label>
+        <div class="chat-keep-picker__actions">
+            <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-draft="cancel"
+                    hx-get="/chat/brief/banner"
+                    hx-target="#chat-brief-banner"
+                    hx-swap="innerHTML">Cancel</button>
+            <button type="submit" class="pf-btn pf-btn--primary pf-btn--sm" data-pf-draft="create">Create case</button>
+        </div>
+    </form>
+</div>

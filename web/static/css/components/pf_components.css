@@ -673,3 +673,22 @@ dd.pf-sum__total { font-size: var(--ui-font-scale-lg); }
 .pf-figtable td .pf-input, .pf-figtable td .pf-select { min-width: 8rem; }
 .pf-figtable td .pf-src + .pf-select, .pf-figtable td .pf-src + .pf-input, .pf-figtable td .pf-select + .pf-input { margin-left: var(--ui-space-2); }
 .pf-figtable td .pf-select, .pf-figtable td .pf-src ~ .pf-input { width: auto; }
+
+/* ---- pf-inbox: what landed for review while the reader was elsewhere — an info lead with its sub line.
+        Source: M-CS-2 (pf-inbox; the mock's dot icon is pf_icon here, as in pf-note); used by Cases — the review block's package lead. */
+.pf-inbox { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; gap: 4px var(--ui-space-3); align-items: start; padding: 12px 16px; border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); box-shadow: inset 2px 0 0 var(--ui-semantic-info); }
+.pf-inbox .pf-icon { margin-top: 2px; color: var(--ui-semantic-info); }
+.pf-inbox__lead { margin: 0; color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-inbox__sub { grid-column: 2 / -1; margin: 0; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); }
+
+/* ---- pf-proposals: items proposed for a file, each accepted or left by its checkbox — title, why, where it goes; the foot acts on the checked ones.
+        Source: M-CS-2 (pf-proposals; a row is a div, its edit field inside, so the checkbox rule is the row's own child only); used by Cases — the review block. */
+.pf-proposals { display: flex; flex-direction: column; border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-sm); background: var(--ui-background-secondary); }
+.pf-proposal { display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: var(--ui-space-3); align-items: start; padding: 12px 16px; border-bottom: 1px solid var(--ui-border-soft); }
+.pf-proposal:last-of-type { border-bottom: 0; }
+.pf-proposal > input { width: 15px; height: 15px; margin-top: 3px; accent-color: var(--ui-accent-primary); }
+.pf-proposal__title { display: block; margin: 0; color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
+.pf-proposal__sub { margin: 2px 0 0; color: var(--ui-text-secondary); font-size: var(--ui-font-scale-sm); max-width: 72ch; }
+.pf-proposal .pf-field { margin-top: var(--ui-space-2); }
+.pf-proposal__to { color: var(--ui-text-tertiary); font-size: var(--ui-font-scale-xs); white-space: nowrap; }
+.pf-proposals__foot { display: flex; align-items: center; gap: var(--ui-space-2); padding: 12px 16px; border-top: 1px solid var(--ui-border-default); }

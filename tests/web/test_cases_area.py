@@ -77,6 +77,16 @@ survives the P-CS-3d restyle.
 * CS5b-03 — the Figures, Conversations and Points blocks listen for their own
   case's ``pf:case-kept`` too, so a write Shirley made from the dock — and its
   Undo — shows without a reload (D-CS-B-115).
+* CS5c-03 — a landed package renders the review block between Where we stand
+  and Threads, every item checked and editable, and the outline's *Proposals*
+  entry; a case without one renders the hidden wrapper only (D-CS-B-124).
+* CS5c-04 — accept two of three, one edited; then discard the rest — the
+  block, the outline and the blocks written to follow (D-CS-B-125).
+* CS5c-05 — every kind accepts into its own table; a thread gone since is
+  discarded with the note; a generated document's sources by the in-app rule.
+* CS5c-06 — a closed case refuses calmly, another case's package is a 404, an
+  emptied item refuses before anything is written; ``?oob=1`` carries the
+  outline.
 
 The file tests below (origin embed, timeline, legacy pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -122,6 +132,8 @@ from core.repositories.case_working_file_repository import (
     CaseKeptRepository,
     CasePointDTO,
     CasePointRepository,
+    CaseProposalDTO,
+    CaseProposalRepository,
     CaseThreadDTO,
     CaseThreadRepository,
 )
@@ -134,6 +146,7 @@ import modules  # noqa: F401 — importing the package populates the ModuleRegis
 import services.cases.stand as stand_module
 import web.routes.cases as cases_module
 from modules.module_registry import registry
+from services.cases.proposals import items_from_tool_calls
 from services.cases.stand import StandContext, book_values_for, compose, to_snapshot
 from services.money_format import format_money_compact
 from services.password_hashing import hash_password
@@ -5811,3 +5824,447 @@ async def test_legacy_pins_read_whose_answer_and_chart_they_are(
     assert "pinned excerpt" not in text_of_record and "pinned chart" not in text_of_record
     assert "the ranking, in Shirley's words" in text_of_record  # the comment says it was pinned
     assert "The 2031 ranks below the AT1." in text_of_record
+
+
+# ---------------------------------------------------------------------------
+# P-CS-5c — the review block and acceptance (CS5c-03 … CS5c-06)
+# ---------------------------------------------------------------------------
+
+_REQUEST_TEXT = "Summarise this conversation into the file"
+
+#: Three items as Shirley's call proposes them: a thread, a figure, a point.
+_THREE_ITEMS: tuple[dict[str, Any], ...] = (
+    {"kind": "thread", "title": "Fee step-up", "prose": "From 2027.", "why": "PM, turn 1"},
+    {
+        "kind": "figure",
+        "label": "Management fee",
+        "value": "1.4 %",
+        "note": "the GP's CFO",
+        "why": "PM, turn 1",
+    },
+    {"kind": "point", "text": "Check the LPA's fee clause", "why": "Shirley, turn 2"},
+)
+
+
+async def _seed_package(
+    app_engine: AsyncEngine,
+    user_id: UUID,
+    case_id: UUID,
+    raw_items: list[dict[str, Any]],
+    *,
+    live_threads: dict[str, UUID] | None = None,
+) -> UUID:
+    """Land one package as the summarise route does: requested 11:00, landed 11:03."""
+    items, reasons = items_from_tool_calls(
+        [{"name": "propose_for_file", "arguments": {"items": raw_items}, "id": "c-1"}],
+        live_threads=live_threads or {},
+    )
+    assert reasons == []
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        repo = CaseProposalRepository(session)
+        proposal = await repo.request(
+            case_id,
+            requested_by=user_id,
+            request_text=_REQUEST_TEXT,
+            now=_T0 + timedelta(hours=2),
+        )
+        await repo.land(proposal.id, items=items, now=_T0 + timedelta(hours=2, minutes=3))
+    return proposal.id
+
+
+async def _package_now(
+    app_engine: AsyncEngine, user_id: UUID, proposal_id: UUID
+) -> CaseProposalDTO:
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=user_id) as session:
+        proposal = await CaseProposalRepository(session).get(proposal_id)
+    assert proposal is not None
+    return proposal
+
+
+def _accept_path(case_id: UUID, proposal_id: UUID) -> str:
+    return f"/api/cases/{case_id}/proposals/{proposal_id}/accept?rerender=1"
+
+
+def _outline_names(markup: str) -> list[str | None]:
+    outline = cs_block(markup, "outline")
+    return [wd_attr(item, "data-pf-cs-name") for item in cs_blocks(outline, "outline-item")]
+
+
+async def test_a_landed_package_renders_the_review_block_and_the_outline_entry(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5c-03 (D-CS-B-124): rows checked and editable, the lead, the foot, the outline."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fee question", opened_at=_T0)
+    bare = await _seed_case(app_engine, opened_by=pm1, title="Nothing landed", opened_at=_T0)
+    proposal_id = await _seed_package(app_engine, pm1, case.id, list(_THREE_ITEMS))
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}")).text
+    block = cs_block(body, "proposals")
+    assert wd_attr(block, "hidden") is None
+    assert wd_attr(block, "id") == "cs-proposals"
+    assert wd_attr(block, "hx-get") == f"/api/cases/{case.id}/sections/proposals?oob=1"
+    assert wd_attr(block, "hx-trigger") == f"pf:case-kept[detail.case_id=='{case.id}'] from:body"
+    assert wd_attr(block, "hx-swap") == "outerHTML"
+    assert body.index('id="cs-stand"') < body.index(cs("proposals")) < body.index('id="cs-threads"')
+
+    assert cs_count(block, "proposal") == 3
+    rows = cs_blocks(block, "proposal")
+    assert [wd_attr(row, "data-pf-cs-kind") for row in rows] == ["thread", "figure", "point"]
+    assert re.findall(
+        r'<input type="checkbox" name="accept" value="(\d+)"[^>]* checked>', block
+    ) == [
+        "0",
+        "1",
+        "2",
+    ]
+    fields = [
+        (wd_attr(field, "name"), wd_attr(field, "value"))
+        for field in cs_blocks(block, "proposal-field")
+    ]
+    assert fields == [
+        ("field_0_title", "Fee step-up"),
+        ("field_1_value", "1.4 %"),
+        ("field_2_text", "Check the LPA&#39;s fee clause"),
+    ]
+    assert cs_text(rows[0]) == "New thread PM, turn 1 Thread title From 2027. → Threads"
+    assert cs_text(rows[1]) == ("Figure · Management fee PM, turn 1 Value the GP's CFO → Figures")
+    assert cs_text(rows[2]) == "Open point Shirley, turn 2 Open point → Open points"
+    assert cs_text(block, "proposal-lead") == (
+        f"Landed 11:03 — 3 items to review Requested 11:00 from the dock: “{_REQUEST_TEXT}”"
+    )
+    package = cs_block(block, "proposal-package")
+    assert wd_attr(package, "hx-post") == _accept_path(case.id, proposal_id)
+    assert wd_attr(package, "hx-target") == "#cs-proposals"
+    assert wd_attr(package, "hx-swap") == "outerHTML"
+    assert "Accept ' + this.querySelectorAll('input[name=accept]:checked').length" in (
+        html.unescape(wd_attr(package, "hx-on:change") or "")
+    )
+    assert cs_text(block, "proposal-accept") == "Accept 3 selected"
+    discard = cs_block(block, "proposal-discard")
+    assert cs_text(discard) == "Discard all"
+    assert wd_attr(discard, "hx-post") == (
+        f"/api/cases/{case.id}/proposals/{proposal_id}/discard?rerender=1"
+    )
+    assert wd_attr(discard, "hx-confirm") == "Discard the whole package? Nothing was written."
+    assert "Accepted items go into the file; edit them there afterwards." in cs_text(block)
+
+    entry = cs_block(cs_block(body, "outline"), "outline-item", data_pf_cs_name="proposals")
+    assert cs_text(entry) == "Proposals 1"
+    assert wd_attr(entry, "href") == "#cs-proposals"
+    assert wd_attr(entry, "class") is None
+    assert _outline_names(body)[:4] == ["question", "stand", "proposals", "threads"]
+
+    bare_body = (await web_client.get(f"/api/cases/{bare.id}")).text
+    wrapper = cs_block(bare_body, "proposals")
+    assert wd_attr(wrapper, "hidden") is not None
+    assert wd_attr(wrapper, "data-pf-cs-state") == "empty"
+    assert wd_attr(wrapper, "hx-trigger") == (
+        f"pf:case-kept[detail.case_id=='{bare.id}'] from:body"
+    )
+    assert cs_count(bare_body, "proposal") == 0
+    assert "proposals" not in _outline_names(bare_body)
+
+
+async def test_accept_two_of_three_then_discard_the_rest(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS5c-04 (D-CS-B-125): the edited text is what lands; the third waits; discard leaves no trace."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fee question", opened_at=_T0)
+    proposal_id = await _seed_package(app_engine, pm1, case.id, list(_THREE_ITEMS))
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    accepted = await web_client.post(
+        _accept_path(case.id, proposal_id),
+        data={
+            "csrf_token": csrf,
+            "accept": ["0", "1"],
+            "field_0_title": "  Fee step-up\n from 2027 ",
+            "field_1_value": "1.5 %",
+            "field_2_text": "Edited but not checked",
+        },
+        follow_redirects=False,
+    )
+
+    assert accepted.status_code == 200, accepted.text
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        (thread,) = await CaseThreadRepository(session).list_for_case(case.id)
+        (figure,) = await CaseFigureRepository(session).list_for_case(case.id)
+        assert await CasePointRepository(session).list_for_case(case.id) == []
+    assert (thread.title, thread.prose, thread.status) == (
+        "Fee step-up from 2027",
+        "From 2027.",
+        "open",
+    )
+    assert (figure.label, figure.value_text, figure.source, figure.note) == (
+        "Management fee",
+        "1.5 %",
+        "conversation",
+        "the GP's CFO",
+    )
+    package = await _package_now(app_engine, pm1, proposal_id)
+    assert [(item["status"], item.get("created_id")) for item in package.items] == [
+        ("accepted", str(thread.id)),
+        ("accepted", str(figure.id)),
+        ("pending", None),
+    ]
+    assert package.resolved_at is None
+    # Accepting writes no record line: the record has job_landed, the file the rows.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseRepository(session).list_system_lines(case.id) == []
+
+    block = cs_block(accepted.text, "proposals")
+    assert wd_attr(block, "hx-swap-oob") is None  # the main swap
+    assert cs_count(block, "proposal") == 1
+    assert wd_attr(cs_block(block, "proposal"), "data-pf-cs-kind") == "point"
+    assert re.search(r'name="accept" value="2"[^>]* checked', block)
+    assert cs_text(block, "proposal-accept") == "Accept 1 selected"
+    assert "Landed 11:03 — 1 item to review" in cs_text(block, "proposal-lead")
+    threads = _threads(accepted.text)
+    figures = cs_block(accepted.text, "block", data_pf_cs_name="figures")
+    assert wd_attr(threads, "hx-swap-oob") == "outerHTML"
+    assert wd_attr(figures, "hx-swap-oob") == "outerHTML"
+    assert "Fee step-up from 2027" in cs_text(threads)
+    assert 'value="1.5 %"' in figures
+    assert cs_count(accepted.text, "block", data_pf_cs_name="points") == 0
+    assert accepted.text.index(cs("proposals")) < accepted.text.index(cs("outline"))
+    assert "proposals" in _outline_names(accepted.text)
+
+    discarded = await _post_form(
+        web_client, f"/api/cases/{case.id}/proposals/{proposal_id}/discard?rerender=1", csrf
+    )
+
+    assert discarded.status_code == 200, discarded.text
+    package = await _package_now(app_engine, pm1, proposal_id)
+    assert [item["status"] for item in package.items] == ["accepted", "accepted", "discarded"]
+    assert package.resolved_at is not None
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CasePointRepository(session).list_for_case(case.id) == []
+    gone = cs_block(discarded.text, "proposals")
+    assert wd_attr(gone, "hidden") is not None and cs_count(gone, "proposal") == 0
+    assert "proposals" not in _outline_names(discarded.text)
+    body = (await web_client.get(f"/api/cases/{case.id}")).text
+    assert wd_attr(cs_block(body, "proposals"), "hidden") is not None
+    assert "proposals" not in _outline_names(body)
+
+
+async def test_every_kind_accepts_into_its_own_table(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS5c-05 (D-CS-B-125): seven kinds; a gone thread discarded with the note; in-app sources."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="All kinds", opened_at=_T0)
+    fees = await _seed_thread(app_engine, pm1, case.id, title="Fees", prose="Base.")
+    exit_route = await _seed_thread(app_engine, pm1, case.id, title="Exit route")
+    case_href = f"/cases/{case.id}"
+    raw = [
+        {"kind": "thread", "title": "Key person", "prose": "Who stays?", "why": "t1"},
+        {
+            "kind": "thread_conclusion",
+            "thread": "Exit route",
+            "conclusion": "A sale in 2028.",
+            "status": "confirmed",
+            "why": "t2",
+        },
+        {"kind": "figure", "label": "Hurdle", "value": "8 %", "as_of": "2026-09-30", "why": "t3"},
+        {"kind": "point", "text": "Ask for the side letter", "due_on": "2026-12-01", "why": "t4"},
+        {
+            "kind": "conversation",
+            "held_on": "2026-11-03",
+            "with_whom": "Anna Weber (GP)",
+            "said": "The gate lifts in 2027.",
+            "promised": "The minutes by Friday.",
+            "channel": "meeting",
+            "why": "t5",
+        },
+        {
+            "kind": "generated_document",
+            "title": "Memo · fees",
+            "body": "Fees step up.\n\nThe hurdle holds.",
+            "sources": [
+                {"label": "This case", "href": case_href},
+                {"label": "GP letter", "href": "//gp.example/letter"},
+                {"label": "A page", "href": "https://gp.example/page"},
+                {"label": "Notes of the call"},
+            ],
+            "why": "t6",
+        },
+        {"kind": "prose_append", "thread": "Fees", "text": "The fee steps up.", "why": "t7"},
+    ]
+    proposal_id = await _seed_package(
+        app_engine,
+        pm1,
+        case.id,
+        raw,
+        live_threads={"Fees": fees.id, "Exit route": exit_route.id},
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseThreadRepository(session).remove(exit_route.id, now=_T0 + timedelta(hours=3))
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    response = await web_client.post(
+        _accept_path(case.id, proposal_id),
+        data={"csrf_token": csrf, "accept": [str(n) for n in range(7)]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200, response.text
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        threads = {t.title: t for t in await CaseThreadRepository(session).list_for_case(case.id)}
+        removed = await CaseThreadRepository(session).get(exit_route.id)
+        (figure,) = await CaseFigureRepository(session).list_for_case(case.id)
+        (point,) = await CasePointRepository(session).list_for_case(case.id)
+        (conversation,) = await CaseConversationRepository(session).list_for_case(case.id)
+        (kept,) = await CaseKeptRepository(session).list_for_case(case.id)
+    assert set(threads) == {"Fees", "Key person"}
+    assert threads["Key person"].prose == "Who stays?"
+    assert threads["Fees"].prose == "Base.\n\nThe fee steps up."
+    assert removed is not None and removed.conclusion is None and removed.status == "open"
+    assert (figure.label, figure.value_text, figure.source, figure.as_of) == (
+        "Hurdle",
+        "8 %",
+        "conversation",
+        "2026-09-30",
+    )
+    assert (point.text, point.due_on) == ("Ask for the side letter", date(2026, 12, 1))
+    assert (
+        conversation.held_on,
+        conversation.channel,
+        conversation.with_whom,
+        conversation.what_was_said,
+        conversation.what_was_promised,
+    ) == (
+        date(2026, 11, 3),
+        "meeting",
+        "Anna Weber (GP)",
+        "The gate lifts in 2027.",
+        "The minutes by Friday.",
+    )
+    assert (kept.artifact, kept.via, kept.thread_id, kept.caption, kept.kept_by) == (
+        "generated_document",
+        "proposal",
+        None,
+        "Memo · fees",
+        pm1,
+    )
+    assert kept.payload == {
+        "title": "Memo · fees",
+        "body": "Fees step up.\n\nThe hurdle holds.",
+        "sources": [
+            {"label": "This case", "href": case_href},
+            {"label": "GP letter"},
+            {"label": "A page"},
+            {"label": "Notes of the call"},
+        ],
+    }
+    package = await _package_now(app_engine, pm1, proposal_id)
+    assert [item["status"] for item in package.items] == [
+        "accepted",
+        "discarded",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+    ]
+    assert "created_id" not in package.items[1]
+    assert package.items[5]["created_id"] == str(kept.id)
+    assert package.items[6]["created_id"] == str(fees.id)
+    assert package.resolved_at is not None
+
+    # The package is resolved, so its rows are gone; the note keeps the block in view.
+    block = cs_block(response.text, "proposals")
+    assert wd_attr(block, "hidden") is None and cs_count(block, "proposal") == 0
+    assert cs_text(block, "note") == (
+        'Conclusion for "Exit route" · confirmed — thread gone, so it was discarded.'
+    )
+    for name in ("threads", "figures", "conversations", "points"):
+        assert wd_attr(cs_block(response.text, "block", data_pf_cs_name=name), "hx-swap-oob") == (
+            "outerHTML"
+        ), name
+    assert "proposals" not in _outline_names(response.text)
+
+
+async def test_refusals_404s_and_the_sections_oob_outline(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS5c-06 (D-CS-B-124/125): closed, foreign, emptied; ``?oob=1`` carries the outline."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Fee question", opened_at=_T0)
+    other = await _seed_case(app_engine, opened_by=pm1, title="Another case", opened_at=_T0)
+    proposal_id = await _seed_package(app_engine, pm1, case.id, list(_THREE_ITEMS))
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    plain = (await web_client.get(f"/api/cases/{case.id}/sections/proposals")).text
+    assert "hx-swap-oob" not in plain and cs_count(plain, "proposal") == 3
+    section = await web_client.get(f"/api/cases/{case.id}/sections/proposals?oob=1")
+    assert section.status_code == 200
+    assert wd_attr(cs_block(section.text, "proposals"), "hx-swap-oob") is None
+    outline = cs_block(section.text, "outline")
+    assert wd_attr(outline, "hx-swap-oob") == "outerHTML"
+    assert cs_text(cs_block(outline, "outline-item", data_pf_cs_name="proposals")) == "Proposals 1"
+
+    # Another case's package, or none at all, is a 404 — on both routes.
+    for path in (
+        _accept_path(other.id, proposal_id),
+        f"/api/cases/{other.id}/proposals/{proposal_id}/discard",
+        _accept_path(case.id, uuid4()),
+    ):
+        missing = await web_client.post(path, data={"csrf_token": csrf, "accept": ["0"]})
+        assert missing.status_code == 404, path
+
+    # A checked item emptied in place refuses the whole request, before any write.
+    emptied = await web_client.post(
+        _accept_path(case.id, proposal_id),
+        data={"csrf_token": csrf, "accept": ["1", "0"], "field_0_title": "  "},
+    )
+    assert emptied.status_code == 400
+    assert emptied.headers["HX-Reswap"] == "none"
+    assert cs_text(emptied.text, "note") == (
+        "An accepted item needs its text — fill it in, or uncheck it."
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseThreadRepository(session).list_for_case(case.id) == []
+        assert await CaseFigureRepository(session).list_for_case(case.id) == []
+    assert {
+        item["status"] for item in (await _package_now(app_engine, pm1, proposal_id)).items
+    } == {"pending"}
+
+    # A closed case: the calm refusal on both routes, nothing written, no block.
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseRepository(session).close(
+            case.id, closed_by=pm1, closing_note="Settled.", now=_T0 + timedelta(hours=5)
+        )
+    for path in (
+        _accept_path(case.id, proposal_id),
+        f"/api/cases/{case.id}/proposals/{proposal_id}/discard",
+    ):
+        refused = await web_client.post(path, data={"csrf_token": csrf, "accept": ["0", "1"]})
+        assert refused.status_code == 200, path
+        assert refused.headers["HX-Reswap"] == "none"
+        assert cs_text(refused.text, "note") == (
+            "This case is closed — closed cases are read-only and cannot be changed."
+        )
+    package = await _package_now(app_engine, pm1, proposal_id)
+    assert {item["status"] for item in package.items} == {"pending"}
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        assert await CaseThreadRepository(session).list_for_case(case.id) == []
+    closed_body = (await web_client.get(f"/api/cases/{case.id}")).text
+    assert wd_attr(cs_block(closed_body, "proposals"), "hidden") is not None
+    assert "proposals" not in _outline_names(closed_body)

@@ -1,0 +1,90 @@
+{# The review block of Shirley's proposals (ADR-0138 §8, D-CS-B-124) — between
+   Where we stand and Threads. A package lands here from the dock's
+   "Summarise into the file" (P-CS-5c); nothing in it is in the file until the
+   PM accepts it, item by item.
+
+   Not one of the seven sections: it autosaves nothing and has no placeholder
+   of its own to reveal. The wrapper #cs-proposals is one element, always
+   present — hidden and empty while no package waits — so its case-kept
+   listener survives: a package that
+   lands while the case is on screen raises the event with the case id, and
+   the block re-renders with the OOB bundle (?oob=1, the Threads block's
+   idiom, D-CS-B-88, D-CS-B-104). With `block.oob` it rides out of band.
+
+   Per package (M-CS-2 view-task): the pf-inbox lead "Landed HH:MM — n items to
+   review" with its sub "Requested HH:MM from the dock: “…”", then the
+   pf-proposals list as one form — one pf-proposal row per pending item: the
+   checkbox (name="accept", value = the item's index, checked), the headline,
+   the why, the row's main text as a native input or textarea
+   (field_<index>_<name>, so what is accepted is what the PM left there), what
+   else it writes read-only (a thread's prose, a figure's note …) and
+   "→ target". The foot: "Accept n selected" — its count follows the
+   checkboxes in the page (hx-on:change, text only) — "Discard all" behind a
+   native confirm, and the hint. Both answer this block (?rerender=1), the
+   blocks an acceptance wrote out of band and the bundle. Already-resolved
+   items are not listed; a package with none pending is gone.
+
+   The note slot renders `block.note` itself — an item whose thread was gone
+   at acceptance — and keeps the block visible until the next render, even
+   when its package has resolved.
+
+   Context: case_id, csrf_token, proposals — {packages: [{id, landed_label,
+   requested_label, request_text, items: [{index, kind, headline, why, target,
+   field_name, field_value, field_label, multiline, detail}], pending_count,
+   accept_href, discard_href}], empty, note, oob}. #}
+{% set block = proposals %}
+{% set hidden = block.empty and not block.note %}
+<section class="pf-blk" id="cs-proposals"{% if hidden %} hidden{% endif %} data-pf-cs="proposals"{% if hidden %} data-pf-cs-state="empty"{% endif %}{% if block.oob %} hx-swap-oob="outerHTML"{% endif %}
+         hx-get="/api/cases/{{ case_id }}/sections/proposals?oob=1" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML">
+{% if not hidden %}
+    <div class="pf-blk__head">
+        <h3 class="pf-blk__title">Proposals</h3>
+        <span class="pf-blk__sub">Shirley's proposals — accept what you want in the file, edit after</span>
+    </div>
+
+    {% for package in block.packages %}
+        <div class="pf-inbox" data-pf-cs="proposal-lead">
+            {{ pf_icon("info") }}
+            <p class="pf-inbox__lead">{{ package.landed_label }}</p>
+            <p class="pf-inbox__sub">{{ package.requested_label }} “{{ package.request_text }}”</p>
+        </div>
+        <form class="pf-proposals" data-pf-cs="proposal-package"
+              hx-post="{{ package.accept_href }}"
+              hx-target="#cs-proposals"
+              hx-swap="outerHTML"
+              hx-on:change="this.querySelector('[data-pf-cs=proposal-accept]').textContent = 'Accept ' + this.querySelectorAll('input[name=accept]:checked').length + ' selected'">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% for item in package["items"] %}{# subscript: .items is the dict's method #}
+                {% set check_id = "cs-proposal-" ~ package.id ~ "-" ~ item.index %}
+                <div class="pf-proposal" data-pf-cs="proposal" data-pf-cs-kind="{{ item.kind }}">
+                    <input type="checkbox" name="accept" value="{{ item.index }}" id="{{ check_id }}" checked>
+                    <div>
+                        <label class="pf-proposal__title" for="{{ check_id }}">{{ item.headline }}</label>
+                        {% if item.why %}<p class="pf-proposal__sub">{{ item.why }}</p>{% endif %}
+                        <label class="pf-field pf-field--full">
+                            <span class="pf-sr">{{ item.field_label }}</span>
+                            {% if item.multiline %}
+                                <textarea class="pf-textarea" name="{{ item.field_name }}" rows="3" data-pf-cs="proposal-field">{{ item.field_value }}</textarea>
+                            {% else %}
+                                <input class="pf-input" type="text" name="{{ item.field_name }}" value="{{ item.field_value }}" autocomplete="off" data-pf-cs="proposal-field">
+                            {% endif %}
+                        </label>
+                        {% if item.detail %}<p class="pf-proposal__sub" data-pf-cs="proposal-detail">{{ item.detail }}</p>{% endif %}
+                    </div>
+                    <span class="pf-proposal__to">→ {{ item.target }}</span>
+                </div>
+            {% endfor %}
+            <footer class="pf-proposals__foot">
+                <button type="submit" class="pf-btn pf-btn--primary" data-pf-cs="proposal-accept">Accept {{ package.pending_count }} selected</button>
+                <button type="button" class="pf-btn pf-btn--quiet" data-pf-cs="proposal-discard"
+                        hx-post="{{ package.discard_href }}"
+                        hx-target="#cs-proposals"
+                        hx-swap="outerHTML"
+                        hx-confirm="Discard the whole package? Nothing was written.">Discard all</button>
+                <span class="pf-hint">Accepted items go into the file; edit them there afterwards.</span>
+            </footer>
+        </form>
+    {% endfor %}
+    <div id="cs-note-proposals" class="pf-case__note" data-pf-cs="note-slot">{% if block.note %}<div class="pf-note pf-note--{{ block.note.tone }}" role="status" data-pf-cs="note">{{ pf_icon("info") }}<p class="pf-note__lead">{{ block.note.text }}</p></div>{% endif %}</div>
+{% endif %}
+</section>

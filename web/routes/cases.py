@@ -36,7 +36,12 @@ keep their anatomy in the Record (D-CS-M-7), from the same class partial
 four — with Remove (``removed_at``) on a mutable case, addresses every
 attached document through a ``document`` kept row, and renders the frozen
 file's kept rows with the same anatomy. The attachment download pipeline and
-its caps are unchanged.
+its caps are unchanged. P-CS-5c adds the review block of Shirley's proposals
+between Where we stand and Threads (ADR-0138 §8, D-CS-B-124): a package the
+dock's *Summarise into the file* landed, accepted item by item — each item's
+text editable before — into the file's own tables, or discarded whole; and
+*New case* takes the dock's *Make this a case* draft (framing, a first
+thread).
 
 The module never mutates an Irene finding and never writes a Journal row.
 The file *reads* a case's originating finding through the finding
@@ -168,13 +173,15 @@ Endpoints
 * ``POST /api/cases/new`` — validate the title, create the case (exactly one
   ``opened`` entry, ``actor='pm'``), and land the PM in its file
   (``HX-Redirect: /cases/{id}``). A blank title re-renders the form with an
-  inline error and creates nothing.
+  inline error and creates nothing. The dock's draft form adds ``framing``
+  and a first thread (``thread_title`` · ``thread_prose``, D-CS-B-126).
 * ``GET  /api/cases/{case_id}`` — the sub-surface partial (the case file).
   Unknown or foreign ids resolve to ``None`` under RLS and are mapped to 404,
   the entity-detail idiom (``web/routes/investments.py``).
 * ``GET  /api/cases/{case_id}/sections/{name}`` — one block of the file alone
-  (``question`` · ``stand`` · ``threads`` · ``figures`` · ``conversations`` ·
-  ``points`` · ``decision`` · ``record``; ``reveal=1`` for the outline's ``+``;
+  (``question`` · ``stand`` · ``proposals`` · ``threads`` · ``figures`` ·
+  ``conversations`` · ``points`` · ``decision`` · ``record``; ``reveal=1`` for
+  the outline's ``+``;
   ``oob=1`` appends the OOB bundle, so the outline follows a keep, D-CS-B-104).
 * ``POST /api/cases/{case_id}/question`` — the question's autosave
   (D-CS-B-44): the title, prose, counterparty, due date and framing, last
@@ -215,6 +222,11 @@ Endpoints
   each answers ``HX-Redirect: /cases/{id}`` (D-CS-B-70).
 * ``GET  /api/cases/{case_id}/record/{entry_id}/file`` — the file as a
   milestone froze it, read-only, into the record row's slot (D-CS-B-74).
+* ``POST /api/cases/{case_id}/proposals/{proposal_id}/accept`` ·
+  ``…/discard`` — accept the checked items of a proposal package into the
+  file, in one transaction and with the text the PM edited, or discard the
+  package's pending items; both answer the review block, the blocks written
+  to out of band and the bundle (D-CS-B-125).
 * The composer and download routes below. Everything writes on an open
   **or waiting** case (D-CS-B-76); a closed case is read-only.
 
@@ -284,6 +296,8 @@ from core.repositories.case_working_file_repository import (
     CaseKeptRepository,
     CasePointDTO,
     CasePointRepository,
+    CaseProposalDTO,
+    CaseProposalRepository,
     CaseThreadDTO,
     CaseThreadRepository,
 )
@@ -295,6 +309,7 @@ from core.repositories.irene_finding_repository import (
 from core.repositories.trade_ticket_repository import TradeTicketRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO
+from services.cases.proposals import MAIN_FIELDS, item_headline, item_target
 from services.cases.stand import (
     StandContext,
     WhereWeStand,
@@ -327,6 +342,11 @@ CONSULT_SHIRLEY_URL: str = "/assistants"
 #: The in-place hand-off the case page's *Consult Shirley* posts to — the
 #: chat surface's ``DISCUSS_CASE_URL``, written literally for the reason above.
 CONSULT_SHIRLEY_POST_URL: str = "/chat/brief/case/{case_id}"
+
+#: The dock's *Make this a case* form (D-CS-B-126). ``chat.py`` renders it from
+#: Shirley's draft and imports the name from here; :func:`create_case`
+#: re-renders it on a blank title, so a refusal stays in the dock.
+CASE_DRAFT_TEMPLATE: str = "_partials/chat_case_draft.html"
 
 
 # ---------------------------------------------------------------------------
@@ -780,14 +800,17 @@ async def get_new_case_form(
 
 
 @router.post("/api/cases/new", response_class=HTMLResponse)
-async def create_case(
+async def create_case(  # noqa: PLR0913 — one flat form
     request: Request,
     title: str = Form(""),
     description: str = Form(""),
+    framing: str | None = Form(None),
+    thread_title: str = Form(""),
+    thread_prose: str = Form(""),
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """Create a manually opened case and land the PM in its file (D-CS-B-33).
+    """Create a manually opened case and land the PM in its file (D-CS-B-33, D-CS-B-126).
 
     The title is validated non-empty at the route (the repository does not
     enforce it); a blank title re-renders the form with an inline error and
@@ -796,8 +819,35 @@ async def create_case(
     and the response carries ``HX-Redirect: /cases/{id}`` — the full-refresh
     idiom :func:`post_case_close` uses — so the first thing after "New case"
     is the file.
+
+    The dock's *Make this a case* form posts here too, with three more
+    fields: ``framing`` (``question`` / ``task``; anything else reads as
+    none), passed to the one creation path, and ``thread_title`` /
+    ``thread_prose`` — a non-empty title adds the first thread in the same
+    transaction, after the case. The draft form always sends a framing and
+    the manual form never does, so a blank title re-renders the form it came
+    from: the draft form in the dock, the manual form in the Section.
     """
     clean_title = title.strip()
+    if not clean_title and framing is not None:
+        return cast(
+            HTMLResponse,
+            _templates(request).TemplateResponse(
+                request,
+                CASE_DRAFT_TEMPLATE,
+                {
+                    "csrf_token": session.csrf_token,
+                    "error": "A title is required to open a case.",
+                    "form": {
+                        "title": title,
+                        "framing": framing if framing in _FRAMING_TITLES else "question",
+                        "description": description,
+                        "thread_title": thread_title,
+                        "thread_prose": thread_prose,
+                    },
+                },
+            ),
+        )
     if not clean_title:
         # Validation failure: re-render the form carrying the inline error
         # and the attempted title. Returned 200 so HTMX swaps it into the
@@ -816,6 +866,8 @@ async def create_case(
         )
 
     clean_description = description.strip() or None
+    clean_framing = framing if framing in _FRAMING_TITLES else None
+    first_thread = " ".join(thread_title.split())
     engine = _engine(request)
     now = _now()
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
@@ -825,15 +877,22 @@ async def create_case(
             description=clean_description,
             opened_by=session.user_id,
             opened_actor="pm",
+            framing=clean_framing,
             now=now,
         )
+        if first_thread:
+            await CaseThreadRepository(db_session).add(
+                created.id, title=first_thread, prose=thread_prose.strip(), now=now
+            )
 
     logger.info(
-        "cases create: tenant=%s user=%s case=%s number=%s",
+        "cases create: tenant=%s user=%s case=%s number=%s framing=%s thread=%s",
         session.tenant_id,
         session.user_id,
         created.id,
         created.case_number,
+        clean_framing,
+        bool(first_thread),
     )
 
     return HTMLResponse("", headers={"HX-Redirect": f"/cases/{created.id}"})
@@ -1325,10 +1384,13 @@ _SECTION_NAMES: tuple[str, ...] = (
     "decision",
 )
 
-#: One block partial per renderable block: the seven sections and the Record,
-#: which re-renders after a milestone (D-CS-B-73).
+#: One block partial per renderable block: the seven sections, the review
+#: block of Shirley's proposals — between Where we stand and Threads, written
+#: only by acceptance, so no stamp (D-CS-B-124) — and the Record, which
+#: re-renders after a milestone (D-CS-B-73).
 _SECTION_TEMPLATES: dict[str, str] = {
     **{name: f"_partials/cases_file_{name}.html" for name in _SECTION_NAMES},
+    "proposals": "_partials/cases_file_proposals.html",
     "record": "_partials/cases_file_record.html",
 }
 
@@ -1480,6 +1542,7 @@ def _outline(
     points_open: int = 0,
     points_total: int = 0,
     decision_label: str = "",
+    proposals_count: int = 0,
 ) -> list[dict[str, Any]]:
     """The outline's entries, in ADR order, for the sections that exist (D-CS-B-50, D-CS-B-67).
 
@@ -1495,7 +1558,9 @@ def _outline(
     Threads counts the threads; the rows of *Kept in the file* append
     ``· kept m`` and keep the entry from reading empty (D-CS-B-90) — a row of
     a removed thread among them, a ``document`` row not (it is the question
-    block's, D-CS-B-100).
+    block's, D-CS-B-100). *Proposals* — the count of the packages waiting for
+    review — sits above Threads only while one exists (D-CS-B-124): the
+    review block is no section, so it has no empty entry and no ``+``.
     """
     is_mutable = case.state in _MUTABLE_STATES
 
@@ -1513,6 +1578,11 @@ def _outline(
             ),
         }
 
+    proposals = (
+        [entry("proposals", "Proposals", str(proposals_count), revealable=False)]
+        if proposals_count > 0
+        else []
+    )
     return [
         entry("question", _FRAMING_TITLES[_framing(case)], "", revealable=True),
         entry(
@@ -1521,6 +1591,7 @@ def _outline(
             "at close" if case.state == "closed" else "live",
             revealable=True,
         ),
+        *proposals,
         entry(
             "threads",
             "Threads",
@@ -1601,6 +1672,7 @@ async def _frame_context(
         len(await decisions.list_recorded(case.id)),
         has_draft=await decisions.get_draft(case.id) is not None,
     )
+    proposals_count = len(await _open_packages(db_session, case))
 
     is_open = case.state == "open"
     is_closed = case.state == "closed"
@@ -1626,6 +1698,7 @@ async def _frame_context(
             points_open=sum(1 for point in points if point.done_at is None),
             points_total=len(points),
             decision_label=decision_label,
+            proposals_count=proposals_count,
         ),
         # The origin finding fact (text only), when present.
         "linked_finding": (
@@ -2641,6 +2714,139 @@ async def _decision_context(
     }
 
 
+# --- The review block of Shirley's proposals (ADR-0138 §8, D-CS-B-124) -------
+
+#: The kinds whose edit field is a textarea; the others edit one line.
+_PROPOSAL_MULTILINE_KINDS: frozenset[str] = frozenset(
+    {"thread_conclusion", "conversation", "generated_document", "prose_append"}
+)
+
+#: The accessible name of each kind's edit field (``MAIN_FIELDS``).
+_PROPOSAL_FIELD_LABELS: dict[str, str] = {
+    "thread": "Thread title",
+    "thread_conclusion": "Conclusion",
+    "figure": "Value",
+    "point": "Open point",
+    "conversation": "What was said",
+    "generated_document": "Document text",
+    "prose_append": "Text for the thread",
+}
+
+
+def _is_pending(item: Any) -> bool:
+    """Whether a stored proposal item still waits for the PM (D-CS-B-125)."""
+    return isinstance(item, dict) and item.get("status") == "pending"
+
+
+def _proposal_fields(item: dict[str, Any]) -> dict[str, Any]:
+    fields = item.get("fields")
+    return fields if isinstance(fields, dict) else {}
+
+
+def _proposal_detail(kind: str, fields: dict[str, Any]) -> str:
+    """What else an accepted item writes, shown read-only under its edit field.
+
+    A thread's prose, a figure's note, a conversation's promise, a generated
+    document's sources: nothing reaches the file the PM has not seen.
+    """
+    if kind == "thread":
+        return str(fields.get("prose") or "")
+    if kind == "figure":
+        return str(fields.get("note") or "")
+    if kind == "conversation" and fields.get("promised"):
+        return f"Promised: {fields['promised']}"
+    if kind == "generated_document":
+        sources = fields.get("sources")
+        labels = [
+            str(source.get("label") or "")
+            for source in (sources if isinstance(sources, list) else [])
+            if isinstance(source, dict)
+        ]
+        named = [label for label in labels if label]
+        return f"Sources: {' · '.join(named)}" if named else ""
+    return ""
+
+
+def _project_proposal_item(index: int, item: dict[str, Any]) -> dict[str, Any] | None:
+    """One review row: the item's index in its package, its words and its edit field."""
+    kind = str(item.get("kind") or "")
+    main = MAIN_FIELDS.get(kind)
+    if main is None:
+        return None
+    fields = _proposal_fields(item)
+    return {
+        "index": index,
+        "kind": kind,
+        "headline": item_headline(item),
+        "why": str(item.get("why") or ""),
+        "target": item_target(item),
+        "field_name": f"field_{index}_{main}",
+        "field_value": str(fields.get(main) or ""),
+        "field_label": _PROPOSAL_FIELD_LABELS[kind],
+        "multiline": kind in _PROPOSAL_MULTILINE_KINDS,
+        "detail": _proposal_detail(kind, fields),
+    }
+
+
+async def _open_packages(db_session: AsyncSession, case: CaseDTO) -> list[CaseProposalDTO]:
+    """The packages waiting for review, newest first (D-CS-B-124).
+
+    Landed, unresolved and holding a pending item — on an open or waiting
+    case only: a closed case takes no acceptance, and its file renders
+    nothing it cannot act on (D-CS-M-9). A package requested but not landed
+    (its one-shot still running, or failed before landing) is not listed.
+    """
+    if case.state not in _MUTABLE_STATES:
+        return []
+    rows = await CaseProposalRepository(db_session).list_for_case(case.id, open_only=True)
+    return [
+        row
+        for row in rows
+        if row.landed_at is not None and any(_is_pending(item) for item in row.items)
+    ]
+
+
+async def _proposals_context(db_session: AsyncSession, case: CaseDTO) -> dict[str, Any]:
+    """The review block (D-CS-B-124): ``{packages[{id, landed_label, requested_label,
+    request_text, items[{index, kind, headline, why, target, field_name, field_value,
+    field_label, multiline, detail}], pending_count, accept_href, discard_href}], empty,
+    note, oob}``.
+
+    One package per open package (:func:`_open_packages`), its **pending**
+    items only, each with its index in the package — the value its checkbox
+    posts and the key of its edit field (``field_<index>_<name>``). ``empty``
+    hides the block; ``note`` (a thread gone at acceptance) is set by the
+    write route and keeps it visible until the next render.
+    """
+    packages: list[dict[str, Any]] = []
+    for row in await _open_packages(db_session, case):
+        items = [
+            projected
+            for index, item in enumerate(row.items)
+            if _is_pending(item) and (projected := _project_proposal_item(index, item)) is not None
+        ]
+        if not items:
+            continue
+        count = len(items)
+        landed = row.landed_at or row.requested_at
+        packages.append(
+            {
+                "id": str(row.id),
+                "landed_label": (
+                    f"Landed {_clock(landed)} — {count} {'item' if count == 1 else 'items'} "
+                    "to review"
+                ),
+                "requested_label": f"Requested {_clock(row.requested_at)} from the dock:",
+                "request_text": row.request_text,
+                "items": items,
+                "pending_count": count,
+                "accept_href": f"/api/cases/{case.id}/proposals/{row.id}/accept?rerender=1",
+                "discard_href": f"/api/cases/{case.id}/proposals/{row.id}/discard?rerender=1",
+            }
+        )
+    return {"packages": packages, "empty": not packages, "note": None, "oob": False}
+
+
 async def load_section_context(
     db_session: AsyncSession,
     case: CaseDTO,
@@ -2658,7 +2864,8 @@ async def load_section_context(
     ``threads`` (see :func:`_threads_context`), ``figures`` (see
     :func:`_figures_context`), ``conversations`` (see
     :func:`_conversations_context`), ``points`` (see :func:`_points_context`),
-    ``decision`` (see :func:`_decision_context`) or ``record`` —
+    ``decision`` (see :func:`_decision_context`), ``proposals`` (the review
+    block, see :func:`_proposals_context`) or ``record`` —
     ``{entries, oob}``, the rows of :func:`_project_timeline` and whether the
     block rides out of band after a milestone (D-CS-B-73).
     :func:`load_case_file_context` composes the file from the same calls, so
@@ -2668,7 +2875,7 @@ async def load_section_context(
         db_session: A tenant-scoped session.
         case: The case, already read (and 404-checked) by the caller.
         session: The PM's session (for the CSRF token).
-        name: One of ``_SECTION_NAMES``, or ``record``.
+        name: One of ``_SECTION_NAMES``, ``proposals`` or ``record``.
         reveal: Render a hidden-when-empty block visible, its add control
             focused (the outline's ``+``).
         stand: Where we stand already composed for this request, for the
@@ -2702,6 +2909,8 @@ async def load_section_context(
         context["points"] = await _points_context(db_session, case, reveal=reveal)
     elif name == "decision":
         context["decision"] = await _decision_context(db_session, case, reveal=reveal)
+    elif name == "proposals":
+        context["proposals"] = await _proposals_context(db_session, case)
     elif name == "record":
         context["record"] = {"entries": await _project_timeline(db_session, case), "oob": False}
     else:
@@ -2724,8 +2933,8 @@ async def load_case_file_context(
     ``capture_scenario_href``, ``consult_shirley_href``,
     ``consult_shirley_post``. Then one key per
     section (``question``, ``stand``, ``threads``, ``figures``,
-    ``conversations``, ``points``, ``decision``) and the ``record`` from
-    :func:`load_section_context`.
+    ``conversations``, ``points``, ``decision``), the review block
+    (``proposals``) and the ``record`` from :func:`load_section_context`.
 
     An open or waiting case is composed **once** here (D-CS-B-11, D-CS-B-55):
     the same :class:`WhereWeStand` feeds the stand block and the figures
@@ -2748,7 +2957,7 @@ async def load_case_file_context(
     if case.state in _MUTABLE_STATES:
         figures = await CaseFigureRepository(db_session).list_for_case(case.id)
         stand = await _compose_stand(db_session, case, figures)
-    for name in (*_SECTION_NAMES, "record"):
+    for name in (*_SECTION_NAMES, "proposals", "record"):
         context.update(await load_section_context(db_session, case, session, name, stand=stand))
     return context
 
@@ -2788,8 +2997,8 @@ async def get_case_section(
 ) -> HTMLResponse:
     """One block of the file, alone (D-CS-B-49): the stand's Refresh, the outline's ``+``.
 
-    ``name`` is one of ``_SECTION_NAMES``; anything else, like an unknown or
-    foreign case, is a 404. ``reveal=1`` renders a hidden-when-empty block
+    ``name`` is one of ``_SECTION_NAMES``, ``proposals`` (the review block) or
+    ``record``; anything else, like an unknown or foreign case, is a 404. ``reveal=1`` renders a hidden-when-empty block
     visible with its add control focused. A render writes nothing, so it
     answers no OOB bundle — unless ``oob=1``: the Threads block's
     ``pf:case-kept`` listeners ask for it after a keep or an undo elsewhere
@@ -5292,6 +5501,322 @@ async def post_case_close(
     # actions and composers vanish). HX-Redirect is the codebase's full
     # client-side navigation idiom (web/routes/investments.py).
     return _redirect_to_case(case_id)
+
+
+# ---------------------------------------------------------------------------
+# Proposals — accepting writes, item by item (ADR-0138 §8, D-CS-B-125)
+# ---------------------------------------------------------------------------
+
+#: The blocks an accepted kind writes to, re-rendered out of band after it.
+_PROPOSAL_BLOCKS: dict[str, str] = {
+    "thread": "threads",
+    "thread_conclusion": "threads",
+    "prose_append": "threads",
+    "generated_document": "threads",  # a file-level kept row: *Kept in the file*
+    "figure": "figures",
+    "conversation": "conversations",
+    "point": "points",
+}
+
+_PROPOSAL_THREAD_GONE_TEXT = "{headline} — thread gone, so it was discarded."
+_PROPOSAL_EMPTY_TEXT = "An accepted item needs its text — fill it in, or uncheck it."
+
+
+async def _case_proposal(db: AsyncSession, case_id: UUID, proposal_id: UUID) -> CaseProposalDTO:
+    """The proposal ``proposal_id`` of ``case_id``; another case's or an unknown id is a 404."""
+    proposal = await CaseProposalRepository(db).get(proposal_id)
+    if proposal is None or proposal.case_id != case_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found.")
+    return proposal
+
+
+def _accepted_indices(form: Any) -> list[int]:
+    """The checked items' indices, ascending — the package's position order."""
+    indices: set[int] = set()
+    for raw in form.getlist("accept"):
+        try:
+            indices.add(int(str(raw)))
+        except ValueError:
+            continue
+    return sorted(indices)
+
+
+def _accepted_value(form: Any, index: int, item: dict[str, Any]) -> str:
+    """The text an item is accepted with: its edit field as posted, else as proposed.
+
+    A one-line field is collapsed to one line, a textarea keeps its line breaks.
+    """
+    kind = str(item.get("kind"))
+    main = MAIN_FIELDS[kind]
+    field = f"field_{index}_{main}"
+    raw = form.get(field) if field in form else _proposal_fields(item).get(main)
+    text = str(raw or "").replace("\r\n", "\n").strip()
+    return text if kind in _PROPOSAL_MULTILINE_KINDS else " ".join(text.split())
+
+
+def _accepted_sources(raw: Any) -> list[dict[str, str]]:
+    """A generated document's sources as kept: a label, and an in-app href only (D-CS-B-98).
+
+    The 4b rule (:func:`_in_app_href`): an absolute, protocol-relative or
+    control-character href is dropped and the source stays a plain label.
+    """
+    sources: list[dict[str, str]] = []
+    for entry in raw if isinstance(raw, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        href = _in_app_href(entry.get("href"))
+        label = str(entry.get("label") or "").strip()
+        if not label:
+            if href is None:
+                continue
+            label = href
+        source = {"label": label}
+        if href is not None:
+            source["href"] = href
+        sources.append(source)
+    return sources
+
+
+async def _accept_item(
+    db: AsyncSession,
+    case: CaseDTO,
+    item: dict[str, Any],
+    value: str,
+    *,
+    kept_by: UUID,
+    now: datetime,
+) -> UUID | None:
+    """Write one accepted item into the file; its new (or written) row's id.
+
+    ``None`` when the item names a thread that is gone since — removed, or
+    never this case's: the caller discards it.
+    """
+    kind = str(item.get("kind"))
+    fields = _proposal_fields(item)
+    threads = CaseThreadRepository(db)
+    if kind == "thread":
+        thread = await threads.add(
+            case.id, title=value, prose=str(fields.get("prose") or ""), now=now
+        )
+        return thread.id
+    if kind in ("thread_conclusion", "prose_append"):
+        thread_id = _parse_uuid(fields.get("thread_id"))
+        current = await threads.get(thread_id) if thread_id is not None else None
+        if current is None or current.case_id != case.id or current.removed_at is not None:
+            return None
+        status_value = fields.get("status")
+        if kind == "prose_append":
+            prose = f"{current.prose}\n\n{value}" if current.prose else value
+            await threads.update(current.id, prose=prose, now=now)
+        elif status_value in _THREAD_STATUS_LABELS:
+            await threads.update(current.id, conclusion=value, status=str(status_value), now=now)
+        else:
+            await threads.update(current.id, conclusion=value, now=now)
+        return current.id
+    if kind == "figure":
+        figure = await CaseFigureRepository(db).add(
+            case.id,
+            label=str(fields.get("label") or ""),
+            source="conversation",
+            value_text=value,
+            note=str(fields.get("note") or "") or None,
+            as_of=str(fields.get("as_of") or "") or None,
+            now=now,
+        )
+        return figure.id
+    if kind == "point":
+        point = await CasePointRepository(db).add(
+            case.id, text=value, due_on=_as_date(fields.get("due_on")), now=now
+        )
+        return point.id
+    if kind == "conversation":
+        channel = fields.get("channel")
+        conversation = await CaseConversationRepository(db).add(
+            case.id,
+            held_on=_as_date(fields.get("held_on")) or now.date(),
+            channel=str(channel) if channel in _CHANNEL_LABELS else "other",
+            with_whom=str(fields.get("with_whom") or ""),
+            what_was_said=value,
+            what_was_promised=str(fields.get("promised") or "") or None,
+            now=now,
+        )
+        return conversation.id
+    title = str(fields.get("title") or "")
+    kept = await CaseKeptRepository(db).keep(
+        case.id,
+        artifact=_GENERATED_DOCUMENT,
+        payload={
+            "title": title,
+            "body": value,
+            "sources": _accepted_sources(fields.get("sources")),
+        },
+        kept_by=kept_by,
+        via="proposal",
+        now=now,
+        thread_id=None,
+        caption=title,
+    )
+    return kept.id
+
+
+@router.post("/api/cases/{case_id}/proposals/{proposal_id}/accept", response_class=HTMLResponse)
+async def post_case_proposal_accept(
+    request: Request,
+    case_id: UUID,
+    proposal_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Accept the checked items of a package into the file (D-CS-B-125).
+
+    Each checked **pending** item, in position order and in **one
+    transaction**, is written with the text the PM left in its edit field:
+    a thread, a thread's conclusion (and status, when proposed), a figure
+    (``source="conversation"``), an open point, a conversation (channel
+    ``other`` unless proposed), a generated document (a file-level kept row,
+    ``via="proposal"``, its sources by the in-app rule) or a paragraph
+    appended to a thread's prose; each is then resolved ``accepted`` with the
+    row's id. An item whose thread is gone since is resolved ``discarded``
+    and named in the note (*… — thread gone*). Unchecked items stay pending;
+    a stale index — past the package or already resolved — is ignored.
+    Accepting writes no record line: the record has ``job_landed``, the file
+    shows the rows.
+
+    A checked item whose text is empty refuses the whole request (400, its
+    note) before anything is written; a repository refusal mid-way rolls the
+    transaction back. A closed case answers the calm closed error; another
+    case's or an unknown package is a 404. Answers the review block
+    (``rerender=1``), the blocks the writes touched out of band and the
+    bundle.
+    """
+    form = await _request_form(request)
+    chosen = _accepted_indices(form)
+    engine = _engine(request)
+    gone: list[str] = []
+    touched: set[str] = set()
+    try:
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            case = await _writable_case(
+                request, db, case_id, session, section="proposals", action="proposal accept"
+            )
+            if isinstance(case, HTMLResponse):
+                return case
+            proposal = await _case_proposal(db, case_id, proposal_id)
+            accepted: list[tuple[int, dict[str, Any], str]] = []
+            for index in chosen:
+                if not 0 <= index < len(proposal.items):
+                    continue
+                item = proposal.items[index]
+                if not _is_pending(item) or MAIN_FIELDS.get(str(item.get("kind"))) is None:
+                    continue
+                value = _accepted_value(form, index, item)
+                if not value:
+                    return _note_refusal(
+                        request,
+                        "proposals",
+                        _PROPOSAL_EMPTY_TEXT,
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                accepted.append((index, item, value))
+            now = _now()
+            proposals = CaseProposalRepository(db)
+            for index, item, value in accepted:
+                created = await _accept_item(
+                    db, case, item, value, kept_by=session.user_id, now=now
+                )
+                if created is None:
+                    gone.append(item_headline(item))
+                    await proposals.resolve_item(
+                        proposal_id, index=index, status="discarded", now=now
+                    )
+                    continue
+                touched.add(_PROPOSAL_BLOCKS[str(item.get("kind"))])
+                await proposals.resolve_item(
+                    proposal_id, index=index, status="accepted", now=now, created_id=created
+                )
+            note = (
+                _note(
+                    " ".join(_PROPOSAL_THREAD_GONE_TEXT.format(headline=name) for name in gone),
+                    "warn",
+                )
+                if gone
+                else None
+            )
+            parts = await _answer_parts(
+                db,
+                case_id,
+                session,
+                "proposals",
+                rerender=rerender,
+                note=note,
+                also=tuple(name for name in _SECTION_NAMES if name in touched),
+            )
+    except CaseWorkingFileInvalid as exc:
+        return _note_refusal(
+            request, "proposals", str(exc), status_code=status.HTTP_400_BAD_REQUEST
+        )
+    except (CaseClosedError, CaseStateInvalid):
+        return _note_refusal(request, "proposals", _CLOSED_CASE_ERROR, status_code=200)
+
+    logger.info(
+        "cases proposal accept: tenant=%s user=%s case=%s proposal=%s accepted=%d gone=%d",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        proposal_id,
+        len(accepted) - len(gone),
+        len(gone),
+    )
+    return _render_parts(request, parts)
+
+
+@router.post("/api/cases/{case_id}/proposals/{proposal_id}/discard", response_class=HTMLResponse)
+async def post_case_proposal_discard(
+    request: Request,
+    case_id: UUID,
+    proposal_id: UUID,
+    rerender: bool = False,
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Discard a package's pending items (D-CS-B-125): nothing was written, nothing is.
+
+    Every pending item is resolved ``discarded`` — the package resolves and
+    leaves the block; the file is untouched (discarded items leave no trace
+    in it, ADR-0138 §8). A closed case answers the calm closed error; another
+    case's or an unknown package is a 404. Answers the review block
+    (``rerender=1``) and the bundle — the outline's *Proposals* entry follows.
+    """
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        case = await _writable_case(
+            request, db, case_id, session, section="proposals", action="proposal discard"
+        )
+        if isinstance(case, HTMLResponse):
+            return case
+        proposal = await _case_proposal(db, case_id, proposal_id)
+        now = _now()
+        repo = CaseProposalRepository(db)
+        discarded = 0
+        try:
+            for index, item in enumerate(proposal.items):
+                if _is_pending(item):
+                    await repo.resolve_item(proposal_id, index=index, status="discarded", now=now)
+                    discarded += 1
+        except (CaseClosedError, CaseStateInvalid):
+            return _note_refusal(request, "proposals", _CLOSED_CASE_ERROR, status_code=200)
+        parts = await _answer_parts(db, case_id, session, "proposals", rerender=rerender, note=None)
+
+    logger.info(
+        "cases proposal discard: tenant=%s user=%s case=%s proposal=%s discarded=%d",
+        session.tenant_id,
+        session.user_id,
+        case_id,
+        proposal_id,
+        discarded,
+    )
+    return _render_parts(request, parts)
 
 
 # ---------------------------------------------------------------------------

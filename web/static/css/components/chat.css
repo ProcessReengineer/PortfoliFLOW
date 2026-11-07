@@ -459,6 +459,32 @@
     border-color: var(--ui-accent-primary);
 }
 
+/* The dock's two proposal gestures under the banner (ADR-0138 §8,
+ * D-CS-B-123, D-CS-B-126) — "Summarise into the file", "Make this a case" —
+ * and the line their answer leaves, in the kept line's quiet tone. */
+.chat-brief__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.chat-brief__notice {
+    margin: 6px 0 0;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
+}
+
+.chat-brief__notice a {
+    color: var(--ui-accent-primary);
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.chat-brief__notice a:hover {
+    text-decoration: underline;
+}
+
 /* Keep (ADR-0138 §8): one container per answer or figure — the two gestures,
  * the picker and the kept line take turns in it. The gestures are quiet,
  * subordinate to the answer they sit under; "Keep to…" is quieter still. */

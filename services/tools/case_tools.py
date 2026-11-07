@@ -46,8 +46,9 @@ shaped like the chart artefact's (ADR-0114) — ``{"__artifact__":
 "llm_response"}``. :class:`~services.ai_service_core.AIServiceCore` turns it
 into a ``case_write`` stream event and hands the model only
 ``llm_response``, the fixed acknowledgement (*Added to CASE-nnnn — open
-point: «…». You see it in the dock with Undo.*). The web chat renders the
-event as a line in the dock whose *Undo* (``undo``) takes the row out again
+point: «…».*) — true on every channel, so it names the case and the row and
+nothing a channel may not show (D-CS-B-128). The web chat renders the event
+as a line in the dock whose *Undo* (``undo``) takes the row out again
 (``web/case_keep.py``); the voice call relays the acknowledgement, and an
 adapter that ignores the event still leaves the row in the file.
 
@@ -159,10 +160,14 @@ _CONVERSATION_SOURCE = "conversation"
 #: A conversation note from Shirley is a call's (D-CS-B-113).
 _CALL_CHANNEL = "call"
 
-# The acknowledgement the model repeats (D-5b-3) and the refusals (D-5b-5).
-_ACKNOWLEDGEMENT = "Added to {badge} — {label}: «{summary}». You see it in the dock with Undo."
+#: A paragraph of ``prose`` is at most this many characters (D-CS-B-128).
+_PROSE_CHARS = 2_000
+
+# The acknowledgement the model repeats (D-5b-3, D-CS-B-128) — true on every
+# channel: web, call, Telegram — and the refusals (D-5b-5, D-5c-7).
+_ACKNOWLEDGEMENT = "Added to {badge} — {label}: «{summary}»."
 _NO_CASE_NUMBER_MSG = (
-    "Name the case by its number — the brief's first line has it, or `list_cases` lists them."
+    "Name the case by its number — the brief opens on the case's badge, or `list_cases` lists them."
 )
 _CLOSED_CASE_MSG = "{badge} is closed; nothing is added to a closed case."
 _UNKNOWN_KIND_MSG = "kind must be one of figure, thread, point, conversation, prose."
@@ -172,6 +177,7 @@ _NO_WITH_WHOM_MSG = "Say who the conversation was with."
 _BAD_DATE_MSG = "Dates are YYYY-MM-DD."
 _EMPTY_TEXT_MSG = "Say what to add — text is empty."
 _LONG_TITLE_MSG = "A thread title is one line of at most 120 characters."
+_LONG_PROSE_MSG = "Keep a paragraph under 2 000 characters — add a second one if you need more."
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +279,15 @@ def _summary(text: str) -> str:
     if len(line) > _TITLE_CHARS:
         return line[: _TITLE_CHARS - 1].rstrip() + "…"
     return line
+
+
+def _quoted(summary: str) -> str:
+    """A summary as the acknowledgement quotes it: a trailing ``.``, ``!`` or ``?`` dropped.
+
+    The quote closes the sentence (``«…».``), so the summary's own full stop
+    would double it (D-CS-B-128). A summary of punctuation only stays as it is.
+    """
+    return summary.rstrip(".!?") or summary
 
 
 def _parse_iso_date(raw: object) -> date | None:
@@ -415,7 +430,9 @@ def _case_write_artifact(
             "summary": summary,
             "href": f"/cases/{case.id}#cs-{section}",
             "undo": undo,
-            "llm_response": _ACKNOWLEDGEMENT.format(badge=badge, label=label, summary=summary),
+            "llm_response": _ACKNOWLEDGEMENT.format(
+                badge=badge, label=label, summary=_quoted(summary)
+            ),
         },
         ensure_ascii=False,
     )
@@ -555,7 +572,7 @@ def case_add(  # noqa: PLR0913 — the schema's flat arguments
         kind: ``figure`` · ``thread`` · ``point`` · ``conversation`` · ``prose``.
         text: The value (figure), the title (thread, one line of at most 120
             characters), the point, what was said (conversation), or the
-            paragraph to append (prose).
+            paragraph to append (prose, at most 2 000 characters).
         label: A figure's label; required for ``figure``.
         thread: For ``prose``: the live thread's exact title
             (case-insensitive) or ``#n``, the n-th live thread.
@@ -588,6 +605,8 @@ def case_add(  # noqa: PLR0913 — the schema's flat arguments
         body = " ".join(body.split())
         if len(body) > _TITLE_CHARS:
             return _LONG_TITLE_MSG
+    if chosen == "prose" and len(body) > _PROSE_CHARS:
+        return _LONG_PROSE_MSG
     who = _clean(with_whom)
     if chosen == "conversation" and not who:
         return _NO_WITH_WHOM_MSG
@@ -766,7 +785,7 @@ _registry.register_tool(
         "to a live thread, named in thread by its exact title or as #n (the n-th thread of "
         "the file). It is additive only — it never closes a case, records a decision, "
         "hands over, sets waiting, removes or edits anything. Name the case by its number "
-        "(case_number: the brief's first line has it, list_cases lists them); never guess "
+        "(case_number: the brief opens on the case's badge, list_cases lists them); never guess "
         "a case. The case must be open or waiting. Write only what the PM asked for in "
         "this turn, one row per request; never add on your own initiative. After writing, "
         "your answer states what was added and to which case, as the result says — the "

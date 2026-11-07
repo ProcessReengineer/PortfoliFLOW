@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Shirley's three case read tools (ADR-0138 §10).
+"""Shirley's case tools: three reads and one write (ADR-0138 §10).
 
-Read-only AI-callable tools over the Cases area, so Shirley sees what the PM
-sees — across cases and across time:
+Three read-only AI-callable tools over the Cases area, so Shirley sees what
+the PM sees — across cases and across time:
 
 - ``list_cases`` — the cases of the book, one line each, filtered by state
   (open · waiting · closed · all) and, with ``mine``, to the cases the
@@ -23,6 +23,34 @@ All three register with :class:`~services.tool_classes.ToolClass`
 PM's own file (ADR-0022, D-CS-B-112). The descriptions carry the behaviour:
 ``prompts/Soul_Shirley.md`` is byte-identical (the Soul-hash rule).
 
+The write tool (ADR-0138 §8 channel 3, §10)
+-------------------------------------------
+``case_add`` is the platform's first ``WRITE_INTERNAL`` tool. On the PM's
+request it adds **one** row to the working file of the case it names by
+number — never a case it guesses (D-CS-M-17): a ``figure``, a ``thread``, an
+open ``point``, a ``conversation`` note, or a paragraph of ``prose``
+appended to a live thread (D-CS-M-8, D-CS-B-113). It is additive only: it
+never closes a case, records a decision, hands over, sets waiting, removes or
+edits anything. Every write goes through the working-file repositories,
+which refuse a closed case and bump ``cases.updated_at`` (D-CS-B-5); a
+waiting case takes the write and stays waiting (a PM write is no §7 event).
+A refusal is a plain line, and nothing is written.
+
+The tool registry locks the class for the rest of a turn once a
+``READ_EXTERNAL_UNTRUSTED`` tool ran (ADR-0022): the model then reads the
+lock's refusal as the tool result, and the tool is never invoked.
+
+The side channel (D-CS-B-114). A successful write returns a JSON envelope
+shaped like the chart artefact's (ADR-0114) — ``{"__artifact__":
+"case_write", "case_id", "badge", "kind", "summary", "href", "undo",
+"llm_response"}``. :class:`~services.ai_service_core.AIServiceCore` turns it
+into a ``case_write`` stream event and hands the model only
+``llm_response``, the fixed acknowledgement (*Added to CASE-nnnn — open
+point: «…». You see it in the dock with Undo.*). The web chat renders the
+event as a line in the dock whose *Undo* (``undo``) takes the row out again
+(``web/case_keep.py``); the voice call relays the acknowledgement, and an
+adapter that ignores the event still leaves the row in the file.
+
 Pattern reuse (ADR-0047)
 ------------------------
 Each tool mirrors ``analysis_tools.py``: a synchronous ``Callable[..., str]``
@@ -38,13 +66,24 @@ that session in one batch per call; an id never reaches the text.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+import re
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import CaseClosedError, CaseStateInvalid
+from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories.case_repository import CaseDTO, CaseRepository
+from core.repositories.case_working_file_repository import (
+    CaseConversationRepository,
+    CaseFigureRepository,
+    CasePointRepository,
+    CaseThreadDTO,
+    CaseThreadRepository,
+)
 from core.repositories.user_repository import UserRepository
 from services.cases.file_text import file_user_ids, render_case_file_text
 from services.tool_classes import ToolClass
@@ -53,8 +92,10 @@ from services.tools._async_bridge import run_async_in_fresh_loop
 from services.tools._tool_context import get_tool_context
 from services.tools._tool_session import tool_session
 
-#: The three tools this module registers, in registration order.
+#: The three read tools this module registers, in registration order; the
+#: write tool :data:`_WRITE_TOOL_NAME` registers fourth.
 _TOOL_NAMES: tuple[str, ...] = ("list_cases", "get_case", "search_cases")
+_WRITE_TOOL_NAME = "case_add"
 
 # Returned by every tool when no consumer has populated the tool-execution
 # context — the graceful-degradation path of the analysis tools.
@@ -85,6 +126,52 @@ _NO_USER_MSG = (
 )
 _NONE = "none"
 _UNKNOWN_USER = "unknown user"
+
+# --- case_add (D-CS-B-113, D-CS-B-114) ---------------------------------------
+
+#: The five kinds ``case_add`` writes (D-CS-M-8), in the description's order.
+_KINDS: tuple[str, ...] = ("figure", "thread", "point", "conversation", "prose")
+
+#: How the acknowledgement and the dock line name each kind (D-CS-B-114);
+#: ``prose`` names its thread. ``web/case_keep.py`` renders the dock line with
+#: the same labels (a test pins the two equal).
+_KIND_LABELS: dict[str, str] = {
+    "figure": "figure",
+    "thread": "thread",
+    "point": "open point",
+    "conversation": "conversation note",
+    "prose": 'text in thread "{title}"',
+}
+
+#: The artefact marker of a write, beside the chart's ``"chart"`` (ADR-0114).
+_CASE_WRITE_ARTIFACT = "case_write"
+
+#: A thread title is one line of at most this many characters; the summary
+#: of a write is clipped to the same width.
+_TITLE_CHARS = 120
+
+#: ``#n`` names the n-th live thread of the file, in position order.
+_THREAD_NUMBER = re.compile(r"#\s*(\d+)")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+#: The figure source of a value the PM relays from a conversation (§3).
+_CONVERSATION_SOURCE = "conversation"
+#: A conversation note from Shirley is a call's (D-CS-B-113).
+_CALL_CHANNEL = "call"
+
+# The acknowledgement the model repeats (D-5b-3) and the refusals (D-5b-5).
+_ACKNOWLEDGEMENT = "Added to {badge} — {label}: «{summary}». You see it in the dock with Undo."
+_NO_CASE_NUMBER_MSG = (
+    "Name the case by its number — the brief's first line has it, or `list_cases` lists them."
+)
+_CLOSED_CASE_MSG = "{badge} is closed; nothing is added to a closed case."
+_UNKNOWN_KIND_MSG = "kind must be one of figure, thread, point, conversation, prose."
+_NO_LABEL_MSG = "A figure needs a label."
+_NO_THREAD_MSG = "Name the thread by its exact title or as #n; the file lists them."
+_NO_WITH_WHOM_MSG = "Say who the conversation was with."
+_BAD_DATE_MSG = "Dates are YYYY-MM-DD."
+_EMPTY_TEXT_MSG = "Say what to add — text is empty."
+_LONG_TITLE_MSG = "A thread title is one line of at most 120 characters."
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +255,170 @@ async def _resolve_names(session: AsyncSession, ids: Iterable[UUID]) -> dict[UUI
         if user is not None:
             names[user_id] = user.display_name or user.email
     return names
+
+
+# ---------------------------------------------------------------------------
+# case_add — arguments, threads, writes and the artefact
+# ---------------------------------------------------------------------------
+
+
+def _clean(value: object) -> str:
+    """An optional string argument, stripped; anything else is empty."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _summary(text: str) -> str:
+    """A write's summary: one line, clipped to :data:`_TITLE_CHARS` with an ellipsis."""
+    line = " ".join(text.split())
+    if len(line) > _TITLE_CHARS:
+        return line[: _TITLE_CHARS - 1].rstrip() + "…"
+    return line
+
+
+def _parse_iso_date(raw: object) -> date | None:
+    """``YYYY-MM-DD`` as a date; ``None`` when absent.
+
+    Raises:
+        ValueError: On anything but a calendar date in that one form — the
+            week and compact forms ``date.fromisoformat`` accepts included.
+    """
+    text = _clean(raw)
+    if not text:
+        return None
+    if not _ISO_DATE.fullmatch(text):
+        raise ValueError(text)
+    return date.fromisoformat(text)
+
+
+def _kind_label(kind: str, thread_title: str = "") -> str:
+    """The kind's name in the acknowledgement (D-CS-B-114)."""
+    return _KIND_LABELS[kind].format(title=thread_title)
+
+
+def _match_thread(threads: Sequence[CaseThreadDTO], ref: str) -> CaseThreadDTO | None:
+    """The live thread ``ref`` names: its exact title (case-insensitive), else ``#n``.
+
+    ``threads`` are the case's live threads in position order; ``#n`` is the
+    n-th of them, counted from 1. A title shared by two threads names the
+    first. ``None`` when nothing matches.
+    """
+    wanted = ref.strip().casefold()
+    if not wanted:
+        return None
+    for thread in threads:
+        if thread.title.strip().casefold() == wanted:
+            return thread
+    numbered = _THREAD_NUMBER.fullmatch(ref.strip())
+    if numbered is not None:
+        index = int(numbered.group(1))
+        if 1 <= index <= len(threads):
+            return threads[index - 1]
+    return None
+
+
+def _thread_refusal(threads: Sequence[CaseThreadDTO]) -> str:
+    """The unknown-thread refusal, listing the live threads as ``#n "title"``."""
+    listed = ", ".join(f'#{n} "{thread.title}"' for n, thread in enumerate(threads, 1))
+    return f"{_NO_THREAD_MSG} Live threads: {listed or _NONE}."
+
+
+async def _write_figure(
+    db: AsyncSession,
+    case: CaseDTO,
+    *,
+    label: str,
+    text: str,
+    with_whom: str,
+    held_on: date | None,
+    now: datetime,
+) -> tuple[UUID, str, str]:
+    """A ``conversation`` figure: the value as written, who said it, from when."""
+    row = await CaseFigureRepository(db).add(
+        case.id,
+        label=label,
+        source=_CONVERSATION_SOURCE,
+        value_text=text,
+        as_of=held_on.isoformat() if held_on is not None else None,
+        note=with_whom or None,
+        now=now,
+    )
+    return row.id, _summary(f"{row.label}: {text}"), "figures"
+
+
+async def _write_thread(
+    db: AsyncSession, case: CaseDTO, *, text: str, now: datetime
+) -> tuple[UUID, str, str]:
+    """A thread with the title and no prose, status open."""
+    row = await CaseThreadRepository(db).add(case.id, title=text, now=now)
+    return row.id, _summary(row.title), f"thread-{row.id}"
+
+
+async def _write_point(
+    db: AsyncSession, case: CaseDTO, *, text: str, due_on: date | None, now: datetime
+) -> tuple[UUID, str, str]:
+    """An open point without an owner, due when asked."""
+    row = await CasePointRepository(db).add(case.id, text=text, due_on=due_on, now=now)
+    return row.id, _summary(row.text), "points"
+
+
+async def _write_conversation(
+    db: AsyncSession,
+    case: CaseDTO,
+    *,
+    text: str,
+    with_whom: str,
+    held_on: date,
+    now: datetime,
+) -> tuple[UUID, str, str]:
+    """A call: with whom, when, what was said — nothing promised."""
+    row = await CaseConversationRepository(db).add(
+        case.id,
+        held_on=held_on,
+        channel=_CALL_CHANNEL,
+        with_whom=with_whom,
+        what_was_said=text,
+        now=now,
+    )
+    return row.id, _summary(f"{with_whom}: {text}"), "conversations"
+
+
+async def _write_prose(
+    db: AsyncSession, thread: CaseThreadDTO, *, text: str, now: datetime
+) -> tuple[UUID, str, str]:
+    """``text`` appended to the thread's prose as a new paragraph."""
+    prose = thread.prose + "\n\n" + text if thread.prose else text
+    await CaseThreadRepository(db).update(thread.id, prose=prose, now=now)
+    return thread.id, _summary(text), f"thread-{thread.id}"
+
+
+def _case_write_artifact(
+    case: CaseDTO,
+    *,
+    kind: str,
+    row_id: UUID,
+    summary: str,
+    section: str,
+    label: str,
+    appended: str | None,
+) -> str:
+    """The write's side-channel envelope (D-CS-B-114), as a JSON string."""
+    badge = _badge(case.case_number)
+    undo: dict[str, str] = {"kind": kind, "row_id": str(row_id), "case_id": str(case.id)}
+    if appended is not None:
+        undo["appended"] = appended
+    return json.dumps(
+        {
+            "__artifact__": _CASE_WRITE_ARTIFACT,
+            "case_id": str(case.id),
+            "badge": badge,
+            "kind": kind,
+            "summary": summary,
+            "href": f"/cases/{case.id}#cs-{section}",
+            "undo": undo,
+            "llm_response": _ACKNOWLEDGEMENT.format(badge=badge, label=label, summary=summary),
+        },
+        ensure_ascii=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +530,127 @@ def search_cases(query: str, state: str = "all") -> str:
     return _listing(f'{_count(len(cases), "match")} for "{stripped}"', cases, names)
 
 
+def case_add(  # noqa: PLR0913 — the schema's flat arguments
+    case_number: int | None = None,
+    kind: str = "",
+    text: str = "",
+    label: str | None = None,
+    thread: str | None = None,
+    with_whom: str | None = None,
+    held_on: str | None = None,
+    due_on: str | None = None,
+) -> str:
+    """Add one row to an open or waiting case's working file, on the PM's request.
+
+    Additive only (ADR-0138 §10): a figure, a thread, an open point, a
+    conversation note, or a paragraph appended to a live thread's prose.
+
+    The schema requires ``case_number``, ``kind`` and ``text``; the
+    signature defaults them only so that a call that omits one is refused in
+    words (D-CS-M-17: no case reference, no write) rather than by a
+    ``TypeError``.
+
+    Args:
+        case_number: The case's number — ``31`` for ``CASE-0031``; required.
+        kind: ``figure`` · ``thread`` · ``point`` · ``conversation`` · ``prose``.
+        text: The value (figure), the title (thread, one line of at most 120
+            characters), the point, what was said (conversation), or the
+            paragraph to append (prose).
+        label: A figure's label; required for ``figure``.
+        thread: For ``prose``: the live thread's exact title
+            (case-insensitive) or ``#n``, the n-th live thread.
+        with_whom: Who said it — a figure's note, and required for
+            ``conversation``.
+        held_on: ``YYYY-MM-DD`` — a figure's as-of, a conversation's date
+            (default today, UTC).
+        due_on: ``YYYY-MM-DD`` — an open point's due date.
+
+    Returns:
+        The write's artefact JSON (:func:`_case_write_artifact`), or a calm
+        refusal line — then nothing was written.
+    """
+    ctx = get_tool_context()
+    if ctx is None:
+        return _CONTEXT_NOT_SET_MSG
+    number = _parse_case_number(case_number)
+    if number is None:
+        return _NO_CASE_NUMBER_MSG
+    chosen = _clean(kind).lower()
+    if chosen not in _KINDS:
+        return _UNKNOWN_KIND_MSG
+    body = _clean(text)
+    if not body:
+        return _EMPTY_TEXT_MSG
+    figure_label = _clean(label)
+    if chosen == "figure" and not figure_label:
+        return _NO_LABEL_MSG
+    if chosen == "thread":
+        body = " ".join(body.split())
+        if len(body) > _TITLE_CHARS:
+            return _LONG_TITLE_MSG
+    who = _clean(with_whom)
+    if chosen == "conversation" and not who:
+        return _NO_WITH_WHOM_MSG
+    thread_ref = _clean(thread)
+    try:
+        held = _parse_iso_date(held_on) if chosen in ("figure", "conversation") else None
+        due = _parse_iso_date(due_on) if chosen == "point" else None
+    except ValueError:
+        return _BAD_DATE_MSG
+
+    async def _workflow() -> str:
+        async with tool_session(ctx) as db:
+            case = await CaseRepository(db).get_by_number(number)
+            if case is None:
+                return _UNKNOWN_CASE_MSG.format(badge=_badge(number))
+            if case.state not in _MUTABLE_STATES:
+                return _CLOSED_CASE_MSG.format(badge=_badge(number))
+            now = datetime.now(timezone.utc)
+            title, appended = "", None
+            try:
+                if chosen == "figure":
+                    written = await _write_figure(
+                        db,
+                        case,
+                        label=figure_label,
+                        text=body,
+                        with_whom=who,
+                        held_on=held,
+                        now=now,
+                    )
+                elif chosen == "thread":
+                    written = await _write_thread(db, case, text=body, now=now)
+                elif chosen == "point":
+                    written = await _write_point(db, case, text=body, due_on=due, now=now)
+                elif chosen == "conversation":
+                    written = await _write_conversation(
+                        db, case, text=body, with_whom=who, held_on=held or now.date(), now=now
+                    )
+                else:
+                    threads = await CaseThreadRepository(db).list_for_case(case.id)
+                    target = _match_thread(threads, thread_ref)
+                    if target is None:
+                        return _thread_refusal(threads)
+                    title, appended = target.title, body
+                    written = await _write_prose(db, target, text=body, now=now)
+            except CaseClosedError:
+                return _CLOSED_CASE_MSG.format(badge=_badge(number))
+            except CaseStateInvalid:
+                return _UNKNOWN_CASE_MSG.format(badge=_badge(number))
+            row_id, summary, section = written
+            return _case_write_artifact(
+                case,
+                kind=chosen,
+                row_id=row_id,
+                summary=summary,
+                section=section,
+                label=_kind_label(chosen, title),
+                appended=appended,
+            )
+
+    return run_async_in_fresh_loop(_workflow)
+
+
 # ---------------------------------------------------------------------------
 # Register tools at import time
 # ---------------------------------------------------------------------------
@@ -378,4 +750,75 @@ _registry.register_tool(
         "required": ["query"],
     },
     tool_class=ToolClass.READ_INTERNAL,
+)
+
+_registry.register_tool(
+    name=_WRITE_TOOL_NAME,
+    function=case_add,
+    description=(
+        "Add one thing to a case's working file when the PM asks for it — a figure, a "
+        "thread, an open point, a conversation note, or a paragraph of text in a thread. "
+        "kind=figure: label (required) is what it is, text the value as said, with_whom "
+        "who said it, held_on when. kind=thread: text is the title, one line of at most "
+        "120 characters. kind=point: text is the open point, due_on optional. "
+        "kind=conversation: text is what was said, with_whom (required) who it was with, "
+        "held_on the day (default today). kind=prose: text is appended as a new paragraph "
+        "to a live thread, named in thread by its exact title or as #n (the n-th thread of "
+        "the file). It is additive only — it never closes a case, records a decision, "
+        "hands over, sets waiting, removes or edits anything. Name the case by its number "
+        "(case_number: the brief's first line has it, list_cases lists them); never guess "
+        "a case. The case must be open or waiting. Write only what the PM asked for in "
+        "this turn, one row per request; never add on your own initiative. After writing, "
+        "your answer states what was added and to which case, as the result says — the "
+        "user sees the same as a line in the dock with Undo. Locked for the rest of a "
+        "turn once web_research ran. Dates are YYYY-MM-DD."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "case_number": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "The case's number: 31 for CASE-0031.",
+            },
+            "kind": {
+                "type": "string",
+                "enum": list(_KINDS),
+                "description": "What to add: figure, thread, point, conversation or prose.",
+            },
+            "text": {
+                "type": "string",
+                "description": (
+                    "The figure's value, the thread's title, the open point, what was said, "
+                    "or the paragraph to append."
+                ),
+            },
+            "label": {
+                "type": "string",
+                "description": "A figure's label — required for kind=figure.",
+            },
+            "thread": {
+                "type": "string",
+                "description": (
+                    "For kind=prose: the live thread's exact title, or #n for the n-th thread."
+                ),
+            },
+            "with_whom": {
+                "type": "string",
+                "description": (
+                    "Who said it: a figure's source person, required for kind=conversation."
+                ),
+            },
+            "held_on": {
+                "type": "string",
+                "description": "YYYY-MM-DD: a figure's as-of, or the conversation's day.",
+            },
+            "due_on": {
+                "type": "string",
+                "description": "YYYY-MM-DD: an open point's due date.",
+            },
+        },
+        "required": ["case_number", "kind", "text"],
+    },
+    tool_class=ToolClass.WRITE_INTERNAL,
 )

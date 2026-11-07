@@ -17,7 +17,7 @@
 //   3. Open a one-shot ``EventSource`` for each turn-started fragment
 //      that HTMX swaps into ``#chat-history``, dispatching the full
 //      server event vocabulary (message, tool_called, tool_completed,
-//      chart, done, error) into the assistant bubble. The ``chart``
+//      chart, case_write, done, error) into the assistant bubble. The ``chart``
 //      event carries either an interactive Plotly figure spec
 //      (``chart_format: "plotly"``, the web path — ADR-0048) or a
 //      data: URI (``chart_format: "png"``, from ``generate_chart``);
@@ -25,7 +25,10 @@
 //      ``chart_snapshot.js``, the same path the rehydrated history and
 //      the Cases timeline use (ADR-0114). A plotly payload also carries
 //      an ``artifact_id`` when the server archived the spec — the handle
-//      the figure's Keep gestures post (ADR-0138 §8).
+//      the figure's Keep gestures post (ADR-0138 §8). A ``case_write``
+//      event is a row Shirley added to a case through ``case_add``: it
+//      becomes a line with Undo in the bubble's tools container (ADR-0138
+//      §10, D-CS-B-115).
 
 (function () {
     "use strict";
@@ -167,6 +170,33 @@
         if (window.htmx) window.htmx.process(holder);
     }
 
+    // ADR-0138 §10: one line per write Shirley made through ``case_add`` —
+    // "Added to CASE-nnnn · {kind}: {summary} · Undo". The addKeepActions
+    // idiom: a placeholder that fetches the line from the server on ``load``,
+    // processed by hand because it is inserted by raw JS. It goes into the
+    // bubble's tools container, after the running badge of the tool that
+    // wrote it; without one, under the answer. Two writes in one turn are two
+    // lines. Live only — the rehydrated history renders none.
+    function addWriteLine(container, payload) {
+        if (!container || !payload || !payload.case_id || !payload.undo) return;
+        const params = new URLSearchParams({
+            badge: payload.badge || "",
+            case_id: payload.case_id,
+            kind: payload.kind || "",
+            summary: payload.summary || "",
+            row_id: payload.undo.row_id || "",
+            appended: payload.undo.appended || "",
+        });
+        const holder = document.createElement("div");
+        holder.className = "chat-write";
+        holder.dataset.pfWrite = payload.kind || "";
+        holder.setAttribute("hx-get", "/api/chat/case-write/line?" + params.toString());
+        holder.setAttribute("hx-trigger", "load");
+        holder.setAttribute("hx-swap", "outerHTML");
+        container.appendChild(holder);
+        if (window.htmx) window.htmx.process(holder);
+    }
+
     function attachSseListeners(container) {
         const elements = container.querySelectorAll(
             "[data-pf-sse-url]:not([data-pf-attached])"
@@ -298,6 +328,21 @@
             } else {
                 scrollHistoryToBottom();
             }
+        });
+
+        eventSource.addEventListener("case_write", function (event) {
+            let payload;
+            try {
+                payload = JSON.parse(event.data);
+            } catch (err) {
+                console.error("chat.js: malformed case_write payload", err);
+                return;
+            }
+            addWriteLine(
+                toolsContainer || document.getElementById(bubbleId + "-wrap"),
+                payload
+            );
+            scrollHistoryToBottom();
         });
 
         eventSource.addEventListener("error", function (event) {

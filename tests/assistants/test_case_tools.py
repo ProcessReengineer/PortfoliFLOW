@@ -7,8 +7,10 @@ Layers, mirroring ``tests/assistants/test_analysis_tools.py``:
 
 1. **Registration / contract** (no database) — the three tools register as
    ``READ_INTERNAL`` (CT-01), degrade gracefully without a context (CT-02),
-   bring a bare ``AIServiceCore`` to nineteen tools (CT-03), and describe
-   themselves as read-only — ``search_cases`` naming the closed cases (CT-09).
+   bring a bare ``AIServiceCore`` — with the module's write tool
+   ``case_add``, tested in ``test_case_add.py`` — to twenty tools (CT-03),
+   and describe themselves as read-only — ``search_cases`` naming the closed
+   cases (CT-09).
 2. **DB-backed** — each tool reads a seeded tenant end to end, building its
    own loop-local engine from the context URL, exactly the production path:
    ``list_cases`` (CT-04), ``get_case`` (CT-05), ``search_cases`` (CT-06), the
@@ -116,10 +118,10 @@ def test_ct02_each_tool_degrades_without_a_context() -> None:
         assert "web chat surface" in result
 
 
-def test_ct03_a_bare_core_registers_nineteen_tools() -> None:
-    """CT-03: the sixth tool module brings the registry to nineteen."""
+def test_ct03_a_bare_core_registers_twenty_tools() -> None:
+    """CT-03: the sixth tool module — three reads and ``case_add`` — brings the registry to twenty."""
     AIServiceCore()
-    assert len(get_tool_registry().list_tools()) == 19
+    assert len(get_tool_registry().list_tools()) == 20
 
 
 def test_ct09_every_description_is_read_only_and_search_names_closed_cases() -> None:

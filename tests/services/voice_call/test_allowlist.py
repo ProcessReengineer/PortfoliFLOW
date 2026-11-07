@@ -3,10 +3,10 @@
 
 """The voice-call tool allowlist and its tripwire (ADR-0137 §3.1).
 
-The allowlist equals the whole registry today because every registered tool
-is a read. The tripwire pins that equality, so a new tool — above all the
-first one that writes — fails here until someone decides whether a voice
-call may use it.
+The allowlist equals the whole registry (D-CS-M-17): every read, and the one
+write tool, ``case_add`` — additive and announced on the call. The tripwire
+pins that equality, so a new tool fails here until someone decides whether
+a voice call may use it.
 """
 
 from __future__ import annotations
@@ -31,7 +31,8 @@ def test_allowlist_equals_registered_tools() -> None:
     )
 
 
-def test_allowlist_has_nineteen_well_formed_names() -> None:
-    """Nineteen snake_case tool names."""
-    assert len(CALL_TOOL_ALLOWLIST) == 19
+def test_allowlist_has_twenty_well_formed_names() -> None:
+    """Twenty snake_case tool names, the one write tool among them."""
+    assert len(CALL_TOOL_ALLOWLIST) == 20
+    assert "case_add" in CALL_TOOL_ALLOWLIST
     assert all(re.fullmatch(r"[a-z_]+", name) for name in CALL_TOOL_ALLOWLIST)

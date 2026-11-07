@@ -1,0 +1,30 @@
+{# The dock line of one write Shirley made through case_add (ADR-0138 §8
+   channel 3, §10; D-CS-B-115): "Added to CASE-nnnn · {kind}: {summary} ·
+   Undo". The badge opens the case at the block written to (a thread and a
+   prose paragraph at the thread). Fetched by chat.js from a ``load``
+   placeholder in the bubble's tools container, one line per ``case_write``
+   event; live only — a reload shows none, the file is the record.
+
+   One container takes turns: the line, then after Undo "Undone — removed
+   from CASE-nnnn." (data-pf-write="undone"), or a calm state instead
+   (data-pf-write="unavailable": already removed, the case closed, the
+   thread's text changed since). Undo posts its own small form — the token
+   and the write's handles — into ``closest .chat-write`` with ``outerHTML``.
+
+   Context: state ("line" | "undone" | "unavailable"), csrf_token, csrf_field,
+   undo_url; for a line: kind, kind_label, badge, href, summary, case_id,
+   row_id, appended; for the other two: message. #}
+{% if state == "line" %}
+<div class="chat-write" role="status" data-pf-write="{{ kind }}">Added to <a href="{{ href }}">{{ badge }}</a> · {{ kind_label }}: {{ summary }} ·
+    <form class="chat-write__form" hx-post="{{ undo_url }}" hx-target="closest .chat-write" hx-swap="outerHTML">
+        <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+        <input type="hidden" name="kind" value="{{ kind }}">
+        <input type="hidden" name="row_id" value="{{ row_id }}">
+        <input type="hidden" name="case_id" value="{{ case_id }}">
+        <input type="hidden" name="appended" value="{{ appended }}">
+        <button type="submit" class="chat-keep__btn chat-keep__btn--quiet" data-pf-write="undo">Undo</button>
+    </form>
+</div>
+{% else %}
+<div class="chat-write chat-write--undone" role="status" data-pf-write="{{ 'undone' if state == 'undone' else 'unavailable' }}">{{ message }}</div>
+{% endif %}

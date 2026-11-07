@@ -20,6 +20,13 @@ Keep writes ``case_kept`` rows with ``via = "keep"`` through
 keep is no milestone). Its *Undo* (D-CS-B-99) is :func:`undo_keep` — the
 row's ``removed_at`` through :meth:`CaseKeptRepository.remove`, never a
 delete, so a file frozen in between still renders it (D-CS-M-5).
+
+Shirley's writes (ADR-0138 §8 channel 3, §10) take the same posture: every
+``case_add`` write is a line in the dock with *Undo* (D-CS-B-115), whose
+helper is :func:`undo_case_write` — a figure, a point or a conversation is
+deleted (the repositories' own delete), a thread removed (``removed_at``),
+and an appended paragraph stripped again while the thread's prose still ends
+with it.
 """
 
 from __future__ import annotations
@@ -32,12 +39,20 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.exceptions import CaseClosedError, CaseStateInvalid, CaseWorkingFileInvalid
+from core.exceptions import (
+    CaseClosedError,
+    CasePointLinked,
+    CaseStateInvalid,
+    CaseWorkingFileInvalid,
+)
 from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories.case_repository import CaseDTO, CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseConversationRepository,
+    CaseFigureRepository,
     CaseKeptDTO,
     CaseKeptRepository,
+    CasePointRepository,
     CaseThreadDTO,
     CaseThreadRepository,
 )
@@ -61,6 +76,32 @@ UNDO_CASE_CLOSED_MESSAGE: str = "That case is closed."
 #: banner on the second.
 CASE_KEPT_EVENT: str = "pf:case-kept"
 BRIEF_CHANGED_EVENT: str = "pf:brief-changed"
+
+#: How the dock line names each kind of Shirley's write (D-CS-B-114) — the
+#: labels of ``services/tools/case_tools.py``'s acknowledgement, restated
+#: here because importing a tool module registers its tools (a test pins the
+#: two equal); ``prose`` names its thread.
+CASE_WRITE_KIND_LABELS: dict[str, str] = {
+    "figure": "figure",
+    "thread": "thread",
+    "point": "open point",
+    "conversation": "conversation note",
+    "prose": 'text in thread "{title}"',
+}
+
+#: The block a write lands in, for the line's link (``#cs-<section>``); a
+#: thread and a prose paragraph link to the thread itself.
+_CASE_WRITE_SECTIONS: dict[str, str] = {
+    "figure": "figures",
+    "point": "points",
+    "conversation": "conversations",
+}
+
+#: The dock line's calm states (D-5b-4): the thread's prose moved on since the
+#: append, the case closed since the write, a ticket now holds the point.
+UNDO_PROSE_CHANGED_MESSAGE: str = "The thread's text has changed since — edit it in the file."
+UNDO_CASE_WRITE_CLOSED_MESSAGE: str = "{badge} is closed."
+UNDO_POINT_LINKED_MESSAGE: str = "That point has a ticket since — it stays in the file."
 
 
 @dataclass(frozen=True)
@@ -355,3 +396,97 @@ def consultation_caption(text: str) -> str:
         if snippet:
             return clip_caption(snippet)
     return ""
+
+
+def case_write_href(case_id: UUID, kind: str, row_id: UUID) -> str:
+    """Where the dock line's badge opens the case: the block written to, or the thread."""
+    section = _CASE_WRITE_SECTIONS.get(kind) or f"thread-{row_id}"
+    return f"/cases/{case_id}#cs-{section}"
+
+
+def _strip_appended(prose: str, appended: str) -> str | None:
+    """``prose`` without the paragraph ``appended`` added last, or ``None`` if it moved on.
+
+    ``case_add`` appends ``"\n\n" + text`` to a non-empty prose and sets an
+    empty one to ``text``; this is the exact inverse while the prose still
+    ends with what was appended.
+    """
+    if not appended:
+        return None
+    if prose == appended:
+        return ""
+    suffix = "\n\n" + appended
+    if prose.endswith(suffix):
+        return prose[: -len(suffix)]
+    return None
+
+
+async def undo_case_write(
+    db: AsyncSession, *, kind: str, row_id: UUID, case_id: UUID, appended: str
+) -> str | None:
+    """Undo one of Shirley's writes from its dock line (D-CS-B-115).
+
+    A figure, an open point or a conversation is deleted, a thread removed
+    (``removed_at``), an appended paragraph stripped from its thread's prose
+    while the prose still ends with it. Nothing is written on a refusal.
+
+    Args:
+        db: A tenant-scoped session.
+        kind: The write's kind — ``figure`` · ``thread`` · ``point`` ·
+            ``conversation`` · ``prose``.
+        row_id: The row written (for ``prose``, the thread).
+        case_id: The case the line names; a row of another case reads as gone.
+        appended: For ``prose``, the paragraph that was appended.
+
+    Returns:
+        ``None`` when undone, else the calm line to show:
+        :data:`UNDO_ALREADY_REMOVED_MESSAGE` for a row gone already (or never
+        this tenant's — ``None`` under RLS), *CASE-nnnn is closed.* when its
+        case closed since, :data:`UNDO_PROSE_CHANGED_MESSAGE` when the
+        thread's prose changed after the append, and
+        :data:`UNDO_POINT_LINKED_MESSAGE` for a point a ticket was created
+        from since.
+    """
+    case = await CaseRepository(db).get(case_id)
+    if case is None:
+        return UNDO_ALREADY_REMOVED_MESSAGE
+    closed = UNDO_CASE_WRITE_CLOSED_MESSAGE.format(badge=_badge(case))
+    now = datetime.now(timezone.utc)
+    try:
+        if kind in ("thread", "prose"):
+            threads = CaseThreadRepository(db)
+            thread = await threads.get(row_id)
+            if thread is None or thread.case_id != case.id or thread.removed_at is not None:
+                return UNDO_ALREADY_REMOVED_MESSAGE
+            if case.state not in _MUTABLE_STATES:
+                return closed
+            if kind == "thread":
+                await threads.remove(row_id, now=now)
+                return None
+            stripped = _strip_appended(thread.prose, appended)
+            if stripped is None:
+                return UNDO_PROSE_CHANGED_MESSAGE
+            await threads.update(row_id, prose=stripped, now=now)
+            return None
+        repository: CaseFigureRepository | CasePointRepository | CaseConversationRepository
+        if kind == "figure":
+            repository = CaseFigureRepository(db)
+        elif kind == "point":
+            repository = CasePointRepository(db)
+        elif kind == "conversation":
+            repository = CaseConversationRepository(db)
+        else:
+            return UNDO_ALREADY_REMOVED_MESSAGE
+        row = await repository.get(row_id)
+        if row is None or row.case_id != case.id:
+            return UNDO_ALREADY_REMOVED_MESSAGE
+        if case.state not in _MUTABLE_STATES:
+            return closed
+        await repository.delete(row_id, now=now)
+    except CaseClosedError:
+        return closed
+    except CasePointLinked:
+        return UNDO_POINT_LINKED_MESSAGE
+    except (CaseStateInvalid, CaseWorkingFileInvalid):
+        return UNDO_ALREADY_REMOVED_MESSAGE
+    return None

@@ -38,9 +38,10 @@ _SHELL_JS = _REPO_ROOT / "web" / "static" / "js" / "shell.js"
 #: ``id="chat-`` occurrences in the partial. Pinned to the number the
 #: pre-move ``shirley_section.html`` carried — brief banner, history,
 #: pin dialog, form, input, attach, send — so the move is provably a
-#: move and not a rewrite. A new anchor id is a deliberate change to
-#: this number, never an accident.
-_CHAT_ANCHOR_IDS = 7
+#: move and not a rewrite; six since P-CS-4a retired the pin dialog
+#: (Keep replaced it, ADR-0138 §9). A new anchor id is a deliberate
+#: change to this number, never an accident.
+_CHAT_ANCHOR_IDS = 6
 
 
 def test_layout_declares_all_three_shirley_states() -> None:

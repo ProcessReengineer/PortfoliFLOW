@@ -18,6 +18,11 @@
    A closed case renders the rows read-only from the snapshot frozen at
    close, whose `book` rows carry the value frozen then.
 
+   A write from the dock — Shirley's case_add or its Undo (D-CS-B-115) —
+   raises the case-kept event with the case id; both forms of the section
+   listen for their own case and re-render the block with the OOB bundle
+   (?oob=1), the Threads block's idiom (D-CS-B-88, D-CS-B-104).
+
    The note slot renders `block.note` itself when the block is re-rendered
    (see cases_file_conversations.html; the 3c report's F-3c-5).
 
@@ -28,9 +33,11 @@
    [{value, label}]}. #}
 {% set block = figures %}
 {% if block.empty and not block.reveal %}
-<section class="pf-blk" id="cs-figures" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="figures"></section>
+<section class="pf-blk" id="cs-figures" hidden data-pf-cs="block" data-pf-cs-state="empty" data-pf-cs-name="figures"
+         hx-get="/api/cases/{{ case_id }}/sections/figures?oob=1" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML"></section>
 {% else %}
-<section class="pf-blk" id="cs-figures" data-pf-cs="block" data-pf-cs-name="figures">
+<section class="pf-blk" id="cs-figures" data-pf-cs="block" data-pf-cs-name="figures"
+         hx-get="/api/cases/{{ case_id }}/sections/figures?oob=1" hx-trigger="pf:case-kept[detail.case_id=='{{ case_id }}'] from:body" hx-swap="outerHTML">
     <div class="pf-blk__head">
         <h3 class="pf-blk__title">Figures</h3>
         <span class="pf-blk__sub">the numbers side by side — each says where it came from and from when</span>

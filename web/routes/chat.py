@@ -37,6 +37,10 @@ shell consumes:
 * ``GET /api/chat/keep/actions`` · ``GET /api/chat/keep/picker`` ·
   ``POST /api/chat/keep`` — Keep an answer or a figure into the active case
   in one click, or choose another target (ADR-0138 §8 channel 2, §9).
+* ``GET /api/chat/case-write/line`` · ``POST /api/chat/case-write/undo`` —
+  the dock line of a write Shirley made through ``case_add`` and its *Undo*
+  (ADR-0138 §8 channel 3, §10; D-CS-B-115). The stream relays each write as
+  a ``case_write`` SSE event; the line is live only — the file is the record.
 
 Two further per-session in-memory stores ride alongside the history
 (``app.state.chat_histories``, ADR-0050): the consultation-brief stash
@@ -109,6 +113,7 @@ from core.repositories import ScopedSettingRepository
 from core.repositories._case_common import _MUTABLE_STATES
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseDTO, CaseRepository
+from core.repositories.case_working_file_repository import CaseThreadRepository
 from core.repositories.irene_briefing_repository import (
     IreneBriefingDTO,
     IreneBriefingRepository,
@@ -188,10 +193,12 @@ from web.brief_stash import (
     _set_active_brief,
 )
 from web.case_keep import (
+    CASE_WRITE_KIND_LABELS,
     KEEP_CASE_GONE_MESSAGE,
     KEEP_THREAD_GONE_MESSAGE,
     UNDO_ALREADY_REMOVED_MESSAGE,
     KeepTarget,
+    case_write_href,
     consultation_caption,
     keep_artifact,
     keep_trigger,
@@ -200,6 +207,7 @@ from web.case_keep import (
     posted_target,
     resolve_keep_target,
     target_label,
+    undo_case_write,
     undo_keep,
 )
 from web.errors import user_safe_error
@@ -766,6 +774,13 @@ KEEP_URL: str = "/api/chat/keep"
 KEEP_ACTIONS_URL: str = "/api/chat/keep/actions"
 KEEP_PICKER_URL: str = "/api/chat/keep/picker"
 KEEP_UNDO_URL: str = "/api/chat/keep/undo"
+
+#: Shirley's writes (ADR-0138 §8 channel 3, §10; D-CS-B-115): the dock line a
+#: ``case_write`` event becomes, and its Undo. The SSE event carries the Undo
+#: URL and the name of the form field the CSRF token travels in.
+CASE_WRITE_LINE_URL: str = "/api/chat/case-write/line"
+CASE_WRITE_UNDO_URL: str = "/api/chat/case-write/undo"
+_CSRF_FIELD: str = "csrf_token"
 
 #: The kept class a Shirley answer becomes (ADR-0138 §9) — the payload is the
 #: pin contract minus the comment: ``{"excerpt": <the message text>}``.
@@ -2247,7 +2262,7 @@ async def chat_stream(
     :class:`Conversation`, drives :meth:`AIServiceCore.stream_response`,
     and translates each :class:`StreamEvent` into the matching SSE
     event (``message`` / ``tool_called`` / ``tool_completed`` /
-    ``chart`` / ``done`` / ``error``).
+    ``chart`` / ``case_write`` / ``done`` / ``error``).
 
     A request for someone else's turn (or a stale id) returns 404 —
     the store is keyed by ``(session_id, turn_id)``, so the lookup
@@ -2357,6 +2372,21 @@ async def chat_stream(
                             }
                         )
                     yield _format_sse("chart", chart_data)
+                elif et == "case_write":
+                    # A write Shirley made through ``case_add`` (D-CS-B-114):
+                    # the browser renders it as a dock line with Undo
+                    # (D-CS-B-115). The model's acknowledgement never rides
+                    # here — the core kept only it for the model.
+                    yield _format_sse(
+                        "case_write",
+                        json.dumps(
+                            {
+                                **payload,
+                                "undo_url": CASE_WRITE_UNDO_URL,
+                                "csrf_field": _CSRF_FIELD,
+                            }
+                        ),
+                    )
                 elif et == "stream_finished":
                     tail = stripper.flush()
                     if tail:
@@ -3858,4 +3888,138 @@ async def post_keep_undo(
         _KEEP_ACTIONS_TEMPLATE,
         _keep_context(session, ref),
         headers={"HX-Trigger": keep_trigger(undone.case_id, brief_changed=False)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shirley's writes — the dock line and its Undo (ADR-0138 §8 channel 3, §10)
+#
+# Every ``case_add`` write reaches the browser as a ``case_write`` SSE event;
+# chat.js appends a placeholder to the bubble's tools container that fetches
+# the line below on ``load`` (the Keep idiom), so the markup has one source.
+# The line, its Undo and the calm states take turns in one ``.chat-write``
+# (``hx-target="closest .chat-write"``, ``outerHTML``). Live only: a reload
+# shows no write line — the file is the record, and each row carries Remove.
+# ---------------------------------------------------------------------------
+
+_CASE_WRITE_LINE_TEMPLATE: str = "_partials/chat_write_line.html"
+
+#: The dock line after an Undo (D-5b-4).
+_CASE_WRITE_UNDONE_MESSAGE: str = "Undone — removed from {badge}."
+
+
+def _case_write_render(
+    request: Request,
+    session: SessionDTO,
+    *,
+    state: str,
+    headers: dict[str, str] | None = None,
+    **extra: Any,
+) -> HTMLResponse:
+    """Render the dock line in one of its states: ``line``, ``undone`` or ``unavailable``."""
+    context = {
+        "state": state,
+        "csrf_token": session.csrf_token,
+        "csrf_field": _CSRF_FIELD,
+        "undo_url": CASE_WRITE_UNDO_URL,
+        **extra,
+    }
+    return _keep_render(request, _CASE_WRITE_LINE_TEMPLATE, context, headers=headers)
+
+
+@router.get(CASE_WRITE_LINE_URL, response_class=HTMLResponse)
+async def get_case_write_line(  # noqa: PLR0913 — the event's flat fields
+    request: Request,
+    badge: str = "",
+    case_id: str = "",
+    kind: str = "",
+    summary: str = "",
+    row_id: str = "",
+    appended: str = "",
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The dock line of one write: *Added to CASE-nnnn · {kind}: {summary} · Undo* (D-CS-B-115).
+
+    Rendered from the event's fields; a prose write reads its thread's title
+    for the label. A request without a usable case, row or kind answers an
+    empty body. ``HX-Trigger`` carries ``pf:case-kept`` with the case id, so
+    a case page on screen re-fetches its blocks and shows the new row — the
+    keep's posture (D-CS-B-88).
+    """
+    case_uuid = _parse_case_marker(case_id.strip())
+    row_uuid = _parse_case_marker(row_id.strip())
+    if case_uuid is None or row_uuid is None or kind not in CASE_WRITE_KIND_LABELS:
+        return HTMLResponse("")
+    title = ""
+    if kind == "prose":
+        engine = _engine(request)
+        async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+            thread = await CaseThreadRepository(db).get(row_uuid)
+        title = thread.title if thread is not None else ""
+    return _case_write_render(
+        request,
+        session,
+        state="line",
+        kind=kind,
+        kind_label=CASE_WRITE_KIND_LABELS[kind].format(title=title),
+        badge=badge,
+        href=case_write_href(case_uuid, kind, row_uuid),
+        summary=summary,
+        case_id=str(case_uuid),
+        row_id=str(row_uuid),
+        appended=appended,
+        headers={"HX-Trigger": keep_trigger(case_uuid, brief_changed=False)},
+    )
+
+
+@router.post(CASE_WRITE_UNDO_URL, response_class=HTMLResponse)
+async def post_case_write_undo(
+    request: Request,
+    kind: str = Form(""),
+    row_id: str = Form(""),
+    case_id: str = Form(""),
+    appended: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Undo one of Shirley's writes from its dock line (D-CS-B-115).
+
+    Through :func:`web.case_keep.undo_case_write`: a figure, a point or a
+    conversation deleted, a thread removed, an appended paragraph stripped
+    while the prose still ends with it. Success re-renders the line as
+    *Undone — removed from CASE-nnnn.* with ``HX-Trigger`` ``pf:case-kept``
+    (a case on screen re-fetches its blocks); a refusal is the line's calm
+    state — *Already removed.*, *CASE-nnnn is closed.*, *The thread's text
+    has changed since — edit it in the file.* — and nothing is written.
+    """
+    case_uuid = _parse_case_marker(case_id.strip())
+    row_uuid = _parse_case_marker(row_id.strip())
+    if case_uuid is None or row_uuid is None:
+        return _case_write_render(
+            request, session, state="unavailable", message=UNDO_ALREADY_REMOVED_MESSAGE
+        )
+    engine = _engine(request)
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        refusal = await undo_case_write(
+            db, kind=kind, row_id=row_uuid, case_id=case_uuid, appended=appended
+        )
+        case = await CaseRepository(db).get(case_uuid) if refusal is None else None
+    if refusal is not None or case is None:
+        return _case_write_render(
+            request, session, state="unavailable", message=refusal or UNDO_ALREADY_REMOVED_MESSAGE
+        )
+    logger.info(
+        "chat case-write undo: tenant=%s user=%s case=%s kind=%s row=%s",
+        session.tenant_id,
+        session.user_id,
+        case.id,
+        kind,
+        row_uuid,
+    )
+    return _case_write_render(
+        request,
+        session,
+        state="undone",
+        message=_CASE_WRITE_UNDONE_MESSAGE.format(badge=f"CASE-{case.case_number:04d}"),
+        headers={"HX-Trigger": keep_trigger(case.id, brief_changed=False)},
     )

@@ -249,6 +249,7 @@ EventType = Literal[
     "tool_called",
     "tool_completed",
     "chart_artifact",
+    "case_write",
     "stream_finished",
     "error",
 ]
@@ -279,6 +280,12 @@ class StreamEvent:
               matplotlib path — ``image_base64`` carries the image) or
               ``"plotly"`` (``spec`` carries the figure spec). Both
               keys are always present; the unused one is empty / None.
+            * ``case_write`` — ``{"case_id": str, "badge": str,
+              "kind": str, "summary": str, "href": str, "undo": dict}``:
+              one row ``case_add`` wrote to a case's working file (ADR-0138
+              §10, D-CS-B-114). ``undo`` names what takes it out again
+              (``kind``, ``row_id``, ``case_id``; ``appended`` for a prose
+              paragraph). The model saw only the acknowledgement.
             * ``stream_finished`` — ``{"message": Message,
               "iterations": int}``. ``message`` carries the final
               assembled assistant reply.
@@ -909,6 +916,23 @@ class AIServiceCore:
                                         },
                                     )
                                     llm_text = parsed.get("llm_response", "Chart generated.")
+                                elif (
+                                    isinstance(parsed, dict)
+                                    and parsed.get("__artifact__") == "case_write"
+                                ):
+                                    # A case_add write (ADR-0138 §10, D-CS-B-114):
+                                    # the web chat renders it as a dock line with
+                                    # Undo; the model sees only the fixed
+                                    # acknowledgement it repeats to the PM.
+                                    yield StreamEvent(
+                                        "case_write",
+                                        {
+                                            key: value
+                                            for key, value in parsed.items()
+                                            if key not in ("__artifact__", "llm_response")
+                                        },
+                                    )
+                                    llm_text = parsed.get("llm_response", "Added to the case.")
                             except (json.JSONDecodeError, KeyError, TypeError):
                                 pass
 
@@ -1578,8 +1602,9 @@ class AIServiceCore:
         the tool-execution context — when no context is set they degrade
         gracefully (see ``services/tools/investment_tools.py`` and
         ``services/tools/analysis_tools.py``). The sixth, ``case_tools``,
-        holds the three case read tools — ``list_cases``, ``get_case`` and
-        ``search_cases`` (ADR-0138 §10) — and degrades the same way.
+        registers the three case reads — ``list_cases``, ``get_case`` and
+        ``search_cases`` — and the one write, ``case_add`` (ADR-0138 §10),
+        and degrades the same way.
 
         Imports happen at first instance construction; Python's import
         cache prevents re-registration on subsequent instantiations.

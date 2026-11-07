@@ -21,6 +21,9 @@ Coverage
   passage; a generated document's title and first line.
 * FT-07: a ``book`` figure carries the live value through ``book_values_for``.
 * FT-08: names, never ids.
+* FT-09: a stand that raises — in the composition, or on the database —
+  reads *Where we stand: not available — …*, and the rest of the file follows
+  (5a F-4, D-CS-B-120).
 """
 
 from __future__ import annotations
@@ -31,8 +34,10 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+import services.cases.file_text as file_text_module
 import services.cases.stand as stand_module
 from core.repositories import (
     CaseFigureRepository,
@@ -532,3 +537,55 @@ async def test_ft08_names_never_ids(app_engine: AsyncEngine, seed_tenant) -> Non
     for body in (text, closed, unnamed):
         assert _UUID.search(body) is None, _UUID.search(body)
         assert str(pm) not in body and str(colleague) not in body
+
+
+# ---------------------------------------------------------------------------
+# FT-09
+# ---------------------------------------------------------------------------
+
+
+async def test_ft09_a_failing_stand_never_fails_the_text(
+    app_engine: AsyncEngine, seed_tenant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, pm, _ = await _people(app_engine, seed_tenant, "FT 09")
+    equity_id = await seed_book(app_engine, tenant_id, pm, latest_nav=CALM_NAV)
+    async with tenant_context(app_engine, tenant_id, user_id=pm) as session:
+        case = await _open(session, pm, "The stand is down")
+        await CaseThreadRepository(session).add(case.id, title="Liquidity terms", now=_now())
+        await CaseFigureRepository(session).add(
+            case.id,
+            label="Alpha NAV",
+            source="book",
+            source_ref={"investment_id": str(equity_id), "metric": "nav"},
+            now=_now(),
+        )
+        await CasePointRepository(session).add(case.id, text="Call the GP", now=_now())
+
+    async def raising_compose(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("the Watch Desk did not answer\nsecond line")
+
+    monkeypatch.setattr(file_text_module, "compose", raising_compose)
+    text = await _render(app_engine, tenant_id, pm, case.id)
+
+    assert "Where we stand: not available — the Watch Desk did not answer" in text
+    assert "second line" not in text
+    assert "\nWhere we stand\n" not in text
+    for heading in ("The question", "Threads", "Figures", "Open points", "Record"):
+        assert heading in _headings(text), heading
+    # The book figure reads no live value without the stand, and says so.
+    assert "  Alpha NAV · not available · book (Alpha · NAV)" in text
+
+    # A database error inside the stand rolls back to its savepoint: the
+    # investment read that follows still runs on the same transaction.
+    monkeypatch.undo()
+
+    async def failing_load(session: Any, *, now: datetime) -> StandContext:
+        await session.execute(sql_text("SELECT * FROM no_such_table_ft09"))
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(file_text_module.StandContext, "load", failing_load)
+    on_the_database = await _render(app_engine, tenant_id, pm, case.id)
+
+    assert "Where we stand: not available — " in on_the_database
+    assert "  Alpha NAV · not available · book (Alpha · NAV)" in on_the_database
+    assert "Record" in _headings(on_the_database)

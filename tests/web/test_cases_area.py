@@ -74,6 +74,9 @@ survives the P-CS-3d restyle.
 * CS4b-08 — a removed thread's kept rows surface at file level (D-CS-B-100).
 * CS4b-09 — ``?oob=1`` carries the outline (D-CS-B-104).
 * CS4b-10 — the legacy pins' titles (D-CS-B-102).
+* CS5b-03 — the Figures, Conversations and Points blocks listen for their own
+  case's ``pf:case-kept`` too, so a write Shirley made from the dock — and its
+  Undo — shows without a reload (D-CS-B-115).
 
 The file tests below (origin embed, timeline, legacy pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -5062,6 +5065,37 @@ async def test_the_threads_block_listens_for_its_own_case_kept(
         assert wd_attr(block, "hx-swap") == "outerHTML"
         section = (await web_client.get(f"/api/cases/{case.id}/sections/threads")).text
         assert wd_attr(_threads(section), "hx-trigger") == wd_attr(block, "hx-trigger")
+
+
+async def test_figures_conversations_and_points_listen_for_their_own_case_kept(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5b-03 (D-CS-B-115): both forms of the three blocks re-render on their case's event."""
+    pm1, email, password = seeded_user
+    bare = await _seed_case(app_engine, opened_by=pm1, title="Nothing yet", opened_at=_T0)
+    filled = await _seed_case(app_engine, opened_by=pm1, title="One of each", opened_at=_T0)
+    await _seed_figure(app_engine, pm1, filled.id, label="Fee", source="typed", value_text="1 %")
+    await _seed_conversation(app_engine, pm1, filled.id, with_whom="GP", what_was_said="Gated.")
+    await _seed_point(app_engine, pm1, filled.id, text="Ask the GP")
+    await _login(web_client, email, password)
+
+    for case, hidden in ((bare, True), (filled, False)):
+        body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+        for name in ("figures", "conversations", "points"):
+            block = cs_block(body, "block", data_pf_cs_name=name)
+            assert (wd_attr(block, "hidden") is not None) is hidden, (case.title, name)
+            assert wd_attr(block, "hx-get") == f"/api/cases/{case.id}/sections/{name}?oob=1"
+            assert wd_attr(block, "hx-trigger") == (
+                f"pf:case-kept[detail.case_id=='{case.id}'] from:body"
+            )
+            assert wd_attr(block, "hx-swap") == "outerHTML"
+            refetched = (await web_client.get(f"/api/cases/{case.id}/sections/{name}?oob=1")).text
+            again = cs_block(refetched, "block", data_pf_cs_name=name)
+            assert wd_attr(again, "hx-trigger") == wd_attr(block, "hx-trigger")
+            assert wd_attr(again, "hx-swap-oob") is None  # the block never rides out of band
+            assert 'id="cs-outline"' in refetched  # the bundle follows
 
 
 # ---------------------------------------------------------------------------

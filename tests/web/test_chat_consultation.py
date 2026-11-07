@@ -20,6 +20,10 @@ ASGI-level tests over a live Postgres. Three surfaces are exercised:
   and ``Keep to…`` (the picker). No comment, no dialog: a ``case_kept`` row,
   ``via="keep"`` (CS4a-01…06); the kept line's *Undo* removes the row again
   (CS4b-11). The consultation and chart pin dialogs are retired;
+* **Shirley's writes** — a ``case_add`` write is a dock line with *Undo*
+  (ADR-0138 §8 channel 3, §10; P-CS-5b): the line renders from the event's
+  fields (CS5b-01) and its Undo takes the row out again, or answers a calm
+  line and writes nothing (CS5b-02);
 * the **briefing hand-off** — the same stash, generalised to a second kind: a
   written Watch Desk briefing set by a CSRF-protected POST, bannered in the
   dock, and appended to the prompt as its own fenced block (obligation 17).
@@ -55,9 +59,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
 from core.repositories.case_working_file_repository import (
+    CaseConversationRepository,
     CaseFigureRepository,
     CaseKeptDTO,
     CaseKeptRepository,
+    CasePointRepository,
     CaseThreadRepository,
 )
 from core.repositories.irene_briefing_repository import IreneBriefingRepository
@@ -67,8 +73,9 @@ from services.ai_models import ConnectionStatus, Message, MessageRole
 from services.ai_service_core import StreamEvent
 from services.irene.briefing_material import MATERIAL_VERSION
 from services.password_hashing import hash_password
+from services.tools import case_tools
 from tests._case_record_seed import seed_record_entry
-from web.case_keep import resolve_keep_target
+from web.case_keep import CASE_WRITE_KIND_LABELS, resolve_keep_target
 from web.main import create_app
 from web.routes.chat import (
     _CHART_SPEC_BYTE_CAP,
@@ -1138,6 +1145,199 @@ async def test_the_kept_line_undoes_the_keep(
     )
     assert "That case is closed." in closed.text
     assert [kept.id for kept in await _kept_rows(app_engine, actor_id, case_id)] == [second.id]
+
+
+# ---------------------------------------------------------------------------
+# Shirley's writes — the dock line and its Undo (ADR-0138 §10, P-CS-5b)
+# ---------------------------------------------------------------------------
+
+
+def _write_line_query(case_id: UUID, kind: str, row_id: UUID, **extra: str) -> dict[str, str]:
+    """The fields chat.js reads off a ``case_write`` event for the line's GET."""
+    return {
+        "badge": "CASE-0001",
+        "case_id": str(case_id),
+        "kind": kind,
+        "summary": "Ask the GP for the gate terms",
+        "row_id": str(row_id),
+        "appended": "",
+        **extra,
+    }
+
+
+def _hidden(form: str, name: str) -> str | None:
+    match = re.search(rf'<input type="hidden" name="{name}" value="([^"]*)">', form)
+    return html.unescape(match.group(1)) if match is not None else None
+
+
+async def test_the_write_line_renders_with_undo(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5b-01 (D-CS-B-115): the line from the event's fields, its Undo form, the case-kept event."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Write target")
+    thread_id = await _add_thread(app_engine, actor_id, case_id, "Liquidity terms")
+    client, _core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+    point_id = uuid4()
+
+    line = await client.get(
+        "/api/chat/case-write/line", params=_write_line_query(case_id, "point", point_id)
+    )
+    assert line.status_code == 200, line.text
+    assert 'class="chat-write" role="status" data-pf-write="point"' in line.text
+    assert f'Added to <a href="/cases/{case_id}#cs-points">CASE-0001</a>' in line.text
+    assert "· open point: Ask the GP for the gate terms ·" in line.text
+    form = re.search(r"<form[^>]*>.*?</form>", line.text, flags=re.DOTALL)
+    assert form is not None, line.text
+    assert 'hx-post="/api/chat/case-write/undo"' in form.group(0)
+    assert 'hx-target="closest .chat-write"' in form.group(0)
+    assert 'hx-swap="outerHTML"' in form.group(0)
+    assert _hidden(form.group(0), "csrf_token") == csrf
+    assert _hidden(form.group(0), "kind") == "point"
+    assert _hidden(form.group(0), "row_id") == str(point_id)
+    assert _hidden(form.group(0), "case_id") == str(case_id)
+    assert _hidden(form.group(0), "appended") == ""
+    assert 'data-pf-write="undo">Undo</button>' in form.group(0)
+    # A case page on screen re-fetches its blocks and shows the new row.
+    assert _trigger(line) == {"pf:case-kept": {"case_id": str(case_id)}}
+
+    prose = await client.get(
+        "/api/chat/case-write/line",
+        params=_write_line_query(
+            case_id, "prose", thread_id, summary="Fees step up.", appended="Fees step up."
+        ),
+    )
+    text = html.unescape(prose.text)
+    assert 'data-pf-write="prose"' in text
+    assert f'href="/cases/{case_id}#cs-thread-{thread_id}"' in text
+    assert '· text in thread "Liquidity terms": Fees step up. ·' in text
+    assert 'name="appended" value="Fees step up."' in text
+
+    for unusable in (
+        _write_line_query(case_id, "decision", point_id),
+        {**_write_line_query(case_id, "point", point_id), "case_id": "not-a-case"},
+        {**_write_line_query(case_id, "point", point_id), "row_id": ""},
+    ):
+        empty = await client.get("/api/chat/case-write/line", params=unusable)
+        assert empty.status_code == 200 and empty.text == ""
+        assert "HX-Trigger" not in empty.headers
+
+    # The dock line and the acknowledgement name a kind alike.
+    assert CASE_WRITE_KIND_LABELS == case_tools._KIND_LABELS
+
+
+async def _undo_write(client: AsyncClient, csrf: str, **fields: str) -> Any:
+    """POST the write line's Undo form."""
+    return await client.post(
+        "/api/chat/case-write/undo",
+        data={"csrf_token": csrf, "appended": "", **fields},
+    )
+
+
+async def test_undo_takes_shirleys_write_out_again_or_says_why_not(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS5b-02 (D-CS-B-115): every kind undone once; the calm lines write nothing."""
+    actor_id, email, password = seeded_user
+    case_id, number = await _seed_case(app_engine, opened_by=actor_id, title="Undo target")
+    badge = f"CASE-{number:04d}"
+    now = datetime.now(UTC)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        point = await CasePointRepository(session).add(case_id, text="Ask the GP", now=now)
+        figure = await CaseFigureRepository(session).add(
+            case_id, label="Fee", source="conversation", value_text="1.5 %", now=now
+        )
+        conversation = await CaseConversationRepository(session).add(
+            case_id, held_on=now.date(), with_whom="GP", what_was_said="Gated.", now=now
+        )
+        threads = CaseThreadRepository(session)
+        thread = await threads.add(case_id, title="Exit route", now=now)
+        kept_prose = await threads.add(case_id, title="Liquidity", prose="Base.", now=now)
+        await threads.update(kept_prose.id, prose="Base.\n\nThe GP confirmed.", now=now)
+        moved_on = await threads.add(case_id, title="Fees", prose="Fees step up.", now=now)
+    client, _core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+
+    undone = await _undo_write(
+        client, csrf, kind="point", row_id=str(point.id), case_id=str(case_id)
+    )
+    assert undone.status_code == 200, undone.text
+    assert 'data-pf-write="undone"' in undone.text
+    assert f"Undone — removed from {badge}." in undone.text
+    assert _trigger(undone) == {"pf:case-kept": {"case_id": str(case_id)}}
+    again = await _undo_write(
+        client, csrf, kind="point", row_id=str(point.id), case_id=str(case_id)
+    )
+    assert 'data-pf-write="unavailable"' in again.text and "Already removed." in again.text
+    assert "HX-Trigger" not in again.headers
+
+    for kind, row_id in (
+        ("figure", figure.id),
+        ("conversation", conversation.id),
+        ("thread", thread.id),
+    ):
+        response = await _undo_write(
+            client, csrf, kind=kind, row_id=str(row_id), case_id=str(case_id)
+        )
+        assert f"Undone — removed from {badge}." in response.text, kind
+
+    # Prose: the paragraph comes off while the prose still ends with it …
+    stripped = await _undo_write(
+        client,
+        csrf,
+        kind="prose",
+        row_id=str(kept_prose.id),
+        case_id=str(case_id),
+        appended="The GP confirmed.",
+    )
+    assert f"Undone — removed from {badge}." in stripped.text
+    # … and stays when the PM has written on since.
+    changed = await _undo_write(
+        client,
+        csrf,
+        kind="prose",
+        row_id=str(moved_on.id),
+        case_id=str(case_id),
+        appended="The GP confirmed.",
+    )
+    assert "The thread&#39;s text has changed since — edit it in the file." in changed.text
+    assert "HX-Trigger" not in changed.headers
+
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        assert await CasePointRepository(session).get(point.id) is None
+        assert await CaseFigureRepository(session).get(figure.id) is None
+        assert await CaseConversationRepository(session).get(conversation.id) is None
+        threads = CaseThreadRepository(session)
+        removed = await threads.get(thread.id)
+        assert removed is not None and removed.removed_at is not None
+        assert (await threads.get(kept_prose.id)).prose == "Base."  # type: ignore[union-attr]
+        assert (await threads.get(moved_on.id)).prose == "Fees step up."  # type: ignore[union-attr]
+        # A row named under another case's id reads as gone.
+        other_point = await CasePointRepository(session).add(case_id, text="Stays", now=now)
+    other_case, _ = await _seed_case(app_engine, opened_by=actor_id, title="Another case")
+    foreign = await _undo_write(
+        client, csrf, kind="point", row_id=str(other_point.id), case_id=str(other_case)
+    )
+    assert "Already removed." in foreign.text
+    unknown_kind = await _undo_write(
+        client, csrf, kind="decision", row_id=str(other_point.id), case_id=str(case_id)
+    )
+    assert "Already removed." in unknown_kind.text
+
+    # A case closed since the write: the calm line, the row stays.
+    await _close_case(app_engine, actor_id, case_id)
+    closed = await _undo_write(
+        client, csrf, kind="point", row_id=str(other_point.id), case_id=str(case_id)
+    )
+    assert f"{badge} is closed." in closed.text
+    assert "HX-Trigger" not in closed.headers
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
+        assert await CasePointRepository(session).get(other_point.id) is not None
 
 
 # ---------------------------------------------------------------------------

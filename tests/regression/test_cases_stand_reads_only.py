@@ -20,7 +20,8 @@ agrees today is the defect, so the guard looks at the code, not the values.
 **Readers never write; writers never compute** (P-CS-2b). The system-line
 module (``services.cases.system_lines``) writes by design — through
 ``CaseRepository.add_system_line`` only — so the no-writes rule is scoped to
-the reader, ``stand.py``. The no-metric rules (no pure calculation layer, no
+the readers: ``stand.py`` and, since P-CS-5a, ``file_text.py`` — the file as
+text for Shirley's brief and ``get_case``. The no-metric rules (no pure calculation layer, no
 second observation path) keep walking the whole package, writers included:
 a system line states the figures its event carries and computes none.
 """
@@ -34,6 +35,7 @@ import re
 from types import ModuleType
 
 import services.cases as cases_package
+import services.cases.file_text as file_text_module
 import services.cases.stand as stand_module
 
 #: Calls that would write — to the record, the working file, a ticket or a
@@ -79,9 +81,10 @@ def _cases_modules() -> list[ModuleType]:
 def test_the_stand_writes_nothing() -> None:
     """Rendering a case must never change one (D-CS-M-14).
 
-    Scoped to the reader: the system-line writers write by design.
+    Scoped to the readers — the stand and the file as text; the system-line
+    writers write by design.
     """
-    for module in (stand_module,):
+    for module in (stand_module, file_text_module):
         source = inspect.getsource(module)
         for write in _WRITES:
             assert write not in source, (

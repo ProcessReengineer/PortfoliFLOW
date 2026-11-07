@@ -5,8 +5,8 @@
 
 The call job passes :data:`CALL_TOOL_ALLOWLIST` as ``tool_names`` to
 ``AIServiceCore.stream_response``: the turn is offered only these tools and
-the tool registry refuses every other name for that turn. Read-only is thus
-enforced in code, not by the prompt alone.
+the tool registry refuses every other name for that turn. What a call may
+reach is thus enforced in code, not by the prompt alone.
 
 This module imports nothing; the names are plain strings so the call package
 does not pull in the AI core or the tool registry.
@@ -15,12 +15,13 @@ does not pull in the AI core or the tool registry.
 from __future__ import annotations
 
 #: Every tool a voice call's ``ask_shirley`` turn may use (ADR-0137 §3.1).
-#: Today this is the whole registry, because every registered tool is a
-#: read — ADR-0138 §10's read tools included; the tripwire test pins the
-#: equality, so the first tool that writes — or any new tool — fails that
-#: test and forces a decision here.
+#: Every tool is allowlisted (D-CS-M-17); the one write tool is additive and
+#: announced — ``case_add`` adds to a case, and the call says what it wrote
+#: (the addendum's rule 4). The tripwire test pins the equality with the
+#: registry, so any new tool fails that test and forces a decision here.
 CALL_TOOL_ALLOWLIST: frozenset[str] = frozenset(
     {
+        "case_add",
         "generate_chart",
         "get_case",
         "get_dataset_slice",

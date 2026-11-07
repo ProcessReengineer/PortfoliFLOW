@@ -129,7 +129,17 @@ def test_call_prompt_is_soul_block_addendum_block_and_capabilities() -> None:
 def test_call_prompt_hash_is_pinned() -> None:
     """An edit to either prompt file or a capability line is a conscious change."""
     digest = hashlib.sha256(load_call_prompt().encode("utf-8")).hexdigest()
-    assert digest == "8e429346684b689e2af4195a16d6f88d3f37239a542113e75145940685bdf912"
+    assert digest == "79c10f09e7fd97bcc1f1c3dca673524243557de3c560b221bc11e4279273b219"
+
+
+def test_call_addendum_rule_4_allows_the_one_announced_write() -> None:
+    """Rule 4 (D-CS-M-17): add to a case when asked, and say what was added and where."""
+    addendum = " ".join(_fences(_soul("Shirley_call"))[0].split())
+    rule_4 = addendum.split(" 4. ", 1)[1].split(" 5. ", 1)[0]
+    assert rule_4.startswith("You can change one thing, and only when the user asks for it")
+    assert "add to a case" in rule_4
+    assert "what was added and to which case" in rule_4
+    assert "you cannot book, record a decision, close, hand over, edit or delete" in rule_4
 
 
 def test_irene_finding_prompt_is_grounding_plus_system_block() -> None:

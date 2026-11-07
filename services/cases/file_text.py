@@ -32,6 +32,13 @@ through it, and the ``book`` figures' values through
 block frozen at close, read by key name (JSONB keeps no order); nothing on a
 closed case reads the book (ADR-0138 §6).
 
+The stand never fails the text (5a F-4, D-CS-B-120): a chat turn with a case
+brief must not break on it. Its load and composition run in a SAVEPOINT, so a
+database error rolls back to it and the session stays usable for the reads
+that follow; on any exception the section reads *Where we stand: not
+available — {the exception's first line}*, a warning is logged, and the rest
+of the file is composed as usual.
+
 What it never does
 ------------------
 It writes nothing, imports nothing of the pure calculation layer and reaches
@@ -55,6 +62,7 @@ times are UTC, in the file's idiom (``%d %b %Y``, ``%H:%M``).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -82,6 +90,8 @@ from core.repositories.irene_finding_repository import IreneFindingDTO, IreneFin
 from services.cases.stand import StandContext, WhereWeStand, book_values_for, compose
 from services.money_format import format_money_compact
 from services.watch_desk.family_status import FIGURE_UNIT_DAYS, FIGURE_UNIT_RATIO
+
+logger = logging.getLogger(__name__)
 
 #: Every line of the text is clipped to this many characters (D-CS-B-107).
 LINE_CHARS: int = 160
@@ -116,6 +126,9 @@ _RECORD_HEADING = "Record"
 # The page's own wording for a closed case without a frozen block.
 _NO_FROZEN_TEXT = "No frozen state — this case was closed before the working file existed."
 _NOT_FROZEN_TEXT = "Where we stand was not frozen when this case closed."
+
+# The one line Where we stand becomes when it cannot be composed (D-CS-B-120).
+_STAND_UNAVAILABLE_TEXT = "Where we stand: not available — {reason}"
 
 # The page's labels: a thread's status, a conversation's channel, a book metric.
 _THREAD_STATUS_LABELS: dict[str, str] = {
@@ -170,6 +183,12 @@ _T = TypeVar("_T")
 def _one_line(value: Any) -> str:
     """Return ``value`` as text on one line, its whitespace collapsed."""
     return " ".join(str(value or "").split())
+
+
+def _first_line(exc: BaseException) -> str:
+    """The exception's first line, collapsed — its type's name when it says nothing."""
+    lines = str(exc).strip().splitlines()
+    return _one_line(lines[0]) if lines else type(exc).__name__
 
 
 def _clip(text: str) -> str:
@@ -903,10 +922,24 @@ async def render_case_file_text(
             figure_rows = [row for row in frozen_figures if isinstance(row, Mapping)]
         book_values = None
     else:
-        ctx = await StandContext.load(session, now=now)
-        stand = await compose(ctx, case, figures=figures)
-        stand_section = _section(_STAND_HEADING, _stand_lines(stand, subject_key=subject_key))
-        book_values = book_values_for(stand, figures)
+        try:
+            # A SAVEPOINT: a database error inside rolls back to it, and the
+            # reads below still run on the same transaction (D-CS-B-120).
+            async with session.begin_nested():
+                ctx = await StandContext.load(session, now=now)
+                stand = await compose(ctx, case, figures=figures)
+        except Exception as exc:  # noqa: BLE001 — the brief must never fail on the stand
+            logger.warning(
+                "file text: Where we stand is unavailable for case %s (%s: %s).",
+                case.id,
+                type(exc).__name__,
+                _first_line(exc),
+            )
+            stand_section = [_clip(_STAND_UNAVAILABLE_TEXT.format(reason=_first_line(exc)))]
+            book_values = {}
+        else:
+            stand_section = _section(_STAND_HEADING, _stand_lines(stand, subject_key=subject_key))
+            book_values = book_values_for(stand, figures)
 
     live_thread_ids = {thread.id for thread in threads}
     documents = [

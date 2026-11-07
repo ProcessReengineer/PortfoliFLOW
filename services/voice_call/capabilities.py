@@ -84,6 +84,12 @@ CALL_CAPABILITIES: tuple[CallCapability, ...] = (
         ("list_cases", "get_case", "search_cases"),
     ),
     CallCapability(
+        "Adding to a case when asked: a figure, a thread, an open point, a conversation note "
+        "or a line of text in a thread — and the user is always told what was added and to "
+        "which case, so it can be corrected in the application.",
+        ("case_add",),
+    ),
+    CallCapability(
         "Charts of any of the above; a chart appears in the chat window, not on the call.",
         ("generate_chart", "render_chart"),
     ),

@@ -595,3 +595,32 @@
 .chat-keep--done a:hover {
     text-decoration: underline;
 }
+
+/* Shirley's writes (ADR-0138 §10, D-CS-B-115): one line per case_add write in
+ * the bubble's tools container — the kept line's tone, the badge in the
+ * accent. It takes its own row among the tool badges; Undo sits inline. */
+.chat-write {
+    flex-basis: 100%;
+    margin-top: 4px;
+    color: var(--ui-text-tertiary);
+    font-size: var(--ui-font-scale-xs);
+}
+
+.chat-write a {
+    color: var(--ui-accent-primary);
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.chat-write a:hover {
+    text-decoration: underline;
+}
+
+.chat-write__form {
+    display: inline;
+}
+
+/* After Undo, or a calm state instead: the line without its control. */
+.chat-write--undone {
+    color: var(--ui-text-secondary);
+}

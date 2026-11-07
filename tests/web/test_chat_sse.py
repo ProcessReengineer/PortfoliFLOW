@@ -14,6 +14,9 @@ without needing a real LLM endpoint:
   (``chart_format="plotly"``) becomes a ``chart`` event carrying the
   figure spec; a legacy ``generate_chart`` PNG artefact still becomes
   a ``chart`` event carrying the ``data:`` src (ADR-0048).
+* The case-write path (P-CS-5b) — a ``case_write`` stream event becomes a
+  ``case_write`` SSE event carrying the write's fields, the Undo URL and the
+  CSRF field name, never the model's acknowledgement (D-CS-B-114).
 * The auth gating (a request for someone else's turn returns 404).
 
 The stop-token regression test exercises the ``_StopTokenStripper``
@@ -391,6 +394,48 @@ async def test_sse_plotly_chart_artifact_yields_chart_event(
     # ADR-0114: the archived spec's handle rides along, so the live figure can
     # offer Keep. Same ``chart`` event — one additive payload key.
     assert len(payload["artifact_id"]) == 12
+
+
+async def test_sse_case_write_yields_a_case_write_event(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """CS5b-01 (D-CS-B-114): the write's fields plus undo_url; no llm_response on the wire."""
+    import json as _json
+
+    _id, email, password = seeded_user
+    fake_msg = Message(role=MessageRole.ASSISTANT, content="Added.")
+    write = {
+        "case_id": "8f1c3c1e-0000-4000-8000-000000000031",
+        "badge": "CASE-0031",
+        "kind": "point",
+        "summary": "Ask the GP for the gate terms",
+        "href": "/cases/8f1c3c1e-0000-4000-8000-000000000031#cs-points",
+        "undo": {
+            "kind": "point",
+            "row_id": "8f1c3c1e-0000-4000-8000-0000000000a1",
+            "case_id": "8f1c3c1e-0000-4000-8000-000000000031",
+        },
+    }
+    events: list[StreamEvent] = [
+        StreamEvent("tool_called", {"name": "case_add", "arguments": "{}", "tool_call_id": "c1"}),
+        StreamEvent("case_write", write),
+        StreamEvent("tool_completed", {"name": "case_add", "result": "ok", "tool_call_id": "c1"}),
+        StreamEvent("stream_finished", {"message": fake_msg, "iterations": 1}),
+    ]
+    client = await web_client_factory(events)
+    csrf = await _login_and_get_csrf(client, email, password)
+    turn_id = await _open_turn(client, csrf, "add a point")
+    response = await client.get(f"/chat/stream/{turn_id}")
+    assert response.status_code == 200
+    frames = _parse_sse_frames(response.text)
+    names = [name for name, _ in frames]
+    assert names.index("tool_called") < names.index("case_write") < names.index("tool_completed")
+    (data,) = [data for name, data in frames if name == "case_write"]
+    payload = _json.loads(data)
+    assert payload == {**write, "undo_url": "/api/chat/case-write/undo", "csrf_field": "csrf_token"}
+    assert "llm_response" not in payload
+    assert "__artifact__" not in payload
 
 
 async def test_sse_png_chart_artifact_still_yields_chart_event(

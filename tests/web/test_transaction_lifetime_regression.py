@@ -14,11 +14,15 @@ structural property that replaced it:
   whole request (its last statement the ``SELECT ... FROM users`` of
   the user load).
 * Two concurrent requests on the same session do not serialise on the
-  ``sessions`` row. With the per-request touch lock gone, two slow
-  requests overlap and finish in roughly one slow span rather than two.
+  ``sessions`` row. With the per-request touch lock gone, each request
+  reaches its handler while the other is still inside its own. A
+  rendezvous proves the overlap instead of wall-clock time, so a slow
+  CI runner cannot fail it and a lock held across the handler cannot
+  pass it.
 
-A throwaway slow route is mounted on a freshly-built app; it is gated
-by ``require_role`` so it exercises the full dependency chain
+Two throwaway routes (a slow one and a rendezvous) are mounted on a
+freshly-built app; both are gated by ``require_role`` so they exercise
+the full dependency chain
 (``require_role`` → ``get_authenticated_user`` →
 ``require_authenticated_session``). ``pg_stat_activity`` is read from a
 separate superuser connection while the slow handler is parked in its
@@ -33,7 +37,6 @@ from __future__ import annotations
 import asyncio
 import os
 import pathlib
-import time
 from collections.abc import AsyncGenerator
 from uuid import uuid4
 
@@ -61,6 +64,12 @@ DATABASE_URL_SUPERUSER = os.getenv("DATABASE_URL_SUPERUSER")
 # keep the suite snappy.
 _SLOW_SECONDS = 1.0
 _SLOW_ROUTE = "/__test__/slow-authenticated"
+
+# The rendezvous waits this long for the second request before it gives
+# up. Generous on purpose: the passing path never waits for it, and the
+# failing path (a lock held across the handler) needs it to end at all.
+_RENDEZVOUS_TIMEOUT_SECONDS = 10.0
+_RENDEZVOUS_ROUTE = "/__test__/rendezvous-authenticated"
 
 
 def _require_db() -> None:
@@ -130,6 +139,29 @@ async def seeded_owner(
     return email, plaintext
 
 
+class _Rendezvous:
+    """Lets each arriving request wait until ``expected`` requests are in.
+
+    ``arrive`` returns ``True`` once every expected request has reached
+    its handler and ``False`` if the timeout ends the wait first.
+    """
+
+    def __init__(self, expected: int) -> None:
+        self._expected = expected
+        self._arrived = 0
+        self._all_in = asyncio.Event()
+
+    async def arrive(self, timeout: float) -> bool:
+        self._arrived += 1
+        if self._arrived >= self._expected:
+            self._all_in.set()
+        try:
+            await asyncio.wait_for(self._all_in.wait(), timeout)
+        except TimeoutError:
+            return False
+        return True
+
+
 def _build_app_with_slow_route() -> FastAPI:
     settings = WebSettings(
         web_host="127.0.0.1",
@@ -152,6 +184,19 @@ def _build_app_with_slow_route() -> FastAPI:
         # holds no transaction and no sessions-row lock.
         await asyncio.sleep(_SLOW_SECONDS)
         return {"ok": True}
+
+    rendezvous = _Rendezvous(expected=2)
+
+    @app.get(_RENDEZVOUS_ROUTE)
+    async def _rendezvous_authenticated(
+        _user: UserDTO = Depends(require_role("owner")),
+    ) -> dict[str, bool]:
+        # Same dependency chain as the slow route. The handler returns
+        # only once the second same-session request has reached its own
+        # handler (or the timeout ends the wait), so the pair passes only
+        # if neither request holds the sessions row past its auth.
+        met = await rendezvous.arrive(_RENDEZVOUS_TIMEOUT_SECONDS)
+        return {"met": met}
 
     return app
 
@@ -238,18 +283,19 @@ async def test_concurrent_same_session_not_serialised(
     email, password = seeded_owner
     await _login(slow_client, email, password)
 
-    start = time.monotonic()
     first, second = await asyncio.gather(
-        slow_client.get(_SLOW_ROUTE),
-        slow_client.get(_SLOW_ROUTE),
+        slow_client.get(_RENDEZVOUS_ROUTE),
+        slow_client.get(_RENDEZVOUS_ROUTE),
     )
-    elapsed = time.monotonic() - start
 
     assert first.status_code == 200
     assert second.status_code == 200
-    # Overlapping (no lock held across the sleep) ≈ one slow span.
-    # Serialised on the sessions-row lock would be ≈ 2× _SLOW_SECONDS.
-    assert elapsed < _SLOW_SECONDS * 1.5, (
-        f"two same-session requests took {elapsed:.2f}s (~2× the "
-        f"{_SLOW_SECONDS}s span) — they serialised on the sessions row"
+    # Both handlers saw the other arrive: the two requests were inside
+    # their handlers at the same time. Serialised on the sessions row,
+    # the first handler waits out the rendezvous alone and reports
+    # ``met: False``.
+    assert (first.json(), second.json()) == ({"met": True}, {"met": True}), (
+        "two same-session requests did not overlap inside their handlers "
+        f"(first={first.json()}, second={second.json()}) — they serialised "
+        "on the sessions row"
     )

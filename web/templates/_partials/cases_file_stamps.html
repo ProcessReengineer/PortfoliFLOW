@@ -1,13 +1,17 @@
 {# The section stamps, out of band (D-CS-B-45): one hidden ``stamp`` input per
-   section of the file — question · stand · threads · figures ·
-   conversations · points · decision, one loop over section_names — each
+   rendered section of the file — question · stand · threads · figures ·
+   conversations · points · decision, one loop over visible_sections — each
    replacing the one its block carries, so the next save of any section sends
    the case's current updated_at. Rendered only inside the OOB bundle
-   (cases_file_oob.html); a block that is a hidden placeholder (Threads,
+   (cases_file_oob.html). A block that is a hidden placeholder (Threads,
    Figures, Conversations, Open points, Decision while empty, D-CS-B-57)
-   carries no stamp, so its input finds no target and is dropped.
+   carries no stamp, so the bundle sends none for it — the outline's empty
+   entries, which the frame already counts — and no input misses its target
+   (htmx:oobErrorNoTarget). An empty block the PM revealed keeps the stamp it
+   was rendered with; its first write is an add, which reads no stamp, and
+   re-renders it.
 
-   Context: section_names, stamp. #}
-{% for name in section_names %}
+   Context: visible_sections, stamp. #}
+{% for name in visible_sections %}
 <input type="hidden" name="stamp" id="cs-stamp-{{ name }}" value="{{ stamp }}" hx-swap-oob="true">
 {% endfor %}

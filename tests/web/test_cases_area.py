@@ -87,6 +87,13 @@ survives the P-CS-3d restyle.
 * CS5c-06 — a closed case refuses calmly, another case's package is a 404, an
   emptied item refuses before anything is written; ``?oob=1`` carries the
   outline.
+* CS-H1-01 — a close discards every pending proposal item, on an open and on
+  a waiting case; nothing is left to review (D-CS-M-9).
+* CS-H1-02 — a generated document's source links only into its own case or a
+  linked investment, at acceptance and at render.
+* CS-H1-03 — a PDF opens inline, any other upload downloads.
+* CS-H1-04 — a package older than today carries its day.
+* CS-H1-06 — the bundle's stamps go to the rendered blocks only.
 
 The file tests below (origin embed, timeline, legacy pins, composers, close,
 downloads) were the stand-alone detail page's; they now read the sub-surface
@@ -931,7 +938,7 @@ async def test_create_case_blank_title_rerenders_form_and_writes_nothing(
 
     # Nothing was written.
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
-        cases = await CaseRepository(session).list_open()
+        cases = await CaseRepository(session).list_cases(state="open")
     assert cases == []
 
 
@@ -1500,13 +1507,13 @@ async def test_attach_stores_and_downloads_the_exact_bytes(
     assert att.mime_type == "application/pdf"
     assert [entry.kind for entry in entries] == ["opened"]
 
-    # The download URL returns the exact bytes with the declared mime and an
-    # attachment Content-Disposition header.
+    # The download URL returns the exact bytes with the declared mime; a PDF
+    # opens in the browser (CS-H1-03 has the other types).
     dl = await web_client.get(f"/api/cases/{case.id}/attachments/{att.id}", follow_redirects=False)
     assert dl.status_code == 200
     assert dl.content == _SMALL_PDF
     assert dl.headers["content-type"].startswith("application/pdf")
-    assert 'attachment; filename="terms.pdf"' in dl.headers["content-disposition"]
+    assert 'inline; filename="terms.pdf"' in dl.headers["content-disposition"]
 
 
 async def test_attach_gates_reject_with_inline_error_and_zero_writes(
@@ -1741,7 +1748,7 @@ async def test_attach_strips_path_and_download_header_is_sanitised(
     dl = await web_client.get(f"/api/cases/{case.id}/attachments/{att_id}", follow_redirects=False)
     assert dl.status_code == 200
     cd = dl.headers["content-disposition"]
-    assert cd == 'attachment; filename="pass_evil.pdf"'
+    assert cd == 'inline; filename="pass_evil.pdf"'
 
 
 # ---------------------------------------------------------------------------
@@ -2271,7 +2278,7 @@ async def test_attach_document_stores_a_document_kept_row_and_lists_it_from_the_
     assert (
         cs_text(response.text, "fact", data_pf_cs_name="attachments") == f"Attachments 1 of {cap}"
     )
-    assert "0 investments · 1 documents" in cs_text(response.text, "facts")
+    assert "0 investments · 1 uploads" in cs_text(response.text, "facts")
 
     # The documents list is part of the file's first render too.
     body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
@@ -2599,7 +2606,7 @@ async def test_thread_prose_and_conclusion_autosave_out_of_band(
     after = await _case_now(app_engine, pm1, case.id)
     assert after.updated_at > before.updated_at
     assert f'id="cs-stamp-threads" value="{after.updated_at.isoformat()}"' in body
-    assert f'id="cs-stamp-figures" value="{after.updated_at.isoformat()}"' in body
+    assert 'id="cs-stamp-figures"' not in body  # a hidden placeholder: no stamp (CS-H1-06)
     note_slot = cs_block(body, "note-slot")
     assert 'id="cs-note-threads"' in note_slot
     assert cs_text(note_slot) == ""
@@ -5428,17 +5435,18 @@ async def test_a_generated_document_renders_the_pf_gen_anatomy(
     assert "<b>Worth raising</b>" not in memo  # plain text, autoescaped
     assert cs_text(memo, "kept-sources") == "Sources (2)"
     sources = cs_block(memo, "generated-sources")
-    assert '<a href="/cases/00000000-0000-0000-0000-000000000031">' in sources
+    # CASE-0031 is another case: the plain label, as the GP's letter (P-CS-H1).
+    assert "<a " not in sources
+    assert "CASE-0031 — the hedge question" in cs_text(sources)
     assert "GP letter of 30 Sep" in cs_text(sources)
     assert "gp.example" not in sources  # not an in-app path: the plain label
     assert cs_count(memo, "kept-edit") == 1 and cs_count(memo, "kept-remove") == 1
     assert cs_count(memo, "kept-open") == 0  # no PDF, no download (KO-CS-B §4)
     assert [entry.kind for entry in await _entries(app_engine, pm1, case.id)] == entries_before
-    # The guard itself: only a one-slash in-app path links — a browser drops a
-    # tab from a URL, so "/<tab>/host" would be protocol-relative.
+    # The guard itself: a browser drops a tab from a URL, so "/<tab>/host"
+    # would be protocol-relative; none of these links (CS-H1-02 has the rest).
     for href in ("//gp.example", "/\\gp.example", "/\t/gp.example", "https://gp.example", None):
-        assert cases_module._in_app_href(href) is None, href
-    assert cases_module._in_app_href("/cases/x") == "/cases/x"
+        assert cases_module._source_href(href, case_id=case.id, investment_ids=()) is None, href
 
 
 async def test_a_generated_document_is_edited_in_place_and_nothing_else_is(
@@ -5746,6 +5754,15 @@ async def test_a_removed_threads_kept_rows_surface_in_the_file(
     item = cs_block(body, "outline-item", data_pf_cs_name="threads")
     assert cs_text(item) == "Threads 0 · kept 1"
 
+    # The frozen file equals the live one: the answer is frozen at file level (P-CS-H1).
+    await _wait_through_the_route(web_client, csrf, case.id)
+    (wait,) = [e for e in await _entries(app_engine, pm1, case.id) if e.kind == "waiting_set"]
+    view = (await web_client.get(f"/api/cases/{case.id}/record/{wait.id}/file")).text
+    assert cs_count(view, "frozen-thread") == 0
+    frozen_file = cs_block(view, "frozen-kept-file")
+    assert cs_count(frozen_file, "frozen-kept", data_pf_cs_kind="consultation") == 1
+    assert "Shirley on the annex" in cs_text(frozen_file)
+
 
 async def test_the_threads_section_with_oob_carries_the_outline(
     web_client: AsyncClient,
@@ -5933,8 +5950,10 @@ async def test_a_landed_package_renders_the_review_block_and_the_outline_entry(
     assert cs_text(rows[0]) == "New thread PM, turn 1 Thread title From 2027. → Threads"
     assert cs_text(rows[1]) == ("Figure · Management fee PM, turn 1 Value the GP's CFO → Figures")
     assert cs_text(rows[2]) == "Open point Shirley, turn 2 Open point → Open points"
+    # _T0 is not today: the lead carries the day (CS-H1-04 has today's form).
     assert cs_text(block, "proposal-lead") == (
-        f"Landed 11:03 — 3 items to review Requested 11:00 from the dock: “{_REQUEST_TEXT}”"
+        "Landed 21 Jul 11:03 — 3 items to review "
+        f"Requested 21 Jul 11:00 from the dock: “{_REQUEST_TEXT}”"
     )
     package = cs_block(block, "proposal-package")
     assert wd_attr(package, "hx-post") == _accept_path(case.id, proposal_id)
@@ -6027,7 +6046,7 @@ async def test_accept_two_of_three_then_discard_the_rest(
     assert wd_attr(cs_block(block, "proposal"), "data-pf-cs-kind") == "point"
     assert re.search(r'name="accept" value="2"[^>]* checked', block)
     assert cs_text(block, "proposal-accept") == "Accept 1 selected"
-    assert "Landed 11:03 — 1 item to review" in cs_text(block, "proposal-lead")
+    assert "Landed 21 Jul 11:03 — 1 item to review" in cs_text(block, "proposal-lead")
     threads = _threads(accepted.text)
     figures = cs_block(accepted.text, "block", data_pf_cs_name="figures")
     assert wd_attr(threads, "hx-swap-oob") == "outerHTML"
@@ -6268,3 +6287,206 @@ async def test_refusals_404s_and_the_sections_oob_outline(
     closed_body = (await web_client.get(f"/api/cases/{case.id}")).text
     assert wd_attr(cs_block(closed_body, "proposals"), "hidden") is not None
     assert "proposals" not in _outline_names(closed_body)
+
+
+# ---------------------------------------------------------------------------
+# P-CS-H1 — hygiene after the build (CS-H1-01 … CS-H1-06; CS-H1-05 is the
+# dock's, in test_chat_consultation.py)
+# ---------------------------------------------------------------------------
+
+
+async def test_close_discards_every_pending_proposal_item(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS-H1-01 (D-CS-M-9): open → close and waiting → lift → close both discard what waits."""
+    pm1, email, password = seeded_user
+    open_case = await _seed_case(app_engine, opened_by=pm1, title="Open", opened_at=_T0)
+    waiting = await _seed_case(app_engine, opened_by=pm1, title="Waiting", opened_at=_T0)
+    first = await _seed_package(app_engine, pm1, open_case.id, list(_THREE_ITEMS))
+    second = await _seed_package(app_engine, pm1, waiting.id, [_THREE_ITEMS[2]])
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    accepted = await web_client.post(
+        _accept_path(open_case.id, first), data={"csrf_token": csrf, "accept": ["0"]}
+    )
+    assert accepted.status_code == 200, accepted.text
+    await _wait_through_the_route(web_client, csrf, waiting.id)
+
+    for case in (open_case, waiting):
+        closed = await _post_form(
+            web_client, f"/api/cases/{case.id}/close", csrf, closing_note="Settled."
+        )
+        assert closed.headers.get("HX-Redirect") == f"/cases/{case.id}", closed.text
+        assert (await _case_now(app_engine, pm1, case.id)).state == "closed"
+
+    discarded = ("discarded", "discarded at close")
+    package = await _package_now(app_engine, pm1, first)
+    assert [(item["status"], item.get("note")) for item in package.items] == [
+        ("accepted", None),
+        discarded,
+        discarded,
+    ]
+    assert package.resolved_at is not None
+    package = await _package_now(app_engine, pm1, second)
+    assert [(item["status"], item.get("note")) for item in package.items] == [discarded]
+    assert package.resolved_at is not None
+    body = (await web_client.get(f"/api/cases/{open_case.id}")).text
+    assert wd_attr(cs_block(body, "proposals"), "hidden") is not None
+    assert cs_count(body, "proposal") == 0 and "proposals" not in _outline_names(body)
+
+
+async def test_a_generated_documents_sources_link_only_where_they_point(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS-H1-02 (D-CS-B-98): the own case and a linked investment link; anything else is a label."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Sources", opened_at=_T0)
+    other = await _seed_case(app_engine, opened_by=pm1, title="Another", opened_at=_T0)
+    linked = await seed_book(app_engine, SENTINEL_TENANT_ID, pm1, latest_nav=CALM_NAV)
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        await CaseInvestmentRepository(session).link(
+            case.id, investment_id=linked, linked_by=pm1, now=_T0
+        )
+    links = {
+        "This case": f"/cases/{case.id}#cs-threads",
+        "Its document": f"/cases/{case.id}/attachments/{uuid4()}",
+        "The fund": f"/investments/{linked}",
+    }
+    labels = {
+        "Another case": f"/cases/{other.id}",
+        "Anywhere": "/anywhere",
+        "An unlinked fund": f"/investments/{uuid4()}",
+        "Back out": f"/cases/{case.id}/../{other.id}",
+        "Encoded": f"/cases/{case.id}/%2e%2e/{other.id}",
+        "Not a uuid": f"/investments/{str(linked).upper()}",
+    }
+    raw_sources = [{"label": label, "href": href} for label, href in {**links, **labels}.items()]
+    item = {"kind": "generated_document", "title": "Memo", "body": "Text.", "why": "t1"}
+    proposal_id = await _seed_package(app_engine, pm1, case.id, [{**item, "sources": raw_sources}])
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+
+    # At acceptance: an href is kept only where it points.
+    accepted = await web_client.post(
+        _accept_path(case.id, proposal_id), data={"csrf_token": csrf, "accept": ["0"]}
+    )
+    assert accepted.status_code == 200, accepted.text
+    (kept,) = await _kept_now(app_engine, pm1, case.id)
+    assert kept.payload["sources"] == [
+        *({"label": label, "href": href} for label, href in links.items()),
+        *({"label": label} for label in labels),
+    ]
+
+    # At render: a stored href that points elsewhere renders the plain label.
+    await _keep_row(
+        app_engine,
+        pm1,
+        case.id,
+        artifact="generated_document",
+        payload={"title": "Seeded", "body": "Text.", "sources": raw_sources},
+        caption="Seeded",
+        via="proposal",
+    )
+    body = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    memos = cs_blocks(cs_block(_threads(body), "kept-file"), "kept")
+    assert len(memos) == 2
+    for memo in memos:
+        sources = cs_block(memo, "generated-sources")
+        for label, href in links.items():
+            assert f'<a href="{html.escape(href)}">{label}</a>' in sources, (label, sources)
+        for label in labels:
+            assert f"<li>{label}</li>" in sources, (label, sources)
+
+
+async def test_a_pdf_opens_inline_and_anything_else_downloads(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+) -> None:
+    """CS-H1-03: ``inline`` for ``application/pdf``, ``attachment`` otherwise; the name sanitised."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Downloads", opened_at=_T0)
+    pdf = await _seed_attachment(app_engine, case_id=case.id, uploaded_by=pm1, filename="lpa.pdf")
+    sheet = await _seed_attachment(
+        app_engine,
+        case_id=case.id,
+        uploaded_by=pm1,
+        filename='model "v2".xlsx',
+        content=b"PK\x03\x04 sheet",
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    await _login(web_client, email, password)
+
+    opened = await web_client.get(f"/api/cases/{case.id}/attachments/{pdf}")
+    assert opened.status_code == 200
+    assert opened.headers["content-disposition"] == 'inline; filename="lpa.pdf"'
+    downloaded = await web_client.get(f"/api/cases/{case.id}/attachments/{sheet}")
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-disposition"] == 'attachment; filename="model v2.xlsx"'
+    assert downloaded.content == b"PK\x03\x04 sheet"
+
+
+async def test_a_package_older_than_today_carries_its_day(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS-H1-04: *Landed HH:MM* today, *Landed dd Mon HH:MM* before; *Requested* alike."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Two days", opened_at=_T0)
+    today = _T0 + timedelta(days=1)  # 22 Jul, 09:00 UTC
+    items, _ = items_from_tool_calls(
+        [{"name": "propose_for_file", "arguments": {"items": [_THREE_ITEMS[2]]}, "id": "c-1"}],
+        live_threads={},
+    )
+    async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=pm1) as session:
+        repo = CaseProposalRepository(session)
+        for requested_at in (_T0 + timedelta(hours=14), today - timedelta(minutes=30)):
+            proposal = await repo.request(
+                case.id, requested_by=pm1, request_text=_REQUEST_TEXT, now=requested_at
+            )
+            await repo.land(proposal.id, items=items, now=requested_at + timedelta(minutes=3))
+    monkeypatch.setattr(cases_module, "_now", lambda: today)
+    await _login(web_client, email, password)
+
+    body = (await web_client.get(f"/api/cases/{case.id}")).text
+    leads = [cs_text(lead) for lead in cs_blocks(cs_block(body, "proposals"), "proposal-lead")]
+    assert leads == [
+        f"Landed 08:33 — 1 item to review Requested 08:30 from the dock: “{_REQUEST_TEXT}”",
+        "Landed 21 Jul 23:03 — 1 item to review "
+        f"Requested 21 Jul 23:00 from the dock: “{_REQUEST_TEXT}”",
+    ]
+
+
+async def test_the_bundle_stamps_only_the_rendered_blocks(
+    web_client: AsyncClient,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    """CS-H1-06: a hidden placeholder gets no stamp; every rendered block gets its own."""
+    pm1, email, password = seeded_user
+    case = await _seed_case(app_engine, opened_by=pm1, title="Stamps", opened_at=_T0)
+    await _seed_thread(app_engine, pm1, case.id, title="Only a thread")
+    await _login(web_client, email, password)
+    csrf = await _session_csrf(web_client, fresh_superuser_engine)
+    page = (await web_client.get(f"/api/cases/{case.id}", follow_redirects=False)).text
+    rendered = set(re.findall(r'id="cs-stamp-(\w+)"', page))
+    assert rendered == {"question", "stand", "threads"}
+
+    saved = await _post_question(web_client, case.id, csrf, description="Why it matters.")
+
+    assert saved.status_code == 200, saved.text
+    stamps = re.findall(
+        r'<input type="hidden" name="stamp" id="cs-stamp-(\w+)"[^>]*hx-swap-oob', saved.text
+    )
+    assert stamps == ["question", "stand", "threads"]  # ADR order, the rendered ones only
+    updated = (await _case_now(app_engine, pm1, case.id)).updated_at.isoformat()
+    assert f'id="cs-stamp-threads" value="{updated}"' in saved.text

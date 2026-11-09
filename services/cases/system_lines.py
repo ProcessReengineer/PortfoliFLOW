@@ -57,10 +57,10 @@ holds one of the templates below.
 * ``ticket_booked`` — :meth:`services.transactions.ticket_service.TicketService.book`,
   once the ticket is ``booked``, when the ticket carries a ``case_id``
   (D-CS-B-23).
-* ``job_requested`` / ``job_landed`` — the proposal endpoint, when a Shirley
+* ``job_requested`` / ``job_landed`` — *Summarise into the file*
+  (``post_proposals_summarise`` in ``web/routes/chat.py``), when a Shirley
   job for the case is started and when its proposal package is stored in
-  ``case_proposals`` (ADR-0138 §7, §8). The helpers are here; their caller
-  arrives with P-CS-5b (D-CS-M-12).
+  ``case_proposals`` (ADR-0138 §7, §8; D-CS-M-12).
 * ``press_cluster`` — reserved; no template and no writer until Q-CS-B-2 is
   ruled.
 """
@@ -686,8 +686,8 @@ async def job_requested(
     """Write the ``job_requested`` line: Shirley was asked to work on the case.
 
     One line per proposal id. An asked job is an event on the case, so a
-    waiting case is lifted by it. The caller is the proposal endpoint
-    (P-CS-5b, D-CS-M-12).
+    waiting case is lifted by it. The caller is *Summarise into the file*
+    (``post_proposals_summarise`` in ``web/routes/chat.py``, D-CS-M-12).
 
     Args:
         cases: The tenant-scoped case repository.
@@ -723,7 +723,8 @@ async def job_landed(
     """Write the ``job_landed`` line: the proposal package is in ``case_proposals``.
 
     One line per proposal id; a waiting case is lifted by it. The caller is
-    the proposal endpoint (P-CS-5b, D-CS-M-12).
+    *Summarise into the file* (``post_proposals_summarise`` in
+    ``web/routes/chat.py``, D-CS-M-12).
 
     Args:
         cases: The tenant-scoped case repository.

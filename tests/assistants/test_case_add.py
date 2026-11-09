@@ -586,7 +586,7 @@ def test_ca09_the_real_tool_is_locked_after_an_untrusted_fetch() -> None:
 
 
 def test_ca10_a_bare_core_registers_twenty_and_the_description_carries_the_behaviour() -> None:
-    """CA-10 (D-CS-B-119): twenty tools; additive, Undo, the number, never on her own."""
+    """CA-10 (D-CS-B-119): twenty tools; additive, correctable, the number, never on her own."""
     AIServiceCore()
     registry = get_tool_registry()
     assert len(registry.list_tools()) == 20
@@ -596,8 +596,9 @@ def test_ca10_a_bare_core_registers_twenty_and_the_description_carries_the_behav
         if d["function"]["name"] == "case_add"
     )
     description = definition["description"]
-    for phrase in ("additive", "Undo", "number", "never"):
+    for phrase in ("additive", "correct it in the application", "number", "never"):
         assert phrase in description, phrase
+    assert "Undo" not in description and "dock" not in description  # channel-neutral
     assert "never closes a case, records a decision, hands over, sets waiting" in description
     assert "never guess a case" in description
     assert "never add on your own initiative" in description

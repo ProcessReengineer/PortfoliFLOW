@@ -4,12 +4,13 @@
 """The one way a test writes a legacy record row (D-CS-B-91).
 
 ``note``, ``pin`` and ``decision_record`` are retired for new writes
-(ADR-0138 §9): :meth:`CaseRepository.append_entry` refuses them since
-P-CS-4a, and no route writes them. Legacy rows still exist in tenant data
-(D-CS-M-7, no data migration) and the Record still renders them, so the tests
-that prove that seed such rows here — a model-level ``CaseEntry`` insert under
-the caller's tenant context, RLS-policed like any app-role write, with no
-vocabulary or state gate. Nothing in production imports this module.
+(ADR-0138 §9): no route writes them since P-CS-4a, and the repository's
+generic entry writer that refused them was retired with P-CS-H1. Legacy rows
+still exist in tenant data (D-CS-M-7, no data migration) and the Record still
+renders them, so the tests that prove that seed such rows here — a
+model-level ``CaseEntry`` insert under the caller's tenant context,
+RLS-policed like any app-role write, with no vocabulary or state gate.
+Nothing in production imports this module.
 """
 
 from __future__ import annotations

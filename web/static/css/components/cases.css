@@ -7,12 +7,12 @@
  * M-CS-2 mock. What remains here, in the watch_desk.css model, is scoped
  * residue only: every rule is `.pf-cases`-scoped, one line each, tokens only,
  * and each group names what retires it — a record question (`Q-UX-S-CS-n`)
- * or the prompt that replaces its markup. The ADR-0107 list, archive, rail
- * and detail-head rules left with P-CS-3d; so did the Area's overrides of the
- * button family and of the filter chip, and the band and resolution tags of
- * the retired `pf-dc` vocabulary (ui-standards §5 items 5, 15 and 14;
- * P-CS-6a's docs pass closes them). Geometry no token carries stays literal,
- * as in pf_components.css. */
+ * or the prompt that replaces its markup. The Section renders in the shell
+ * (`/cases`, `/cases/{id}`) and has no page of its own to style; the Area's
+ * overrides of the button family and of the filter chip, and the band and
+ * resolution tags of the retired `pf-dc` vocabulary, left with P-CS-3d
+ * (ui-standards §5 items 5, 15 and 14; P-CS-6a's docs pass closes them).
+ * Geometry no token carries stays literal, as in pf_components.css. */
 
 /* --- Scoped residue: Cases states of the shared pf-state family ---------------
  * Record question Q-UX-S-CS-1: ui-standards §2.6.1 names seven states plus

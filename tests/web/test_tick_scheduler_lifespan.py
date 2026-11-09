@@ -48,13 +48,14 @@ def _settings(**overrides: Any) -> WebSettings:
 
 @pytest.fixture(autouse=True)
 def _no_real_ticks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Neither domain may reach Postgres from a lifespan test."""
+    """No domain — market data, Irene, the case wake-up — may reach Postgres from a lifespan test."""
 
     async def _never(engine: Any, **kwargs: Any) -> None:
         raise AssertionError("a lifespan test must not run a real tick")
 
     monkeypatch.setattr(tick_scheduler, "run_market_data_tick", _never)
     monkeypatch.setattr(tick_scheduler, "run_irene_tick", _never)
+    monkeypatch.setattr(tick_scheduler, "run_case_wake_tick", _never)
 
 
 class _RecordingEngine:

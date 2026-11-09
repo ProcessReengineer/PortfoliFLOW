@@ -23,6 +23,8 @@ Coverage
 * WK-05: a second run lifts nothing; enumeration is by schedule row; an
   open or closed row with a stale ``wait_until`` is never due.
 * WK-06: the wake day is the UTC calendar day of ``now`` (D-CS-B-21).
+* WK-07: a due case the PM resumed between the due read and its lift is
+  skipped; the next is lifted and the tenant's tick commits (P-CS-H1).
 """
 
 from __future__ import annotations
@@ -273,3 +275,48 @@ async def test_wk06_the_wake_day_is_the_utc_day(
     after = await run_case_wake_tick(superuser_engine, now=just_after_midnight)
     assert after.cases_lifted == 1
     await _assert_lifted_by_date(app_engine, tenant_id, case, now=just_after_midnight)
+
+
+# ---------------------------------------------------------------------------
+# WK-07
+# ---------------------------------------------------------------------------
+
+
+async def test_wk07_a_case_resumed_meanwhile_is_skipped(
+    app_engine: AsyncEngine,
+    superuser_engine: AsyncEngine,
+    seed_tenant,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, user_id = await _tenant(app_engine, superuser_engine, seed_tenant, "WK-07")
+    first = await _waiting_case(app_engine, tenant_id, user_id, "first", _TODAY)
+    second = await _waiting_case(app_engine, tenant_id, user_id, "second", _TODAY)
+
+    real_lift = CaseRepository.lift_wait
+    resumed: list[UUID] = []
+
+    async def _lift(self: CaseRepository, case_id: UUID, **kwargs: Any) -> CaseDTO:
+        if not resumed:
+            # The PM resumes this case in a transaction of their own, committed
+            # after the tick's due read and before its lift.
+            resumed.append(case_id)
+            async with tenant_context(app_engine, tenant_id, user_id=user_id) as session:
+                await real_lift(
+                    CaseRepository(session), case_id, now=_TICK, by=user_id, reason="manual"
+                )
+        return await real_lift(self, case_id, **kwargs)
+
+    monkeypatch.setattr(CaseRepository, "lift_wait", _lift)
+
+    summary = await run_case_wake_tick(superuser_engine, now=_TICK)
+
+    assert (summary.tenants_claimed, summary.tenants_failed, summary.cases_lifted) == (1, 0, 1)
+    (resumed_id,) = resumed
+    lifted = second if resumed_id == first.id else first
+    await _assert_lifted_by_date(app_engine, tenant_id, lifted, now=_TICK)
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        by_hand = await repo.get(resumed_id)
+        lifts = [e for e in await repo.list_entries(resumed_id) if e.kind == "waiting_lifted"]
+    assert by_hand is not None and by_hand.state == "open"
+    assert [(e.actor, e.payload["reason"]) for e in lifts] == [("pm", "manual")]

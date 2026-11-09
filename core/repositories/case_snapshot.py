@@ -185,7 +185,8 @@ async def build_file_snapshot(
 
     Reads the ``cases`` row and the working-file tables under the session's
     RLS. Removed threads and removed kept rows are absent; a live kept row
-    that sits in a removed thread is absent with its thread. The
+    that sits in a removed thread joins the file-level ``kept``, as the live
+    file shows it under *Kept in the file* (D-CS-B-100). The
     ``milestone_entry_id`` / ``milestone_kind`` keys of the ``frozen``
     payload are the repository's, not the builder's.
 
@@ -301,10 +302,10 @@ async def build_file_snapshot(
         thread_snaps.append(snap)
     file_kept: list[dict[str, Any]] = []
     for kept in kept_rows:
-        if kept.thread_id is None:
-            file_kept.append(_kept_ref(kept))
-        elif kept.thread_id in kept_by_thread:
+        if kept.thread_id is not None and kept.thread_id in kept_by_thread:
             kept_by_thread[kept.thread_id].append(_kept_ref(kept))
+        else:
+            file_kept.append(_kept_ref(kept))
 
     recorded: list[dict[str, Any]] = []
     draft: dict[str, Any] | None = None

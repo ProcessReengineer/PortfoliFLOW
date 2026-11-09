@@ -23,9 +23,10 @@ Two rules hold for every write here, enforced once in the private base:
 Reads work on any state — the working-file rows of a closed case stay in
 their tables, read-only, so search and Shirley read closed cases without
 unpacking snapshots. Snapshots themselves (the ``frozen`` record entry of a
-milestone) are not this module's concern; they land in P-CS-1b, which
-reuses :func:`kept_payload_sha256` and reads removed kept rows through
-:meth:`CaseKeptRepository.get`.
+milestone) are not this module's concern: :mod:`core.repositories.case_snapshot`
+freezes a kept row by reference, with the ``payload_sha256`` this module
+stored (:func:`kept_payload_sha256`), and a frozen file resolves its
+references, removed rows included, through :meth:`CaseKeptRepository.get`.
 
 Vocabularies are TEXT columns enforced here (no SQL enums, no CHECKs), and
 every write validates its arguments before any SQL runs. A row addressed by
@@ -103,9 +104,11 @@ def kept_payload_sha256(payload: dict) -> str:
     The canonical form is the payload serialised as JSON with sorted keys,
     no insignificant whitespace (``separators=(",", ":")``) and non-ASCII
     characters kept as they are (``ensure_ascii=False``), encoded as UTF-8.
-    The hash is independent of key order and stable across processes; the
-    freeze (P-CS-1b) and the render (P-CS-4b) reuse this function so all
-    three agree on one digest.
+    The hash is independent of key order and stable across processes. Every
+    kept row's ``payload_sha256`` is this digest — written at the keep and
+    again at an edit — and a snapshot freezes that stored value by
+    reference, so a frozen reference and the row it names agree on one
+    digest.
 
     Args:
         payload: The kept payload (a JSON-serialisable dict).
@@ -1333,7 +1336,7 @@ class CaseDecisionRepository(_WorkingFileRepository):
         record_entry_id: UUID,
         now: datetime,
     ) -> CaseDecisionDTO:
-        """Turn the draft into a recorded decision — the seam of P-CS-1b's milestone.
+        """Turn the draft into a recorded decision, inside ``record_decision``'s milestone.
 
         Raises:
             CaseDecisionRecorded: If the row is already recorded.
@@ -1563,8 +1566,12 @@ class CaseProposalRepository(_WorkingFileRepository):
         status: str,
         now: datetime,
         created_id: UUID | None = None,
+        note: str | None = None,
     ) -> CaseProposalDTO:
         """Accept or discard one pending item; resolve the package when none is pending.
+
+        ``note``, when given, is stored in the item as ``note`` — why it was
+        resolved without the PM's review (*discarded at close*).
 
         Raises:
             CaseWorkingFileInvalid: On a status other than ``accepted`` /
@@ -1583,6 +1590,8 @@ class CaseProposalRepository(_WorkingFileRepository):
         items[index]["status"] = status
         if created_id is not None:
             items[index]["created_id"] = str(created_id)
+        if note is not None:
+            items[index]["note"] = note
         values: dict[str, Any] = {"items": items}
         if not any(item.get("status") == "pending" for item in items):
             values["resolved_at"] = now

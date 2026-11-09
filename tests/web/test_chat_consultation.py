@@ -31,7 +31,9 @@ ASGI-level tests over a live Postgres. Three surfaces are exercised:
   case between its ``job_requested`` / ``job_landed`` lines, writing nothing
   to the file (CS5c-01/02), and *Make this a case* drafts the form the
   manual creation route confirms (CS5c-07); the fake core's ``run_synthesis``
-  returns a scripted result. The brief lead names ``case_add`` (CS5c-09).
+  returns a scripted result. The brief lead names ``case_add`` (CS5c-09). A
+  failure in either route's body answers the calm line, 200, and the row
+  carries its busy indicator (CS-H1-05, W2-01/02).
 
 The Telegram surface is untouched: the brief and Keep presume the web UI's
 banner and keep loop, so the boundary test asserts the briefless path still
@@ -2070,7 +2072,7 @@ async def test_make_this_a_case_drafts_the_form_the_creation_route_confirms(
     assert call["tool_choice"] == {"type": "function", "function": {"name": "draft_case"}}
     assert "PM: The GP's CFO said" in call["context_messages"][0]["content"]
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
-        assert await CaseRepository(session).list_open() == []  # nothing exists yet
+        assert await CaseRepository(session).list_cases(state="open") == []  # nothing yet
 
     created = await client.post(
         "/api/cases/new",
@@ -2128,7 +2130,7 @@ async def test_make_this_a_case_drafts_the_form_the_creation_route_confirms(
     assert "A title is required to open a case." in blank.text
     assert "Kept as typed.</textarea>" in blank.text and _radio_checked(blank.text, "task")
     async with tenant_context(app_engine, SENTINEL_TENANT_ID, user_id=actor_id) as session:
-        assert len(await CaseRepository(session).list_open()) == 2
+        assert len(await CaseRepository(session).list_cases(state="open")) == 2
 
     # A raising one-shot: the form, empty, with the hint.
     core.synthesis = RuntimeError("the endpoint refused")
@@ -2174,3 +2176,49 @@ def test_the_brief_lead_names_case_add() -> None:
     assert "by itself" not in _BRIEF_LEAD
     assert _BRIEF_LEAD.endswith("nothing is written without the PM's gesture.")
     assert _BRIEF_LEAD == _CASE_BRIEF_LEAD
+
+
+async def test_a_failing_dock_gesture_answers_the_calm_line(
+    client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    app_engine: AsyncEngine,
+    fresh_superuser_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CS-H1-05 (W2-01/02): a raising body → the calm line, 200; the row shows it is busy."""
+    actor_id, email, password = seeded_user
+    case_id, _ = await _seed_case(app_engine, opened_by=actor_id, title="Fee question")
+    client, core = await client_factory()
+    csrf = await _login_and_csrf(client, email, password)
+    await _consult(client, csrf, str(case_id))
+    _converse(client, await _session_id(client, fresh_superuser_engine), *_TURNS)
+
+    banner = (await client.get("/chat/brief/banner")).text
+    assert re.search(
+        r'<span class="htmx-indicator chat-brief__busy" id="chat-brief-busy" role="status">'
+        r"Shirley is working…</span>",
+        banner,
+    )
+    assert banner.count('hx-indicator="#chat-brief-busy"') == 2
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("the database went away")
+
+    monkeypatch.setattr("web.routes.chat._request_package", _boom)
+    failed = await _summarise(client, csrf)
+    assert failed.status_code == 200, failed.text
+    assert _dock_notice(failed) == "Shirley could not answer — try again."
+    assert "HX-Trigger" not in failed.headers
+    assert 'data-pf-dock-action="summarise"' in failed.text  # the row, re-rendered
+    assert await _packages(app_engine, actor_id, case_id) == []
+    assert core.synthesis_calls == []
+
+    def _broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("a bug in the draft")
+
+    monkeypatch.setattr("web.routes.chat.draft_from_tool_calls", _broken)
+    core.synthesis = _scripted("draft_case", {"title": "Fees"})
+    drafted = await client.post(_DRAFT_URL, headers={"X-CSRF-Token": csrf})
+    assert drafted.status_code == 200, drafted.text
+    assert _dock_notice(drafted) == "Shirley could not answer — try again."
+    assert 'data-pf-dock-action="draft"' in drafted.text

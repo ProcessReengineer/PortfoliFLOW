@@ -126,6 +126,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from core.exceptions import CaseStateInvalid
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
 from core.repositories.irene_schedule_repository import IreneScheduleRepository
@@ -250,7 +251,8 @@ class CaseWakeTickSummary:
             whose wake-up completed.
         tenants_skipped_locked: Tenants whose lock was already held.
         tenants_failed: Tenants whose wake-up raised.
-        cases_lifted: Waiting cases returned to open, across tenants.
+        cases_lifted: Waiting cases returned to open, across tenants — a
+            case no longer waiting at its lift is not counted.
     """
 
     tenants_seen: int = 0
@@ -750,6 +752,11 @@ async def run_case_wake_tick(
         now: The tick's clock, defaulting to "now" in UTC. Its UTC date is
             the wake day (D-CS-B-21) and it stamps every lift.
 
+    A due case the PM resumed (or closed) between the due read and its lift
+    raises :class:`~core.exceptions.CaseStateInvalid` from ``lift_wait``
+    before any write; it is logged and skipped, the loop goes on and the
+    tenant's lifts commit.
+
     Returns:
         The tick's :class:`CaseWakeTickSummary`. A tenant-level failure is
         counted, never raised; an infrastructure-level failure (the
@@ -787,15 +794,23 @@ async def run_case_wake_tick(
 
                 repo = CaseRepository(session)
                 due = await repo.list_due_for_wake(today=today)
+                lifted = 0
                 for waiting in due:
-                    await repo.lift_wait(waiting.id, now=now, reason="date")
+                    try:
+                        await repo.lift_wait(waiting.id, now=now, reason="date")
+                    except CaseStateInvalid:
+                        _LOG.info(
+                            "case-wake-tick: case %s was no longer waiting, skipped.", waiting.id
+                        )
+                        continue
+                    lifted += 1
                 claimed_count += 1
-                lifted_total += len(due)
-                if due:
+                lifted_total += lifted
+                if lifted:
                     _LOG.info(
                         "case-wake-tick: tenant %s — %d waiting case(s) returned to open.",
                         tenant_id,
-                        len(due),
+                        lifted,
                     )
         except Exception as exc:  # noqa: BLE001 — isolate one tenant's failure
             failed += 1

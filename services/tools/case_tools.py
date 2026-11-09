@@ -788,8 +788,8 @@ _registry.register_tool(
         "(case_number: the brief opens on the case's badge, list_cases lists them); never guess "
         "a case. The case must be open or waiting. Write only what the PM asked for in "
         "this turn, one row per request; never add on your own initiative. After writing, "
-        "your answer states what was added and to which case, as the result says — the "
-        "user sees the same as a line in the dock with Undo. Locked for the rest of a "
+        "your answer states what was added and to which case, as the result says, so the "
+        "user can correct it in the application. Locked for the rest of a "
         "turn once web_research ran. Dates are YYYY-MM-DD."
     ),
     parameters={

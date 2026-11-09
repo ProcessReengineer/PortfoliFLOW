@@ -774,8 +774,10 @@ def test_shirley_toggle_is_inert_without_a_rail() -> None:
 
     The guard sits in ``toggle`` rather than in ``section_nav.js``'s handler
     so it covers every caller of the public API, not only the hotkey — and it
-    reads ``.pf-side .pf-rail`` rather than the bare class, because
-    ``cases_detail.html`` uses ``pf-rail`` for a case's own aside.
+    reads ``.pf-side .pf-rail`` rather than the bare class, because only the
+    shell's side column holds the rail: a page's own aside must never count
+    as it (the case page, ``/cases/{id}``, renders in the shell; its retired
+    stand-alone page carried one).
 
     Asserted on the source: the behaviour is a browser one, and the browser
     round in the P-UX-A1e report is what exercises it. What a test can pin is

@@ -34,8 +34,9 @@ the *absence* of code paths as much as by the guards below:
 the milestone entry and a ``frozen`` entry carrying the whole-file
 snapshot (:mod:`core.repositories.case_snapshot`), all in the caller's one
 transaction. The column writes behind them are private, so nothing outside
-this module moves a case between states without a record, and
-:meth:`append_entry` refuses the milestone-only kinds. The ``frozen`` rows
+this module moves a case between states without a record, and no generic
+entry writer exists: the milestone path and :meth:`add_system_line` are the
+only writers of the record. The ``frozen`` rows
 are the record's hidden half: :meth:`list_entries` leaves them out unless
 asked, and they are fetched by milestone (:meth:`get_frozen_for`,
 :meth:`latest_frozen`) — the milestone and its snapshot render as one
@@ -77,7 +78,6 @@ from core.exceptions import (
     CaseActorInvalid,
     CaseClosedError,
     CaseClosingNoteMissing,
-    CaseEntryKindInvalid,
     CaseStateInvalid,
     CaseWorkingFileInvalid,
 )
@@ -102,7 +102,8 @@ from core.repositories.case_working_file_repository import CaseDecisionRepositor
 _VALID_STATES: frozenset[str] = frozenset({"open", "waiting", "closed"})
 # ``note`` / ``pin`` / ``decision_record`` stay in the vocabulary: legacy rows
 # are read and validated against it (D-CS-M-7), though none is written any
-# more (_RETIRED_ENTRY_KINDS below; D-CS-B-1, closed with P-CS-4a).
+# more — D-CS-B-1's staged retirement closed with P-CS-4a, and the generic
+# writer that refused them (``append_entry``) was retired with P-CS-H1.
 _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
     {
         "opened",
@@ -117,16 +118,11 @@ _VALID_ENTRY_KINDS: frozenset[str] = frozenset(
         "system_line",
     }
 )
-# Written only by the program — the milestone path (P-CS-1b) or
-# add_system_line (P-CS-2c, D-CS-B-25); append_entry rejects them.
+# Written only by the program — the milestone path or add_system_line
+# (ADR-0138 §7, D-CS-B-25).
 _PROGRAM_ONLY_KINDS: frozenset[str] = frozenset(
     {"closed", "handed_over", "waiting_set", "waiting_lifted", "frozen", "system_line"}
 )
-# Retired for new writes (ADR-0138 §9; D-CS-B-1's staged retirement closed with
-# P-CS-4a): Keep replaced the pins, the Decision block the decision composer,
-# and the note composer went with P-CS-3c2. append_entry refuses them; the
-# method itself retires with the legacy sweep (D-CS-B-38, D-CS-B-91).
-_RETIRED_ENTRY_KINDS: frozenset[str] = frozenset({"note", "pin", "decision_record"})
 _VALID_ACTORS: frozenset[str] = frozenset({"pm", "shirley", "system"})
 _VALID_FRAMINGS: frozenset[str] = frozenset({"question", "task"})
 # The kinds a milestone entry may carry (the snapshot itself is ``frozen``).
@@ -612,41 +608,14 @@ class CaseRepository(BaseRepository):
         model = result.scalar_one_or_none()
         return _case_to_dto(model) if model is not None else None
 
-    async def list_open(self, *, opened_by: UUID | None = None) -> list[CaseDTO]:
-        """Return open cases, newest ``opened_at`` first.
-
-        Args:
-            opened_by: When given, restrict to cases opened by this user —
-                the "Mine" chip, a filter and never a data boundary
-                (ADR-0107 §1). Omitted, every open case is returned.
-        """
-        stmt = select(Case).where(Case.state == "open")
-        if opened_by is not None:
-            stmt = stmt.where(Case.opened_by == opened_by)
-        stmt = stmt.order_by(Case.opened_at.desc(), Case.case_number.desc())
-        result = await self._session.execute(stmt)
-        return [_case_to_dto(model) for model in result.scalars().all()]
-
-    async def list_recently_closed(self, *, limit: int = 5) -> list[CaseDTO]:
-        """Return closed cases, newest ``closed_at`` first, capped at ``limit``."""
-        result = await self._session.execute(
-            select(Case)
-            .where(Case.state == "closed")
-            .order_by(Case.closed_at.desc(), Case.case_number.desc())
-            .limit(limit)
-        )
-        return [_case_to_dto(model) for model in result.scalars().all()]
-
     async def list_closed(self, *, limit: int = 100) -> list[CaseDTO]:
         """Return closed cases for the Watch Desk Journal source.
 
         The Journal is a render-time projection that gains closed cases as a
-        second source (ADR-0107, C4 · Gate-C0 decision B); this is that source,
-        deliberately distinct from :meth:`list_recently_closed` (the five-row
-        *UI* list on the Cases page). Same ordering — newest ``closed_at``
-        first, ``case_number`` as the stable tie-break — but a larger cap so a
-        page of closed cases can interleave with resolved findings. Not a UI
-        list; nothing renders it directly.
+        second source (ADR-0107, C4 · Gate-C0 decision B); this is that source.
+        Newest ``closed_at`` first, ``case_number`` as the stable tie-break,
+        capped so a page of closed cases can interleave with resolved
+        findings. Not a UI list; nothing renders it directly.
 
         Args:
             limit: Maximum number of closed cases to return (most recent).
@@ -704,120 +673,6 @@ class CaseRepository(BaseRepository):
             )
         result = await self._session.execute(query)
         return [_case_to_dto(model) for model in result.scalars().all()]
-
-    async def search_archive(self, query: str) -> list[CaseDTO]:
-        """Search closed cases by ``title`` or ``closing_note`` (ILIKE).
-
-        Case-insensitive substring match with ``%`` / ``_`` in the user
-        input escaped so they match literally. Titles and closing notes
-        **only** — never entry payloads, never attachment content: the DMS
-        boundary (ADR-0107 §7). An empty or whitespace-only query returns an
-        empty list rather than matching everything.
-        """
-        stripped = query.strip()
-        if not stripped:
-            return []
-        pattern = f"%{_escape_like(stripped)}%"
-        result = await self._session.execute(
-            select(Case)
-            .where(
-                Case.state == "closed",
-                or_(
-                    Case.title.ilike(pattern, escape="\\"),
-                    Case.closing_note.ilike(pattern, escape="\\"),
-                ),
-            )
-            .order_by(Case.closed_at.desc(), Case.case_number.desc())
-        )
-        return [_case_to_dto(model) for model in result.scalars().all()]
-
-    async def append_entry(
-        self,
-        case_id: UUID,
-        *,
-        kind: str,
-        actor: str,
-        actor_user_id: UUID | None,
-        payload: dict,
-        now: datetime,
-    ) -> CaseEntryDTO:
-        """Append a record entry to an open or waiting case (append-only).
-
-        Vocabulary is validated before any SQL runs. The program-only
-        kinds are rejected here: ``closed``, ``handed_over``,
-        ``waiting_set``, ``waiting_lifted`` and ``frozen`` are written only
-        by the milestone path (:meth:`wait`, :meth:`lift_wait`,
-        :meth:`hand_over`, :meth:`close`), and ``system_line`` only by
-        :meth:`add_system_line` (ADR-0138 §7, D-CS-B-25). ``note``, ``pin``
-        and ``decision_record`` are retired for new writes (ADR-0138 §9):
-        D-CS-B-1's staged retirement closed with P-CS-4a, when Keep replaced
-        the last route writer. The method has no production caller since and
-        retires with the legacy sweep (D-CS-B-38); tests seed legacy rows
-        through ``tests/_case_record_seed.py``.
-
-        Args:
-            case_id: The case to append to.
-            kind: ``opened`` (the program-only and the retired kinds are
-                rejected).
-            actor: One of ``pm`` / ``shirley`` / ``system``.
-            actor_user_id: The acting user when a user acted, else ``None``.
-            payload: Opaque JSONB for the entry.
-            now: The entry's ``created_at``.
-
-        Returns:
-            The newly appended :class:`CaseEntryDTO`.
-
-        Raises:
-            CaseEntryKindInvalid: If ``kind`` is outside the vocabulary, is
-                a program-only kind (which only the milestone path or
-                :meth:`add_system_line` writes), or is retired for new
-                writes (``note``, ``pin``, ``decision_record``).
-            CaseActorInvalid: If ``actor`` is outside the vocabulary.
-            CaseStateInvalid: If no such case exists in the active tenant.
-            CaseClosedError: If the case is already closed.
-        """
-        if kind not in _VALID_ENTRY_KINDS:
-            raise CaseEntryKindInvalid(
-                f"Invalid entry kind {kind!r}; expected one of {sorted(_VALID_ENTRY_KINDS)}.",
-                field="kind",
-            )
-        if kind in _PROGRAM_ONLY_KINDS:
-            raise CaseEntryKindInvalid(
-                f"The {kind!r} entry is written only by the milestone path or "
-                "add_system_line (the milestone + freeze transaction, or the one "
-                f"system-line writer); append_entry does not accept kind={kind!r}.",
-                field="kind",
-            )
-        if kind in _RETIRED_ENTRY_KINDS:
-            raise CaseEntryKindInvalid(
-                f"The {kind!r} entry is retired for new writes — ADR-0138 §9; "
-                "legacy rows stay readable, Keep writes the working file.",
-                field="kind",
-            )
-        if actor not in _VALID_ACTORS:
-            raise CaseActorInvalid(
-                f"Invalid actor {actor!r}; expected one of {sorted(_VALID_ACTORS)}.",
-                field="actor",
-            )
-        case = await self.get(case_id)
-        if case is None:
-            raise CaseStateInvalid(
-                f"No case {case_id} in this tenant to append to.",
-                field="state",
-            )
-        if case.state not in _MUTABLE_STATES:
-            raise CaseClosedError(
-                f"Case {case_id} is closed; closed cases are immutable (ADR-0107 §4)."
-            )
-        return await self._insert_entry(
-            tenant_id=case.tenant_id,
-            case_id=case_id,
-            kind=kind,
-            actor=actor,
-            actor_user_id=actor_user_id,
-            payload=payload,
-            now=now,
-        )
 
     async def list_entries(
         self, case_id: UUID, *, include_frozen: bool = False

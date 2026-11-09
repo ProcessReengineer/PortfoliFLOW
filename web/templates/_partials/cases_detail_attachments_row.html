@@ -1,16 +1,14 @@
 {# Attachments fact (ADR-0107, C3b) — the "Attachments · N of {cap}" entry in
    the facts row of the case sub-surface (P-CS-3a; it was the stand-alone
    page's linked-objects rail row). A <dl> child: a <div> holding one <dt> and
-   one <dd>. Shown when N > 0 or the case is open (the file context sets
-   ``show_attachments``); on an open case it always renders, so a pin can
-   OOB-refresh it by id.
+   one <dd>. Shown when N > 0 or the case takes writes (the file context sets
+   ``show_attachments``); it refreshes with the facts row, which rides out of
+   band in the file's bundle (cases_file_oob.html).
 
    Context:
      attachments_count — current attachment count (count_for_case).
-     attachments_cap   — the per-case cap (configuration).
-     attachments_oob   — when true the row carries hx-swap-oob so a successful
-                         pin refreshes just this count out of band. #}
-<div id="case-attachments-row"{% if attachments_oob %} hx-swap-oob="true"{% endif %} data-pf-cs="fact" data-pf-cs-name="attachments">
+     attachments_cap   — the per-case cap (configuration). #}
+<div id="case-attachments-row" data-pf-cs="fact" data-pf-cs-name="attachments">
     <dt>Attachments</dt>
     <dd>{{ attachments_count }} of {{ attachments_cap }}</dd>
 </div>

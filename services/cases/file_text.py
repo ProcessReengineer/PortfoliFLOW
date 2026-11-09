@@ -400,9 +400,6 @@ def _investment_line(reading: Any) -> str:
 def _stand_body(source: Any, *, closed: bool, subject_key: str | None) -> list[str]:
     """Where we stand as lines, read by field name off either source."""
     lines: list[str] = []
-    headline = _one_line(_field(source, "headline"))
-    if headline:
-        lines.append(f"Headline: {headline}")
     lines += _subject_lines(source, closed=closed, subject_key=subject_key)
 
     investments = list(_field(source, "investments") or [])

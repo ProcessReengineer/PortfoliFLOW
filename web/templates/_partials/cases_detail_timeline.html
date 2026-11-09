@@ -49,12 +49,13 @@
    composers are gated on the open or waiting state, but they live in the
    head, not here; "File as …" reads and so opens on a closed case too).
 
+   The root keeps its id, #case-timeline; its one out-of-band writer, the pin
+   composer's refresh, retired with P-CS-4a, and the flag it set went with
+   P-CS-H1.
+
    Context:
-     entries      — list of projected entry dicts, ascending (_project_timeline).
-     timeline_oob — when true the root carries hx-swap-oob. Its one writer, the
-                    pin composer's out-of-band refresh, retired with P-CS-4a;
-                    the id and the flag stay until P-CS-6a's legacy sweep. #}
-<div id="case-timeline" class="pf-tl"{% if timeline_oob %} hx-swap-oob="true"{% endif %}>
+     entries — list of projected entry dicts, ascending (_project_timeline). #}
+<div id="case-timeline" class="pf-tl">
     {% for entry in entries %}
         <div class="pf-tl__entry" data-kind="{{ entry.kind }}" data-pf-cs="record-row" data-pf-cs-kind="{{ entry.kind }}">
             <span class="pf-tl__when">{{ entry.when }}</span>

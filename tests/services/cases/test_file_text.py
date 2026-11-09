@@ -14,7 +14,8 @@ Coverage
   stand and the Record.
 * FT-03: a waiting case reads *waiting until d*.
 * FT-04: a closed case renders *At close* from the frozen snapshot, and
-  ``StandContext.load`` is not called.
+  ``StandContext.load`` is not called; the stand's headline, which repeats
+  the first investment's NAV, is not a line of its own (P-CS-H1).
 * FT-05: the bounds — a cut section says *… n more*, a long line is clipped
   to :data:`LINE_CHARS`, the whole text to :data:`MAX_CHARS`.
 * FT-06: kept rows as caption lines — never a chart spec; an excerpt's
@@ -335,6 +336,7 @@ async def test_ft04_a_closed_case_renders_at_close_without_composing(
     assert at_close.splitlines()[0].startswith("  Frozen ")
     assert "  Investment: Alpha · EUR" in at_close
     assert f"NAV {format_money_compact(float(CALM_NAV), 'EUR')}" in at_close
+    assert stand.headline and "Headline:" not in text  # the NAV once, on its investment
     assert "  State: closed" in text
     assert "  Closing note: Sold at the tender; the CV was rejected." in text
     assert "· Case closed · Sold at the tender; the CV was rejected." in text

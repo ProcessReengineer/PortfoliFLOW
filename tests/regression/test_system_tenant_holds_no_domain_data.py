@@ -87,6 +87,19 @@ _TENANT_DATA_TABLES: tuple[str, ...] = (
     "limits",
     "limit_sets",
     "data_uploads",
+    "cases",
+    "case_entries",
+    "case_attachments",
+    "case_threads",
+    "case_kept",
+    "case_figures",
+    "case_conversations",
+    "case_points",
+    "case_decisions",
+    "case_investments",
+    "case_proposals",
+    "trade_tickets",
+    "trade_ticket_effects",
 )
 
 

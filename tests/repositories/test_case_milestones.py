@@ -28,6 +28,8 @@ Coverage
   cross-tenant invisibility.
 * CM-10: the lift race guard (D-CS-B-72) — a lift whose case stopped
   waiting behind its read raises and writes no milestone.
+* CM-11: snapshot fidelity (D-CS-B-100) — a live kept row of a removed
+  thread is frozen at file level, as the live file shows it.
 """
 
 from __future__ import annotations
@@ -845,3 +847,52 @@ async def test_cm10_a_lost_lift_race_writes_no_milestone(
         current = await repo.get(case.id)
         assert current is not None
         assert (current.state, current.updated_at) == ("open", _T0 + 2 * _MIN)
+
+
+# ---------------------------------------------------------------------------
+# CM-11: a removed thread's live kept row freezes at file level (D-CS-B-100)
+# ---------------------------------------------------------------------------
+
+
+async def test_cm11_removed_threads_kept_row_freezes_at_file_level(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("CM-11")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@cm11.example")
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = CaseRepository(session)
+        threads = CaseThreadRepository(session)
+        kept_repo = CaseKeptRepository(session)
+        case = await repo.create(title="Keep", opened_by=user_id, opened_actor="pm", now=_T0)
+        gone = await threads.add(case.id, title="Gone", now=_T0)
+        stays = await threads.add(case.id, title="Stays", now=_T0)
+        orphan = await kept_repo.keep(
+            case.id,
+            artifact="chart_snapshot",
+            payload={"spec": {"data": [1]}, "title": "NAV"},
+            kept_by=user_id,
+            via="keep",
+            now=_T0 + _MIN,
+            thread_id=gone.id,
+        )
+        held = await kept_repo.keep(
+            case.id,
+            artifact="chart_snapshot",
+            payload={"spec": {"data": [2]}, "title": "Flows"},
+            kept_by=user_id,
+            via="keep",
+            now=_T0 + _MIN,
+            thread_id=stays.id,
+        )
+        await threads.remove(gone.id, now=_T0 + 2 * _MIN)
+
+        await repo.wait(case.id, wait_until=date(2027, 1, 1), by=user_id, now=_T0 + 3 * _MIN)
+        frozen = await repo.latest_frozen(case.id)
+        assert frozen is not None and frozen.payload["milestone_kind"] == "waiting_set"
+
+    file = frozen.payload["file"]
+    assert [thread["title"] for thread in file["threads"]] == ["Stays"]
+    assert [ref["kept_id"] for ref in file["threads"][0]["kept"]] == [str(held.id)]
+    assert [ref["kept_id"] for ref in file["kept"]] == [str(orphan.id)]
+    assert set(file["kept"][0]) == _KEPT_REF_FIELDS

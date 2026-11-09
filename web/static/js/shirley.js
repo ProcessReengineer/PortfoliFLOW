@@ -143,7 +143,9 @@
         // no column to widen. The guard sits in `toggle` rather than in
         // section_nav.js's handler so it covers every caller of the public
         // API, not only the hotkey. `.pf-side .pf-rail` rather than the bare
-        // class: cases_detail.html uses `pf-rail` for a case's own aside.
+        // class: only the shell's side column holds the rail, and a page's own
+        // aside must never count as it (the case page, `/cases/{id}`, renders
+        // in the shell; its retired stand-alone page carried one).
         if (!document.querySelector(".pf-side .pf-rail")) {
             return;
         }

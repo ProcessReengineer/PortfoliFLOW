@@ -26,10 +26,9 @@ its actor (ADR-0036 §1d). It plays **no** part in RLS — tenant isolation
 binds on ``app.tenant_id`` alone, exactly as before — so carrying the
 user changes what an audit row records, never what a query can see.
 
-For every call site that exists today the GUC is a no-op: all of them
-are ``READ_INTERNAL`` tools that write no audit rows. It is set anyway
-so that a future ``WRITE_INTERNAL`` tool running inside a turn attributes
-its audit rows to the turn's user rather than leaving ``user_id NULL``.
+The read tools write no audit rows, so for them the GUC is a no-op;
+``case_add``'s rows (the one ``WRITE_INTERNAL`` tool) are attributed to the
+turn's user through the GUC rather than left at ``user_id NULL``.
 """
 
 from __future__ import annotations

@@ -247,8 +247,8 @@ from web.permissions import require_role
 # the Cases route, and the draft form's template name (``POST /api/cases/new``
 # re-renders the same form on a blank title). The import is one-directional:
 # ``cases.py``'s own import chain (``watch_desk``, ``planning_desk``) never
-# reaches ``chat.py``, so there is no cycle. ``cases.py`` therefore cannot import back the assistants URL — it
-# holds its own ``CONSULT_SHIRLEY_URL`` constant.
+# reaches ``chat.py``, so there is no cycle. ``cases.py`` therefore cannot import back the hand-off URL — it
+# holds its own ``CONSULT_SHIRLEY_POST_URL`` constant.
 from web.routes.cases import CASE_DRAFT_TEMPLATE, _resolve_owner_names
 
 # The watch-briefing banner and brief block state a check in the words the
@@ -3817,7 +3817,10 @@ async def post_proposals_summarise(
     suffixed *the case is open again* when the request woke it; and
     ``HX-Trigger: pf:case-kept`` with the case id, so a case page on screen
     re-fetches its blocks and shows the package (D-CS-B-88). A second
-    request while a package is pending lands a second package.
+    request while a package is pending lands a second package. Any other
+    failure after the input gates — a bug, a database error — is logged with
+    its traceback and answers *Shirley could not answer — try again.* (200),
+    never a silent, re-enabled button (W2-02).
     """
     session_id = str(session.id)
     case_id = _active_case_id(request, session_id)
@@ -3829,79 +3832,87 @@ async def post_proposals_summarise(
     core, llm = connected
     if not _has_user_turn(_get_or_create_history(request, session_id)):
         return await _render_banner(request, session, notice=_notice(_NOTHING_TO_PROPOSE_NOTICE))
-    conversation = _conversation_for(request, session_id)
-    engine = _engine(request)
-    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-        requested = await _request_package(db, case_id, session, now=datetime.now(timezone.utc))
-    if requested is None:  # closed or gone since the stash; the banner render clears it
-        return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
-    case = requested.case
-
-    result = await _one_shot(
-        core,
-        llm,
-        system_prompt=PROPOSAL_SYSTEM_PROMPT,
-        messages=proposal_messages(requested.file_text, conversation),
-        tool=PROPOSAL_TOOL,
-    )
-    calls = result.tool_calls if result is not None else []
-    items, reasons = items_from_tool_calls(calls, live_threads=requested.live_threads)
-    for reason in reasons:
-        logger.info(
-            "chat proposals: case=%s proposal=%s — %s", case.id, requested.proposal_id, reason
-        )
-    answered = any(call.get("name") == PROPOSAL_TOOL_NAME for call in calls)
-
-    landed_at = datetime.now(timezone.utc)
     try:
+        conversation = _conversation_for(request, session_id)
+        engine = _engine(request)
         async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
-            await CaseProposalRepository(db).land(requested.proposal_id, items=items, now=landed_at)
-            cases = CaseRepository(db)
-            await job_landed(
-                cases,
-                case=await cases.get(case.id) or case,
-                proposal_id=requested.proposal_id,
-                item_count=len(items),
-                now=landed_at,
+            requested = await _request_package(db, case_id, session, now=datetime.now(timezone.utc))
+        if requested is None:  # closed or gone since the stash; the banner render clears it
+            return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
+        case = requested.case
+
+        result = await _one_shot(
+            core,
+            llm,
+            system_prompt=PROPOSAL_SYSTEM_PROMPT,
+            messages=proposal_messages(requested.file_text, conversation),
+            tool=PROPOSAL_TOOL,
+        )
+        calls = result.tool_calls if result is not None else []
+        items, reasons = items_from_tool_calls(calls, live_threads=requested.live_threads)
+        for reason in reasons:
+            logger.info(
+                "chat proposals: case=%s proposal=%s — %s", case.id, requested.proposal_id, reason
             )
-    except (CaseClosedError, CaseStateInvalid):
-        logger.warning(
-            "chat proposals: case %s closed before proposal %s landed.",
+        answered = any(call.get("name") == PROPOSAL_TOOL_NAME for call in calls)
+
+        landed_at = datetime.now(timezone.utc)
+        try:
+            async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+                await CaseProposalRepository(db).land(
+                    requested.proposal_id, items=items, now=landed_at
+                )
+                cases = CaseRepository(db)
+                await job_landed(
+                    cases,
+                    case=await cases.get(case.id) or case,
+                    proposal_id=requested.proposal_id,
+                    item_count=len(items),
+                    now=landed_at,
+                )
+        except (CaseClosedError, CaseStateInvalid):
+            logger.warning(
+                "chat proposals: case %s closed before proposal %s landed.",
+                case.id,
+                requested.proposal_id,
+            )
+            return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
+
+        logger.info(
+            "chat proposals: tenant=%s user=%s case=%s proposal=%s items=%d answered=%s",
+            session.tenant_id,
+            session.user_id,
             case.id,
             requested.proposal_id,
+            len(items),
+            answered,
         )
-        return await _render_banner(request, session, notice=_notice(_NO_CASE_NOTICE))
-
-    logger.info(
-        "chat proposals: tenant=%s user=%s case=%s proposal=%s items=%d answered=%s",
-        session.tenant_id,
-        session.user_id,
-        case.id,
-        requested.proposal_id,
-        len(items),
-        answered,
-    )
-    if items:
-        notice = _notice(
-            _LANDED_NOTICE.format(
-                badge=f"CASE-{case.case_number:04d}",
-                count=len(items),
-                noun="item" if len(items) == 1 else "items",
-            ),
-            href=f"/cases/{case.id}#cs-proposals",
-            reopened=requested.reopened,
+        if items:
+            notice = _notice(
+                _LANDED_NOTICE.format(
+                    badge=f"CASE-{case.case_number:04d}",
+                    count=len(items),
+                    noun="item" if len(items) == 1 else "items",
+                ),
+                href=f"/cases/{case.id}#cs-proposals",
+                reopened=requested.reopened,
+            )
+        else:
+            notice = _notice(
+                _NOTHING_TO_PROPOSE_NOTICE if answered else _NO_ANSWER_NOTICE,
+                reopened=requested.reopened,
+            )
+        return await _render_banner(
+            request,
+            session,
+            notice=notice,
+            headers={"HX-Trigger": keep_trigger(case.id, brief_changed=False)},
         )
-    else:
-        notice = _notice(
-            _NOTHING_TO_PROPOSE_NOTICE if answered else _NO_ANSWER_NOTICE,
-            reopened=requested.reopened,
-        )
-    return await _render_banner(
-        request,
-        session,
-        notice=notice,
-        headers={"HX-Trigger": keep_trigger(case.id, brief_changed=False)},
-    )
+    except Exception:
+        # A bug or a database error never leaves the PM a silent, re-enabled
+        # button (W2-02): the calm line, logged with its traceback.
+        logger.exception("chat proposals: summarise failed for case %s.", case_id)
+        return await _render_banner(request, session, notice=_notice(_NO_ANSWER_NOTICE))
 
 
 def _render_draft(
@@ -3951,7 +3962,9 @@ async def post_case_draft(
     failed or drafted nothing. Nothing is written here: the form posts to
     ``POST /api/cases/new``, and the case exists only then. Any case brief
     stays as it is — a new case from this conversation is legitimate while
-    another is briefed.
+    another is briefed. A failure after the input gates answers the banner's
+    *Shirley could not answer — try again.* (200), logged with its traceback
+    (W2-02).
     """
     session_id = str(session.id)
     if not _has_user_turn(_get_or_create_history(request, session_id)):
@@ -3960,21 +3973,26 @@ async def post_case_draft(
     if connected is None:
         return await _render_banner(request, session, notice=_notice(_NO_LLM_NOTICE))
     core, llm = connected
-    result = await _one_shot(
-        core,
-        llm,
-        system_prompt=CASE_DRAFT_SYSTEM_PROMPT,
-        messages=draft_messages(_conversation_for(request, session_id)),
-        tool=CASE_DRAFT_TOOL,
-    )
-    draft = draft_from_tool_calls(result.tool_calls) if result is not None else None
-    logger.info(
-        "chat case draft: tenant=%s user=%s drafted=%s",
-        session.tenant_id,
-        session.user_id,
-        draft is not None,
-    )
-    return _render_draft(request, session, draft)
+    try:
+        result = await _one_shot(
+            core,
+            llm,
+            system_prompt=CASE_DRAFT_SYSTEM_PROMPT,
+            messages=draft_messages(_conversation_for(request, session_id)),
+            tool=CASE_DRAFT_TOOL,
+        )
+        draft = draft_from_tool_calls(result.tool_calls) if result is not None else None
+        logger.info(
+            "chat case draft: tenant=%s user=%s drafted=%s",
+            session.tenant_id,
+            session.user_id,
+            draft is not None,
+        )
+        return _render_draft(request, session, draft)
+    except Exception:
+        # As for the summary (W2-02): a failure answers the calm line.
+        logger.exception("chat case draft: the draft failed.")
+        return await _render_banner(request, session, notice=_notice(_NO_ANSWER_NOTICE))
 
 
 # ---------------------------------------------------------------------------

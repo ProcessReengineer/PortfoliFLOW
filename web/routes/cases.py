@@ -257,7 +257,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -329,18 +329,12 @@ from web.routes.planning_desk import AREA_URL as PLANNING_DESK_AREA_URL
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-#: The assistants surface a case sends the PM to, "consulting for" it (ADR-0107
-#: C6). Defined locally rather than imported from ``chat.py``: ``chat.py`` reuses
-#: this module's name resolution for the case brief, so it imports *this* module
-#: — importing the URL back would close an import cycle. Since P-CS-5a the case
-#: page consults in place (``consult_shirley_post``, D-CS-B-110); the
-#: ``/assistants?case=<id>`` deep link is kept (D-CS-B-110) and the frame still
-#: carries it as ``consult_shirley_href``, though the page's action no longer
-#: renders it.
-CONSULT_SHIRLEY_URL: str = "/assistants"
-
-#: The in-place hand-off the case page's *Consult Shirley* posts to — the
-#: chat surface's ``DISCUSS_CASE_URL``, written literally for the reason above.
+#: The in-place hand-off the case page's *Consult Shirley* posts to (ADR-0107
+#: C6, D-CS-B-110) — the chat surface's ``DISCUSS_CASE_URL``, written literally
+#: rather than imported from ``chat.py``: ``chat.py`` reuses this module's name
+#: resolution for the case brief, so it imports *this* module — importing the
+#: URL back would close an import cycle. The ``/assistants?case=<id>`` deep
+#: link is the assistants surface's own (``web/routes/areas.py``).
 CONSULT_SHIRLEY_POST_URL: str = "/chat/brief/case/{case_id}"
 
 #: The dock's *Make this a case* form (D-CS-B-126). ``chat.py`` renders it from
@@ -432,6 +426,10 @@ def _sanitise_filename(raw: str | None) -> str:
 def _file_extension(filename: str) -> str:
     """Return the lower-cased extension of ``filename`` without the dot."""
     return pathlib.PurePosixPath(filename).suffix.lower().lstrip(".")
+
+
+#: The one media type a download opens in the browser (``inline``); any other downloads.
+_PDF_MIME_TYPE: str = "application/pdf"
 
 
 def _sanitise_header_filename(name: str) -> str:
@@ -1058,20 +1056,38 @@ def _attachment_href(case_id: UUID, attachment_id: Any) -> str:
     return f"/api/cases/{case_id}/attachments/{attachment_id}"
 
 
-def _in_app_href(raw: Any) -> str | None:
-    """A generated document's source link, only when it is an in-app path (D-CS-B-98).
+def _source_href(raw: Any, *, case_id: UUID, investment_ids: Iterable[UUID]) -> str | None:
+    """A generated document's source link, only where it points (D-CS-B-98).
 
-    A path starting with one ``/`` — a case, an attachment download, an
-    investment. A protocol-relative ``//host`` (or ``/\\host``, which browsers
-    read the same), every absolute URL and any href carrying a control
-    character render as the plain label — a browser drops tabs and newlines
-    from a URL, so ``/<tab>/host`` would otherwise reach another host.
+    Kept only when the path is this case — ``/cases/{case_id}`` itself or
+    under it, a query or a fragment after it — or a **linked** investment,
+    ``/investments/{id}`` (or under it). Everything else renders the plain
+    label: another case, any other path, every absolute or protocol-relative
+    URL, a dot segment (``/cases/{case_id}/../{other}`` would reach another
+    case once the browser resolves it, ``%2e`` included), a backslash
+    (``/\\host`` reads as ``//host``) and any control character — a browser
+    drops tabs and newlines from a URL, so ``/<tab>/host`` would otherwise
+    reach another host.
     """
     if not isinstance(raw, str) or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
         return None
-    if not raw.startswith("/") or raw.startswith(("//", "/\\")):
+    if "\\" in raw:
         return None
-    return raw
+    path = re.split(r"[?#]", raw, maxsplit=1)[0]
+    segments = path.split("/")
+    if any(unquote(segment) in (".", "..") for segment in segments):
+        return None
+    if path == f"/cases/{case_id}" or path.startswith(f"/cases/{case_id}/"):
+        return raw
+    if len(segments) >= 3 and segments[:2] == ["", "investments"]:
+        investment_id = _parse_uuid(segments[2])
+        if (
+            investment_id is not None
+            and str(investment_id) == segments[2]
+            and investment_id in set(investment_ids)
+        ):
+            return raw
+    return None
 
 
 def _paragraphs(body: Any) -> list[str]:
@@ -1086,6 +1102,7 @@ def _project_kept_payload(
     *,
     case_id: UUID,
     attachment_id: UUID | None = None,
+    investment_ids: Iterable[UUID] = (),
 ) -> dict[str, Any]:
     """Project one artefact class's payload for ``_partials/cases_artifact.html``.
 
@@ -1100,7 +1117,7 @@ def _project_kept_payload(
     through untouched (ADR-0114); ``document_excerpt`` — the filename, the
     passage, the page and the download link (D-CS-B-97); and
     ``generated_document`` — the title, the body as paragraphs and the sources,
-    a source linked only when it is an in-app path (D-CS-B-98). Any other
+    a source linked only where it points (:func:`_source_href`). Any other
     class projects nothing, so the partial falls to its calm one-liner and the
     payload never leaks.
 
@@ -1110,6 +1127,8 @@ def _project_kept_payload(
         case_id: The case, for a document's download link.
         attachment_id: The kept row's attachment — an excerpt's payload
             carries none, and a document's falls back to it.
+        investment_ids: The case's linked investments, for a generated
+            document's ``/investments/…`` sources.
 
     Returns:
         The class's template keys.
@@ -1136,7 +1155,12 @@ def _project_kept_payload(
             "title": str(payload.get("title") or ""),
             "paragraphs": _paragraphs(payload.get("body")),
             "sources": [
-                {"label": str(source.get("label") or ""), "href": _in_app_href(source.get("href"))}
+                {
+                    "label": str(source.get("label") or ""),
+                    "href": _source_href(
+                        source.get("href"), case_id=case_id, investment_ids=investment_ids
+                    ),
+                }
                 for source in (sources if isinstance(sources, list) else [])
                 if isinstance(source, dict)
             ],
@@ -1499,6 +1523,16 @@ def _clock(moment: datetime) -> str:
     return f"{moment.astimezone(timezone.utc):%H:%M}"
 
 
+def _clock_or_day(moment: datetime, *, today: date) -> str:
+    """``HH:MM`` when ``moment`` falls on ``today`` (UTC), else ``dd Mon HH:MM``.
+
+    A review package can wait for days; its *Landed* / *Requested* time
+    carries its day once it is not today's.
+    """
+    utc = moment.astimezone(timezone.utc)
+    return f"{utc:%H:%M}" if utc.date() == today else f"{utc:%d %b %H:%M}"
+
+
 def _is_stale(stamp: Any, case: CaseDTO) -> bool:
     """Whether the client's stamp names another version than ``case`` (D-CS-B-45).
 
@@ -1678,6 +1712,18 @@ async def _frame_context(
     is_closed = case.state == "closed"
     is_mutable = case.state in _MUTABLE_STATES
     cfg = get_config()
+    outline = _outline(
+        case,
+        record_count=len(entries),
+        threads_count=threads_count,
+        figures_count=figures_count,
+        file_kept_count=file_kept_count,
+        conversations_count=conversations_count,
+        points_open=sum(1 for point in points if point.done_at is None),
+        points_total=len(points),
+        decision_label=decision_label,
+        proposals_count=proposals_count,
+    )
 
     return {
         "csrf_token": session.csrf_token,
@@ -1686,27 +1732,22 @@ async def _frame_context(
         "is_open": is_open,
         "is_mutable": is_mutable,
         "stamp": case.updated_at.isoformat(),
-        "section_names": _SECTION_NAMES,
-        "saved_label": "",
-        "outline": _outline(
-            case,
-            record_count=len(entries),
-            threads_count=threads_count,
-            figures_count=figures_count,
-            file_kept_count=file_kept_count,
-            conversations_count=conversations_count,
-            points_open=sum(1 for point in points if point.done_at is None),
-            points_total=len(points),
-            decision_label=decision_label,
-            proposals_count=proposals_count,
+        # The sections whose block renders (not a hidden placeholder): the
+        # stamps go to these only, so no out-of-band input misses its target.
+        "visible_sections": tuple(
+            entry["name"]
+            for entry in outline
+            if entry["name"] in _SECTION_NAMES and not entry["empty"]
         ),
+        "saved_label": "",
+        "outline": outline,
         # The origin finding fact (text only), when present.
         "linked_finding": (
             {"subject_key": finding.subject_key, "band": finding.band}
             if finding is not None
             else None
         ),
-        "linked_label": f"{links_count} investments · {attachments_count} documents",
+        "linked_label": f"{links_count} investments · {attachments_count} uploads",
         # Attachments · N of {cap}: shown when N > 0 or the case is mutable.
         "attachments_count": attachments_count,
         "attachments_cap": cfg.case_attachment_max_count,
@@ -1715,12 +1756,10 @@ async def _frame_context(
         "journal_href": JOURNAL_DEEP_LINK if is_closed else None,
         # "Capture scenario" (ADR-0107 C5) — open and waiting cases (D-CS-B-76),
         # a plain link carrying the case as its marker. "Consult Shirley" posts
-        # in place (consult_shirley_post, D-CS-B-110); its ``?case=`` deep link
-        # is kept in the context (D-CS-B-110).
+        # in place (consult_shirley_post, D-CS-B-110).
         "capture_scenario_href": (
             f"{PLANNING_DESK_AREA_URL}?case={case.id}" if is_mutable else None
         ),
-        "consult_shirley_href": (f"{CONSULT_SHIRLEY_URL}?case={case.id}" if is_mutable else None),
         "consult_shirley_post": (
             CONSULT_SHIRLEY_POST_URL.format(case_id=case.id) if is_mutable else None
         ),
@@ -2133,6 +2172,12 @@ _KEPT_DOCUMENT_CLASSES: frozenset[str] = frozenset({"document", "document_excerp
 _GENERATED_DOCUMENT: str = "generated_document"
 
 
+async def _linked_investment_ids(db_session: AsyncSession, case_id: UUID) -> set[UUID]:
+    """The investments linked to ``case_id`` — where a source may point (:func:`_source_href`)."""
+    links = await CaseInvestmentRepository(db_session).list_for_case(case_id)
+    return {link.investment_id for link in links}
+
+
 def _at_file_level(row: CaseKeptDTO, live_thread_ids: set[UUID]) -> bool:
     """Whether a live kept row sits at file level: no live thread holds it (D-CS-B-100).
 
@@ -2158,6 +2203,7 @@ def _project_kept_row(
     case_id: UUID | None = None,
     mutable: bool = False,
     readonly: bool = False,
+    investment_ids: Iterable[UUID] = (),
 ) -> dict[str, Any]:
     """One kept row for ``_partials/cases_kept_row.html`` (D-CS-B-90, D-CS-B-97…99, D-CS-B-105).
 
@@ -2182,6 +2228,8 @@ def _project_kept_row(
         mutable: Whether the case takes writes (open or waiting).
         readonly: A frozen file's row — no Remove, no Edit, its hook
             ``frozen-kept`` and no element id (the live row owns it).
+        investment_ids: The case's linked investments, for a generated
+            document's sources (:func:`_source_href`).
 
     Returns:
         ``{id, artifact, caption, chip, kept_by, readonly, actions, art}``.
@@ -2196,7 +2244,11 @@ def _project_kept_row(
         "label": label,
         "kept_caption": row.caption or "",
         **_project_kept_payload(
-            row.artifact, payload, case_id=owner_case, attachment_id=row.attachment_id
+            row.artifact,
+            payload,
+            case_id=owner_case,
+            attachment_id=row.attachment_id,
+            investment_ids=investment_ids,
         ),
     }
     caption = row.caption or ""
@@ -2259,7 +2311,9 @@ async def _threads_context(
     ``kept``, the rows of *Kept in the file* are ``file_kept`` — every live
     row no live thread holds, a removed thread's among them (D-CS-B-100), but
     no ``document`` row: the file's documents are the question block's list
-    (D-CS-B-96). The ``kept_by`` names resolve in one batch. ``empty`` — the
+    (D-CS-B-96). The ``kept_by`` names resolve in one batch, and the linked
+    investments — a generated document's sources link only to those
+    (:func:`_source_href`) — only when such a row is kept. ``empty`` — the
     block hidden — is no thread *and* no row in the file group. ``oob`` is set
     when the block rides out of band (the attach route, D-CS-B-96).
     """
@@ -2268,12 +2322,17 @@ async def _threads_context(
     owner_names = await _resolve_owner_names(
         UserRepository(db_session), {row.kept_by for row in kept_rows}
     )
+    investment_ids: set[UUID] = set()
+    if any(row.artifact == _GENERATED_DOCUMENT for row in kept_rows):
+        investment_ids = await _linked_investment_ids(db_session, case.id)
     mutable = case.state in _MUTABLE_STATES
     live_thread_ids = {thread.id for thread in threads}
     kept_by_thread: dict[UUID, list[dict[str, Any]]] = {}
     file_kept: list[dict[str, Any]] = []
     for row in kept_rows:
-        projected = _project_kept_row(row, owner_names, case_id=case.id, mutable=mutable)
+        projected = _project_kept_row(
+            row, owner_names, case_id=case.id, mutable=mutable, investment_ids=investment_ids
+        )
         if row.thread_id is not None and row.thread_id in live_thread_ids:
             kept_by_thread.setdefault(row.thread_id, []).append(projected)
         elif _in_file_group(row, live_thread_ids):
@@ -2806,6 +2865,42 @@ async def _open_packages(db_session: AsyncSession, case: CaseDTO) -> list[CasePr
     ]
 
 
+#: The note a pending proposal item carries when its case closes under it.
+_DISCARDED_AT_CLOSE_NOTE: str = "discarded at close"
+
+
+async def _discard_pending_at_close(
+    db_session: AsyncSession, case_id: UUID, *, now: datetime
+) -> int:
+    """Discard every pending item of the case's open packages, before the close.
+
+    A closed case takes no acceptance and renders no review block (D-CS-M-9),
+    so a package still pending at the close would stay unresolved for good.
+    Each pending item resolves ``discarded`` with the note *discarded at
+    close*; a package resolves with its last item. Runs in the close's own
+    transaction, before :meth:`CaseRepository.close` (``resolve_item`` refuses
+    a closed case). A package requested but never landed holds no item and
+    stays as it is.
+
+    Returns:
+        The number of items discarded.
+    """
+    repo = CaseProposalRepository(db_session)
+    discarded = 0
+    for package in await repo.list_for_case(case_id, open_only=True):
+        for index, item in enumerate(package.items):
+            if _is_pending(item):
+                await repo.resolve_item(
+                    package.id,
+                    index=index,
+                    status="discarded",
+                    now=now,
+                    note=_DISCARDED_AT_CLOSE_NOTE,
+                )
+                discarded += 1
+    return discarded
+
+
 async def _proposals_context(db_session: AsyncSession, case: CaseDTO) -> dict[str, Any]:
     """The review block (D-CS-B-124): ``{packages[{id, landed_label, requested_label,
     request_text, items[{index, kind, headline, why, target, field_name, field_value,
@@ -2814,11 +2909,14 @@ async def _proposals_context(db_session: AsyncSession, case: CaseDTO) -> dict[st
 
     One package per open package (:func:`_open_packages`), its **pending**
     items only, each with its index in the package — the value its checkbox
-    posts and the key of its edit field (``field_<index>_<name>``). ``empty``
-    hides the block; ``note`` (a thread gone at acceptance) is set by the
-    write route and keeps it visible until the next render.
+    posts and the key of its edit field (``field_<index>_<name>``). The lead
+    reads *Landed HH:MM* / *Requested HH:MM* today and with the day before
+    (:func:`_clock_or_day`). ``empty`` hides the block; ``note`` (a thread
+    gone at acceptance) is set by the write route and keeps it visible until
+    the next render.
     """
     packages: list[dict[str, Any]] = []
+    today = _now().date()
     for row in await _open_packages(db_session, case):
         items = [
             projected
@@ -2833,10 +2931,12 @@ async def _proposals_context(db_session: AsyncSession, case: CaseDTO) -> dict[st
             {
                 "id": str(row.id),
                 "landed_label": (
-                    f"Landed {_clock(landed)} — {count} {'item' if count == 1 else 'items'} "
-                    "to review"
+                    f"Landed {_clock_or_day(landed, today=today)} — "
+                    f"{count} {'item' if count == 1 else 'items'} to review"
                 ),
-                "requested_label": f"Requested {_clock(row.requested_at)} from the dock:",
+                "requested_label": (
+                    f"Requested {_clock_or_day(row.requested_at, today=today)} from the dock:"
+                ),
                 "request_text": row.request_text,
                 "items": items,
                 "pending_count": count,
@@ -2926,12 +3026,11 @@ async def load_case_file_context(
     """The sub-surface context: the frame plus every section's block context.
 
     The frame (:func:`_frame_context`): ``csrf_token``, ``case_id``, ``head``,
-    ``is_open``, ``is_mutable``, ``stamp``, ``section_names``,
+    ``is_open``, ``is_mutable``, ``stamp``, ``visible_sections``,
     ``saved_label`` (empty on the first render), ``outline``,
     ``linked_finding``, ``linked_label``, ``attachments_count`` /
     ``attachments_cap`` / ``show_attachments``, ``journal_href``,
-    ``capture_scenario_href``, ``consult_shirley_href``,
-    ``consult_shirley_post``. Then one key per
+    ``capture_scenario_href``, ``consult_shirley_post``. Then one key per
     section (``question``, ``stand``, ``threads``, ``figures``,
     ``conversations``, ``points``, ``decision``), the review block
     (``proposals``) and the ``record`` from :func:`load_section_context`.
@@ -5181,8 +5280,9 @@ async def download_case_attachment(
     simply not found); the attachment must also belong to ``case_id`` — a
     mismatch is a 404 with no disclosure. Reading is never gated on state, so
     downloads work on closed cases. The stored ``mime_type`` is the media type;
-    the filename is sanitised for the ``Content-Disposition`` header only (the
-    stored value is left untouched in the DB).
+    a PDF opens in the browser (``Content-Disposition: inline``), any other
+    type downloads (``attachment``). The filename is sanitised for the header
+    only (the stored value is left untouched in the DB).
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
@@ -5195,10 +5295,11 @@ async def download_case_attachment(
         )
     meta, content = result
     header_name = _sanitise_header_filename(meta.filename)
+    disposition = "inline" if meta.mime_type == _PDF_MIME_TYPE else "attachment"
     return Response(
         content=content,
         media_type=meta.mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{header_name}"'},
+        headers={"Content-Disposition": f'{disposition}; filename="{header_name}"'},
     )
 
 
@@ -5426,10 +5527,12 @@ async def post_case_close(
     ``lift_wait(reason='manual')`` at ``t1``, then ``close`` at
     ``t2 = max(now, t1 + 1 µs)`` — two milestones at two distinct instants,
     each frozen with the one freeze. A case the program lifted meanwhile is
-    simply closed. The response carries an ``HX-Redirect`` back to the case
-    so the page re-renders closed — state chip, closed metadata, closing
-    note, no actions, no composers. **No Journal write** — the Journal's
-    closed-case projection reads the closed case (ADR-0107 C4).
+    simply closed. On both paths every pending proposal item is discarded
+    first, in the same transaction (:func:`_discard_pending_at_close`) — a
+    closed case reviews nothing. The response carries an ``HX-Redirect``
+    back to the case so the page re-renders closed — state chip, closed
+    metadata, closing note, no actions, no composers. **No Journal write** —
+    the Journal's closed-case projection reads the closed case (ADR-0107 C4).
     """
     clean_note = closing_note.strip()
     engine = _engine(request)
@@ -5463,6 +5566,7 @@ async def post_case_close(
                 )
             freeze = await _freeze_args(db, case)
             now = _now()
+            await _discard_pending_at_close(db, case_id, now=now)
             if case.state == "waiting":
                 try:
                     await repo.lift_wait(
@@ -5554,17 +5658,20 @@ def _accepted_value(form: Any, index: int, item: dict[str, Any]) -> str:
     return text if kind in _PROPOSAL_MULTILINE_KINDS else " ".join(text.split())
 
 
-def _accepted_sources(raw: Any) -> list[dict[str, str]]:
-    """A generated document's sources as kept: a label, and an in-app href only (D-CS-B-98).
+def _accepted_sources(
+    raw: Any, *, case_id: UUID, investment_ids: set[UUID]
+) -> list[dict[str, str]]:
+    """A generated document's sources as kept: a label, and an href only where it points.
 
-    The 4b rule (:func:`_in_app_href`): an absolute, protocol-relative or
-    control-character href is dropped and the source stays a plain label.
+    The rule of :func:`_source_href` (D-CS-B-98): an href into this case or
+    a linked investment is kept; any other is dropped and the source stays a
+    plain label.
     """
     sources: list[dict[str, str]] = []
     for entry in raw if isinstance(raw, list) else []:
         if not isinstance(entry, dict):
             continue
-        href = _in_app_href(entry.get("href"))
+        href = _source_href(entry.get("href"), case_id=case_id, investment_ids=investment_ids)
         label = str(entry.get("label") or "").strip()
         if not label:
             if href is None:
@@ -5648,7 +5755,11 @@ async def _accept_item(
         payload={
             "title": title,
             "body": value,
-            "sources": _accepted_sources(fields.get("sources")),
+            "sources": _accepted_sources(
+                fields.get("sources"),
+                case_id=case.id,
+                investment_ids=await _linked_investment_ids(db, case.id),
+            ),
         },
         kept_by=kept_by,
         via="proposal",
@@ -5850,7 +5961,11 @@ def _snapshot_refs(refs: Any) -> list[dict[str, Any]]:
 
 
 async def _frozen_kept_rows(
-    db_session: AsyncSession, refs: Any, owner_names: dict[UUID, str]
+    db_session: AsyncSession,
+    refs: Any,
+    owner_names: dict[UUID, str],
+    *,
+    investment_ids: set[UUID],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """A snapshot's kept references rendered with their class anatomy (D-CS-B-101, D-CS-M-5).
 
@@ -5860,7 +5975,9 @@ async def _frozen_kept_rows(
     ``readonly`` — no Remove, no Edit — with the caption frozen in the
     reference; a ``generated_document`` renders the **payload frozen by
     value** in the reference, never the live row, so a later edit leaves the
-    frozen text alone (ADR-0138 §9). One ``get`` per reference.
+    frozen text alone (ADR-0138 §9); its sources link to the investments
+    linked at the freeze (``investment_ids``, :func:`_source_href`). One
+    ``get`` per reference.
 
     Returns:
         ``(rows, missing)`` — the projected rows in stored order, and the
@@ -5883,7 +6000,9 @@ async def _frozen_kept_rows(
         frozen = replace(resolved, caption=ref.get("caption", resolved.caption))
         if frozen.artifact == _GENERATED_DOCUMENT and isinstance(ref.get("payload"), dict):
             frozen = replace(frozen, payload=ref["payload"])
-        rows.append(_project_kept_row(frozen, owner_names, readonly=True))
+        rows.append(
+            _project_kept_row(frozen, owner_names, readonly=True, investment_ids=investment_ids)
+        )
     return rows, missing
 
 
@@ -5953,6 +6072,14 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
         if user_id is not None
     }
     names = await _resolve_owner_names(UserRepository(db_session), user_ids)
+    frozen_investments = {
+        investment_id
+        for investment_id in (
+            _parse_uuid(link.get("investment_id"))
+            for link in _snapshot_rows(file_block, "investments")
+        )
+        if investment_id is not None
+    }
 
     subject_key: str | None = None
     finding_id = _parse_uuid(snap_case.get("finding_id"))
@@ -5963,7 +6090,9 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
 
     threads: list[dict[str, Any]] = []
     for thread in thread_rows:
-        thread_kept, thread_missing = await _frozen_kept_rows(db_session, thread.get("kept"), names)
+        thread_kept, thread_missing = await _frozen_kept_rows(
+            db_session, thread.get("kept"), names, investment_ids=frozen_investments
+        )
         threads.append(
             {
                 "title": str(thread.get("title") or ""),
@@ -5976,7 +6105,9 @@ async def _frozen_file_context(db_session: AsyncSession, frozen: CaseEntryDTO) -
                 "kept_missing": thread_missing,
             }
         )
-    file_kept, file_missing = await _frozen_kept_rows(db_session, file_block.get("kept"), names)
+    file_kept, file_missing = await _frozen_kept_rows(
+        db_session, file_block.get("kept"), names, investment_ids=frozen_investments
+    )
 
     figure_rows = _snapshot_rows(file_block, "figures")
     investment_names = await _investment_names(db_session, figure_rows, {})

@@ -614,11 +614,14 @@ from the voice messages of §8 and can be on without them.
 voice vendor** (ElevenLabs Agents in this version), which hosts the conversation layer
 and **retains conversation records on its side** under the tenant's own account. The
 conversation layer carries Shirley's persona and knows nothing about the book: every fact
-comes from one read-only tool, `ask_shirley`, which runs an ordinary Shirley turn inside
-the user's session and relays the answer; the agent cannot change anything. The call is a
-**per-tenant owner opt-in** on the Admin card below, with the tenant's own key — there is
-no deployment-wide switch and no `.env` key for it. The card states the compliance posture
-in one line and points here.
+comes from one tool, `ask_shirley`, which runs an ordinary Shirley turn inside the user's
+session and relays the answer. Since ADR-0138 the same tool may **add to an open case** on
+the user's request — a figure, a thread, an open point, a conversation note or a line of
+text — and Shirley says exactly what she added and to which case, so it can be corrected
+in the application; the agent cannot book, record a decision, close, hand over, edit or
+delete anything. The call is a **per-tenant owner opt-in** on the Admin card below, with
+the tenant's own key — there is no deployment-wide switch and no `.env` key for it. The
+card states the compliance posture in one line and points here.
 
 **Prerequisites** (ElevenLabs):
 

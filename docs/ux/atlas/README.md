@@ -85,7 +85,7 @@ variables the `super_admin` routes are skipped with the manifest reason
 |---|---|
 | `--bands 1200` | Also cut every shot into 1200 px slices (default 0, off) |
 | `--area transactions` | Restrict the run to one Area; repeatable |
-| `--scene cases-detail` | Run only the named scene; repeatable, combinable with `--area` |
+| `--scene cases-file` | Run only the named scene; repeatable, combinable with `--area` |
 | `--scenes-only` | Skip the route pass — the login and its confirmation still run |
 | `--no-scenes` | Route captures only |
 | `--viewport 390x844` | A different viewport — the mobile pass |
@@ -94,7 +94,7 @@ variables the `super_admin` routes are skipped with the manifest reason
 
 `--scene` and `--scenes-only` exist for the moment after a run, when one
 scene failed and the fix is a tenant bootstrap or a selector: `--scene
-cases-detail --scenes-only` re-runs that scene alone in seconds instead
+cases-file --scenes-only` re-runs that scene alone in seconds instead
 of photographing every route again. A name the scenes file does not
 carry exits `2` before any browser starts and lists the names it does
 carry, so a typo costs nothing; a name that exists in another Area than
@@ -341,11 +341,13 @@ verb:
 | `ensure` | `{"ensure": {"selector": "…", "steps": […]}}` | Run the nested steps only when the selector is absent, then let the page settle |
 
 `ensure` exists so a scene can **seed once and reuse thereafter**. The
-five Cases scenes each need a case to open; before `ensure` each of them
-created its own "Atlas seed case", and every run left five more rows in
-the tenant. Now the creation sits inside an `ensure` on the seeded row,
-so a tenant that already carries the seed is left exactly as it is. The
-same verb opens a `<details>` disclosure only if it is still closed —
+six Cases scenes each need a case to open; before `ensure` each created
+its own "Atlas seed case", and every run left more rows in the tenant.
+Now the creation sits inside an `ensure` on the seeded row, so a tenant
+that already carries the seed is left exactly as it is. Three seeds serve
+the six scenes: *Atlas seed case* (open), *Atlas waiting case* (set
+waiting by the seed itself) and *Atlas closed case* (closed by the seed
+itself). The same verb opens a `<details>` disclosure only if it is still closed —
 clicking a summary that a template rendered `open` would shut it. The
 nested steps use the four plain verbs; an `ensure` inside an `ensure` is
 an error, raised whether or not the seed exists.
@@ -369,7 +371,8 @@ earlier run unattributable.
 
 A scene must never submit anything that books, saves, closes or deletes.
 Opening a panel, a dialog, an editor or a composer is the limit; the one
-write the file makes is the Cases seed, once per tenant.
+write the file makes is the Cases seed — three cases, one of them set
+waiting and one closed — once per tenant.
 
 ### Data a scene needs
 
@@ -392,7 +395,7 @@ data-dependent scenes, with their `note`:
 | `shirley-voice-panel` | Voice speech-to-text switched on for the tenant (ADR-0136 §4); a missing toggle is that switch, not a defect |
 | `investments-detail`, `-edit`, `-charts` | At least one investment |
 | `planning-desk-hypothetical-add` | At least one investment — without one the disclosure holds no form |
-| `cases-archive-search` | Nothing to pass; it shows hits only once a case titled "Atlas …" has been closed, and the no-match state otherwise |
+| `cases-list`, `cases-file`, `cases-file-waiting`, `cases-list-closed`, `cases-file-closed`, `cases-file-as` | Nothing to pass; each scene `ensure`s its own seed (above) |
 | `back-office-saa-asset-classes` | At least one SAA configuration — the empty state has no picker and no manage button |
 | `back-office-limits-set-detail` | At least one limit set in the Limit-Set History |
 
@@ -405,8 +408,10 @@ digest and is kept beside it.
   vendor session (ADR-0137) that costs money and needs a key. The call
   *button* is already in the `shirley-docked` frame whenever the tenant
   has calls switched on.
-- **The chat pin dialogs** (`chat_pin_dialog`, `chat_pin_chart_dialog`).
-  They need a completed Shirley turn — one LLM call per run.
+- **Keep's actions and picker, the proposals review block and *Make this
+  a case*** (`chat_keep_actions`, `chat_keep_picker`,
+  `cases_file_proposals`, `chat_case_draft`). Each needs a completed
+  Shirley turn or a one-shot call — one LLM call per run.
 - **The data-import preview.** It needs a file upload.
 - **Order and commitment outcomes, booking confirmations.** Reaching them
   is a write.

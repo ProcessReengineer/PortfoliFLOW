@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-11-02
+**Last updated:** 2026-11-09
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#094`.**
+  bucket and is never reused. **Next free ID: `#095`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -138,15 +138,22 @@ against, and what has shipped. It records no history — that lives in git and i
   Shirley briefed by the file, with case tools; linked investments,
   counterparty and tickets on the case; one Section with the case as its
   sub-surface. Documentation becomes a by-product of the work.
-- **Shipped so far:** nothing — the concept closed 2026-11-02; the record is
-  [`docs/concepts/cases-rework-concept.md`](concepts/cases-rework-concept.md),
-  the binding mockup M-CS-2 is kept outside the tree.
-- **Remaining:** the ADR-0107 successor, then the build in six strands (model
-  and states with migration b037; where we stand and system lines; the
-  Section; Keep and the two new kept classes; Shirley tools and proposals;
-  close-out). The former UX strand A-3 becomes this item's acceptance walk.
-- **ADR:** ADR-0107 successor (to be filed; ADR-0107, 0114 and 0120 stay as
-  built).
+- **Shipped so far:** everything of Round 1 — ADR-0138 filed and Accepted
+  (2026-11-02); the six strands built 2026-11-02 … 2026-11-09 in nineteen
+  Claude Code runs, two of them stopped correctly before writing and every
+  other one green on the first attempt: model and states (migration b037),
+  where we stand and system lines, the Section with the editable file and
+  its milestones, Keep with the two new kept classes, Shirley's brief and
+  four case tools, proposals; the hygiene pass P-CS-H1. Walk 1 (the file,
+  2026-11-05) and walk 2 (the dock loop, 2026-11-09) found no defect; the
+  walk-2 rulings are in. Documentation with P-CS-6a.
+- **Remaining:** the acceptance walk (the former UX strand A-3; the owner's
+  written answers to the ADR's two tests) and the release. After it, as its
+  own prompt: the `web/routes/cases.py` module split. Not in v1 by decision:
+  PDF export of the pack, the job runner (#089) and its progress strip,
+  configurable wake events, formulas in Figures, a seeded demo case.
+- **ADR:** ADR-0138 (ADR-0107, 0114 and 0120 stay as built; 0138 supersedes,
+  refines or confirms their clauses one by one).
 - **Depends on:** none. Feeds #089 (the case is where background jobs land).
 
 ---
@@ -491,7 +498,8 @@ per-user trust setting and an audit log.
 **#018 — Shirley: full app control.** Shirley operates every function of every
 Area through tools, never beyond what the user may do. Carries the remainder of
 #015: role-bound tool trust (ADR-0022 §4) only has a subject once Shirley has
-write tools — today none is registered.
+write tools — today one is registered, `case_add` (ADR-0138 §10), scoped to a
+case's working file and additive only.
 
 **#020 — Shirley: analysis reads, phase 2.** Deterministic read tools for the
 remaining surfaces a user sees — portfolio review, benchmark comparison,
@@ -571,6 +579,15 @@ book cannot answer today.
 **#093 — Look-through from GP reports.** Portfolio-company level extraction in
 the Report Scraper, so "the companies did well but the fund did not" can be
 checked against data instead of memory.
+
+**#094 — Document creation.** Composing, rendering — Markdown or richer —
+and exporting documents the PM keeps, generated or typed: a generated
+document in a case (#090's artefact), a committee paper, a memo, the PDF
+export path of #001. Today a generated document renders plain-text
+paragraphs because the tree has no Markdown renderer; the capability is one
+several places will come back to, so it is filed once here rather than in
+each of them. Owner decision of 2026-11-09 (walk 2 of the Cases build,
+relayed through DC-CS-B), not a build decision.
 
 ---
 

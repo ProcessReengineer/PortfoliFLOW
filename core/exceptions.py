@@ -423,19 +423,16 @@ class CaseClosedError(ValidationError):
 
 
 class CaseEntryKindInvalid(ValidationError):
-    """Raised when a timeline entry carries a kind outside the vocabulary.
+    """The vocabulary of a record entry's ``kind``, kept for its readers.
 
     Per ADR-0138 (§2, Object model) an entry's ``kind`` is one of
     ``opened`` / ``handed_over`` / ``waiting_set`` / ``waiting_lifted`` /
-    ``decision_record`` / ``closed`` / ``frozen`` / ``system_line``, with the
-    legacy ``note`` / ``pin`` still accepted until their last writer is
-    replaced. Also raised when a milestone-only kind (``closed``,
-    ``handed_over``, ``waiting_set``, ``waiting_lifted``) or ``frozen``
-    reaches
-    :meth:`~core.repositories.case_repository.CaseRepository.append_entry`:
-    those are written **only** by the milestone path, together with their
-    state or owner transition and the snapshot, so accepting them on the
-    generic append path would record a transition that never happened.
+    ``decision_record`` / ``closed`` / ``frozen`` / ``system_line``; the
+    legacy ``note`` / ``pin`` rows are read, never written (D-CS-M-7). Every
+    writer is the milestone path or ``add_system_line``, each of which knows
+    its own kind, so since P-CS-H1 retired ``append_entry`` nothing raises
+    this class; it stays as the vocabulary's name and the closed-vocabulary
+    shape :class:`CaseActorInvalid` mirrors.
     """
 
 

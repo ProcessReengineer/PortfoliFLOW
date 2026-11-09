@@ -115,7 +115,7 @@ Record §2, one rule per line, with the product's implementation beside it.
 
 | # | Rule | Implementation |
 |---|---|---|
-| 1 | Functional state is a dot plus a word, never a filled pill; never colour alone. | `.pf-state` with seven state modifiers plus `--dormant`; 16 templates. `--dormant` still has no user: the `auditor` role is its declared one, and an *approved* ticket is not dormant — the row acts on it. The Watch Desk needs twelve states the record does not name (calm, approaching, triggered, breach, critical, informational, nodata, muted, noteworthy, resolved, ok, warn); they are scoped in `watch_desk.css` under Q-UX-S-A6-1 until the record admits them. |
+| 1 | Functional state is a dot plus a word, never a filled pill; never colour alone. | `.pf-state` with seven state modifiers plus `--dormant`; 16 templates. `--dormant` still has no user: the `auditor` role is its declared one, and an *approved* ticket is not dormant — the row acts on it. The Watch Desk needs twelve states the record does not name (calm, approaching, triggered, breach, critical, informational, nodata, muted, noteworthy, resolved, ok, warn); they are scoped in `watch_desk.css` under Q-UX-S-A6-1 until the record admits them. Cases scopes seven more the same way in `cases.css` — the case's `open` · `waiting` · `closed`, a thread's `confirmed` · `parked` · `refuted` and a `pending` point — under Q-UX-S-CS-1, which is the same question. |
 | 2 | One note pattern, `pf-note`, in three tones, with an optional inline action and a `pf-more` disclosure. | `.pf-note--info` / `--warn` / `--block`; **25 templates**, the most-used family after `pf-btn`. The action slot is the third `auto` grid column — a **position, not a class**: a note with no action fills it with an empty `<span>`. The record should either bless the `pf-btn--quiet pf-btn--sm` that now sits there or grow a `pf-note__action`. There is no `--done` tone; `--info` plus `pf_icon("done")` stands in, which leaves `--ui-semantic-success` with no user. |
 | 3 | Service refusals are shown verbatim and first. | Rule stands; per-surface. |
 | 4 | Explanatory prose moves behind `pf-more`; internal identifiers leave visible copy. | `.pf-more`; 14 templates. The identifier half is measurable: moving the five flow codes out of the chooser's visible copy into `data-flow` took the Transactions **abbrev** finding from 13 to 3, and the Watch Desk's subject keys left every visible cell for a *Subject keys* disclosure per group and the row's `data-pf-wd-subject` companion (ADR-0133 §4). |
@@ -228,11 +228,12 @@ it; the rest is the cleanup. **Do not add to this block.**
 
 ## 4. Component catalogue
 
-`web/static/css/components/pf_components.css`, **66 `pf-` block names** —
+`web/static/css/components/pf_components.css`, **85 `pf-` block names** —
 50 transcribed whole from the record's `shared.css` onto `--ui-*` tokens in
-A0d, **nine added by strand A-1**, marked **A-1** below, and **seven by
-strand A-6**, marked **A-6**. Two rules govern the file: no colour literal,
-no `--pf-*` reference.
+A0d, **nine added by strand A-1**, marked **A-1** below, **seven by
+strand A-6**, marked **A-6**, and **19 by the Cases build** (P-CS-3d,
+P-CS-4b, P-CS-5c), marked **CS**. Two rules govern the file: no colour
+literal, no `--pf-*` reference.
 
 ```sh
 # the block names
@@ -256,7 +257,7 @@ certainly counting mentions in comments too.
 | Family | Modifiers | Serves | Users |
 |---|---|---|---|
 | `pf-btn` | `--primary`, `--quiet`, `--danger`, `--icon`, `--sm`, `[disabled]` | §2.3.1 | 41 |
-| `pf-table` | `__row`, `__slot`, `__sub`, `__unit`, `__chev`, `__actions`, `__id`, `__creating`, `pf-num`, `th[aria-sort]`, `td.pf-pos` / `.pf-neg` | §2.4.1–§2.4.7, §2.10.5 | 7 |
+| `pf-table` | `__row`, `__slot`, `__sub`, `__unit`, `__chev`, `__actions`, `__id`, `__creating`, `pf-num`, `th[aria-sort]`, `td.pf-pos` / `.pf-neg`, `__group` / `__group-note`, `__link`, `__older` (**CS**) | §2.4.1–§2.4.7, §2.10.5 | 7 |
 | `pf-panel` | `__head`, `__titles`, `__title`, `__sub`, `__foot`, `__chart` | §2.2.6, §2.3.4 | 9 |
 | `pf-menu` | `__list`, `__item`, `__item--danger` | §2.3.5 | 7 |
 | `pf-actionbar` | `__hint` | §2.3.4 | 9 |
@@ -305,6 +306,24 @@ certainly counting mentions in comments too.
 | **A-6** `pf-meter` | `__fill`, `__mark`, `--approaching`, `--breach` | §2.4.7 | 2 |
 | **A-6** `pf-popover` | `__title`, `__foot` | §2.2.6 | 1 |
 | **A-6** `pf-journal` | `__day`, `__time`, `__kind`, `__kind--briefing`, `__actor` | §2.10.5 | 1 |
+| **CS** `pf-src` | `--live`, `--typed`, `--doc`, `--kept`, `--call`, `--ext`, `--frozen` | ADR-0138 §2 (provenance on every figure and kept artefact), §6 | 4 |
+| **CS** `pf-toc` | `__n`, `__foot`, `.is-empty` | ADR-0138 §3 (the outline; empty sections grey with "+") | 1 |
+| **CS** `pf-blk` | `__head`, `__title`, `__sub`, `__tools`, `--empty` | ADR-0138 §3 (one titled block per section of the file) | 9 |
+| **CS** `pf-saved` | — | ADR-0138 §2 (the autosave stamp, D-CS-M-13) | 1 |
+| **CS** `pf-thread` | `__q`, `__meta`, `__body`, `__concl`, `__form`, `__tools` | ADR-0138 §3 (a Thread as a disclosure) | 1 |
+| **CS** `pf-kept` | `__head` | ADR-0138 §9 (a kept artefact: chip, title, actions) | 1 |
+| **CS** `pf-gen` | `__head`, `__body`, `__sources` | ADR-0138 §9 (`generated_document`) | 1 |
+| **CS** `pf-quote` | — | ADR-0138 §9 (`document_excerpt`, a consultation's words) | 1 |
+| **CS** `pf-conv` | `__when`, `__who`, `__text`, `__form`, `__tools` | ADR-0138 §3 (Conversations) | 1 |
+| **CS** `pf-checklist` | `__item`, `__mark`, `__text`, `__who`, `__due`, `__ticket`, `__form`, `.is-done`, `.is-soon` | ADR-0138 §3, §5 (Open points; a ticket from a point) | 1 |
+| **CS** `pf-addline` | `__main`, `--pair` | ADR-0138 §8 channel 1 (the add row at a block's foot) | 5 |
+| **CS** `pf-record` | `__row`, `__file` | ADR-0138 §2 (the record; "File as …" opens under its milestone) | 1 |
+| **CS** `pf-stand` | — | ADR-0138 §6, §12 (the list's "Where we stand" cell) | 1 |
+| **CS** `pf-due` | `.is-soon` | ADR-0138 §12 (the list's "Next · due") | 1 |
+| **CS** `pf-kind` | — | ADR-0138 §3 (`framing` as a small tag, D-CS-M-1) | 1 |
+| **CS** `pf-figtable` | `.is-pending` (on `pf-table`) | ADR-0138 §3 (Figures) | 3 |
+| **CS** `pf-inbox` | `__lead`, `__sub` | ADR-0138 §8 (what landed for review) | 1 |
+| **CS** `pf-proposals` / `pf-proposal` | `__foot`; `__title`, `__sub`, `__to` | ADR-0138 §8 (proposals accepted item by item) | 1 / 1 |
 
 **Two derivations use `color-mix`**, the only computed colours in the file:
 `.pf-input:hover` and `.pf-btn--danger`. Both keep a literal out of the sheet
@@ -329,18 +348,24 @@ item named `pf-stepper__step`. `pf-btn--danger` is not new; A-1 gave it its
 own names. The record's `pf-kv` exists here as **`pf-facts`** — a rename, not
 a gap.
 
+**The Cases blocks, and where they came from.** All were transcribed from
+M-CS-2's `<style>` block onto `--ui-*` tokens by P-CS-3d, in the A-6 manner —
+the mock's one colour literal (the external-source dot) resolved to the muted
+semantic token — and two arrived with the build itself: `pf-gen` (P-CS-4b, the
+generated document) and `pf-inbox` / `pf-proposals` (P-CS-5c, the review
+block). `pf-table` gained a group heading row, an older-page row and a title
+link for the Cases list. The Cases Section draws no family of its own:
+`cases.css` is scoped residue (§5, Q-UX-S-CS-1…7 below).
+
 **The seven A-6 blocks, and where they came from.** All seven were transcribed
 from M-WD-1 v2's `<style>` block onto `--ui-*` tokens, with the mockup's
 colour literals resolved to the semantic tokens and the ring's strokes moved
 from the SVG's attributes into `pf-fresh__track` / `__arc` / `__dot`.
 `pf-journal` carries only the row's cells — the rows themselves are
-`pf-table`'s own `<tr>`. `pf-chip` **collides with a Cases class of the same
-name**: `cases_open.html` draws its two filter chips as `pf-chip` under
-`.pf-cases .pf-chip` rules in `cases.css` (`:72`, `:83`, `:88`), which
-out-specify the shared family for border, radius, padding and colour but not
-for `display`, `height` and `gap`; the chips read the same as before, and
-strand A-3 renames or adopts them. The §4 count of `pf-chip` users (2) includes
-that homonym.
+`pf-table`'s own `<tr>`. `pf-chip` **no longer has a homonym**: the Cases
+filter chips that shared its name under `.pf-cases .pf-chip` rules went with
+P-CS-3d; the list's *Mine* is a `pf-chip` of the shared family and the §4
+count of `pf-chip` users is the shared family's alone.
 
 **`pf-mono` is not on that list, because it is not a family.** The record names
 none, and five elements want the mono stack: `#tx-id-value`, `#tx-id-figi`,
@@ -360,7 +385,7 @@ rather than an input; and the gap between a note and a filter bar. One
 constraint is the family's own rather than a scoped rule and is recorded here
 because it bites: **`pf-choice__figure` sets `white-space: nowrap`** — right
 for the projected balance the record put there, wrong for the sentence a scope
-option puts there. The Watch Desk registers **35 rules in five groups** (`watch_desk.css`): the twelve `pf-state` states (Q-UX-S-A6-1); the Briefing's stack gaps and the standing note's measure (Q-6, Q-9); the watch list's page-rendered slot and its closed look, a triggered signal meter and a nested table's room (Q-10, Q-14, Q-15); the Watch points' pending row, the R7 acts in a `pf-note`, a `pf-popover` holding a form, a `pf-check` in its foot, `pf-more` as a container and the retire row's closed look (Q-20 … Q-24, Q-10); the Journal's prose in a slot, a note and a `pf-seg` in `pf-filters`, and the reading measure with a scroll for long prose (Q-26, Q-27, Q-31). Each rule's comment names its question.
+option puts there. The Watch Desk registers **35 rules in five groups** (`watch_desk.css`): the twelve `pf-state` states (Q-UX-S-A6-1); the Briefing's stack gaps and the standing note's measure (Q-6, Q-9); the watch list's page-rendered slot and its closed look, a triggered signal meter and a nested table's room (Q-10, Q-14, Q-15); the Watch points' pending row, the R7 acts in a `pf-note`, a `pf-popover` holding a form, a `pf-check` in its foot, `pf-more` as a container and the retire row's closed look (Q-20 … Q-24, Q-10); the Journal's prose in a slot, a note and a `pf-seg` in `pf-filters`, and the reading measure with a scroll for long prose (Q-26, Q-27, Q-31). Each rule's comment names its question. The Cases Section registers its residue the same way (`cases.css`, scoped `.pf-cases`, one rule per line, pinned by `test_pf_components.py`): the case and thread states of `pf-state` (open · waiting · closed; open · confirmed · parked · refuted; pending — Q-UX-S-CS-1, the same question as Q-UX-S-A6-1) and the originating finding's band and resolution tones on `pf-state`; the list's cell alignment (Q-UX-S-CS-2); the file's frame and outline measurements (Q-UX-S-CS-3); prose typed in place and the Decision's options (Q-UX-S-CS-4); the frozen file's read-only posture (Q-UX-S-CS-5); the origin embed and the mono helper (Q-UX-S-CS-6); the Record's timeline, which stays for the legacy `b031` rows (D-CS-M-7); and the composer frame the five milestone composers and the New-case form share (Q-UX-S-CS-7, for the acceptance walk). Each group's comment names what retires it.
 
 ---
 
@@ -389,9 +414,7 @@ These are decided, not open. Each names why.
    below the minimum the layout answers for and is the **nav auto-collapse's**
    to fix (§2.2.1, strand A-5). Declaring the container, the twelve rules and
    the nav collapse is one piece of work, not three.
-5. **Cases scopes the button family.** `components/cases.css` carries
-   `.pf-cases .pf-btn` rules that out-specify the global family — strand A-3
-   removes them.
+5. **Cases scopes the button family.** — **Closed with P-CS-3d** (2026-11-03): `cases.css` carries no `.pf-cases .pf-btn` rule; the Section draws the global family.
 6. **`/chat/dock` is loaded lazily**, once per page life, rather than
    rendered into every Area page: inline it would cost two tenant-scoped
    reads on every render of all nine Areas.
@@ -415,14 +438,8 @@ These are decided, not open. Each names why.
     component vocabulary, so the login card keeps its own; the exemption is
     explicit and budgeted at exactly one, in
     `tests/web/test_css_tokens.py:44`.
-14. **Cases' band and resolution tags live in `cases.css` as `pf-dc-band-tag`
-    / `pf-dc-res-tag`** — the last two classes of the retired `pf-dc` vocabulary,
-    moved there from `watch_desk.css` with A-6 (scoped `.pf-cases`) because the
-    case detail and its origin embed still draw them. Strand A-3 retires them
-    onto `pf-state`.
-15. **`pf-chip` is a homonym** — the shared watch-strip chip and Cases' filter
-    chip share the name (§4). Cases' scoped rules win where they disagree;
-    strand A-3 resolves it.
+14. **Cases' band and resolution tags live in `cases.css` as `pf-dc-band-tag` / `pf-dc-res-tag`** — **Closed with P-CS-3d**: both are `pf-state` now, dot plus word, in tones scoped under Q-UX-S-CS-1; no stylesheet defines a `pf-dc-` class (`test_pf_components.py` pins it).
+15. **`pf-chip` is a homonym** — **Closed with P-CS-3d**: the Cases filter chips and their scoped rules went with the Section rebuild; one `pf-chip` family remains (§4).
 
 ---
 

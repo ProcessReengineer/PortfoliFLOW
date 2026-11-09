@@ -1844,11 +1844,11 @@ def _js_function_body(text: str, open_brace: int) -> tuple[int, int]:
 def js_wrappers(text: str) -> dict[str, tuple[int, str, str]]:
     """Find the local helpers that wrap a call pattern around a URL parameter.
 
-    ``fetchJson(url, options)`` and ``appendPinButton(wrap, kind, url)`` are the
-    project's two idioms: the endpoint is literal at the *call site*, and the
-    call pattern lives one level down in the helper. Without this, a 910-line
-    script contributes one unresolvable row instead of the seven endpoints it
-    actually calls.
+    ``fetchJson(url, options)`` (and, until P-CS-4a retired the pin buttons,
+    ``appendPinButton(wrap, kind, url)``) is the project's idiom: the endpoint
+    is literal at the *call site*, and the call pattern lives one level down in
+    the helper. Without this, a 910-line script contributes one unresolvable
+    row instead of the seven endpoints it actually calls.
 
     Returns:
         ``{name: (url_parameter_index, kind, fixed_verb)}``.

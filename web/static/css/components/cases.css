@@ -11,7 +11,7 @@
  * (`/cases`, `/cases/{id}`) and has no page of its own to style; the Area's
  * overrides of the button family and of the filter chip, and the band and
  * resolution tags of the retired `pf-dc` vocabulary, left with P-CS-3d
- * (ui-standards §5 items 5, 15 and 14; P-CS-6a's docs pass closes them).
+ * (ui-standards §5 items 5, 14 and 15, closed with P-CS-6a).
  * Geometry no token carries stays literal, as in pf_components.css. */
 
 /* --- Scoped residue: Cases states of the shared pf-state family ---------------
@@ -184,11 +184,11 @@
 .pf-cases .pf-closing p { margin: 0; color: var(--ui-text-secondary); }
 
 /* --- Scoped residue: the composer frame (ADR-0107 C3b, P-CS-3a, P-CS-3c2) -----
- * Retired by P-CS-6a's hygiene pass or the record question Q-UX-S-CS-7 the
- * acceptance walk may raise: the five composers that open in the file's slot
- * and the New-case form share one framed panel; pf-cases__field* is the close
- * composer's alone since the pin composer went (P-CS-4a). The empty slot takes
- * no gap in the head. */
+ * Retired when the record names a shared panel family for composers in a slot
+ * (record question Q-UX-S-CS-7, for the acceptance walk): the five composers
+ * that open in the file's slot and the New-case form share one framed panel;
+ * pf-cases__field* is the close composer's alone since the pin composer went
+ * (P-CS-4a). The empty slot takes no gap in the head. */
 .pf-cases .pf-case-composer-slot:empty { display: none; }
 .pf-cases .pf-case-composer, .pf-cases .pf-cases__new-form { display: flex; flex-direction: column; gap: var(--ui-space-3); padding: var(--ui-space-4); border: 1px solid var(--ui-border-default); border-radius: var(--ui-radius-sm); background: var(--ui-background-section); }
 .pf-cases .pf-case-composer--close { border-left: 3px solid var(--ui-accent-primary); }

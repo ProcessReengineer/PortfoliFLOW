@@ -83,7 +83,7 @@ scenes; a name the scenes file does not carry, or one outside the selected
 Areas, exits 2 before any browser starts, so a typo costs no login.
 ``--scenes-only`` skips the route pass — the login and its confirmation still
 run — which together re-run one failed scene in seconds:
-``python tools/ux_atlas.py --scene cases-detail --scenes-only``.
+``python tools/ux_atlas.py --scene cases-file --scenes-only``.
 
 Sections
 --------
@@ -1813,9 +1813,9 @@ def apply_ensure(page: Page, spec: dict[str, Any]) -> None:
     """Run an ``ensure`` step: its nested steps, but only when its selector is absent.
 
     The verb exists so a scene can seed a record once and reuse it on every
-    later run — the five Cases scenes share one "Atlas seed case" instead of
-    each adding a row per run. A tenant that already carries the seed is left
-    exactly as it is.
+    later run — the six Cases scenes share three seeds (an open, a waiting and
+    a closed "Atlas … case") instead of each adding a row per run. A tenant
+    that already carries the seed is left exactly as it is.
 
     The nesting check runs before the selector is looked up, so a malformed
     scene fails the same way whether or not the seed happens to exist.

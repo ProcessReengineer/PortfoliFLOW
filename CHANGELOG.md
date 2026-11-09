@@ -7,6 +7,67 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ## [Unreleased]
 
+### Added
+
+- Cases is a working file (ADR-0138, roadmap #078). A case is a question or
+  task about the book kept open longer than one conversation: a structured,
+  autosaved file — the question or task, where we stand, threads, figures
+  with provenance, conversations, open points, decision — over the
+  append-only record, which is written only at milestones (opened · handed
+  over · waiting set and lifted · decision recorded · closed) and freezes the
+  whole file each time; "File as …" on a milestone reopens that frozen
+  state read-only, and a closed case reads exactly as it was closed.
+- **Where we stand** is composed at render time from the book, the Watch
+  Desk and Transactions — the subject now against at opening, linked
+  investments with live figures, the counterparty's other funds in the book,
+  FX at opening and now, the case's tickets — and is never stored; on a
+  closed case it reads "At close" from the last freeze. The program writes
+  **system lines** into the record: a finding's subject back within its
+  ceiling, a NAV restated, a ticket booked against the case, a Shirley job
+  requested and landed.
+- A case may **wait** until a date, and wakes on the first tick of that day
+  or earlier when the program notices something on its subject; the list
+  shows Open · Waiting · Closed · All, Mine and a search over titles, threads,
+  figures, conversations and decisions — never over attachment contents.
+  Hand-over to another user is a milestone; the decision records its
+  options and the chosen one, and a case may record more than one.
+- **Keep →** on every Shirley answer and chart and on the Planning Desk's
+  result writes it into the active thread or the file in one click; a second
+  click chooses another target. Two kept classes are new: a document excerpt
+  (passage · page · caption, with the upload) and a generated document
+  (Shirley's memo with its sources, editable in place once accepted). Every
+  kept row can be removed and the removal undone.
+- Shirley reads the file as her brief when docked on a case and has four case
+  tools: `list_cases`, `get_case`, `search_cases` (closed cases included —
+  the archive as institutional memory) and `case_add`, the platform's first
+  writing tool (ADR-0022 `WRITE_INTERNAL`): additive only, scoped to figure ·
+  thread · open point · conversation · a line of prose, every write a line in
+  the dock with Undo, locked for the turn after web research. From the dock,
+  **Summarise into the file** and **Make this a case** produce proposals the
+  user accepts item by item; nothing is written until accepted.
+- On a voice call Shirley can read cases and, on request, add to one — and
+  says what she added and to which case (call addendum rule 4). The call
+  prompt changed with it, so the vendor agent is re-provisioned by hash at
+  the next call start.
+
+### Changed
+
+- Cases is one Section: the list with its filters, and the case as a
+  sub-surface inside the shell (`‹ Cases › CASE-nnnn`, outline left, file
+  middle, Shirley docked right). *Recently closed* and *Archive* are the
+  Closed filter.
+- Legacy record rows of kind `note` and `pin` are read and rendered as before
+  and are never migrated (D-CS-M-7); nothing writes them any more. Documents
+  attached before this release are listed from the Record and can be kept
+  into the file again from the attach composer.
+
+### Removed
+
+- The pin dialogs in the chat and on the Planning Desk, the pin-document
+  composer and the note and decision composers of the former case detail
+  page; their routes are gone. The former stand-alone case page
+  (`cases_detail.html`) and the three list sections.
+
 ## [2026.10.1] — 2026-10-27
 
 ### Added

@@ -45,8 +45,8 @@ Since P-UX-2 the catalogue feeds a third consumer: the rendered
 gone and a title is declared exactly once. The guard below
 (``test_body_partials_carry_no_title_literals``) keeps them gone; the
 unit tests at the end of this module pin the helper itself, including
-the pair-keyed lookup that ``providers-credentials`` — a slug shared
-by ``admin`` and ``assistants`` — requires.
+the pair-keyed lookup: a slug resolves only inside the area that
+lists it.
 
 If this guard goes red, the fix is to reconcile ``_SECTIONS_BY_AREA``
 with the body partial (or vice versa) so the two agree.
@@ -209,16 +209,18 @@ def test_section_title_resolves_a_catalogue_pair() -> None:
 
 
 def test_section_title_is_keyed_on_the_pair_not_the_slug() -> None:
-    """``providers-credentials`` lives in two areas and must stay distinct.
+    """A slug resolves only inside the area that lists it.
 
-    Both owning areas resolve it; a third area does not. A helper
-    reduced to a slug-only scan would answer for ``transactions`` too,
-    and this test would fail — which is the point.
+    ``providers-credentials`` is an Admin section. Assistants carried a
+    pointer under the same slug until P-GP-6 retired it, so it is the
+    natural probe: a helper reduced to a slug-only scan would still
+    answer for ``assistants`` and ``transactions``, and this test would
+    fail — which is the point.
     """
     assert section_title("admin", "providers-credentials") == "Providers & Credentials"
-    assert section_title("assistants", "providers-credentials") == "Providers & Credentials"
-    with pytest.raises(LookupError):
-        section_title("transactions", "providers-credentials")
+    for other_area in ("assistants", "transactions"):
+        with pytest.raises(LookupError):
+            section_title(other_area, "providers-credentials")
 
 
 def test_section_title_raises_for_an_unknown_pair() -> None:

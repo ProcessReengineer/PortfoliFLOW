@@ -2444,8 +2444,8 @@ def propagate(
       ``{% include %}``, but its links into the nine Areas propagate nothing:
       the sidebar links to every Area without owning any of them.
     * A plain ``href`` never propagates into another whole page — neither one
-      the URL space already places in an Area (Assistants' pointer at
-      ``/admin#providers-credentials`` leaves Admin alone) nor a full-page
+      the URL space already places in an Area (a pointer in one Area's body at
+      another Area's ``/area#section`` leaves that Area alone) nor a full-page
       surface of its own (Admin's "Change investment settings" link leaves
       ``/investments`` to the ``investments`` surface). Linking to a page is
       navigation; only a link that pulls in a fragment is composition.

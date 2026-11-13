@@ -67,6 +67,9 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   composer and the note and decision composers of the former case detail
   page; their routes are gone. The former stand-alone case page
   (`cases_detail.html`) and the three list sections.
+- The **Providers & Credentials** entry under Assistants. It was a pointer to
+  Admin → Providers & Credentials and nothing else; the surface itself is
+  unchanged and lives under Admin.
 
 ## [2026.10.1] — 2026-10-27
 

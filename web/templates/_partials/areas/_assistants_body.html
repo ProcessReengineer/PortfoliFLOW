@@ -3,9 +3,8 @@
     <header class="pf-area__header">
         <h1 class="pf-area__title">Assistants</h1>
         <p class="pf-area__subtitle">
-            AI-powered automation — Shirley (the chat assistant),
-            report scraping for GP quarterly reports, and AI
-            configuration.
+            AI-powered automation — Shirley (the chat assistant) and
+            report scraping for GP quarterly reports.
         </p>
     </header>
 
@@ -23,11 +22,6 @@
 
     {% with section_slug="report-scraper",
             section_body_template="_partials/scraper_section_lazy.html" %}
-        {% include "areas/_section.html" %}
-    {% endwith %}
-
-    {% with section_slug="providers-credentials",
-            section_body='<p class="pf-section__placeholder">Provider credentials and AI configuration live under <a href="/admin#providers-credentials">Admin → Providers &amp; Credentials</a>.</p>' %}
         {% include "areas/_section.html" %}
     {% endwith %}
 </div>

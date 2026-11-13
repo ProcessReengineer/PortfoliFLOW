@@ -13,7 +13,7 @@ module pins is what is left behind:
 * The HTMX request branch (``HX-Request: true``) returns the area body
   fragment (no ``<html>`` wrapper) and carries neither the chat nor the
   shell's Shirley column: the hosts live outside ``#shell-main``.
-* The Providers & Credentials tile still points at Admin.
+* The Area carries no pointer at Admin's Providers & Credentials (P-GP-6).
 
 The conversation's own render is pinned by ``test_shirley_dock.py``; the
 "Model: …" status line has no assertions anywhere, because record §2.10.3
@@ -24,7 +24,6 @@ Providers & Credentials.
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -247,27 +246,27 @@ async def test_assistants_htmx_fragment_carries_neither_chat_nor_column(
     assert 'id="stage-chat-host"' not in body
 
 
-async def test_assistants_provider_credentials_section_links_to_admin(
+async def test_assistants_carries_no_providers_credentials_pointer(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """The pointer tile in Assistants points at the Admin surface.
+    """Assistants no longer points at Admin's Providers & Credentials.
 
-    Retitled with the tile when ADR-0112 §6 (strand F3) replaced the
-    ADR-0052 AI Settings surface with Providers & Credentials; the tile
-    itself is unchanged in kind — still a "moved" pointer, never a
-    second write surface.
+    The Area carried a "moved" pointer Section under the Admin slug since
+    ADR-0052; P-GP-6 retired it — a view that only sends the reader
+    elsewhere is not a view. The full-page render is checked, so the
+    sidebar's second level is covered along with the Area body.
     """
     _id, email, password = seeded_user
     client, _app = await web_client_factory(model="fake/model")
     await _login(client, email, password)
 
     response = await client.get("/assistants", follow_redirects=False)
+    assert response.status_code == 200
     body = response.text
-    # The Assistants providers-credentials tile redirects the operator
-    # to the live surface under Admin.
-    assert re.search(
-        r'<a href="/admin#providers-credentials">[^<]*Admin[^<]*'
-        r"Providers[^<]*Credentials[^<]*</a>",
-        body,
-    )
+    assert 'data-pf-section="providers-credentials"' not in body
+    assert 'data-pf-section-link="providers-credentials"' not in body
+    assert "/admin#providers-credentials" not in body
+    # The two Sections that remain.
+    assert 'data-pf-section="shirley"' in body
+    assert 'data-pf-section="report-scraper"' in body

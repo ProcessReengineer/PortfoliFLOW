@@ -213,9 +213,6 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
     "assistants": (
         SectionMeta(slug="shirley", title="Shirley"),
         SectionMeta(slug="report-scraper", title="Report Scraper"),
-        # A "moved" pointer tile, not a second surface — it follows the
-        # Admin slug so the two stay in step.
-        SectionMeta(slug="providers-credentials", title="Providers & Credentials"),
     ),
 }
 
@@ -288,9 +285,9 @@ def section_title(area_slug: str, section_slug: str) -> str:
     ``areas/_section.html`` renders its ``<h2>`` straight from the
     catalogue; the body partials no longer carry a title literal.
 
-    The lookup is keyed on the *pair* — ``providers-credentials``
-    exists under both ``admin`` and ``assistants``, so a slug-only
-    scan would be ambiguous.
+    The lookup is keyed on the *pair*: a slug is only unique within
+    its area, so a slug-only scan would answer for an area that does
+    not list the section.
 
     Args:
         area_slug: Area slug from :data:`_AREAS`.

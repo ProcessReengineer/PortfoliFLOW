@@ -152,6 +152,31 @@
     display: none;
 }
 
+/* The list never ends silently (P-GP-7). With the bar hidden (P-GP-3)
+ * nothing said that entries lay beyond the edge: Admin's fourteen rows do
+ * not fit a laptop-height window, and its last Section was taken to be
+ * missing. sidebar_overflow.js sets ``data-pf-overflow`` to ``below``,
+ * ``above`` or ``both`` while entries lie beyond that edge, and the nav
+ * fades out there. A mask on the scroll region itself — no overlay, no
+ * colour: ``black`` and ``transparent`` are mask alpha, not paint. */
+.pf-sidebar__nav[data-pf-overflow="below"] {
+    mask-image: linear-gradient(to bottom, black calc(100% - var(--ui-space-6)), transparent);
+}
+
+.pf-sidebar__nav[data-pf-overflow="above"] {
+    mask-image: linear-gradient(to bottom, transparent, black var(--ui-space-6));
+}
+
+.pf-sidebar__nav[data-pf-overflow="both"] {
+    mask-image: linear-gradient(
+        to bottom,
+        transparent,
+        black var(--ui-space-6),
+        black calc(100% - var(--ui-space-6)),
+        transparent
+    );
+}
+
 /* First level — one entry per Area. The label is allowed to wrap onto a
  * second line: "Investor Communication" does not fit the nav width on
  * one, and an ellipsis there reads as a defect (6F-2 polish loop). */

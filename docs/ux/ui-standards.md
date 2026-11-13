@@ -34,6 +34,7 @@ owns it. Values are never restated — they are generated from
 | Status bar | `web/templates/_partials/statusbar.html` | Area, tenant, source link, build id, config state. |
 | One section per view | `web/static/js/shell.js` | The only thing that moves the `hidden` attribute. A sub-surface that swaps into a hidden section hands it the **fragment** rather than touching `hidden`: the composer host carries `hx-on::after-swap` setting `location.hash = 'new'`, guarded both on the swap's own target (`afterSwap` bubbles, and every recalculation swaps inside the host) and on the hash it already holds (assigning the current hash fires no `hashchange`). |
 | The keyboard | `web/static/js/section_nav.js` | Ctrl K and Ctrl J, one file for the shell's shortcuts. |
+| The nav's overflow cue | `web/static/js/sidebar_overflow.js` | The only thing that writes `data-pf-overflow` on `.pf-sidebar__nav`. No request, no `hx-*`. |
 | Shirley's states | `web/static/js/shirley.js` | The only thing that writes `data-shirley`. |
 | Number entry | `core/decimal_input.py`, `web/templates/_partials/transactions/_readings.html` | R10's server-side parser — both notations, `Decimal` and never `float`, `None` for anything it cannot read — and the `pf-read` "Read as …" echo it feeds out of band beside each field. |
 
@@ -57,6 +58,7 @@ Record §2, one rule per line, with the product's implementation beside it.
 | 7 | Command search is a visible field in every view head; Ctrl K unchanged; shortcuts written "Ctrl K" and shown in the control's tooltip. | `areas/_section.html:49–50`, `aria-keyshortcuts="Control+K"` and a `<kbd>Ctrl K</kbd>`. The collapse to an icon below 994 px is not yet (§5, container queries). |
 | 8 | Long section titles wrap; no ellipsis. | `.pf-sidebar__section` sets `min-height` and `line-height`, never `white-space: nowrap`. |
 | 9 | The second level and the command search list only what the role can open. | `sections_for(area, is_tenant_owner=…)`; `owner_only` on the catalogue entry. |
+| 10 | The nav list never ends silently: while entries lie beyond an edge of the list, that edge fades. The scrollbar stays hidden. | `sidebar_overflow.js` sets `data-pf-overflow` (`below` · `above` · `both`); three `mask-image` rules in `layout.css`, `--ui-space-6` high (P-GP-7). |
 
 ### 2.2 Page anatomy
 

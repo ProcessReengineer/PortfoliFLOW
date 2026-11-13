@@ -60,6 +60,9 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
   and are never migrated (D-CS-M-7); nothing writes them any more. Documents
   attached before this release are listed from the Record and can be kept
   into the file again from the attach composer.
+- The sidebar's list fades at an edge while entries lie beyond it, so a list
+  longer than the window — Admin with its five Sections on a laptop screen —
+  no longer ends without a sign. The scrollbar stays hidden.
 
 ### Removed
 

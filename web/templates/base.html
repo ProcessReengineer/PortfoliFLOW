@@ -178,5 +178,8 @@
        hides the rest. Deferred, so it runs before HTMX processes the
        body — the sections it hides never fire their loaders. #}
     <script src="/static/js/shell.js" defer></script>
+    {# The sidebar's overflow cue (P-GP-7): fades the nav's edge while
+       entries lie beyond it. Order is not load-bearing. #}
+    <script src="/static/js/sidebar_overflow.js" defer></script>
 </body>
 </html>

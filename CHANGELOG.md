@@ -7,6 +7,8 @@ calendar versioning (`YYYY.MM.N`). Planned work is in
 
 ## [Unreleased]
 
+## [2026.11.0] — 2026-11-18
+
 ### Added
 
 - Cases is a working file (ADR-0138, roadmap #078). A case is a question or

@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-11-09
+**Last updated:** 2026-11-18
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -53,12 +53,12 @@ against, and what has shipped. It records no history — that lives in git and i
   Section per view, intent first, Shirley dockable in every view — and write the
   user manual on top of it.
 - **Shipped so far:** the shell, design tokens and component layer (A-0), the
-  Transactions Area as the pilot (A-1) and the Watch Desk on M-WD-1 v2 (A-6:
-  Briefing, Watch points, Journal; seven families added to the vocabulary).
-- **Remaining, in order:** A-2 Back Office, A-3 Cases (as the acceptance walk of
-  #078, which builds the Section on the pf vocabulary directly), A-4 Admin and
-  My settings, A-5 Front Office and the shell, A-7 Assistants; then the user
-  manual.
+  Transactions Area as the pilot (A-1), the Watch Desk on M-WD-1 v2 (A-6:
+  Briefing, Watch points, Journal; seven families added to the vocabulary) and
+  Cases (A-3: the Section built on the pf vocabulary by #078, accepted with it
+  on 2026-11-18).
+- **Remaining, in order:** A-2 Back Office, A-4 Admin and My settings, A-5
+  Front Office and the shell, A-7 Assistants; then the user manual.
 - **ADR:** ADR-0134 (Section as one view); conventions in
   [`docs/ux/ui-standards.md`](ux/ui-standards.md).
 - **Depends on:** none; A-6 shipped 2026-10-10 on #069.
@@ -125,36 +125,6 @@ against, and what has shipped. It records no history — that lives in git and i
 - **ADR:** ADR-0137.
 - **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
   user's turn waits visibly; #071 removes the wait.
-
-### #078 — Cases rework: the working file
-
-- **Purpose:** make Cases the place a portfolio manager wants to work in. A
-  case becomes a question or task about the book kept open longer than one
-  conversation: a structured, editable working file — the question, where we
-  stand (read live from the book, the Watch Desk and Transactions), threads,
-  figures with provenance, conversations, open points, decision — over the
-  existing append-only record, which is written only at milestones and freezes
-  the file each time. Waiting as a third state; Keep instead of pin dialogs;
-  Shirley briefed by the file, with case tools; linked investments,
-  counterparty and tickets on the case; one Section with the case as its
-  sub-surface. Documentation becomes a by-product of the work.
-- **Shipped so far:** everything of Round 1 — ADR-0138 filed and Accepted
-  (2026-11-02); the six strands built 2026-11-02 … 2026-11-09 in nineteen
-  Claude Code runs, two of them stopped correctly before writing and every
-  other one green on the first attempt: model and states (migration b037),
-  where we stand and system lines, the Section with the editable file and
-  its milestones, Keep with the two new kept classes, Shirley's brief and
-  four case tools, proposals; the hygiene pass P-CS-H1. Walk 1 (the file,
-  2026-11-05) and walk 2 (the dock loop, 2026-11-09) found no defect; the
-  walk-2 rulings are in. Documentation with P-CS-6a.
-- **Remaining:** the acceptance walk (the former UX strand A-3; the owner's
-  written answers to the ADR's two tests) and the release. After it, as its
-  own prompt: the `web/routes/cases.py` module split. Not in v1 by decision:
-  PDF export of the pack, the job runner (#089) and its progress strip,
-  configurable wake events, formulas in Figures, a seeded demo case.
-- **ADR:** ADR-0138 (ADR-0107, 0114 and 0120 stay as built; 0138 supersedes,
-  refines or confirms their clauses one by one).
-- **Depends on:** none. Feeds #089 (the case is where background jobs land).
 
 ---
 
@@ -413,7 +383,7 @@ against, and what has shipped. It records no history — that lives in git and i
   figures. No DMS semantics — no folders, versions or content-search surface;
   large sets go through an extraction pipeline (the Report Scraper is that
   pipeline for one document type).
-- **Depends on:** #083, #078.
+- **Depends on:** #083, #078 (shipped).
 
 ### #085 — Report Scraper: highlights and monthly reports
 
@@ -460,7 +430,7 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Remaining:** a job runner (the `ask_shirley` job of ADR-0137 is the seed)
   with the case as the inbox — progress line, result as a proposal package
   accepted item by item, system lines on request and landing.
-- **Depends on:** #071 (the lock), #078 (the landing place).
+- **Depends on:** #071 (the lock), #078 (shipped; the landing place).
 
 ### #090 — Generated briefing documents
 
@@ -469,7 +439,7 @@ against, and what has shipped. It records no history — that lives in git and i
   not exist.
 - **Remaining:** a generated-document artefact kept in a case, PM-editable
   after acceptance, with its sources; export to PDF over the #001 path.
-- **ADR:** ADR-0073 §5 for the export path. **Depends on:** #078, #085, #089.
+- **ADR:** ADR-0073 §5 for the export path. **Depends on:** #078 (shipped), #085, #089.
 
 ### #091 — Dictated conversation notes
 
@@ -477,7 +447,7 @@ against, and what has shipped. It records no history — that lives in git and i
   transcribes.
 - **Remaining:** dictate into a case's Conversations through the
   speech-to-text port; the transcript lands as a note draft the PM edits.
-- **ADR:** ADR-0136. **Depends on:** #078.
+- **ADR:** ADR-0136. **Depends on:** #078 (shipped).
 
 ---
 
@@ -550,6 +520,10 @@ credentialed Bloomberg variants.
 
 **Limits surface extras (from #019).** PDF export of the limits view and a
 drill-down from asset class to investments.
+
+**`cases.py` module split (from #078).** Split `web/routes/cases.py` — over
+6 000 lines after the Cases build — into route modules along the working
+file's sections; hygiene only, no behaviour change, its own prompt.
 
 **Course-hold assistance.** Irene assessing the consequences of a deviation
 against the plan; a thinking record in
@@ -643,6 +617,7 @@ relayed through DC-CS-B), not a build decision.
 | #059 | Per-tenant voice settings | ≤ 2026-08-16 | ADR-0118 |
 | #061 | Transactions | 2026-09-08 | ADR-0128 – ADR-0130 |
 | #069 | Watch Desk refinement: briefing artefact, watch-point scope, presets | 2026-10-12 | ADR-0133 |
+| #078 | Cases rework: the working file | 2026-11-18 | ADR-0138 |
 
 ---
 

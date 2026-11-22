@@ -1,6 +1,6 @@
 # ADR-0071: Persistent Analysis-Results Store — Run-Bound Results for Shirley
 
-- **Status:** Proposed (stub — to be expanded before implementation)
+- **Status:** Superseded by ADR-0139
 - **Date:** 2026-06-01
 - **Deciders:** PortfoliFLOW project owner
 - **Tags:** persistence, schema, scraper, shirley, tools, trust, multi-tenant, audit
@@ -101,3 +101,4 @@ retire the four in-memory DataStore tools on the web surface.
 | Date       | Author                     | Change                              |
 |------------|----------------------------|-------------------------------------|
 | 2026-06-01 | PortfoliFLOW project owner | Initial stub, status Proposed       |
+| 2026-11-22 | PortfoliFLOW project owner | Superseded by ADR-0139 (Reading Desk — Readings as the Institution's Reading Memory). The stub was never expanded; the store it reserved is decided there as the purpose-built `document_readings` table, and its six open questions are answered in ADR-0139 §12. |

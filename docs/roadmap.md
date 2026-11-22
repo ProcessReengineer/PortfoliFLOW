@@ -2,7 +2,7 @@
 
 **Status:** feature-complete since 2026-09-29 — refinement of the existing Areas;
 no new Areas and no wholly new functional areas.
-**Last updated:** 2026-11-18
+**Last updated:** 2026-11-22
 **Owner:** Soenke (ProcessReengineer)
 
 This is the steering document for PortfoliFLOW: what is being worked on, what
@@ -15,7 +15,7 @@ against, and what has shipped. It records no history — that lives in git and i
 **How to read it.**
 
 - Items carry a flat running number (`#001`, `#002`, …) that never encodes the
-  bucket and is never reused. **Next free ID: `#095`.**
+  bucket and is never reused. **Next free ID: `#098`.**
 - An ID sits in exactly one bucket. An item that shipped in part stays where its
   remaining scope is, and its block says what shipped; the Shipped record lists
   items with nothing left. Where a finished item left a separate remainder,
@@ -126,6 +126,28 @@ against, and what has shipped. It records no history — that lives in git and i
 - **Depends on:** #076 (shipped). Not blocked by #071 — a call behind another
   user's turn waits visibly; #071 removes the wait.
 
+### #095 — Reading Desk v1
+
+- **Purpose:** the Report Scraper answers once and forgets — a run's result
+  lives in memory and is gone on logout. The Reading Desk keeps what
+  PortfoliFLOW has read: one structured reading per document on a fund held
+  or directly related (a successor fund, a fund being followed) — head,
+  findings with page and confidence, a reading note — kept without the PDF,
+  found again by the PM, a deputy and Shirley, and removable.
+- **Remaining:** the whole build, in four strands. The foundation: the
+  `document_readings` store, extraction profiles per document type, bank
+  details never extracted, dedup, the writer. The surface: the Section
+  renamed Reading Desk with Read, Library and an owner-only Retention, the
+  reading detail, assignment and removal, a "Documents read" list on the
+  investment page. Shirley and Cases: three read tools, and Keep from a
+  reading into a case. Last and droppable: "Read" on a case attachment —
+  if dropped, it joins #083 and #084.
+- **ADR:** ADR-0139, which supersedes the ADR-0071 stub and amends ADR-0053;
+  decisions of record in
+  [`docs/concepts/reading-desk-concept.md`](concepts/reading-desk-concept.md).
+  The kept class for a quote gets an annex to ADR-0138.
+- **Depends on:** #002, #078 (both shipped).
+
 ---
 
 ## Next
@@ -157,13 +179,14 @@ against, and what has shipped. It records no history — that lives in git and i
 | 23 | #082 | Press review per investment or manager | ADR-0022, ADR-0023 |
 | 24 | #083 | Document input for Shirley | ADR-0022, ADR-0023 |
 | 25 | #084 | Reading room | — |
-| 26 | #085 | Report Scraper: highlights and monthly reports | ADR-0053 |
+| 26 | #085 | Reading Desk: monthly-letter profile | ADR-0139 |
 | 27 | #086 | Stated-vs-book performance reconciliation | — |
 | 28 | #087 | Prospective-commitment impact | ADR-0104 |
 | 29 | #088 | Hedge ratio and currency exposure per fund | — |
 | 30 | #089 | Background Shirley jobs landing in a case | — |
 | 31 | #090 | Generated briefing documents | ADR-0073 §5 |
 | 32 | #091 | Dictated conversation notes | ADR-0136 |
+| 33 | #096 | Reading Desk as a data source for the book | ADR-0139, ADR-0092 |
 
 ### #072 — Tenant and credential resolution in the bot and the AI core
 
@@ -385,14 +408,16 @@ against, and what has shipped. It records no history — that lives in git and i
   pipeline for one document type).
 - **Depends on:** #083, #078 (shipped).
 
-### #085 — Report Scraper: highlights and monthly reports
+### #085 — Reading Desk: monthly-letter profile
 
-- **Purpose:** the Scraper extracts keyword values with sources from one
-  quarterly PDF; it keeps no narrative highlights and is not tuned to monthly
-  letters.
-- **Remaining:** a highlights/summary output beside the values; monthly
-  cadence; a per-fund "last two months" read for #090.
-- **ADR:** ADR-0053.
+- **Purpose:** the Reading Desk's first profiles are the quarterly report,
+  the capital call or distribution notice, the pitch deck or PPM, and
+  "other" (#095); a monthly letter has no profile of its own. The narrative
+  highlights this item first asked for are taken up by the reading note of
+  #095.
+- **Remaining:** a monthly-letter profile beside the four; a per-fund "last
+  two months" read for #090.
+- **ADR:** ADR-0139 §3. **Depends on:** #095.
 
 ### #086 — Stated-vs-book performance reconciliation
 
@@ -449,17 +474,32 @@ against, and what has shipped. It records no history — that lives in git and i
   speech-to-text port; the transcript lands as a note draft the PM edits.
 - **ADR:** ADR-0136. **Depends on:** #078 (shipped).
 
+### #096 — Reading Desk as a data source for the book
+
+- **Purpose:** a reading holds the NAV and the cashflows a GP document
+  states, but nothing of it reaches the book — #095 writes no book table,
+  and the PM types the figures in by hand.
+- **Remaining:** taking a NAV or a cashflow from a reading into the book
+  with the PM's confirmation; provenance (`ingest_origin`), conflicts with
+  values already in the book, and precedence beside the Excel import, Yahoo
+  Finance and Bloomberg. Needs its own decision of record.
+- **ADR:** ADR-0139 (no book writes in v1); ADR-0092 for `ingest_origin`
+  and the Excel precedence. **Depends on:** #095.
+
 ---
 
 ## Ideas
 
 Unprioritised. One paragraph each; none is scheduled.
 
-**#003 — Due-diligence support.** A sibling of the Report Scraper on the same
-extraction backend for GP due-diligence documents (PPMs, LPA drafts): fund size,
-strategy, track record, key-person clauses. #083 and #084 take up the
-document-reading half; the DD-specific extraction (fund size, strategy, track
-record, key-person clauses) stays here.
+**#003 — Due-diligence support.** Real support for the due diligence of a
+prospective fund commitment (PPMs, LPA drafts, track record, key-person
+clauses), with a concept and a scope of its own that are still to be worked
+out. The Reading Desk (#095) does not deliver it: it keeps readings of
+documents on funds held or directly related and has no pipeline, deal object
+or data-room workflow (ADR-0139, Non-goals). #083 and #084 take up document
+reading in the chat and in a case; the due-diligence support itself stays
+here.
 
 **#017 — Shirley: code generation and execution.** Shirley writes a Python or
 charting snippet that runs in a sandbox with a library allowlist, under a
@@ -478,8 +518,10 @@ remainder of #022: a tenant-scoped dataset context and explicit negative hints
 in the system prompt. ADR-0070 (Proposed, stub).
 
 **#021 — Persistent analysis results.** A tenant-scoped store for run-bound
-results — first the Report Scraper's runs, which live only in memory today — with
-trust and source kept on re-read. ADR-0071 (Proposed, stub).
+results, with trust and source kept on re-read. The Report Scraper's half is
+taken up by #095: ADR-0139 supersedes the ADR-0071 stub and keeps readings in
+a purpose-built table, not a generic store. What stays here is persistence
+for any other run-bound result, each with its own decision (ADR-0139 §12).
 
 **#023 — Forward limit forecast.** Project limit utilisation forward on the
 plan world. The Takahashi–Alexander generation for plan-less funds shipped
@@ -562,6 +604,12 @@ paragraphs because the tree has no Markdown renderer; the capability is one
 several places will come back to, so it is filed once here rather than in
 each of them. Owner decision of 2026-11-09 (walk 2 of the Cases build,
 relayed through DC-CS-B), not a build decision.
+
+**#097 — Reading Desk: text layer and quote verification.** Keep a document's
+text beside its reading so that a quote and its page reference can be checked
+against it. In #095 quotes and page references are the model's reading and
+unverified, and no PDF parser is added (ADR-0139 §1–§3). Taken up only if
+testing shows the need.
 
 ---
 

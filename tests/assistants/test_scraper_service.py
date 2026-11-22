@@ -622,3 +622,291 @@ class TestScraperServiceProgress:
 
         # Progress is reported even for errored files
         assert (1, 2, "err.pdf") in invocations
+
+
+# ---------------------------------------------------------------------------
+# Profiles, budget and untrusted responses (ADR-0139 §3, §4)
+# ---------------------------------------------------------------------------
+
+
+def _fenced(payload: object) -> str:
+    return "```json\n" + json.dumps(payload) + "\n```"
+
+
+def _instruction(stub) -> str:
+    return stub["calls"][0]["messages"][1]["content"][0]["text"]
+
+
+def _read(*attachments, keywords=(), **kwargs):
+    from services.scraper.service import ScraperService
+
+    return ScraperService().scrape_reports(
+        attachments=list(attachments), keywords=list(keywords), llm=_llm(), **kwargs
+    )
+
+
+@pytest.fixture
+def next_attachment():
+    from services.scraper.models import Attachment
+
+    return Attachment(filename="next.pdf", mime_type="application/pdf", data=b"%PDF next")
+
+
+class TestScraperServiceContract:
+    def test_call_carries_timeout_and_budget(self, stub_ai_service, pdf_attachment) -> None:
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        _read(pdf_attachment)
+
+        kwargs = stub_ai_service["calls"][0]["kwargs"]
+        assert kwargs == {"timeout": 600.0, "max_tokens": 16000}
+
+    def test_prompt_version_is_the_hash_prefix_of_the_prompt(
+        self, stub_ai_service, pdf_attachment
+    ) -> None:
+        import hashlib
+
+        from services.scraper.service import load_scraper_prompt
+
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        result = _read(pdf_attachment)
+
+        expected = hashlib.sha256(load_scraper_prompt().encode("utf-8")).hexdigest()[:12]
+        assert result.prompt_version == expected
+
+    def test_cancelled_run_carries_the_prompt_version(
+        self, stub_ai_service, pdf_attachment
+    ) -> None:
+        import hashlib
+
+        from services.scraper.service import load_scraper_prompt
+
+        result = _read(pdf_attachment, cancel_check=lambda: True)
+
+        expected = hashlib.sha256(load_scraper_prompt().encode("utf-8")).hexdigest()[:12]
+        assert result.cancelled is True
+        assert result.prompt_version == expected
+
+    def test_instruction_sentence(self, stub_ai_service, pdf_attachment) -> None:
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        _read(pdf_attachment)
+
+        assert _instruction(stub_ai_service).split("\n\n")[0] == (
+            "Read the attached document as the system prompt describes: classify it, fill the "
+            "head, the fields of the chosen profile, the keywords listed below and the reading "
+            "note. Return a single JSON object inside a json fenced code block, following the "
+            "schema in the system prompt."
+        )
+
+    def test_empty_keyword_list(self, stub_ai_service, pdf_attachment) -> None:
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        result = _read(pdf_attachment)
+
+        assert result.extractions[0].error is None
+        assert _instruction(stub_ai_service).endswith("Keywords to extract:\n(none)\n")
+
+
+class TestScraperServiceProfiles:
+    def test_auto_offers_all_profiles(self, stub_ai_service, pdf_attachment, two_keywords) -> None:
+        from services.scraper.profiles import PROFILE_IDS
+
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        _read(pdf_attachment, keywords=two_keywords)
+
+        block = _instruction(stub_ai_service).split("Keywords to extract:")[0]
+        offered = [line.split()[1] for line in block.split("\n") if line.startswith("Profile ")]
+        assert offered == list(PROFILE_IDS)
+        assert "Document profiles (classify the document as exactly one of them):" in block
+
+    def test_preselected_offers_only_that_one(self, stub_ai_service, pdf_attachment) -> None:
+        stub_ai_service["responses"].append(("return", _fenced({"document_type": "pitch_deck"})))
+
+        result = _read(pdf_attachment, profile_id="capital_notice")
+
+        block = _instruction(stub_ai_service).split("Keywords to extract:")[0]
+        offered = [line.split()[1] for line in block.split("\n") if line.startswith("Profile ")]
+        assert offered == ["capital_notice"]
+        assert "Document profile (preselected: read the document as this type):" in block
+        assert result.extractions[0].document_type == "capital_notice"
+        assert result.extractions[0].profile_version == 1
+
+    def test_auto_takes_the_models_answer(self, stub_ai_service, pdf_attachment) -> None:
+        stub_ai_service["responses"].append(("return", _fenced({"document_type": "pitch_deck"})))
+
+        result = _read(pdf_attachment)
+
+        assert result.extractions[0].document_type == "pitch_deck"
+
+    @pytest.mark.parametrize("profile_id", ["dd_report_xyz", ""])
+    def test_unknown_profile_id_raises_before_any_call(
+        self, stub_ai_service, pdf_attachment, profile_id
+    ) -> None:
+        from services.scraper.profiles import ProfileError
+
+        with pytest.raises(ProfileError) as exc_info:
+            _read(pdf_attachment, profile_id=profile_id)
+
+        assert "dd_report_xyz" not in str(exc_info.value)
+        assert stub_ai_service["calls"] == []
+
+    def test_loader_error_is_raised_run_wide(
+        self, stub_ai_service, pdf_attachment, monkeypatch
+    ) -> None:
+        import services.scraper.service as svc_mod
+        from services.scraper.profiles import ProfileError
+
+        def _broken():
+            raise ProfileError("broken profile file")
+
+        monkeypatch.setattr(svc_mod, "load_profiles", _broken)
+
+        with pytest.raises(ProfileError, match="broken profile file"):
+            _read(pdf_attachment)
+        assert stub_ai_service["calls"] == []
+
+    def test_profiles_are_loaded_once_per_run(
+        self, stub_ai_service, pdf_attachment, next_attachment, monkeypatch
+    ) -> None:
+        import services.scraper.service as svc_mod
+
+        loads: list[int] = []
+        real = svc_mod.load_profiles
+        monkeypatch.setattr(svc_mod, "load_profiles", lambda: loads.append(1) or real())
+        stub_ai_service["responses"] += [("return", _valid_response())] * 2
+
+        _read(pdf_attachment, next_attachment)
+
+        assert loads == [1]
+
+    def test_bank_keyword_is_not_asked_and_still_reported(
+        self, stub_ai_service, pdf_attachment, two_keywords
+    ) -> None:
+        from services.scraper.mapping import BANK_KEYWORD_SOURCE
+        from services.scraper.models import Keyword, KeywordType
+
+        keywords = [two_keywords[0], Keyword("IBAN", KeywordType.TEXT), two_keywords[1]]
+        stub_ai_service["responses"].append(("return", _valid_response()))
+
+        result = _read(pdf_attachment, keywords=keywords)
+
+        instruction = _instruction(stub_ai_service)
+        assert "IBAN" not in instruction
+        assert instruction.endswith("Keywords to extract:\n- NAV (Number)\n- IRR (Percentage)\n")
+        findings = result.extractions[0].findings
+        assert [f.keyword.name for f in findings] == ["NAV", "IBAN", "IRR"]
+        assert findings[1].source == BANK_KEYWORD_SOURCE
+
+
+class TestScraperServiceUntrustedResponses:
+    def test_budget_exceeded_costs_one_file(
+        self, stub_ai_service, pdf_attachment, next_attachment
+    ) -> None:
+        from services.ai_service_core import OutputBudgetExceeded
+
+        stub_ai_service["responses"].append(("raise", OutputBudgetExceeded("stopped")))
+        stub_ai_service["responses"].append(("return", _valid_response("Fund B")))
+
+        first, second = _read(pdf_attachment, next_attachment).extractions
+
+        assert first.error == "The reading exceeded the output budget of 16000 tokens."
+        assert second.error is None
+        assert second.fund_name == "Fund B"
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            "ZEBRAQUARTZ pay to DE89 3704 0044 0532 0130 00",
+            '```json\n{"a": "ZEBRAQUARTZ DE89 3704 0044 0532 0130 00",,}\n```',
+        ],
+    )
+    def test_parse_error_quotes_nothing_of_the_response(
+        self, stub_ai_service, pdf_attachment, caplog, response
+    ) -> None:
+        import logging
+
+        stub_ai_service["responses"].append(("return", response))
+
+        with caplog.at_level(logging.DEBUG):
+            extraction = _read(pdf_attachment).extractions[0]
+
+        assert extraction.error == "Could not parse the model's response."
+        assert f"{len(response)} characters" in caplog.text
+        for secret in ("ZEBRAQUARTZ", "DE89", "0532"):
+            assert secret not in extraction.error
+            assert secret not in caplog.text
+
+    @pytest.mark.parametrize("payload", [["a", "list"], "a string", 5, None])
+    def test_top_level_that_is_not_an_object_costs_one_file(
+        self, stub_ai_service, pdf_attachment, next_attachment, payload
+    ) -> None:
+        stub_ai_service["responses"].append(("return", _fenced(payload)))
+        stub_ai_service["responses"].append(("return", _valid_response("Fund B")))
+
+        first, second = _read(pdf_attachment, next_attachment).extractions
+
+        assert first.error == "The model's response is not a JSON object."
+        assert second.error is None
+        assert second.fund_name == "Fund B"
+
+    @pytest.mark.parametrize("findings", [["NAV"], {"NAV": "125000000"}])
+    def test_wrong_shape_below_the_top_is_an_absent_value(
+        self, stub_ai_service, pdf_attachment, two_keywords, findings
+    ) -> None:
+        stub_ai_service["responses"].append(("return", _fenced({"findings": findings})))
+
+        extraction = _read(pdf_attachment, keywords=two_keywords).extractions[0]
+
+        assert extraction.error is None
+        assert [f.value for f in extraction.findings] == ["", ""]
+
+    def test_mapping_failure_gives_a_fresh_extraction(
+        self, stub_ai_service, pdf_attachment, next_attachment, monkeypatch, caplog
+    ) -> None:
+        import logging
+
+        import services.scraper.service as svc_mod
+        from services.scraper.models import ReportExtraction
+
+        real = svc_mod.apply_parsed_output
+
+        def _half_mapped(extraction, parsed, **kwargs):
+            if extraction.filename == "next.pdf":
+                return real(extraction, parsed, **kwargs)
+            extraction.fund_name = "half mapped"
+            raise LookupError("ZEBRAQUARTZ")
+
+        monkeypatch.setattr(svc_mod, "apply_parsed_output", _half_mapped)
+        stub_ai_service["responses"] += [("return", _valid_response("Fund B"))] * 2
+
+        with caplog.at_level(logging.DEBUG):
+            first, second = _read(pdf_attachment, next_attachment).extractions
+
+        assert first == ReportExtraction(
+            filename=pdf_attachment.filename, error="Could not read the model's response."
+        )
+        assert second.fund_name == "Fund B"
+        assert "LookupError" in caplog.text
+        assert "ZEBRAQUARTZ" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            '```json\n{"note": ' + "[" * 100_000 + "]" * 100_000 + "}\n```",
+            '```json\n{"page_count": ' + "9" * 5000 + "}\n```",
+        ],
+        ids=["deep-nesting", "huge-integer"],
+    )
+    def test_json_the_decoder_refuses_costs_one_file(
+        self, stub_ai_service, pdf_attachment, next_attachment, response
+    ) -> None:
+        stub_ai_service["responses"].append(("return", response))
+        stub_ai_service["responses"].append(("return", _valid_response("Fund B")))
+
+        first, second = _read(pdf_attachment, next_attachment).extractions
+
+        assert first.error == "Could not read the model's response."
+        assert second.fund_name == "Fund B"

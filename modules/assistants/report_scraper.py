@@ -57,9 +57,10 @@ class ReportScraperModule(BaseModule):
 
         Args:
             **kwargs: Must include ``attachments`` (non-empty list),
-                ``keywords`` (non-empty list), and ``llm`` (a
+                ``keywords`` (a list, which may be empty), and ``llm`` (a
                 :class:`~services.ai_service_core.ResolvedLLM` carrying a
-                model).
+                model). May include ``profile_id`` (non-empty string, or
+                ``None``).
 
         Raises:
             ValidationError: If any required argument is missing or invalid.
@@ -70,8 +71,13 @@ class ReportScraperModule(BaseModule):
                 "ReportScraperModule.run() requires a non-empty 'attachments' list."
             )
         keywords = kwargs.get("keywords")
-        if not keywords or not isinstance(keywords, list):
-            raise ValidationError("ReportScraperModule.run() requires a non-empty 'keywords' list.")
+        if not isinstance(keywords, list):
+            raise ValidationError("ReportScraperModule.run() requires a 'keywords' list.")
+        profile_id = kwargs.get("profile_id")
+        if profile_id is not None and (not isinstance(profile_id, str) or not profile_id.strip()):
+            raise ValidationError(
+                "ReportScraperModule.run() requires 'profile_id' to be a non-empty string if given."
+            )
         llm = kwargs.get("llm")
         if not isinstance(llm, ResolvedLLM) or not llm.model.strip():
             raise ValidationError(
@@ -83,11 +89,14 @@ class ReportScraperModule(BaseModule):
 
         Keyword Args:
             attachments (list[Attachment]): Files to process (required).
-            keywords (list[Keyword]): Keywords to extract (required).
+            keywords (list[Keyword]): Ad-hoc keywords to extract (required,
+                may be empty).
             llm (ResolvedLLM): The caller's per-tenant resolution — endpoint,
                 credential and model (required, ADR-0123).
             progress_callback (ProgressCallback | None): Optional progress hook.
             cancel_check (CancelCheck | None): Optional cancellation hook.
+            profile_id (str | None): Optional profile to read every file as;
+                without it the model classifies (ADR-0139 §3).
 
         Returns:
             A dict with keys:
@@ -101,6 +110,8 @@ class ReportScraperModule(BaseModule):
             UnsupportedModelError: If the resolved model is not in the
                 capability map.
             FileNotFoundError: If the scraper prompt file is missing.
+            ProfileError: If the profiles do not load or ``profile_id`` is
+                unknown.
         """
         self.validate_inputs(**kwargs)
 
@@ -116,5 +127,6 @@ class ReportScraperModule(BaseModule):
             llm=kwargs["llm"],
             progress_callback=kwargs.get("progress_callback"),
             cancel_check=kwargs.get("cancel_check"),
+            profile_id=kwargs.get("profile_id"),
         )
         return {"status": "ok", "result": result}

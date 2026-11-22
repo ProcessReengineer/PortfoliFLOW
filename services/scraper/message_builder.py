@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from services.scraper.models import Attachment, Keyword
+from services.scraper.profiles import Profile, ProfileField
 
 logger = logging.getLogger(__name__)
+
+_CLASSIFY_LEAD = "Document profiles (classify the document as exactly one of them):"
+_PRESELECTED_LEAD = "Document profile (preselected: read the document as this type):"
 
 
 def build_extraction_messages(
@@ -30,14 +35,17 @@ def build_extraction_messages(
     keywords: list[Keyword],
     attachments: list[Attachment],
     model_format: str,
+    *,
+    profiles: Sequence[Profile] = (),
+    preselected: bool = False,
 ) -> list[dict[str, Any]]:
     """Build the messages list for a one-shot extraction.
 
     Layout of the user message (order matters for extraction quality — the
     instruction must come *before* the attachment so the model reads the
-    keywords before the document):
+    profiles and keywords before the document):
 
-    1. Instruction text (keyword list inlined).
+    1. Instruction text (profiles and keyword list inlined).
     2. Attachments as content blocks, each in the shape required by
        ``model_format``.
 
@@ -47,6 +55,11 @@ def build_extraction_messages(
         keywords: Keywords to include in the user instruction.
         attachments: Files (bytes or pre-extracted text) to attach.
         model_format: One of ``"openrouter_file"`` (Iteration 1).
+        profiles: The document profiles to offer, in order (ADR-0139 §3).
+            Without profiles the text has no profile block, and an empty
+            keyword list stays empty instead of reading ``(none)``.
+        preselected: ``True`` if ``profiles`` holds the one profile the
+            document is to be read as; the model then does not classify.
 
     Returns:
         A list of two dicts: a system message and a user message.
@@ -55,7 +68,13 @@ def build_extraction_messages(
         ValueError: If ``model_format`` is not recognised.
     """
     keyword_lines = "\n".join(f"- {k.name} ({k.type.value})" for k in keywords)
-    instruction_text = f"{user_instruction}\n\nKeywords to extract:\n{keyword_lines}\n"
+    profile_block = ""
+    if profiles:
+        profile_block = _build_profile_block(profiles, preselected)
+        keyword_lines = keyword_lines or "(none)"
+    instruction_text = (
+        f"{user_instruction}\n\n{profile_block}Keywords to extract:\n{keyword_lines}\n"
+    )
 
     user_content: list[dict[str, Any]] = [{"type": "text", "text": instruction_text}]
     for att in attachments:
@@ -65,6 +84,30 @@ def build_extraction_messages(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
+
+
+def _build_profile_block(profiles: Sequence[Profile], preselected: bool) -> str:
+    """Render the profiles for the instruction text, ending with an empty line.
+
+    Args:
+        profiles: The profiles, in the order they are offered.
+        preselected: Whether the lead line names a preselection.
+
+    Returns:
+        The lead line and one paragraph per profile.
+    """
+    lines = [_PRESELECTED_LEAD if preselected else _CLASSIFY_LEAD, ""]
+    for profile in profiles:
+        lines.append(f"Profile {profile.id} — {profile.label}")
+        lines.extend([_field_line(field) for field in profile.fields] or ["(no fields)"])
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _field_line(field: ProfileField) -> str:
+    unit = f", {field.unit}" if field.unit else ""
+    hint = f" {field.hint}" if field.hint else ""
+    return f"- {field.key} ({field.type.value}{unit}) — {field.label}.{hint}"
 
 
 def _build_attachment_block(att: Attachment, model_format: str) -> dict[str, Any]:

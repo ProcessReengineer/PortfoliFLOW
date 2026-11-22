@@ -259,3 +259,110 @@ class TestJsonParser:
     def test_parse_prefers_first_fenced_block(self) -> None:
         raw = '```json\n{"first": true}\n```\n\nsome text\n\n```json\n{"second": true}\n```'
         assert parse_extraction_response(raw) == {"first": True}
+
+
+# ---------------------------------------------------------------------------
+# TestMessageBuilderProfiles (ADR-0139 §3)
+# ---------------------------------------------------------------------------
+
+
+class TestMessageBuilderProfiles:
+    @staticmethod
+    def _text(keywords: list[Keyword], **kwargs) -> str:
+        messages = build_extraction_messages(
+            _SYSTEM, "INSTRUCTION", keywords, [_PDF_ATT], "openrouter_file", **kwargs
+        )
+        return messages[1]["content"][0]["text"]
+
+    @staticmethod
+    def _two_profiles() -> list:
+        from services.scraper.profiles import Profile, ProfileField
+
+        fields = (
+            ProfileField(
+                key="nav_lp",
+                label="NAV, investor's share",
+                type=KeywordType.NUMBER,
+                unit="currency",
+                hint="The investor's own interest.",
+            ),
+            ProfileField(key="net_irr", label="Net IRR", type=KeywordType.PERCENTAGE),
+        )
+        return [
+            Profile(id="quarterly_report", version=1, label="Quarterly report", fields=fields),
+            Profile(id="other", version=1, label="Other document", fields=()),
+        ]
+
+    def test_pinned_example(self) -> None:
+        text = self._text(
+            [Keyword("Exit pipeline", KeywordType.TEXT)], profiles=self._two_profiles()
+        )
+
+        assert text == (
+            "INSTRUCTION\n"
+            "\n"
+            "Document profiles (classify the document as exactly one of them):\n"
+            "\n"
+            "Profile quarterly_report — Quarterly report\n"
+            "- nav_lp (Number, currency) — NAV, investor's share. The investor's own interest.\n"
+            "- net_irr (Percentage) — Net IRR.\n"
+            "\n"
+            "Profile other — Other document\n"
+            "(no fields)\n"
+            "\n"
+            "Keywords to extract:\n"
+            "- Exit pipeline (Text)\n"
+        )
+
+    def test_preselected_lead_line_and_no_keyword(self) -> None:
+        other = self._two_profiles()[1]
+
+        text = self._text([], profiles=[other], preselected=True)
+
+        assert text == (
+            "INSTRUCTION\n"
+            "\n"
+            "Document profile (preselected: read the document as this type):\n"
+            "\n"
+            "Profile other — Other document\n"
+            "(no fields)\n"
+            "\n"
+            "Keywords to extract:\n"
+            "(none)\n"
+        )
+
+    def test_field_without_unit_and_without_hint(self) -> None:
+        text = self._text(_KWS, profiles=self._two_profiles())
+
+        assert "- net_irr (Percentage) — Net IRR." in text.split("\n")
+
+    def test_field_with_only_a_unit_or_only_a_hint(self) -> None:
+        from services.scraper.profiles import Profile, ProfileField
+
+        fields = (
+            ProfileField(key="dpi", label="DPI", type=KeywordType.NUMBER, unit="x"),
+            ProfileField(key="term", label="Term", type=KeywordType.TEXT, hint="In years."),
+        )
+        profile = Profile(id="pitch_deck", version=1, label="Pitch deck", fields=fields)
+
+        lines = self._text([], profiles=[profile]).split("\n")
+
+        assert "- dpi (Number, x) — DPI." in lines
+        assert "- term (Text) — Term. In years." in lines
+
+    def test_without_profiles_the_text_is_unchanged(self) -> None:
+        assert self._text(_KWS) == (
+            "INSTRUCTION\n\nKeywords to extract:\n- NAV (Number)\n- IRR (Percentage)\n"
+        )
+        assert self._text([]) == "INSTRUCTION\n\nKeywords to extract:\n\n"
+
+    def test_shipped_profiles_render_every_field_key_in_order(self) -> None:
+        from services.scraper.profiles import load_profiles
+
+        profiles = list(load_profiles().values())
+
+        text = self._text([], profiles=profiles)
+
+        rendered = [line[2:].split(" (")[0] for line in text.split("\n") if line.startswith("- ")]
+        assert rendered == [field.key for profile in profiles for field in profile.fields]
+        assert len(rendered) == 48

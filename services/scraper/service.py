@@ -17,33 +17,39 @@ already imports — the service stays DB-free, FastAPI-free and Qt-free.
 
 Partial-success model: per-file failures are captured into
 :attr:`services.scraper.models.ReportExtraction.error` and the run continues
-with the next file. Run-wide preconditions (unsupported model, missing prompt
-file) raise before any file is processed.
+with the next file. Run-wide preconditions (unsupported model, missing or
+malformed prompt file, profiles that do not load, unknown profile id) raise
+before any file is processed.
+
+The model's response is document text: no error text and no log line written
+here carries any of it (ADR-0139 §4).
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from pathlib import Path
 from collections.abc import Callable
 
-from services.ai_service_core import ResolvedLLM
+from services.ai_service_core import OutputBudgetExceeded, ResolvedLLM
 from services.ai_service_core import get_ai_service_core as get_ai_service
+from services.scraper.bank_filter import asks_for_bank_details
 from services.scraper.capabilities import (
     ModelCapability,
     lookup_capability,
 )
 from services.scraper.json_parser import JsonParseError, parse_extraction_response
+from services.scraper.mapping import apply_parsed_output
 from services.scraper.message_builder import build_extraction_messages
 from services.scraper.models import (
     Attachment,
-    Confidence,
-    Finding,
     Keyword,
     ReportExtraction,
     ScraperResult,
 )
+from services.scraper.profiles import PROFILE_IDS, Profile, ProfileError, load_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,19 @@ _PROMPT_PATH = _PROMPT_DIR / "Scraper_Prompt.md"
 # ```json references inside the prompt content are not mistaken for fence
 # delimiters.
 _FENCE_RE = re.compile(r"^```\s*$", re.MULTILINE)
+
+# RD-D-28. The timeout is per attempt: the SDK client may retry twice.
+_EXTRACTION_TIMEOUT_S = 600.0
+_EXTRACTION_MAX_TOKENS = 16000
+
+_PROMPT_VERSION_CHARS = 12
+
+_USER_INSTRUCTION = (
+    "Read the attached document as the system prompt describes: classify it, fill the head, "
+    "the fields of the chosen profile, the keywords listed below and the reading note. "
+    "Return a single JSON object inside a json fenced code block, following the schema in "
+    "the system prompt."
+)
 
 ProgressCallback = Callable[[int, int, str], None]  # (done, total, filename)
 CancelCheck = Callable[[], bool]
@@ -120,6 +139,8 @@ class ScraperService:
         llm: ResolvedLLM,
         progress_callback: ProgressCallback | None = None,
         cancel_check: CancelCheck | None = None,
+        *,
+        profile_id: str | None = None,
     ) -> ScraperResult:
         """Run extraction against a list of attachments, sequentially.
 
@@ -133,25 +154,31 @@ class ScraperService:
                 ``(files_done, total_files, current_filename)``.
             cancel_check: Polled before each file; returning ``True`` aborts
                 the run. ``result.cancelled`` is set to ``True`` on abort.
+            profile_id: The profile to read every file as, or ``None`` (the
+                default) to let the model classify each one (ADR-0139 §3).
 
         Returns:
             :class:`ScraperResult` with one :class:`ReportExtraction` per
             input file. Per-file errors are captured in
             ``ReportExtraction.error``; other files continue processing.
+            ``prompt_version`` is set, also on a cancelled run.
 
         Raises:
             UnsupportedModelError: If the resolved model is not in the
                 capability map. Raised before any file is processed.
             FileNotFoundError: If the scraper prompt file is missing.
             ValueError: If the scraper prompt file is malformed.
+            ProfileError: If the profiles do not load or ``profile_id`` is
+                none of theirs. Raised before any file is processed.
         """
         capability = lookup_capability(llm.model)
         system_prompt = load_scraper_prompt()
-        user_instruction = (
-            "Extract the following keywords from the attached report. "
-            "Return a single JSON object inside a json fenced code block, "
-            "following the schema in the system prompt."
-        )
+        profiles = load_profiles()
+        preselected: Profile | None = None
+        if profile_id is not None:
+            if profile_id not in profiles:
+                raise ProfileError(f"Unknown profile id; expected one of {list(profiles)}.")
+            preselected = profiles[profile_id]
 
         logger.info(
             "ScraperService: starting run with %d files, %d keywords, model=%s",
@@ -160,7 +187,11 @@ class ScraperService:
             llm.model,
         )
 
-        result = ScraperResult()
+        result = ScraperResult(
+            prompt_version=hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[
+                :_PROMPT_VERSION_CHARS
+            ]
+        )
 
         for idx, att in enumerate(attachments):
             if cancel_check and cancel_check():
@@ -173,7 +204,7 @@ class ScraperService:
                 return result
 
             extraction = self._scrape_one(
-                att, keywords, llm, capability, system_prompt, user_instruction
+                att, keywords, llm, capability, system_prompt, profiles, preselected
             )
             result.extractions.append(extraction)
 
@@ -193,7 +224,8 @@ class ScraperService:
         llm: ResolvedLLM,
         capability: ModelCapability,
         system_prompt: str,
-        user_instruction: str,
+        profiles: dict[str, Profile],
+        preselected: Profile | None,
     ) -> ReportExtraction:
         """Process a single attachment.
 
@@ -202,12 +234,14 @@ class ScraperService:
 
         Args:
             att: The attachment to process.
-            keywords: Keywords to extract.
+            keywords: The run's keywords. One that asks for a bank detail is
+                not sent to the model but still gets its finding.
             llm: The run's resolution — endpoint, credential and model for
                 this API call (ADR-0123).
             capability: Resolved capability for the model.
             system_prompt: The loaded system prompt text.
-            user_instruction: The user-facing instruction string.
+            profiles: The run's profiles by id.
+            preselected: The profile to read the file as, or ``None``.
 
         Returns:
             A :class:`ReportExtraction` populated from the LLM response,
@@ -227,63 +261,77 @@ class ScraperService:
                 logger.warning("ScraperService: %s", extraction.error)
                 return extraction
 
+        asked = [keyword for keyword in keywords if not asks_for_bank_details(keyword.name)]
+        offered = [preselected] if preselected else [profiles[key] for key in PROFILE_IDS]
+
         # Build messages and call the LLM
         try:
             messages = build_extraction_messages(
                 system_prompt=system_prompt,
-                user_instruction=user_instruction,
-                keywords=keywords,
+                user_instruction=_USER_INSTRUCTION,
+                keywords=asked,
                 attachments=[att],
                 model_format=capability.format,
+                profiles=offered,
+                preselected=preselected is not None,
             )
 
             raw_response = get_ai_service().send_one_shot_extraction(
                 messages=messages,
                 llm=llm,
+                timeout=_EXTRACTION_TIMEOUT_S,
+                max_tokens=_EXTRACTION_MAX_TOKENS,
             )
+        except OutputBudgetExceeded:
+            extraction.error = (
+                f"The reading exceeded the output budget of {_EXTRACTION_MAX_TOKENS} tokens."
+            )
+            logger.warning("ScraperService: output budget exceeded for %s.", att.filename)
+            return extraction
         except Exception as exc:  # noqa: BLE001 — partial-success boundary
             extraction.error = f"API call failed: {type(exc).__name__}: {exc}"
             logger.exception("ScraperService: API call failed for %s", att.filename)
             return extraction
 
-        # Parse response
+        # Parse and map. The response is untrusted document text: whatever its
+        # shape, it costs this file at most and never the run.
         try:
-            parsed = parse_extraction_response(raw_response)
-        except JsonParseError as exc:
-            extraction.error = f"Could not parse LLM response: {exc}"
-            logger.warning(
-                "ScraperService: parse error for %s. Raw preview: %r",
-                att.filename,
-                raw_response[:300],
-            )
-            return extraction
-
-        # Map parsed dict into the extraction
-        extraction.fund_name = str(parsed.get("fund_name", "") or "").strip()
-        extraction.period = str(parsed.get("period", "") or "").strip()
-        findings_dict = parsed.get("findings", {}) or {}
-
-        for kw in keywords:
-            entry = findings_dict.get(kw.name, {}) or {}
-            conf_str = str(entry.get("confidence", "Not_Found"))
             try:
-                confidence = Confidence(conf_str)
-            except ValueError:
+                parsed = parse_extraction_response(raw_response)
+            except JsonParseError:
+                # Not interpolated: the exception's message quotes the response.
+                extraction.error = "Could not parse the model's response."
                 logger.warning(
-                    "ScraperService: unknown confidence '%s' for keyword '%s' "
-                    "in file '%s'; defaulting to Not_Found.",
-                    conf_str,
-                    kw.name,
+                    "ScraperService: parse error for %s (response of %d characters).",
                     att.filename,
+                    len(raw_response),
                 )
-                confidence = Confidence.NOT_FOUND
-            extraction.findings.append(
-                Finding(
-                    keyword=kw,
-                    value=str(entry.get("value", "") or ""),
-                    source=str(entry.get("source", "") or ""),
-                    confidence=confidence,
-                )
+                return extraction
+
+            # The parser is typed as a dict and returns whatever JSON it found.
+            if not isinstance(parsed, dict):
+                extraction.error = "The model's response is not a JSON object."
+                logger.warning("ScraperService: no JSON object for %s.", att.filename)
+                return extraction
+
+            apply_parsed_output(
+                extraction,
+                parsed,
+                profiles=profiles,
+                preselected=preselected,
+                keywords=keywords,
+            )
+        except Exception as exc:  # noqa: BLE001 — partial-success boundary
+            # No traceback and no message: both can quote the response. A fresh
+            # extraction, so that no half-mapped field survives.
+            logger.warning(
+                "ScraperService: could not read the response for %s (%s).",
+                att.filename,
+                type(exc).__name__,
+            )
+            return ReportExtraction(
+                filename=att.filename,
+                error="Could not read the model's response.",
             )
 
         return extraction

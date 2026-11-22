@@ -764,3 +764,92 @@ def test_one_shot_singleton_path_still_requires_connection() -> None:
             messages=[{"role": "user", "content": "x"}],
             model=_TEST_MODEL,
         )
+
+
+# ---------------------------------------------------------------------------
+# send_one_shot_extraction — the output budget (ADR-0139 §3, RD-D-28)
+# ---------------------------------------------------------------------------
+
+
+def _budget_llm() -> Any:
+    """A per-tenant resolution on the one-shot test endpoint."""
+    from services.ai_service_core import ResolvedLLM
+
+    return ResolvedLLM(base_url=_LLM_BASE_URL, api_key="sk-tenant-key", model=_TEST_MODEL)
+
+
+def test_one_shot_default_request_carries_no_budget(httpx_mock: Any) -> None:
+    """OS-1: without ``max_tokens`` the body holds exactly the three keys."""
+    httpx_mock.add_response(
+        method="POST", url=_LLM_COMPLETIONS_URL, json=_one_shot_response("Extracted.")
+    )
+
+    AIServiceCore().send_one_shot_extraction(
+        messages=[{"role": "user", "content": "extract"}], llm=_budget_llm()
+    )
+
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    assert set(body) == {"model", "messages", "temperature"}
+
+
+def test_one_shot_budget_is_sent(httpx_mock: Any) -> None:
+    """OS-2: a budget adds ``max_tokens`` and nothing else."""
+    httpx_mock.add_response(
+        method="POST", url=_LLM_COMPLETIONS_URL, json=_one_shot_response("Extracted.")
+    )
+
+    result = AIServiceCore().send_one_shot_extraction(
+        messages=[{"role": "user", "content": "extract"}], llm=_budget_llm(), max_tokens=1234
+    )
+
+    assert result == "Extracted."
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    assert body["max_tokens"] == 1234
+    assert set(body) == {"model", "messages", "temperature", "max_tokens"}
+
+
+def test_one_shot_budget_hit_raises_without_the_content(httpx_mock: Any) -> None:
+    """OS-3: stopping at the budget raises, and the message holds no document text."""
+    from core.exceptions import PortfoliFlowError
+    from services.ai_service_core import OutputBudgetExceeded
+
+    response = _one_shot_response("Confidential GP text, cut")
+    response["choices"][0]["finish_reason"] = "length"
+    httpx_mock.add_response(method="POST", url=_LLM_COMPLETIONS_URL, json=response)
+
+    with pytest.raises(OutputBudgetExceeded) as caught:
+        AIServiceCore().send_one_shot_extraction(
+            messages=[{"role": "user", "content": "extract"}], llm=_budget_llm(), max_tokens=1234
+        )
+
+    assert "1234" in str(caught.value)
+    assert "Confidential" not in str(caught.value)
+    assert isinstance(caught.value, PortfoliFlowError)
+    assert isinstance(caught.value, RuntimeError)
+
+
+def test_one_shot_length_finish_without_budget_returns_the_content(httpx_mock: Any) -> None:
+    """OS-4: without a budget a ``length`` finish is returned as it always was."""
+    response = _one_shot_response("Confidential GP text, cut")
+    response["choices"][0]["finish_reason"] = "length"
+    httpx_mock.add_response(method="POST", url=_LLM_COMPLETIONS_URL, json=response)
+
+    result = AIServiceCore().send_one_shot_extraction(
+        messages=[{"role": "user", "content": "extract"}], llm=_budget_llm()
+    )
+
+    assert result == "Confidential GP text, cut"
+
+
+def test_one_shot_rejects_a_budget_below_one(httpx_mock: Any) -> None:
+    """OS-5: an invalid budget is refused first, and nothing is sent."""
+    core = AIServiceCore()
+    messages = [{"role": "user", "content": "extract"}]
+
+    with pytest.raises(ValueError, match="max_tokens"):
+        core.send_one_shot_extraction(messages=messages, llm=_budget_llm(), max_tokens=0)
+    # Ahead of the connection gate, too.
+    with pytest.raises(ValueError, match="max_tokens"):
+        core.send_one_shot_extraction(messages=messages, max_tokens=0)
+
+    assert httpx_mock.get_requests() == []

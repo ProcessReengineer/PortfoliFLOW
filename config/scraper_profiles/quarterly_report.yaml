@@ -1,0 +1,24 @@
+# Reading Desk profile: quarterly report (ADR-0139 §3; field list: docs/concepts/reading-desk-concept.md §5.2).
+# A reading records the version it was read with. Raise `version` with every change to `fields`.
+# unit: `currency` = an amount in the document's currency, in full units; `x` = a multiple.
+id: quarterly_report
+version: 1
+label: Quarterly report
+fields:
+  - {key: nav_lp, label: "NAV, investor's share", type: Number, unit: currency, hint: "Net asset value of the investor's own interest (capital account) at the reporting date. Not the fund's total NAV."}
+  - {key: nav_fund, label: "NAV, fund", type: Number, unit: currency, hint: "Net asset value of the whole fund at the reporting date."}
+  - {key: called_lp, label: "Called capital, cumulative, investor's share", type: Number, unit: currency, hint: "Capital paid in by the investor since inception."}
+  - {key: called_fund, label: "Called capital, cumulative, fund", type: Number, unit: currency, hint: "Capital paid in by all investors since inception."}
+  - {key: distributed_lp, label: "Distributions, cumulative, investor's share", type: Number, unit: currency, hint: "Distributions received by the investor since inception."}
+  - {key: distributed_fund, label: "Distributions, cumulative, fund", type: Number, unit: currency, hint: "Distributions paid to all investors since inception."}
+  - {key: unfunded_lp, label: "Unfunded commitment, investor's share", type: Number, unit: currency, hint: "The investor's remaining commitment that can still be called."}
+  - {key: unfunded_fund, label: "Unfunded commitment, fund", type: Number, unit: currency, hint: "Remaining commitments of all investors that can still be called."}
+  - {key: tvpi, label: "TVPI", type: Number, unit: x, hint: "Total value to paid-in, net to investors, as reported."}
+  - {key: dpi, label: "DPI", type: Number, unit: x, hint: "Distributions to paid-in, net to investors, as reported."}
+  - {key: rvpi, label: "RVPI", type: Number, unit: x, hint: "Residual value to paid-in, net to investors, as reported."}
+  - {key: net_irr, label: "Net IRR", type: Percentage, hint: "Net IRR since inception, as reported."}
+  - {key: portfolio_company_count, label: "Portfolio companies", type: Number, hint: "Number of portfolio companies or assets held at the reporting date."}
+  - {key: new_investments, label: "New investments in the quarter", type: List, hint: "One entry per new investment made in the reporting quarter."}
+  - {key: exits, label: "Exits in the quarter", type: List, hint: "One entry per exit or realisation in the reporting quarter."}
+  - {key: valuation_changes, label: "Material valuation changes", type: List, hint: "One entry per material change: the company, the direction, the reason given."}
+  - {key: team_changes, label: "Team and key-person changes", type: List, hint: "One entry per change in the manager's team or among the key persons."}

@@ -1,0 +1,6 @@
+# Reading Desk profile: other (ADR-0139 §3; docs/concepts/reading-desk-concept.md §5.2).
+# Any document that fits none of the other profiles: the common head and the reading note only.
+id: other
+version: 1
+label: Other document
+fields: []

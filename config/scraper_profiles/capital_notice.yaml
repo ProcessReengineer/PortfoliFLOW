@@ -1,0 +1,20 @@
+# Reading Desk profile: capital call / distribution notice (ADR-0139 §3; field list: docs/concepts/reading-desk-concept.md §5.2).
+# A reading records the version it was read with. Raise `version` with every change to `fields`.
+# unit: `currency` = an amount in the document's currency, in full units.
+# Bank details are excluded by design (ADR-0139 §4): no field here may ask for an account, an IBAN or a BIC.
+id: capital_notice
+version: 1
+label: Capital call / distribution notice
+fields:
+  - {key: notice_kind, label: "Kind of notice", type: Text, hint: "One of: call, distribution, combined."}
+  - {key: value_date, label: "Value date", type: Date, hint: "The date the payment is due or is paid."}
+  - {key: amount_lp, label: "Amount, investor's share", type: Number, unit: currency, hint: "The net amount the investor pays or receives. Negative if a combined notice ends in a payment to the investor."}
+  - {key: call_investment, label: "Call: investments", type: Number, unit: currency, hint: "The part of the call that funds investments."}
+  - {key: call_management_fee, label: "Call: management fee", type: Number, unit: currency, hint: "The part of the call that pays the management fee."}
+  - {key: call_partnership_expenses, label: "Call: partnership expenses", type: Number, unit: currency, hint: "The part of the call that pays fund expenses other than the management fee."}
+  - {key: distribution_return_of_capital, label: "Distribution: return of capital", type: Number, unit: currency, hint: "The part of the distribution that returns paid-in capital."}
+  - {key: distribution_gains, label: "Distribution: gains", type: Number, unit: currency, hint: "The part of the distribution that is realised gain."}
+  - {key: distribution_income, label: "Distribution: income", type: Number, unit: currency, hint: "The part of the distribution that is current income such as interest or dividends."}
+  - {key: distribution_recallable, label: "Distribution: recallable portion", type: Number, unit: currency, hint: "The part of the distribution the manager may call again."}
+  - {key: called_after, label: "Called capital after this notice, investor's share", type: Number, unit: currency, hint: "Cumulative capital paid in by the investor once this notice is settled."}
+  - {key: unfunded_after, label: "Unfunded commitment after this notice, investor's share", type: Number, unit: currency, hint: "The investor's remaining commitment once this notice is settled."}

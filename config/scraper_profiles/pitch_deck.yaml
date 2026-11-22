@@ -1,0 +1,26 @@
+# Reading Desk profile: pitch deck / PPM (ADR-0139 §3; field list: docs/concepts/reading-desk-concept.md §5.2).
+# A reading records the version it was read with. Raise `version` with every change to `fields`.
+# unit: `currency` = an amount in the document's currency, in full units.
+id: pitch_deck
+version: 1
+label: Pitch deck / PPM
+fields:
+  - {key: strategy, label: "Strategy", type: Text, hint: "The investment strategy in one or two sentences."}
+  - {key: asset_class, label: "Asset class", type: Text, hint: "For example private equity, infrastructure, private debt, real estate."}
+  - {key: region, label: "Region", type: Text, hint: "The target geography."}
+  - {key: vintage, label: "Vintage", type: Number, hint: "The vintage year, four digits."}
+  - {key: target_size, label: "Target size", type: Number, unit: currency, hint: "The target fund size."}
+  - {key: hard_cap, label: "Hard cap", type: Number, unit: currency, hint: "The maximum fund size."}
+  - {key: target_return, label: "Target return", type: Text, hint: "The target return as stated, for example 15% or 2.0x. Give a range as a range."}
+  - {key: target_return_basis, label: "Target return basis", type: Text, hint: "Gross or net, and IRR or multiple. Not_Found if the document does not say."}
+  - {key: fundraising_status, label: "Fundraising status", type: Text, hint: "Where the fundraising stands, for example pre-marketing, open, first close held, final close held."}
+  - {key: first_close, label: "First close", type: Text, hint: "The date or period, and whether it is planned or done."}
+  - {key: final_close, label: "Final close", type: Text, hint: "The date or period, and whether it is planned or done."}
+  - {key: minimum_commitment, label: "Minimum commitment", type: Number, unit: currency, hint: "The smallest commitment the fund accepts."}
+  - {key: management_fee, label: "Management fee", type: Text, hint: "Rate and basis, including any step-down."}
+  - {key: carry, label: "Carried interest", type: Percentage, hint: "The carried interest rate."}
+  - {key: hurdle, label: "Hurdle rate", type: Percentage, hint: "The preferred return."}
+  - {key: gp_commitment, label: "GP commitment", type: Text, hint: "The manager's own commitment, as an amount or a share of the fund."}
+  - {key: term, label: "Term and extensions", type: Text, hint: "The fund term and the possible extensions."}
+  - {key: key_persons, label: "Key persons", type: List, hint: "One entry per key person: name and role."}
+  - {key: track_record, label: "Track record of predecessor funds", type: List, hint: "One entry per predecessor fund: fund, vintage, TVPI, IRR, and whether the figures are gross or net."}

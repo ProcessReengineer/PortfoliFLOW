@@ -90,6 +90,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import openai
 from openai.types.chat import ChatCompletionToolChoiceOptionParam
 
+from core.exceptions import PortfoliFlowError
 from services import tool_registry
 from services.ai_models import (
     ConnectionStatus,
@@ -146,6 +147,10 @@ _MAX_TOOL_ITERATIONS = 10
 # full rationale and why this is :class:`threading.Lock` rather than
 # :class:`asyncio.Lock`.
 _TURN_LOCK = threading.Lock()
+
+
+class OutputBudgetExceeded(PortfoliFlowError, RuntimeError):
+    """A one-shot call stopped at its output budget (``finish_reason == "length"``)."""
 
 
 def _temporal_grounding_block() -> str:
@@ -1026,6 +1031,7 @@ class AIServiceCore:
         timeout: float = 120.0,
         *,
         llm: ResolvedLLM | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """Synchronous, non-streaming, no-tools extraction call.
 
@@ -1065,6 +1071,9 @@ class AIServiceCore:
             llm: This call's resolved endpoint, credential and model
                 (ADR-0112 §4b, ADR-0123). When given, the client **and** the
                 model come from it and the singleton is not consulted at all.
+            max_tokens: Output budget for this call, at least 1 (ADR-0139 §3).
+                With the default the request is unchanged (the web-research
+                callers rely on that).
 
         Returns:
             The assistant's response content; empty string when the
@@ -1073,9 +1082,16 @@ class AIServiceCore:
         Raises:
             RuntimeError: If ``llm`` is ``None`` and the core is not
                 connected.
-            ValueError: If both ``llm`` and ``model`` are given, or neither.
+            ValueError: If both ``llm`` and ``model`` are given, or neither,
+                or ``max_tokens`` is below 1.
+            OutputBudgetExceeded: If ``max_tokens`` is given and the call
+                stopped at it.
             openai.OpenAIError: Any error class the SDK raises.
         """
+        if max_tokens is not None and max_tokens < 1:
+            raise ValueError(
+                "AIServiceCore.send_one_shot_extraction: `max_tokens` must be at least 1."
+            )
         if llm is not None:
             if model is not None:
                 raise ValueError(
@@ -1097,7 +1113,9 @@ class AIServiceCore:
 
         def _run_in_new_loop() -> str:
             return asyncio.run(
-                self._send_one_shot_extraction_async(messages, model, temperature, timeout, llm)
+                self._send_one_shot_extraction_async(
+                    messages, model, temperature, timeout, llm, max_tokens
+                )
             )
 
         try:
@@ -1139,6 +1157,7 @@ class AIServiceCore:
         temperature: float,
         timeout: float,
         llm: ResolvedLLM | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """Async implementation of :meth:`send_one_shot_extraction`.
 
@@ -1148,6 +1167,10 @@ class AIServiceCore:
         — reached only from tests (no runtime consumer since ADR-0132). The
         caller has already enforced that exactly one of ``llm`` / ``model``
         is set.
+
+        ``max_tokens`` is the output budget; a call that stops at it raises
+        :class:`OutputBudgetExceeded`. With the default the request is
+        unchanged (the web-research callers rely on that).
         """
         active_model = llm.model if llm is not None else model
         client = self._make_async_client(llm)
@@ -1158,6 +1181,8 @@ class AIServiceCore:
                 "temperature": temperature,
                 "timeout": timeout,
             }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
             logger.debug(
                 "AIServiceCore.send_one_shot_extraction: model=%s, %d messages",
                 active_model,
@@ -1166,6 +1191,11 @@ class AIServiceCore:
             response = await client.chat.completions.create(**kwargs)
         finally:
             await client.close()
+        if max_tokens is not None and response.choices[0].finish_reason == "length":
+            # The content is document text: it stays out of the message.
+            raise OutputBudgetExceeded(
+                f"The one-shot call stopped at its output budget of {max_tokens} tokens."
+            )
         content = response.choices[0].message.content
         result = content if content is not None else ""
         logger.debug(

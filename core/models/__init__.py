@@ -33,6 +33,7 @@ from core.models.case import (
 from core.models.country import Country
 from core.models.data_store_entry import DataStoreEntry
 from core.models.data_upload import DataUpload, DataUploadSheet
+from core.models.document_reading import DocumentReading, ReadingPurge
 from core.models.floor_calibration import FloorCalibration
 from core.models.fx_rate import FxRate
 from core.models.investment import Investment
@@ -90,6 +91,7 @@ __all__ = [
     "DataStoreEntry",
     "DataUpload",
     "DataUploadSheet",
+    "DocumentReading",
     "FloorCalibration",
     "FxRate",
     "InstrumentPrice",
@@ -111,6 +113,7 @@ __all__ = [
     "LimitSet",
     "MarketDataSchedule",
     "PositionTransaction",
+    "ReadingPurge",
     "Region",
     "RegionCountryMembership",
     "SAAAssetClassInput",

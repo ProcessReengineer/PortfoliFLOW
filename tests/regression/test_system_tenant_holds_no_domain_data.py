@@ -100,6 +100,8 @@ _TENANT_DATA_TABLES: tuple[str, ...] = (
     "case_proposals",
     "trade_tickets",
     "trade_ticket_effects",
+    "document_readings",
+    "reading_purges",
 )
 
 

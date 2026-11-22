@@ -651,3 +651,39 @@ class TicketReversalBlocked(ValidationError):
         self.effect_type = effect_type
         self.effect_id = effect_id
         self.cause = cause
+
+
+# ---------------------------------------------------------------------------
+# Reading Desk (ADR-0139). ``ReadingNotFound`` states absence in the active
+# tenant; ``ReadingInvalid`` and ``ReadingRemoved`` are validation errors of
+# a write that did find its tenant.
+# ---------------------------------------------------------------------------
+
+
+class ReadingInvalid(ValidationError):
+    """Raised when a reading write violates a vocabulary or shape rule.
+
+    Per ADR-0139 §2 the text vocabularies of a reading are plain TEXT,
+    enforced in the repository, as are the shape rules of its findings, its
+    note and its assignment. The repository raises this typed error with
+    ``field`` naming the offending field, so a caller sees that field
+    rather than an opaque ``IntegrityError``.
+    """
+
+
+class ReadingRemoved(ValidationError):
+    """Raised when a write targets a tombstone.
+
+    Per ADR-0139 §5 a removed reading stays as a tombstone with its three
+    payload columns purged. It cannot be assigned and cannot be removed a
+    second time.
+    """
+
+
+class ReadingNotFound(PortfoliFlowError):
+    """Raised when a reading id is unknown in the active tenant.
+
+    Readings are tenant-scoped (ADR-0139 §2). An id that was never written,
+    or that belongs to another tenant and is therefore invisible under RLS,
+    is this error, not a silent no-op.
+    """

@@ -1,9 +1,9 @@
 # Reading Desk — concept record
 
-- **Status:** concept closed 2026-11-21 (owner + concept chat; owner points OP-RD-1…4 decided, §11); feeds the ADR (successor to the ADR-0071 stub, amending ADR-0053) and the Mission Control kickoff
+- **Status:** concept closed 2026-11-21 (owner + concept chat; owner points OP-RD-1…4 decided, §11); **amended the same day by the kickoff concept chat** after verification against the image of 2026-11-21 (version `2026.11.0`): RD-D-3 and RD-D-10 revised, RD-D-19…30 added, the §11 points for the ADR/MC resolved. Feeds ADR-0139 (successor to the ADR-0071 stub, amending ADR-0053) and the Mission Control kickoff `KO-RD-MC`
 - **Owner:** Soenke · **Written by:** the Report Scraper concept chat, 2026-11-21 (on the brainstorming of 2026-11-09)
 - **Name:** *Reading Desk* — the user-facing name of the Section that today is "Report Scraper" (OP-RD-1, decided 2026-11-21)
-- **Location:** this record goes into the repository as `docs/concepts/reading-desk-concept.md` (placed by the operator, date dropped from the file name). Track artefacts (kickoffs, board, handovers, closing reports, mockups) stay outside the tree, proposed under `~/Code/PortfoliFLOW/reading-desk/`, as with the Cases track.
+- **Location:** `docs/concepts/reading-desk-concept.md` in the repository (placed by the operator; no date in the file name). Track artefacts (kickoffs, board, handovers, closing reports, mockups) stay outside the tree under `~/Code/PortfoliFLOW/development/other/reading-desk/`; Claude Code prompts and run reports under `~/Code/PortfoliFLOW/development/prompts/` and `…/development/reports/`.
 
 ---
 
@@ -34,11 +34,11 @@ Mirrors the two tests of the Cases record (ADR-0138) on purpose: the Reading Des
 - **Profiles per document type** with typed fields (§5.2); the model classifies the document in the same call; the keyword editor stays as an override for ad-hoc questions.
 - A **reading note** from the same call: highlights, quotes with page, events and risks, outlook.
 - **Assignment** to an investment, else to a manager (§5.3), proposed by the reading, confirmed by the PM.
-- **Library** in the Section: list with filters and full-text search over readings, reading detail, re-read (requires a new upload), remove with reason.
+- **Library** in the Section: list with filters and text search over readings, reading detail, re-read (requires a new upload), remove with reason.
 - **Visibility:** every user of a tenant sees all of the tenant's readings (read-by recorded); users of other tenants see nothing (RLS).
-- **Retention:** an explicit "remove all readings older than X years" with preview and one audit event per run — admins only.
+- **Retention:** an explicit "remove all readings older than X years" with preview and one recorded purge per run — tenant owners only.
 - **Investment detail page:** a chronological "Documents read" list for the investment.
-- **Shirley:** three read tools (list, get, search) with the untrusted-content rewrap.
+- **Shirley:** three read tools (list, get, search), registered as untrusted external reads (RD-D-10).
 - **Keep into a case:** a quote or a finding of a reading can be kept into a case's working file (§6.3).
 - **Door 2 — "Read" on a case attachment** as the **last strand of v1**, droppable if the budget is spent: the bytes are already in `case_attachments`, the reading is written like any other and assigned to the case's linked investment; the natural seed of the reading room (#084).
 
@@ -51,7 +51,7 @@ Mirrors the two tests of the Cases record (ADR-0138) on purpose: the Reading Des
 | Profiles LP letter / special report, monthly letter (#085), AGM papers | Profiles extend by need; the LP letter is the first candidate because it leads into Cases (action requested + deadline). |
 | Door 2, if dropped from v1 | Falls back to the R-1 package together with the reading room (#084). |
 | Door 3: a PDF in the chat composer (#083) | R-1 package; Shirley would see the reading note, never the raw text (Fetcher discipline). |
-| Embeddings / semantic search | The example questions are structured filters plus full-text; added only if full-text proves too blunt. |
+| Embeddings / semantic search, `tsvector` full-text | The example questions are structured filters plus a substring search (the Cases idiom); added only if that proves too blunt. |
 
 ### 4.3 Non-goals
 
@@ -68,13 +68,13 @@ One row per document read, per tenant (RLS).
 
 | Group | Holds |
 |---|---|
-| **Identity** | filename, `sha256`, size, page count, read at, read by |
+| **Identity** | per-tenant running number (shown `R-nnnn`), filename, `sha256`, size, page count *as read by the model* (nullable — no PDF parser is a dependency), read at, read by, origin (upload · case attachment) |
 | **Classification** | document type (profile id + profile version), language |
 | **Subject** | fund name and manager name as read; assignment: investment (nullable) or manager name (§5.3); document date / reporting date; currency |
 | **Findings** | per field: key, value, type, unit, page, confidence, short source quote (JSONB) |
 | **Reading note** | highlights (3–7), quotes `{text, page}`, events and risks, outlook (JSONB) |
 | **Provenance** | model, prompt version, profile version, ad-hoc keywords used, trust marker |
-| **Search** | generated `tsvector` over note and findings |
+| **Search** | `search_text` — plain text the writer composes from the head, the findings and the note; searched by case-insensitive substring match |
 | **Removal** | `removed_at`, `removed_by`, reason, purge run id (nullable) — tombstone (§5.4) |
 
 Size: a reading is roughly 10–50 KB. A tenant can hold thousands without noticing.
@@ -114,17 +114,17 @@ Profiles are files in the repository (proposed `config/scraper_profiles/`, like 
 ### 5.4 Lifecycle
 
 - **Read** → reading written at the run's completion path. Dedup per `(tenant, sha256)`: the same PDF again shows "already read on …" with an explicit *Read again* (a new reading, the old one stays until removed).
-- **Remove one** → tombstone: identity, removal fields and reason stay; findings, note and search vector are purged. The table's `audit_log` trigger records it.
-- **Retention run** (admins only) → "remove all readings with a document date older than X years" (read date where no document date): preview with the count, confirmation, one audit event carrying criterion, cutoff, count and actor; the affected readings become tombstones.
+- **Remove one** → tombstone: identity, removal fields and reason stay; findings, note and `search_text` are purged. `document_readings` carries the standard audit trigger (installed on purpose — the Cases tables carry none), so the removal is in `audit_log`. Tombstones are kept indefinitely.
+- **Retention run** (tenant owners only) → "remove all readings with a document date older than X years" (read date where no document date): preview with the count, confirmation, one row in `reading_purges` carrying criterion, cutoff, count and actor; the affected readings become tombstones that reference the purge.
 - **Not affected by removal:** anything kept into a case (copied, §6.3) and anything the PM typed into the book by hand.
 
 ## 6. Surfaces
 
-### 6.1 Reading Desk (Section under Assistants, beside Watch Desk)
+### 6.1 Reading Desk (Section under Assistants, beside Shirley)
 
-- **Read** — upload one or several PDFs, profile *auto* (optional preselect), optional ad-hoc keywords; the run view as today (SSE progress, comparison matrix).
-- **Library** — list with filters (type, fund, manager, investment, period, assigned/unassigned) and full-text search; reading detail (head, findings with page and confidence, note); assign; remove with reason; *Read again*.
-- **Retention** — the retention run (§5.4), with its own confirmation; rendered for admins only, refused server-side for everyone else.
+- **Read** — upload one or several PDFs, profile *auto* (optional preselect), optional ad-hoc keywords; the run view as today (SSE progress, one result block per file — there is no comparison matrix in the tree), each block now naming the reading it was saved as and proposing its assignment.
+- **Library** — list with filters (type, fund, manager, investment, period, assigned/unassigned) and text search; reading detail (head, findings with page and confidence, note); assign; remove with reason; *Read again*.
+- **Retention** — the retention run (§5.4), with its own confirmation; rendered for tenant owners only, refused server-side for everyone else.
 
 The Section stays under Assistants for v1 — Shirley reads, Shirley remembers. When the book takeover comes in the second step, its gesture sits on the reading and on the investment page; the Section need not move.
 
@@ -138,17 +138,17 @@ A reading has no PDF, so the existing `document_excerpt` class (attachment + pas
 
 ## 7. Shirley's role
 
-- **Three read tools** on the `case_tools.py` pattern: `list_readings` (filters as the library), `get_reading` (head, findings, note), `search_readings` (full-text). Tool class `READ_INTERNAL`, but the **payload is rewrapped as `<external_content trust="untrusted">`** — a reading carries GP text (ADR-0071 Q1, ADR-0022). Tool descriptions only; the Soul stays byte-identical.
-- **Consequence to accept knowingly:** once untrusted content was read in a turn, `case_add` is locked for the rest of that turn (ADR-0022). "Read the report and put the 80 % into the figures" does not work in one go; the path is a proposal or the PM's *Keep*.
+- **Three read tools** on the `case_tools.py` pattern: `list_readings` (filters as the library), `get_reading` (head, findings, note), `search_readings` (substring search). All three register as **`READ_EXTERNAL_UNTRUSTED` with `wraps_result_as_untrusted=True`**: the registry wraps the payload as `<external_content trust="untrusted">` — a reading carries GP text (ADR-0071 Q1, ADR-0022). The first draft's "`READ_INTERNAL` with a rewrap" cannot be registered: the registry refuses the wrapping flag on any other class, and the turn lock hangs on the class, not on the wrapping. Tool descriptions only; the Soul stays byte-identical. The stale `analysis_results.scraper.findings` paragraph of `prompts/Shirley_AnalysisResults_Context.md` (nothing on the web writes that dataset) is replaced by a pointer to the readings — owner-released prompt text.
+- **Consequence to accept knowingly:** once a reading tool ran in a turn — the list included — `case_add` is locked for the rest of that turn (ADR-0022). "Read the report and put the 80 % into the figures" does not work in one go; the path is a proposal or the PM's *Keep*.
 - **Voice call:** the call allowlist tripwire is equality (len 20 since D-CS-M-17); three new tools make it 23 and need a capability line in the call prompt — prompt text under rule 19, released by the owner from the run report before commit.
 - Comparisons are Shirley's arithmetic over listed findings; she states which readings she used.
 
 ## 8. Boundaries restated
 
-- **Search over readings, never over documents.** Full-text runs over PortfoliFLOW's own structured capture (note, findings, quotes). It is not a content search over attachments — the ADR-0138 §11 rule (no content-search UI over attachments; captions not searched) stays untouched.
+- **Search over readings, never over documents.** The substring search runs over PortfoliFLOW's own structured capture (note, findings, quotes). It is not a content search over attachments — the ADR-0138 §11 rule (no content-search UI over attachments; captions not searched) stays untouched.
 - **Quotes are the model's reading.** Without a text layer they are unverified; the UI marks them as such ("as read, p. 12") and shows confidence.
 - **Prompt injection is real.** Instructions inside a document are ignored by the prompt; the payload is untrusted everywhere downstream; nothing a reading says acts on its own.
-- **The pure scraper package stays pure.** The writer sits at the route's SSE completion path; `services/scraper/` gains no DB access (ADR-0071 Q5).
+- **The pure scraper package stays pure.** The writer sits in the route layer and is called when the extraction service returns (RD-D-23); `services/scraper/` gains no DB access (ADR-0071 Q5).
 
 ## 9. Delta against today
 
@@ -158,29 +158,29 @@ A reading has no PDF, so the existing `document_excerpt` class (attachment + pas
 | Keyword editor per run | the only way to ask | override beside profiles | keep, demote |
 | Profiles per document type, classification in the call | — | files in `config/scraper_profiles/`, versioned | new |
 | Prompt output | findings | findings + reading note, bank details excluded | extend |
-| Persistence | none (out-of-band, ADR-0053) | `document_readings` with tombstones, migration next free (expected b038 — verify) | new |
+| Persistence | none (out-of-band, ADR-0053) | `document_readings` with tombstones and `reading_purges`, migration **b038** (head b037; b035 stays reserved for `engagements`) | new |
 | Dedup, re-read | — | per `(tenant, sha256)` | new |
 | Library, reading detail, remove, retention | — | in the Section | new |
 | Assignment | — | investment or manager name | new |
 | Investment detail | — | "Documents read" | new, small |
-| Shirley | knows nothing of readings | three read tools, untrusted rewrap; call allowlist 23 | new |
+| Shirley | knows nothing of readings (a stale context paragraph promises a dataset nothing writes) | three read tools as untrusted external reads; call allowlist 20 → 23 | new |
 | Cases | — | Keep a quote (new kept class) or a finding (Figures, source `document`) | extend (ADR-0138 annex) |
 | Case attachment | stored, not readable by the scraper | "Read" writes a reading (door 2, last strand, droppable) | new |
 | ADR-0071 | stub | replaced by the Reading Desk ADR | supersede |
-| Section name | "Report Scraper" | "Reading Desk" (working title) | rename |
+| Section name | "Report Scraper" (slug `report-scraper`) | "Reading Desk" (slug `reading-desk`); visible copy and the Admin label only — `services/scraper/`, the `/scraper/…` run routes, the setting `openrouter.scraper_model` and `SCRAPER_MODEL` keep their names | rename (RD-D-25) |
 
 ## 10. Decisions of record proposed for the ADR (RD-D-n)
 
 - **RD-D-1** Definition (§2) and the two tests (§3) are the ADR's context; scope narrow — documents on held or directly related funds.
 - **RD-D-2** The PDF passes through; the reading is kept; no time-boxed PDF retention.
-- **RD-D-3** Postgres, per tenant under RLS; JSONB for findings and note; `tsvector` full-text; no vector store, no embeddings in v1.
+- **RD-D-3** *(revised 2026-11-21)* Postgres, per tenant under RLS; JSONB for findings and note; a writer-composed `search_text` searched by case-insensitive substring match — the idiom of the Cases search, which finds "Exit" in "Exitpipeline" where an unstemmed `tsvector` would not; no `tsvector`, no vector store, no embeddings in v1.
 - **RD-D-4** Profiles per document type as versioned repository files; v1 = quarterly report, capital call/distribution notice, pitch deck/PPM, other; the model classifies; the keyword editor remains an override.
 - **RD-D-5** Bank details are never extracted or stored.
 - **RD-D-6** The reading note is produced in the same call; quotes carry a page and are marked as the model's reading.
 - **RD-D-7** Assignment: investment if held, else manager name; no manager object.
 - **RD-D-8** Removal by tombstone; retention run by document date with preview and one audit event; removal never touches cases or the book.
 - **RD-D-9** Dedup per `(tenant, sha256)`; *Read again* writes a new reading.
-- **RD-D-10** Shirley: three read tools, `READ_INTERNAL` with untrusted rewrap; the `case_add` turn lock is accepted; Soul byte-identical.
+- **RD-D-10** *(revised 2026-11-21)* Shirley: three read tools, all `READ_EXTERNAL_UNTRUSTED` with the registry's untrusted wrapping; the `case_add` turn lock — triggered by the list as well — is accepted; Soul byte-identical.
 - **RD-D-11** Keep into a case copies (quote → reading excerpt, finding → Figures row with source `document`).
 - **RD-D-12** No book writes in v1; the book takeover is a separate, later decision.
 - **RD-D-13** No text layer in v1.
@@ -190,53 +190,71 @@ A reading has no PDF, so the existing `document_excerpt` class (attachment + pas
 - **RD-D-17** The retention run is an admin action; single removal with reason stays open to every user of the tenant.
 - **RD-D-18** Door 2 ("Read" on a case attachment) is the last strand of v1 and droppable; if dropped, it moves to R-1 with #084.
 
+Added by the kickoff concept chat, 2026-11-21 (owner-confirmed where marked):
+
+- **RD-D-19** "Admin" is the tenant role `owner` (`require_role("owner")`); no new role model. Reading the library and a reading: every signed-in user of the tenant, `auditor` included. Starting a run, assigning, removing one reading: `owner` and `member`. Retention run: `owner`.
+- **RD-D-20** A retention run is recorded as one row in `reading_purges` (criterion, cutoff, count, actor); `document_readings` and `reading_purges` carry the standard audit trigger.
+- **RD-D-21** Tombstones are kept indefinitely.
+- **RD-D-22** Page count is what the model reports, nullable; v1 adds no PDF parser dependency.
+- **RD-D-23** The writer runs when the extraction service returns, independent of the client connection: a closed tab does not lose a paid reading. Without a database engine the run view works as today and nothing is written.
+- **RD-D-24** Bank details are excluded by the prompt and removed again by a post-filter inside the pure scraper package, before anything is rendered or stored.
+- **RD-D-25** *(owner-confirmed)* The rename is user-visible only: Section title, slug `reading-desk`, UI copy, the Admin label "Reading Desk model". Code identifiers, routes, the settings key and the environment variable keep their names. In the glossary the *Report Scraper* remains the name of the extraction backend.
+- **RD-D-26** A reading's document type is not editable; a wrong classification is corrected by a new upload with the profile preselected.
+- **RD-D-27** The kept class for a quote is `reading_excerpt`, payload by value, written only by the PM's Keep; it gets its own annex ADR to ADR-0138 (expected ADR-0140).
+- **RD-D-28** The extraction call gets an explicit timeout and output budget; the defaults of today (120 s, no `max_tokens`) are not relied on.
+- **RD-D-29** Assignment survives an investment's deletion as *unassigned* (`ON DELETE SET NULL`); the fund name as read stays.
+- **RD-D-30** Door 2 proposes the case's linked investment when the case links exactly one; otherwise the PM chooses, and unassigned is allowed.
+
 ## 11. Open points
 
 **Owner points — decided 2026-11-21**
 
 - **OP-RD-1** Name: **Reading Desk** → RD-D-14.
 - **OP-RD-2** Visibility: **all users of a tenant, never other tenants** → RD-D-16.
-- **OP-RD-3** Retention run: **admins only** → RD-D-17.
+- **OP-RD-3** Retention run: **admins only** → RD-D-17 (admin = the tenant role `owner`, RD-D-19).
 - **OP-RD-4** Door 2: **last strand of v1** (droppable) → RD-D-18.
 
 **For the ADR / MC (not for the owner)**
 
-- Verify-first: how "admin" is expressed in code today (role column, super-admin surface, an existing gate on Admin routes) — RD-D-17 builds on that gate, it does not introduce a role model.
-- Door 2: assignment when the case links several investments or none (PM chooses; unassigned allowed).
-- Tombstones of purged readings: kept indefinitely (recommended; ~200 bytes each) or purged after a second period.
-- Retention run event: `audit_log` only, or a small `reading_purges` table for the Section's history view.
-- Profile preselect vs. auto: wrong classification is corrected by a new upload (no PDF to re-read) — acceptable?
-- The reading-excerpt kept class: shape, render in the frozen file, ADR-0138 annex wording.
-- Output length: findings + note may exceed today's response budget; check max tokens and the three-tier JSON parser against long outputs.
-- Assignment when an investment is later deleted (`ON DELETE SET NULL` assumed).
-- Relation of the existing comparison matrix (several PDFs as columns) to the library.
-- Prompt-level IBAN exclusion plus a post-filter on the parsed output.
+All resolved 2026-11-21 against the image (version `2026.11.0`):
+
+- "Admin" → the tenant role `owner` → RD-D-19.
+- Door 2 assignment → RD-D-30.
+- Tombstones → kept indefinitely, RD-D-21.
+- Retention run event → `reading_purges`, RD-D-20.
+- Wrong classification → new upload with preselect, RD-D-26.
+- The reading-excerpt kept class → `reading_excerpt`, annex ADR, RD-D-27; no migration (the kept-class and figure-source vocabularies are repository frozensets, and the figure source `document` exists).
+- Output length → RD-D-28; verified live in RD-1 with a long report.
+- Investment deleted → RD-D-29.
+- Comparison matrix → does not exist in the tree; the run view is one block per file (§6.1).
+- IBAN exclusion → RD-D-24.
 
 ## 12. Roadmap consequences (for a docs prompt)
 
 | Item | Change |
 |---|---|
-| Reading Desk v1 | new item, Active (or #085 re-titled and promoted — MC's call against the current roadmap) |
-| #085 Report Scraper: highlights and monthly reports | highlights absorbed by the reading note; monthly letter stays as a profile follow-up |
+| Reading Desk v1 | new item **#095**, Active (next free ID verified as #095) |
+| #085 Report Scraper: highlights and monthly reports | highlights absorbed by the reading note (#095); re-titled to the monthly-letter profile follow-up |
+| #021 Persistent analysis results | the scraper half is delivered by #095 (ADR-0139 supersedes the ADR-0071 stub); the note says so |
 | #003 DD Support | re-scoped: **a real DD Support with its own concept and scope still to be worked out**; the P-CS-D1 note "absorbed in part by #083/#084" is revised |
-| Reading Desk as a data source for the book | new item, Next: NAV/cashflow takeover with PM confirmation; provenance (`ingest_origin`), conflicts, precedence beside Excel import, Yahoo Finance and Bloomberg |
-| Text layer / quote verification | new item, Ideas: only if testing shows the need |
+| Reading Desk as a data source for the book | new item **#096**, Next: NAV/cashflow takeover with PM confirmation; provenance (`ingest_origin`), conflicts, precedence beside Excel import, Yahoo Finance and Bloomberg |
+| Text layer / quote verification | new item **#097**, Ideas: only if testing shows the need |
 | Further profiles | LP letter / special report (first, Cases tie-in), monthly letter (#085), AGM papers |
 | #083 document input, #084 reading room | unchanged in R-1; the Reading Desk becomes their pipeline (door 2 already in v1 unless dropped, door 3 = #083) |
 | #080 manager view, #092 fee terms, #093 look-through | unchanged; noted as consumers of readings |
 
-Next free roadmap ID was #094 after P-CS-D1; the docs prompt verifies the current number.
+Next free roadmap ID in the image of 2026-11-21 is #095; after the docs prompt it is #098.
 
 ## 13. Dosing sketch (for the kickoff, not binding)
 
 Within the owner's budget of at most 2–3 intensive days; ×1.6 calibration for a build strand.
 
-- **RD-1 Foundation** — ADR, migration with tombstones, profiles and reading note in the prompt (bank exclusion), dedup, writer at the SSE completion path.
-- **RD-2 Surface** — mockup M-RD-1 as a self-contained HTML file in the DC-UX-D style (pause point), then library, reading detail, assignment, remove, retention, investment detail list.
-- **RD-3 Shirley and Cases** — three read tools with rewrap, call allowlist and capability line (rule 19), Keep into a case (ADR-0138 annex).
-- **RD-4 Door 2** — "Read" on a case attachment; the last strand, dropped to R-1 if the budget is spent.
+- **RD-1 Foundation** (DC-RD-1) — migration b038 with tombstones and purges, profiles and reading note in the extraction contract (bank exclusion), dedup, writer when the service returns. Plan 3 prompts, ceiling 5.
+- **RD-2 Surface** (DC-RD-2) — mockup M-RD-1 as a self-contained HTML file in the DC-UX-D style (pause point), then rename, library and reading detail, assignment / remove / retention, investment detail list. Plan 4, ceiling 6.
+- **RD-3 Shirley and Cases** (DC-RD-3) — three read tools as untrusted reads, call allowlist and capability line (owner-released prompt text), Keep into a case (annex ADR-0140). Plan 2, ceiling 4.
+- **RD-4 Door 2** (DC-RD-3) — "Read" on a case attachment; the last strand, dropped to R-1 if the budget is spent. Plan 1, ceiling 1.
 
-Roughly 9–11 prompts (RD-4 one of them), one MC chat with one or two daughter chats.
+Verified plan: 10 build prompts and 3 docs prompts (ADR-0139 + roadmap; ADR-0140; close-out), one MC chat (`KO-RD-MC`) and three daughter chats (`KO-RD-1`, `KO-RD-2`, `KO-RD-3`).
 
 ## 14. References
 

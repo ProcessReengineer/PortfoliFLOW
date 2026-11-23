@@ -20,27 +20,33 @@ What is removed, each replaced by :data:`REPLACEMENT`:
   country's length, mod 97) — anywhere, in upper or lower case, printed
   without separators, in groups, with dots or hyphens, or wrapped over lines;
   unless its first token is exactly a valid ISIN (a table row that starts
-  with an ISIN and has figures behind it);
-* after ``IBAN``: a run of at least six digits right after it, and an
-  IBAN-shaped identifier within :data:`_WINDOW` characters whatever its check
-  digits — one of an unregistered country only if it follows the term
-  directly, one further behind only at its country's full length;
-* after ``BIC`` or ``SWIFT``: a BIC in upper case right after the term;
-* after a label (``Bankverbindung``, ``Kontoverbindung``, ``Bank details``,
-  ``Payment details``): the number right after it and each number that follows
-  with punctuation only between, grouped as below; nothing further behind,
-  since such a block also holds the amount;
+  with an ISIN and has figures behind it) and it does not stand right behind
+  a bank term;
+* right behind a bank term (punctuation between only, ``|`` included): the
+  identifier that stands there — an IBAN-shaped one whatever its check digits,
+  or a number of at least six digits, grouped by one or two blanks, dots,
+  hyphens, a slash or a zero-width space, or wrapped after a group of four.
+  A date or year range there is skipped and kept, and so is an amount — a
+  number followed by a currency or unit (``4 750 000 EUR``, ``1.250.000
+  units``);
+* after ``IBAN``, ``Bankverbindung``, ``Kontoverbindung``, ``Bank details``
+  and ``Payment details``: each further identifier that follows with
+  punctuation only between (``IBANs: DE89…, LU28…``). After these labels a
+  number in groups of three is an amount and stays, since a payment block
+  also holds the amount; nothing further behind a label goes;
+* after ``IBAN``: an IBAN-shaped identifier within :data:`_WINDOW` characters
+  at its country's full length; and every run of at least six digits in the
+  window, as after a number term;
 * after a number term (``account number``, ``Acc. No.``, ``Kontonummer``,
-  ``BLZ``, ``sort code``, ``routing``, ``ABA``, ``acct``, ``Kto`` …): the number
-  right after it (punctuation between only), also grouped by blanks, dots,
-  hyphens or a slash, dates apart; and every further run of at least six
-  digits that starts within :data:`_WINDOW` characters, also on the next line
-  or after words ("account number is …"), unless it is written as an amount
-  in groups of three;
+  ``BLZ``, ``sort code``, ``routing``, ``ABA``, ``acct``, ``Kto`` …): every
+  further run of at least six digits that starts within :data:`_WINDOW`
+  characters, also on the next line or after words ("account number is …"),
+  unless it is written as an amount in groups of three or carries a currency;
+* after ``BIC`` or ``SWIFT``: a BIC in upper case right after the term;
 * after the bare words ``account``, ``Konto`` or ``Depot``: a run of at least
   eight digits right after the word, unless it is written as an amount in groups
   of three or follows "capital account" and its like; a run with a leading
-  zero is always removed;
+  zero is always removed; and a valid IBAN right after it, ISIN-like or not;
 * a BIC that directly follows a removed identifier.
 
 What is kept: amounts, dates, percentages, ISINs and any number that does not
@@ -49,16 +55,21 @@ detail stood there.
 
 Known limits, accepted (closing report of strand RD-1): a bare number without
 any term in the same string; a number more than :data:`_WINDOW` characters
-behind its term; an account number in groups of three that is separated from
-its term by words ("account number is 123 456 789") or follows the bare word
-"account"; seven digits after the bare word "account"; a BIC in lower case or
-printed in groups; any eight- or eleven-letter upper-case word right after
-``BIC`` or a removed identifier counts as a BIC; an IBAN with invalid check
-digits and no term beside it; a table row that starts with a country code and
-check digits other than an ISIN (``CY24 …``) and whose figures happen to give
-valid check digits (about one row in 97); full-width characters; the short
-list of ledger words before "account". A second pass over filtered text may
-remove more than the first.
+behind its term; a number in groups of three right after a label
+("Bankverbindung: 532 013 000") or separated from a number term by words
+("account number is 123 456 789"); words between a label, a bare word or
+``BIC`` and the identifier ("Bankverbindung lautet …", "BIC is …"); a number
+grouped by dots or a slash that is separated from its term by words; an
+account number followed by a currency code; after the bare word "account" a
+number in groups of three or of seven digits; a BIC in lower case or printed
+in groups; any eight- or eleven-letter upper-case word right after ``BIC`` or
+a removed identifier counts as a BIC; an IBAN with invalid check digits and no
+term beside it; a table row that starts with a country code and check digits
+other than an ISIN (``CY24 …``) and whose figures happen to give valid check
+digits (about one row in 97); separators other than those named above (a
+double blank counts right behind a term only); full-width characters;
+the short list of ledger words before "account". A second pass over filtered
+text may remove more than the first.
 
 Every pattern runs in linear time: quantifiers that meet are possessive, and
 the text after a term is examined in a bounded window.
@@ -118,10 +129,14 @@ _TERM = re.compile(
 )
 
 # Right after a term: blanks, line breaks and punctuation only.
-_PUNCTUATION_GAP = re.compile(r"[\s.:;=#()\[\],/\-\u2013\u2014\u00a0]{0,12}+")
-_DIGIT_RUN = re.compile(r"[0-9](?:[ \u00a0\u2009\u202f\-]?+[0-9])*+")
-# Right behind a term a number may also be grouped by dots or split by a slash.
-_DIGIT_RUN_AT_TERM = re.compile(r"[0-9](?:[ \u00a0\u2009\u202f\-./]?+[0-9])*+")
+_PUNCTUATION_GAP = re.compile(r"[\s.:;=#()\[\],/|\-\u2013\u2014\u00a0]{0,12}+")
+_DIGIT_RUN = re.compile(r"[0-9](?:[ \u00a0\u2007\u2009\u202f\-]?+[0-9])*+")
+# Right behind a term a number may also be grouped by dots, split by a slash, spaced by
+# two blanks or a zero-width space, or wrapped onto the next line after a group of four.
+_DIGIT_RUN_AT_TERM = re.compile(
+    r"[0-9](?:(?:[ \u00a0\u2007\u2009\u202f]{1,2}+|[\-./\u200b]"
+    r"|(?<=[0-9]{4})(?<![0-9]{5})\n)?+[0-9])*+"
+)
 _BIC = re.compile(r"[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?+(?![A-Za-z0-9])")
 _BIC_AFTER_REMOVED = re.compile(
     r"(?<=\[bank detail removed\])(?P<gap>[ \t\u00a0,;/|]{0,6}+)"
@@ -129,10 +144,24 @@ _BIC_AFTER_REMOVED = re.compile(
 )
 
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}([./])[0-9]{1,2}\1(?:19|20)[0-9]{2}")
+# A date or a year range right behind a term: skipped, never removed.
+_DATE_AT = re.compile(
+    r"(?:[0-9]{4}-[0-9]{2}-[0-9]{2}"
+    r"|(?:0?[1-9]|[12][0-9]|3[01])([./])(?:0?[1-9]|1[0-2])\1(?:(?:19|20)[0-9]{2}|[0-9]{2})"
+    r"|(?:0?[1-9]|1[0-2])[./](?:19|20)[0-9]{2}"
+    r"|(?:19|20)[0-9]{2}[/\-](?:(?:19|20)[0-9]{2}|[0-9]{2})"
+    r")(?![0-9])"
+)
 _ISIN = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9]")
 _ISIN_LENGTH = 12
-_AMOUNT_GROUPED = re.compile(r"[1-9][0-9]{0,2}(?:[ \u00a0\u2009\u202f][0-9]{3})+")
+_AMOUNT_GROUPED = re.compile(r"[1-9][0-9]{0,2}(?:[ \u00a0\u2007\u2009\u202f][0-9]{3})+")
+_AMOUNT_DOTTED = re.compile(r"[1-9][0-9]{0,2}(?:\.[0-9]{3})+")
+_BLANKS = re.compile(r"[ \u00a0\u2007\u2009\u202f]")
+# A currency or unit behind a number makes it an amount.
+_UNIT_AFTER = re.compile(
+    r"[ \u00a0]{1,2}+(?:EUR|USD|GBP|CHF|JPY|SEK|NOK|DKK|AUD|CAD"
+    r"|units|shares|Anteile|St\u00fcck)(?![A-Za-z])"
+)
 # "capital account 12500000" is a figure, not a bank account.
 _LEDGER_ACCOUNT = re.compile(
     r"(?:capital|current|kapital|LP|partners?|partner['\u2019]s|investors?|investor['\u2019]s"
@@ -153,6 +182,7 @@ _BANK_TERM_NAME = re.compile(
     r"(?<![a-z])(?:"
     r"ibans?|bics?|swift|blz|bankleitzahl(?:en)?|sort[ \-_]?codes?|routing|aba|acct|a/c"
     r"|kontonummern?|kontonr|konto|konten|kto|kontoverbindung(?:en)?|kontodaten|depotnummern?"
+    r"|depot[ ._\-]*(?:numbers?|nos?|nrs?|num|#)"
     r"|bankverbindung(?:en)?|bankkonto|bankkonten|bankdaten"
     r"|zahlungsverbindung(?:en)?|zahlungsanweisung(?:en)?|zahlungsinstruktion(?:en)?"
     r"|bank(?:ing)?[ \-_]+(?:accounts?|details|data|information|instructions|coordinates)"
@@ -189,8 +219,10 @@ def remove_bank_details(text: str) -> str:
     Returns:
         The text without account identifiers; unchanged if it holds none.
     """
-    spans = _valid_iban_spans(text)
-    spans.extend(_spans_after_terms(text))
+    terms = list(_TERM.finditer(text))
+    adjacent = [_after_punctuation(text, term.end()) for term in terms]
+    spans = _valid_iban_spans(text, frozenset(adjacent))
+    spans.extend(_spans_after_terms(text, terms, adjacent))
     if not spans:
         return text
     parts: list[str] = []
@@ -228,8 +260,12 @@ def filter_parsed_output(value: Any) -> Any:
     return value
 
 
-def _valid_iban_spans(text: str) -> list[tuple[int, int]]:
-    """Find every IBAN of a registered country and length with valid check digits."""
+def _valid_iban_spans(text: str, touching: frozenset[int]) -> list[tuple[int, int]]:
+    """Find every IBAN of a registered country and length with valid check digits.
+
+    ``touching`` holds the offsets right behind a bank term: there an ISIN-like
+    first token is no reason to keep the identifier.
+    """
     spans: list[tuple[int, int]] = []
     position = 0
     while (head := _IBAN_HEAD.search(text, position)) is not None:
@@ -241,7 +277,7 @@ def _valid_iban_spans(text: str) -> list[tuple[int, int]]:
         if (
             len(compact) == length
             and _has_valid_check_digits(compact)
-            and not _starts_with_isin(text, head.start())
+            and (head.start() in touching or not _starts_with_isin(text, head.start()))
         ):
             spans.append((head.start(), end))
             position = end
@@ -311,98 +347,142 @@ def _has_valid_check_digits(compact: str) -> bool:
     return int("".join(str(int(char, 36)) for char in rearranged)) % 97 == 1
 
 
-def _spans_after_terms(text: str) -> list[tuple[int, int]]:
+def _spans_after_terms(
+    text: str, terms: list[re.Match[str]], adjacent: list[int]
+) -> list[tuple[int, int]]:
     """Find the identifiers that follow a bank term."""
     spans: list[tuple[int, int]] = []
-    for term in _TERM.finditer(text):
-        adjacent = _after_punctuation(text, term.end())
+    for term, start in zip(terms, adjacent, strict=True):
         if term.group("iban") is not None:
-            spans.extend(_iban_after_term(text, term.end(), adjacent))
+            spans.extend(_in_a_row(text, start, keep_grouped=False))
+            spans.extend(_iban_in_window(text, term.end(), start))
+            spans.extend(_window_runs(text, term.end(), start))
         elif term.group("bic") is not None:
-            if (bic := _BIC.match(text, adjacent)) is not None:
+            if (bic := _BIC.match(text, start)) is not None:
                 spans.append(bic.span())
         elif term.group("label") is not None:
-            spans.extend(_numbers_in_a_row(text, adjacent))
+            spans.extend(_in_a_row(text, start, keep_grouped=True))
         elif term.group("number") is not None:
             if _is_ledger_account(text, term) and term.group().lower().startswith("account"):
                 continue
-            spans.extend(_number_runs(text, term.end(), adjacent))
+            item = _item_at(text, start, keep_grouped=False)
+            if item is not None and item[1] is not None:
+                spans.append(item[1])
+            spans.extend(_window_runs(text, term.end(), start))
         else:
-            spans.extend(_weak_number(text, term, adjacent))
+            spans.extend(_weak_number(text, term, start))
     return spans
 
 
-def _iban_after_term(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
-    """Digits right after the term, and an IBAN-shaped identifier near it."""
+def _in_a_row(text: str, position: int, *, keep_grouped: bool) -> list[tuple[int, int]]:
+    """The identifiers right behind a term, one after another with punctuation between.
+
+    Dates are skipped, amounts kept; the row ends at the first word.
+    """
     spans: list[tuple[int, int]] = []
-    run = _number_at(text, adjacent)
-    if run is not None:
-        spans.append(run)
+    while (item := _item_at(text, position, keep_grouped=keep_grouped)) is not None:
+        end, span = item
+        if span is not None:
+            spans.append(span)
+        position = _after_punctuation(text, end)
+    return spans
+
+
+def _item_at(
+    text: str, position: int, *, keep_grouped: bool
+) -> tuple[int, tuple[int, int] | None] | None:
+    """What stands at ``position``: its end, and its span if it is a bank detail.
+
+    ``None`` if neither a date, an IBAN-shaped identifier nor a number starts there.
+    """
+    if (date := _DATE_AT.match(text, position)) is not None:
+        return date.end(), None
+    if (head := _IBAN_HEAD.match(text, position)) is not None:
+        wanted = _IBAN_LENGTHS.get(head.group()[:2].upper(), _IBAN_MAX_LENGTH)
+        compact, end = _take_identifier(text, position, wanted, stop_at_words=True)
+        if len(compact) >= _IBAN_MIN_TAKEN:
+            return end, (position, end)
+        return None
+    run = _DIGIT_RUN_AT_TERM.match(text, position)
+    if run is None:
+        return None
+    digits = run.group()
+    if (
+        _digit_count(digits) < _NUMBER_MIN_DIGITS
+        or _is_amount_with_unit(text, run)
+        or (keep_grouped and _AMOUNT_GROUPED.fullmatch(digits) is not None)
+    ):
+        return run.end(), None
+    return run.end(), run.span()
+
+
+def _iban_in_window(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
+    """An IBAN-shaped identifier further behind ``IBAN``, at its country's full length."""
     position = term_end
     stop = min(term_end + _WINDOW, len(text))
     while (head := _IBAN_HEAD.search(text, position, stop)) is not None:
         position = head.start() + 1
         length = _IBAN_LENGTHS.get(head.group()[:2].upper())
-        touches = head.start() == adjacent
-        if length is None and not touches:
-            continue  # "ref. FY24 …" further behind is not an IBAN
-        wanted = length or _IBAN_MAX_LENGTH
-        compact, end = _take_identifier(text, head.start(), wanted, stop_at_words=True)
-        if len(compact) == wanted or (touches and len(compact) >= _IBAN_MIN_TAKEN):
-            spans.append((head.start(), end))
-            break
-    return spans
+        if length is None or head.start() == adjacent:
+            continue  # "ref. FY24 …" is not an IBAN; the one right behind is taken already
+        compact, end = _take_identifier(text, head.start(), length, stop_at_words=True)
+        if len(compact) == length:
+            return [(head.start(), end)]
+    return []
 
 
-def _number_runs(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
-    """The number right after a number term, and every later run of six digits.
+def _window_runs(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
+    """Every run of six digits that starts in the window behind a term, the first apart.
 
-    A later run is kept if it is written as an amount in groups of three.
+    A run is kept if it is written as an amount in groups of three, carries a
+    currency or unit, or is a date.
     """
     spans: list[tuple[int, int]] = []
     position = term_end
-    if (run := _number_at(text, adjacent)) is not None:
-        spans.append(run)
-        position = run[1]
+    if (item := _item_at(text, adjacent, keep_grouped=False)) is not None:
+        position = item[0]
     stop = min(term_end + _WINDOW, len(text))
     while (run := _DIGIT_RUN.search(text, position, stop)) is not None:
         # The run may reach beyond the window: match it again without the bound.
         whole = _DIGIT_RUN.match(text, run.start()) or run
         position = whole.end()
         digits = whole.group()
-        if run.start() == adjacent:
-            continue  # right after the term, and too short or a date
         if (
             _digit_count(digits) >= _NUMBER_MIN_DIGITS
             and _ISO_DATE.fullmatch(digits) is None
             and _AMOUNT_GROUPED.fullmatch(digits) is None
+            and not _is_amount_with_unit(text, whole)
         ):
             spans.append(whole.span())
     return spans
 
 
-def _numbers_in_a_row(text: str, adjacent: int) -> list[tuple[int, int]]:
-    """The number right after a label, and each that follows it with punctuation between.
-
-    A label heads a block that also holds amounts, so nothing further behind goes.
-    """
-    spans: list[tuple[int, int]] = []
-    position = adjacent
-    while (run := _number_at(text, position)) is not None:
-        spans.append(run)
-        position = _after_punctuation(text, run[1])
-    return spans
-
-
-def _number_at(text: str, position: int) -> tuple[int, int] | None:
-    """A number of at least six digits that starts at ``position``, dates apart."""
-    run = _DIGIT_RUN_AT_TERM.match(text, position)
-    if run is None:
-        return None
+def _is_amount_with_unit(text: str, run: re.Match[str]) -> bool:
+    """A number without a leading zero, followed by a currency or a unit."""
     digits = run.group()
-    if _digit_count(digits) < _NUMBER_MIN_DIGITS or _DATE.fullmatch(digits) is not None:
-        return None
-    return run.span()
+    if digits.startswith("0") or _UNIT_AFTER.match(text, run.end()) is None:
+        return False
+    return (
+        digits.isdigit()
+        or _AMOUNT_DOTTED.fullmatch(digits) is not None
+        or _ends_in_grouped_amount(digits)
+    )
+
+
+def _ends_in_grouped_amount(digits: str) -> bool:
+    """Whether a run ends in an amount in groups of three ("2025 4 750 000" does)."""
+    if "-" in digits:
+        return False
+    groups = _BLANKS.split(digits)
+    last = len(groups) - 1
+    first = last
+    while first > 0 and len(groups[first]) == 3:
+        first -= 1
+    if first == last:
+        return False  # no group of three at the end
+    if not 1 <= len(groups[first]) <= 3 or groups[first].startswith("0"):
+        first += 1  # "2025 750 000": the amount starts at the next group
+    return first < last and not groups[first].startswith("0")
 
 
 def _weak_number(text: str, term: re.Match[str], adjacent: int) -> list[tuple[int, int]]:

@@ -148,6 +148,31 @@ _REMOVED: list[tuple[str, str]] = [
     ("Kto.-Nr. 1234/567890", f"Kto.-Nr. {REPLACEMENT}"),
     ("Depotnummer 1234/5678", f"Depotnummer {REPLACEMENT}"),
     ("IBAN LU1901144466 94 337 135", f"IBAN {REPLACEMENT}"),
+    # The fourth issue (P-RD-1b4 report, H-3 to H-9).
+    ("Bankverbindung: LU1901144466 94 337 135", f"Bankverbindung: {REPLACEMENT}"),
+    ("Konto LU1901144466 94 337 135", f"Konto {REPLACEMENT}"),
+    (
+        "Bank details: LU1901144466 94 337 135 / 70872490",
+        f"Bank details: {REPLACEMENT} / {REPLACEMENT}",
+    ),
+    ("Bankverbindung: DE89 3704 0044 0532 0130 01", f"Bankverbindung: {REPLACEMENT}"),
+    ("Payment details: DE89370400440532013001", f"Payment details: {REPLACEMENT}"),
+    ("Bank details | 70872490", f"Bank details | {REPLACEMENT}"),
+    ("Konto | 0532013000", f"Konto | {REPLACEMENT}"),
+    ("Bankverbindung | DE89 3704 0044 0532 0130 01", f"Bankverbindung | {REPLACEMENT}"),
+    ("IBAN is 370400440532013000", f"IBAN is {REPLACEMENT}"),
+    ("IBAN lautet 3704 0044 0532 0130 00", f"IBAN lautet {REPLACEMENT}"),
+    ("IBAN: 3704 0044\n0532 0130 00", f"IBAN: {REPLACEMENT}"),
+    ("Account number: 0532 0130\n00", f"Account number: {REPLACEMENT}"),
+    ("Bank details: 7087\n2490", f"Bank details: {REPLACEMENT}"),
+    ("Account number: 0532\u20070130\u200700", f"Account number: {REPLACEMENT}"),
+    ("Kontonummer: 0532  0130  00", f"Kontonummer: {REPLACEMENT}"),
+    (
+        "IBANs: DE89 3704 0044 0532 0130 01, LU28 0019 4006 4475 0001",
+        f"IBANs: {REPLACEMENT}, {REPLACEMENT}",
+    ),
+    ("Kontonummer DE89 3704 0044 0532 0130 01", f"Kontonummer {REPLACEMENT}"),
+    ("Bank details: 15.03.2025 70872490", f"Bank details: 15.03.2025 {REPLACEMENT}"),
 ]
 
 _KEPT: list[str] = [
@@ -219,6 +244,20 @@ _KEPT: list[str] = [
     "Payment details: EUR 4,750,000 due 2025-03-15",
     # A row that starts with a valid ISIN (G-3); its figures give valid IBAN check digits.
     "LU1901144466 94 337 135",
+    # Amounts, dates and year ranges right behind a term (P-RD-1b4 report, H-1, H-2, H-10).
+    "Payment details: 4 750 000 EUR due on 15 March 2025",
+    "Payment details\n4 750 000\n2025-03-15",
+    "Payment details: 4 750 000 / 12 500 000",
+    "Payment details: 167421599 EUR",
+    "Routing 2024/2025 of capital calls",
+    "Routing 2024-25 of capital calls",
+    "ABA 2024/2025 programme",
+    "Account number 12/2024",
+    "sort code 30.09.24",
+    "Account no. 1.250.000 units",
+    "Konto-Nr. 1.250.000 EUR Saldo",
+    "Account number see notice of 15 March 2025 4 750 000 EUR",
+    "NAV 12\u2007500\u2007000",
 ]
 
 
@@ -302,6 +341,8 @@ def test_filter_walks_the_parsed_output() -> None:
         "Payee account",
         "Escrow account",
         "Bank code",
+        "Depot number",
+        "Depot no.",
         "DE89 3704 0044 0532 0130 00",
     ],
 )
@@ -325,6 +366,8 @@ def test_keyword_names_that_ask_for_bank_details(name: str) -> None:
         "Accrued interest",
         "Escrow amount",
         "Bank name",
+        "Depot value",
+        "Depotbank",
         "Fund Name",
     ],
 )
@@ -391,7 +434,10 @@ def test_an_unregistered_country_code_is_not_an_iban() -> None:
     "term",
     ["account", "Account number", "IBAN", "BIC", "Konto", "sort code", "Acc. No.", "Bank details"],
 )
-@pytest.mark.parametrize("filler", [" ", "\n", ". ", "9 ", "A1 ", "1.", "1/", "AB12 "])
+@pytest.mark.parametrize(
+    "filler",
+    [" ", "\n", ". ", "9 ", "A1 ", "1.", "1/", "AB12 ", "1234  ", "1234\n", "4 750 000 / "],
+)
 def test_the_filter_runs_in_linear_time(term: str, filler: str) -> None:
     """P-RD-1b2 report, F-1: 16,000 blanks after a term once took 8.8 s, quadratically."""
     text = term + filler * 100_000

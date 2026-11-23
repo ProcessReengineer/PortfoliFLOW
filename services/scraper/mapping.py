@@ -29,6 +29,7 @@ from services.scraper.models import (
     Confidence,
     Finding,
     Keyword,
+    KeywordType,
     NoteQuote,
     ReadingNote,
     ReportExtraction,
@@ -51,6 +52,10 @@ _NOT_SLUG = re.compile(r"[^a-z0-9]+")
 # date.fromisoformat alone would also accept 20240930 and 2024-W39-1.
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _NOT_FOUND_LITERALS = frozenset({"not_found", "not found"})
+# The highest page number taken; the column is a 32-bit integer, and a number
+# the model made up must not cost a reading.
+_MAX_PAGE = 100_000
+_PERCENT_UNIT = "%"
 
 
 def clean_parsed_output(value: Any) -> Any:
@@ -188,7 +193,14 @@ def _profile_findings(
 
 
 def _default_unit(field: ProfileField, currency: str) -> str:
-    return currency if field.unit == "currency" else field.unit or ""
+    if field.unit == "currency":
+        return currency
+    return field.unit or _type_unit(field.type)
+
+
+def _type_unit(kind: KeywordType) -> str:
+    """The unit a finding of this type has when nothing else gives one."""
+    return _PERCENT_UNIT if kind is KeywordType.PERCENTAGE else ""
 
 
 def _adhoc_findings(
@@ -202,7 +214,7 @@ def _adhoc_findings(
             keyword=keyword,
             key=key,
             origin=FINDING_ORIGIN_ADHOC,
-            default_unit="",
+            default_unit=_type_unit(keyword.type),
             filename=filename,
         )
         if refused:
@@ -218,7 +230,9 @@ def _finding(
         entry = {}
 
     raw = entry.get("value")
-    value = "\n".join(_texts(raw)) if isinstance(raw, list) else _text(raw)
+    # The items of a list were filtered one by one; joined, they can form an
+    # identifier again, so the joined value passes the filter once more.
+    value = remove_bank_details("\n".join(_texts(raw))) if isinstance(raw, list) else _text(raw)
     if value.lower() in _NOT_FOUND_LITERALS:
         value = ""
 
@@ -300,7 +314,7 @@ def _positive_int(value: Any) -> int | None:
             return None
     else:
         return None
-    return number if number >= 1 else None
+    return number if 1 <= number <= _MAX_PAGE else None
 
 
 def _date(value: Any) -> date | None:

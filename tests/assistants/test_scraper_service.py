@@ -910,3 +910,37 @@ class TestScraperServiceUntrustedResponses:
 
         assert first.error == "Could not read the model's response."
         assert second.fund_name == "Fund B"
+
+
+class TestScraperServiceFailedCallMessage:
+    """P-RD-1b3: the provider's message is filtered before it is shown or logged."""
+
+    def test_bank_details_in_the_exception_reach_neither_error_nor_log(
+        self, stub_ai_service, pdf_attachment, next_attachment, caplog
+    ) -> None:
+        import logging
+
+        from services.scraper.bank_filter import REPLACEMENT
+
+        message = (
+            "upstream rejected: IBAN DE89 3704 0044 0532 0130 00, "
+            "account number 70872490 in the document"
+        )
+        stub_ai_service["responses"].append(("raise", ConnectionError(message)))
+        stub_ai_service["responses"].append(("return", _valid_response("Fund B")))
+
+        with caplog.at_level(logging.DEBUG):
+            first, second = _read(pdf_attachment, next_attachment).extractions
+
+        assert first.error == (
+            "API call failed: ConnectionError: upstream rejected: "
+            f"IBAN {REPLACEMENT}, account number {REPLACEMENT} in the document"
+        )
+        for secret in ("DE89", "3704", "0532", "70872490"):
+            assert secret not in first.error
+            assert secret not in caplog.text
+        assert "ConnectionError" in caplog.text
+        assert pdf_attachment.filename in caplog.text
+        assert "Traceback" not in caplog.text
+        assert second.error is None
+        assert second.fund_name == "Fund B"

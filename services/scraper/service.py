@@ -35,7 +35,7 @@ from collections.abc import Callable
 
 from services.ai_service_core import OutputBudgetExceeded, ResolvedLLM
 from services.ai_service_core import get_ai_service_core as get_ai_service
-from services.scraper.bank_filter import asks_for_bank_details
+from services.scraper.bank_filter import asks_for_bank_details, remove_bank_details
 from services.scraper.capabilities import (
     ModelCapability,
     lookup_capability,
@@ -289,8 +289,16 @@ class ScraperService:
             logger.warning("ScraperService: output budget exceeded for %s.", att.filename)
             return extraction
         except Exception as exc:  # noqa: BLE001 — partial-success boundary
-            extraction.error = f"API call failed: {type(exc).__name__}: {exc}"
-            logger.exception("ScraperService: API call failed for %s", att.filename)
+            # The provider's message may quote the document: it is filtered, and
+            # no traceback is logged, which would repeat it unfiltered.
+            message = remove_bank_details(str(exc))
+            extraction.error = f"API call failed: {type(exc).__name__}: {message}"
+            logger.warning(
+                "ScraperService: API call failed for %s (%s: %s).",
+                att.filename,
+                type(exc).__name__,
+                message,
+            )
             return extraction
 
         # Parse and map. The response is untrusted document text: whatever its

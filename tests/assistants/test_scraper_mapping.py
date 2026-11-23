@@ -473,7 +473,7 @@ def test_default_units() -> None:
 
     assert findings["nav_lp"].unit == "CHF"
     assert findings["tvpi"].unit == "x"
-    assert findings["net_irr"].unit == ""
+    assert findings["net_irr"].unit == "%"
 
 
 def test_a_currency_unit_without_a_currency_is_empty() -> None:
@@ -615,3 +615,92 @@ def test_no_bank_detail_reaches_any_string_of_the_extraction() -> None:
     for amount in ("1100000", "4,750,000", "4750000", "3,300,000", "2200000", "5500000", "6600000"):
         assert amount in strings
     assert "Example Capital" in result.manager_name
+
+
+# ---------------------------------------------------------------------------
+# P-RD-1b3: joined list values, page bounds, the percentage unit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("items", "expected"),
+    [
+        (["IBAN", "DE89 3704 0044", "0532 0130 00"], f"IBAN\n{REPLACEMENT}"),
+        (["Account number:", _ACCOUNT], f"Account number:\n{REPLACEMENT}"),
+    ],
+)
+def test_a_list_value_that_joins_to_a_bank_detail_is_filtered(
+    items: list[str], expected: str
+) -> None:
+    # Each item alone passes the filter unchanged.
+    assert clean_parsed_output(items) == items
+
+    finding = _adhoc({"value": items, "confidence": "High"})
+
+    assert finding.value == expected
+    for digits in ("3704", "0532"):
+        assert digits not in finding.value
+
+
+def test_a_list_of_amounts_is_joined_unchanged() -> None:
+    items = ["12 500 000", "4750000", "2024-09-30", "14.2%"]
+
+    finding = _adhoc({"value": items, "confidence": "High"})
+
+    assert finding.value == "\n".join(items)
+
+
+_PAGES: list[tuple[Any, int | None]] = [(100000, 100000), (100001, None), (10**30, None)]
+
+
+@pytest.mark.parametrize(("value", "expected"), _PAGES)
+def test_the_page_count_has_an_upper_bound(value: Any, expected: int | None) -> None:
+    assert _map({"page_count": value}).page_count == expected
+    assert _map({"page_count": str(value)}).page_count == expected
+
+
+@pytest.mark.parametrize(("value", "expected"), _PAGES)
+def test_the_page_of_a_finding_has_an_upper_bound(value: Any, expected: int | None) -> None:
+    assert _adhoc({"value": "5", "page": value}).page == expected
+    assert _adhoc({"value": "5", "page": str(value)}).page == expected
+
+
+@pytest.mark.parametrize(("value", "expected"), _PAGES)
+def test_the_page_of_a_note_quote_has_an_upper_bound(value: Any, expected: int | None) -> None:
+    result = _map({"note": {"quotes": [{"text": "q", "page": value}]}})
+
+    assert result.note.quotes == [NoteQuote("q", expected)]
+
+
+def test_a_percentage_field_has_the_unit_percent() -> None:
+    findings = _quarterly(
+        fields={"net_irr": {"value": "14.2", "confidence": "High"}},
+    )
+
+    assert findings["net_irr"].unit == "%"
+
+
+def test_a_unit_from_the_model_wins_over_percent_for_a_field() -> None:
+    findings = _quarterly(
+        fields={"net_irr": {"value": "1420", "unit": "bp", "confidence": "High"}},
+    )
+
+    assert findings["net_irr"].unit == "bp"
+
+
+def test_a_percentage_keyword_has_the_unit_percent() -> None:
+    keyword = Keyword("Net IRR", KeywordType.PERCENTAGE)
+    entries = {"Net IRR": {"value": "14.2", "confidence": "High"}}
+
+    result = _map({"findings": entries}, keywords=[keyword])
+
+    assert result.findings[0].unit == "%"
+
+
+def test_a_unit_from_the_model_wins_over_percent_for_a_keyword() -> None:
+    keyword = Keyword("Net IRR", KeywordType.PERCENTAGE)
+    entries = {"Net IRR": {"value": "1420", "unit": "bp", "confidence": "High"}}
+
+    result = _map({"findings": entries}, keywords=[keyword])
+
+    assert result.findings[0].unit == "bp"

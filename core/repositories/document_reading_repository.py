@@ -35,8 +35,9 @@ a value it was given: the message names the field and the rule.
 
 This module is FastAPI-free and knows nothing of ``services/scraper/``:
 ``core/`` imports nothing from the project, so the profile, confidence and
-field-type vocabularies below are mirrored. P-RD-1b adds the parity test
-against the profile files.
+field-type vocabularies below are mirrored.
+``tests/regression/test_reading_vocabulary_parity.py`` checks them against the
+profile files.
 """
 
 from __future__ import annotations
@@ -180,7 +181,7 @@ class ReadingPurgePreview:
     reading_count: int
 
 
-def _is_reading_number_conflict(exc: IntegrityError) -> bool:
+def is_reading_number_conflict(exc: IntegrityError) -> bool:
     """Return True when ``exc`` is the tenant reading-number unique violation.
 
     Reads the driver's ``constraint_name`` off the wrapped error, falling
@@ -517,7 +518,7 @@ class DocumentReadingRepository(BaseRepository):
             except IntegrityError as exc:
                 # Retry once on a number collision; propagate anything else,
                 # and propagate a second collision too.
-                if attempt == 0 and _is_reading_number_conflict(exc):
+                if attempt == 0 and is_reading_number_conflict(exc):
                     continue
                 raise
         raise AssertionError("unreachable: the loop returns or raises")

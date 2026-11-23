@@ -19,13 +19,24 @@ What is removed, each replaced by :data:`REPLACEMENT`:
 * an IBAN with valid check digits (ISO 13616: a registered country, that
   country's length, mod 97) — anywhere, in upper or lower case, printed
   without separators, in groups, with dots or hyphens, or wrapped over lines;
-* after ``IBAN``: an IBAN-shaped identifier whatever its check digits, within
-  :data:`_WINDOW` characters; or a run of at least six digits right after it;
+  unless its first token is exactly a valid ISIN (a table row that starts
+  with an ISIN and has figures behind it);
+* after ``IBAN``: a run of at least six digits right after it, and an
+  IBAN-shaped identifier within :data:`_WINDOW` characters whatever its check
+  digits — one of an unregistered country only if it follows the term
+  directly, one further behind only at its country's full length;
 * after ``BIC`` or ``SWIFT``: a BIC in upper case right after the term;
-* after a number term (``account number``, ``Kontonummer``, ``BLZ``,
-  ``sort code``, ``routing``, ``ABA``, ``acct``, ``Kto`` …): every run of at
-  least six digits that starts within :data:`_WINDOW` characters, also on the
-  next line or after words ("account number is …");
+* after a label (``Bankverbindung``, ``Kontoverbindung``, ``Bank details``,
+  ``Payment details``): the number right after it and each number that follows
+  with punctuation only between, grouped as below; nothing further behind,
+  since such a block also holds the amount;
+* after a number term (``account number``, ``Acc. No.``, ``Kontonummer``,
+  ``BLZ``, ``sort code``, ``routing``, ``ABA``, ``acct``, ``Kto`` …): the number
+  right after it (punctuation between only), also grouped by blanks, dots,
+  hyphens or a slash, dates apart; and every further run of at least six
+  digits that starts within :data:`_WINDOW` characters, also on the next line
+  or after words ("account number is …"), unless it is written as an amount
+  in groups of three;
 * after the bare words ``account``, ``Konto`` or ``Depot``: a run of at least
   eight digits right after the word, unless it is written as an amount in groups
   of three or follows "capital account" and its like; a run with a leading
@@ -37,9 +48,17 @@ follow a bank term. The term itself stays, so the text still says that a bank
 detail stood there.
 
 Known limits, accepted (closing report of strand RD-1): a bare number without
-any term in the same string; a BIC in lower case; an IBAN with invalid check
-digits and no term beside it; an account number printed in groups of three
-after the bare word "account".
+any term in the same string; a number more than :data:`_WINDOW` characters
+behind its term; an account number in groups of three that is separated from
+its term by words ("account number is 123 456 789") or follows the bare word
+"account"; seven digits after the bare word "account"; a BIC in lower case or
+printed in groups; any eight- or eleven-letter upper-case word right after
+``BIC`` or a removed identifier counts as a BIC; an IBAN with invalid check
+digits and no term beside it; a table row that starts with a country code and
+check digits other than an ISIN (``CY24 …``) and whose figures happen to give
+valid check digits (about one row in 97); full-width characters; the short
+list of ledger words before "account". A second pass over filtered text may
+remove more than the first.
 
 Every pattern runs in linear time: quantifiers that meet are possessive, and
 the text after a term is examined in a bounded window.
@@ -89,9 +108,10 @@ _TERM = re.compile(
     r"(?<![A-Za-z])(?:"
     r"(?P<iban>IBANs?)"
     rf"|(?P<bic>(?:BICs?|SWIFT)(?:{_JOINER}codes?)?)"
-    r"|(?P<number>BLZ|Bankleitzahl|sort[ \-_]?codes?|routing|ABA|acct|a/c|Kto"
-    r"|Kontonummern?|Kontonr|Bankkonto|Depotnummern?|Depotnr"
-    rf"|(?:account|Konto|Depot){_JOINER}{_NUMBER_WORD})"
+    rf"|(?P<number>(?:account|acc|Konto|Kto|Depot){_JOINER}{_NUMBER_WORD}"
+    r"|BLZ|Bankleitzahl|sort[ \-_]?codes?|routing|ABA|acct|a/c|Kto"
+    r"|Kontonummern?|Kontonr|Bankkonto|Depotnummern?|Depotnr)"
+    r"|(?P<label>Bankverbindung(?:en)?|Kontoverbindung(?:en)?|(?:bank|payment)[ \-_]?details)"
     r"|(?P<weak>account|Konto|Depot)"
     r")(?![A-Za-z])",
     re.IGNORECASE,
@@ -100,6 +120,8 @@ _TERM = re.compile(
 # Right after a term: blanks, line breaks and punctuation only.
 _PUNCTUATION_GAP = re.compile(r"[\s.:;=#()\[\],/\-\u2013\u2014\u00a0]{0,12}+")
 _DIGIT_RUN = re.compile(r"[0-9](?:[ \u00a0\u2009\u202f\-]?+[0-9])*+")
+# Right behind a term a number may also be grouped by dots or split by a slash.
+_DIGIT_RUN_AT_TERM = re.compile(r"[0-9](?:[ \u00a0\u2009\u202f\-./]?+[0-9])*+")
 _BIC = re.compile(r"[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?+(?![A-Za-z0-9])")
 _BIC_AFTER_REMOVED = re.compile(
     r"(?<=\[bank detail removed\])(?P<gap>[ \t\u00a0,;/|]{0,6}+)"
@@ -107,6 +129,9 @@ _BIC_AFTER_REMOVED = re.compile(
 )
 
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}([./])[0-9]{1,2}\1(?:19|20)[0-9]{2}")
+_ISIN = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9]")
+_ISIN_LENGTH = 12
 _AMOUNT_GROUPED = re.compile(r"[1-9][0-9]{0,2}(?:[ \u00a0\u2009\u202f][0-9]{3})+")
 # "capital account 12500000" is a figure, not a bank account.
 _LEDGER_ACCOUNT = re.compile(
@@ -131,7 +156,8 @@ _BANK_TERM_NAME = re.compile(
     r"|bankverbindung(?:en)?|bankkonto|bankkonten|bankdaten"
     r"|zahlungsverbindung(?:en)?|zahlungsanweisung(?:en)?|zahlungsinstruktion(?:en)?"
     r"|bank(?:ing)?[ \-_]+(?:accounts?|details|data|information|instructions|coordinates)"
-    r"|account[ ._\-]*(?:numbers?|nos?|nrs?|num|#|details)"
+    r"|acc(?:ount)?[ ._\-]*(?:numbers?|nos?|nrs?|num|#|details)"
+    r"|(?:beneficiary|payee|escrow)[ \-_]+accounts?|bank[ \-_]+codes?"
     r"|wire|remittance|(?:payment|settlement)[ \-_]+(?:instructions|details)"
     r")(?![a-z])",
     re.IGNORECASE,
@@ -212,10 +238,36 @@ def _valid_iban_spans(text: str) -> list[tuple[int, int]]:
         if length is None:
             continue
         compact, end = _take_identifier(text, head.start(), length, stop_at_words=False)
-        if len(compact) == length and _has_valid_check_digits(compact):
+        if (
+            len(compact) == length
+            and _has_valid_check_digits(compact)
+            and not _starts_with_isin(text, head.start())
+        ):
             spans.append((head.start(), end))
             position = end
     return spans
+
+
+def _starts_with_isin(text: str, start: int) -> bool:
+    """Whether the token at ``start`` is exactly a valid ISIN (not glued to ``IBAN``)."""
+    if start >= 4 and text[start - 4 : start].upper() == "IBAN":
+        return False
+    token = text[start : start + _ISIN_LENGTH + 1]
+    if len(token) > _ISIN_LENGTH and (token[-1].isascii() and token[-1].isalnum()):
+        return False
+    return _is_valid_isin(token[:_ISIN_LENGTH])
+
+
+def _is_valid_isin(token: str) -> bool:
+    """ISO 6166: letters read as 10 to 35, then the Luhn check over the digits."""
+    if _ISIN.fullmatch(token) is None:
+        return False
+    digits = "".join(str(int(char, 36)) for char in token)
+    total = 0
+    for offset, char in enumerate(reversed(digits)):
+        value = int(char) * (2 if offset % 2 else 1)
+        total += value - 9 if value > 9 else value
+    return total % 10 == 0
 
 
 def _take_identifier(text: str, start: int, limit: int, *, stop_at_words: bool) -> tuple[str, int]:
@@ -269,41 +321,88 @@ def _spans_after_terms(text: str) -> list[tuple[int, int]]:
         elif term.group("bic") is not None:
             if (bic := _BIC.match(text, adjacent)) is not None:
                 spans.append(bic.span())
+        elif term.group("label") is not None:
+            spans.extend(_numbers_in_a_row(text, adjacent))
         elif term.group("number") is not None:
             if _is_ledger_account(text, term) and term.group().lower().startswith("account"):
                 continue
-            spans.extend(_digit_runs(text, term.end(), term.end() + _WINDOW))
+            spans.extend(_number_runs(text, term.end(), adjacent))
         else:
             spans.extend(_weak_number(text, term, adjacent))
     return spans
 
 
 def _iban_after_term(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
-    """An IBAN-shaped identifier near the term, or digits right after it."""
-    head = _IBAN_HEAD.search(text, term_end, term_end + _WINDOW)
-    if head is not None:
-        length = _IBAN_LENGTHS.get(head.group()[:2].upper(), _IBAN_MAX_LENGTH)
-        compact, end = _take_identifier(text, head.start(), length, stop_at_words=True)
-        if len(compact) >= _IBAN_MIN_TAKEN:
-            return [(head.start(), end)]
-    run = _DIGIT_RUN.match(text, adjacent)
-    if run is not None and _digit_count(run.group()) >= _NUMBER_MIN_DIGITS:
-        return [run.span()]
-    return []
-
-
-def _digit_runs(text: str, start: int, stop: int) -> list[tuple[int, int]]:
-    """Every run of at least six digits that starts in ``text[start:stop]``, dates apart."""
+    """Digits right after the term, and an IBAN-shaped identifier near it."""
     spans: list[tuple[int, int]] = []
-    position = start
-    while (run := _DIGIT_RUN.search(text, position, min(stop, len(text)))) is not None:
+    run = _number_at(text, adjacent)
+    if run is not None:
+        spans.append(run)
+    position = term_end
+    stop = min(term_end + _WINDOW, len(text))
+    while (head := _IBAN_HEAD.search(text, position, stop)) is not None:
+        position = head.start() + 1
+        length = _IBAN_LENGTHS.get(head.group()[:2].upper())
+        touches = head.start() == adjacent
+        if length is None and not touches:
+            continue  # "ref. FY24 …" further behind is not an IBAN
+        wanted = length or _IBAN_MAX_LENGTH
+        compact, end = _take_identifier(text, head.start(), wanted, stop_at_words=True)
+        if len(compact) == wanted or (touches and len(compact) >= _IBAN_MIN_TAKEN):
+            spans.append((head.start(), end))
+            break
+    return spans
+
+
+def _number_runs(text: str, term_end: int, adjacent: int) -> list[tuple[int, int]]:
+    """The number right after a number term, and every later run of six digits.
+
+    A later run is kept if it is written as an amount in groups of three.
+    """
+    spans: list[tuple[int, int]] = []
+    position = term_end
+    if (run := _number_at(text, adjacent)) is not None:
+        spans.append(run)
+        position = run[1]
+    stop = min(term_end + _WINDOW, len(text))
+    while (run := _DIGIT_RUN.search(text, position, stop)) is not None:
         # The run may reach beyond the window: match it again without the bound.
         whole = _DIGIT_RUN.match(text, run.start()) or run
         position = whole.end()
         digits = whole.group()
-        if _ISO_DATE.fullmatch(digits) is None and _digit_count(digits) >= _NUMBER_MIN_DIGITS:
+        if run.start() == adjacent:
+            continue  # right after the term, and too short or a date
+        if (
+            _digit_count(digits) >= _NUMBER_MIN_DIGITS
+            and _ISO_DATE.fullmatch(digits) is None
+            and _AMOUNT_GROUPED.fullmatch(digits) is None
+        ):
             spans.append(whole.span())
     return spans
+
+
+def _numbers_in_a_row(text: str, adjacent: int) -> list[tuple[int, int]]:
+    """The number right after a label, and each that follows it with punctuation between.
+
+    A label heads a block that also holds amounts, so nothing further behind goes.
+    """
+    spans: list[tuple[int, int]] = []
+    position = adjacent
+    while (run := _number_at(text, position)) is not None:
+        spans.append(run)
+        position = _after_punctuation(text, run[1])
+    return spans
+
+
+def _number_at(text: str, position: int) -> tuple[int, int] | None:
+    """A number of at least six digits that starts at ``position``, dates apart."""
+    run = _DIGIT_RUN_AT_TERM.match(text, position)
+    if run is None:
+        return None
+    digits = run.group()
+    if _digit_count(digits) < _NUMBER_MIN_DIGITS or _DATE.fullmatch(digits) is not None:
+        return None
+    return run.span()
 
 
 def _weak_number(text: str, term: re.Match[str], adjacent: int) -> list[tuple[int, int]]:

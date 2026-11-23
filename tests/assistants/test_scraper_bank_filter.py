@@ -123,6 +123,31 @@ _REMOVED: list[tuple[str, str]] = [
     ),
     ("IBAN: 3704 0044 0532 0130 00", "IBAN: [bank detail removed]"),
     ("account 012 345 678", "account [bank detail removed]"),
+    # The third issue (P-RD-1b3 report, G-1 and G-4).
+    (
+        "IBAN 370400440532013000, ref. FY24 Q3 call no. 7",
+        f"IBAN {REPLACEMENT}, ref. FY24 Q3 call no. 7",
+    ),
+    (
+        "IBAN of the FY24 fund: DE89 3704 0044 0532 0130 00",
+        f"IBAN of the FY24 fund: {REPLACEMENT}",
+    ),
+    ("IBAN: 3704.0044.0532.0130.00", f"IBAN: {REPLACEMENT}"),
+    ("Acc. No. 70872490", f"Acc. No. {REPLACEMENT}"),
+    ("Acc No 70872490", f"Acc No {REPLACEMENT}"),
+    ("Acc.-Nr. 70872490", f"Acc.-Nr. {REPLACEMENT}"),
+    ("Kontoverbindung: 532013000", f"Kontoverbindung: {REPLACEMENT}"),
+    (
+        "Bankverbindung 532013000 bei der Sparkasse",
+        f"Bankverbindung {REPLACEMENT} bei der Sparkasse",
+    ),
+    ("Bank details: 70872490 / 40-47-84", f"Bank details: {REPLACEMENT} / {REPLACEMENT}"),
+    ("Payment details: 70872490", f"Payment details: {REPLACEMENT}"),
+    ("Kontonummer 532.013.000", f"Kontonummer {REPLACEMENT}"),
+    ("BLZ 370.400.44", f"BLZ {REPLACEMENT}"),
+    ("Kto.-Nr. 1234/567890", f"Kto.-Nr. {REPLACEMENT}"),
+    ("Depotnummer 1234/5678", f"Depotnummer {REPLACEMENT}"),
+    ("IBAN LU1901144466 94 337 135", f"IBAN {REPLACEMENT}"),
 ]
 
 _KEPT: list[str] = [
@@ -178,6 +203,22 @@ _KEPT: list[str] = [
     "Seite 12, Kapitalkonto",
     # Not valid, and no bank term beside it.
     "DE89 3704 0044 0532 0130 01",
+    # Amounts behind a term, kept by the third issue (P-RD-1b3 report, G-2).
+    "IBAN and account number are on page 2; the call of EUR 4 750 000 is due on 15 March",
+    "Routing of the call through the feeder: EUR 12 500 000",
+    "The account no longer holds 12 500 000 units",
+    "Account numbers 1 to 3 hold 12 500 000 and 13 200 000",
+    "ABA Capital Partners committed 25 000 000",
+    "Depot number 4, value 125 000 000",
+    "acct. value 12 500 000",
+    "Kontonummer 30.09.2024",
+    "Kontonummer: 31/12/2024",
+    # A label heads a block that also holds the amount.
+    "Payment details: the call of EUR 4750000 is due on 15 March",
+    "Bank details on page 2. Commitment 25000000",
+    "Payment details: EUR 4,750,000 due 2025-03-15",
+    # A row that starts with a valid ISIN (G-3); its figures give valid IBAN check digits.
+    "LU1901144466 94 337 135",
 ]
 
 
@@ -255,6 +296,12 @@ def test_filter_walks_the_parsed_output() -> None:
         "Settlement instructions",
         "Banking details",
         "Bankdaten",
+        "Acc. No.",
+        "Acc No",
+        "Beneficiary account",
+        "Payee account",
+        "Escrow account",
+        "Bank code",
         "DE89 3704 0044 0532 0130 00",
     ],
 )
@@ -275,6 +322,9 @@ def test_keyword_names_that_ask_for_bank_details(name: str) -> None:
         "Banking covenants",
         "Account manager",
         "Accounting standard",
+        "Accrued interest",
+        "Escrow amount",
+        "Bank name",
         "Fund Name",
     ],
 )
@@ -337,8 +387,11 @@ def test_an_unregistered_country_code_is_not_an_iban() -> None:
     assert remove_bank_details(f"IBAN {iban}") == f"IBAN {REPLACEMENT}"
 
 
-@pytest.mark.parametrize("term", ["account", "Account number", "IBAN", "BIC", "Konto", "sort code"])
-@pytest.mark.parametrize("filler", [" ", "\n", ". ", "9 ", "A1 "])
+@pytest.mark.parametrize(
+    "term",
+    ["account", "Account number", "IBAN", "BIC", "Konto", "sort code", "Acc. No.", "Bank details"],
+)
+@pytest.mark.parametrize("filler", [" ", "\n", ". ", "9 ", "A1 ", "1.", "1/", "AB12 "])
 def test_the_filter_runs_in_linear_time(term: str, filler: str) -> None:
     """P-RD-1b2 report, F-1: 16,000 blanks after a term once took 8.8 s, quadratically."""
     text = term + filler * 100_000
@@ -347,3 +400,14 @@ def test_the_filter_runs_in_linear_time(term: str, filler: str) -> None:
     remove_bank_details(text)
 
     assert time.perf_counter() - started < 5.0
+
+
+def test_a_row_that_starts_with_an_isin_is_not_an_iban() -> None:
+    """P-RD-1b3 report, G-3: the ISIN and the figures behind it give valid check digits."""
+    row = "LU1901144466 94 337 135"
+
+    assert remove_bank_details(row) == row
+    assert remove_bank_details(f"Fund A: {row}") == f"Fund A: {row}"
+    # Glued to the term, or after it, the same characters are an IBAN.
+    assert remove_bank_details(f"IBAN{row}") == f"IBAN{REPLACEMENT}"
+    assert remove_bank_details(f"IBAN: {row}") == f"IBAN: {REPLACEMENT}"

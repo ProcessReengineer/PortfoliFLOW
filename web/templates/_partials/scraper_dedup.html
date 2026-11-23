@@ -1,0 +1,41 @@
+{# Scraper dedup question — returned by POST /scraper/runs instead of the
+   run mount when a file of the upload already has a live reading in the
+   tenant (RD-D-9). No stream opens: the root carries no
+   data-pf-scraper-sse-url. The files stay in the run store, so
+   *Read again* needs no second upload; it posts to the confirm route,
+   whose answer is the run mount. *Don't read* drops the run.
+
+   Required context (assembled by web.routes.scraper.scraper_run_start):
+     run_id     — the held run
+     csrf_token — for the two buttons
+     rows       — one dict per gated file: filename, read_on (YYYY-MM-DD,
+                  UTC date of the newest live reading), label (its R-nnnn),
+                  earlier (the count of older live readings)
+#}
+<div class="scraper-run-mount">
+    <p>Some of these files have been read before:</p>
+    <ul>
+        {% for row in rows %}
+            <li>{{ row.filename }} — already read on {{ row.read_on }} as {{ row.label }}{% if row.earlier %} (and {{ row.earlier }} earlier){% endif %}</li>
+        {% endfor %}
+    </ul>
+    <div class="scraper__actions">
+        <button type="button"
+                class="btn btn--primary"
+                hx-post="/scraper/runs/{{ run_id }}/confirm"
+                hx-target="#scraper-run"
+                hx-swap="innerHTML"
+                hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>
+            Read again
+        </button>
+        <button type="button"
+                class="btn btn--ghost"
+                hx-post="/scraper/runs/{{ run_id }}/discard"
+                hx-target="#scraper-run"
+                hx-swap="innerHTML"
+                hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>
+            Don't read
+        </button>
+    </div>
+    <p class="scraper__hint">Read again reads every file of this upload and saves a new reading for each.</p>
+</div>

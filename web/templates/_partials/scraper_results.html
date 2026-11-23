@@ -7,10 +7,20 @@
    trailing line is rendered when the run was cancelled before all
    files completed.
 
+   When readings were written, each article names the reading its file
+   became (``Saved as R-nnnn`` or ``Not saved.``) and, for a saved
+   reading only, the proposed assignment as text. One caption marks the
+   values as the model's reading (RD-D-6).
+
    Required context:
      extractions — list[ReportExtraction]
      cancelled   — bool
+     outcomes    — Optional[list[ReadingOutcome]] — one per extraction,
+                   aligned by position, or None when nothing was written
 #}
+{% if extractions %}
+    <p class="scraper__hint">Values are the model's reading of the documents and are not checked against them.</p>
+{% endif %}
 {% for extraction in extractions %}
     <article class="scraper-result"
              data-filename="{{ extraction.filename }}">
@@ -30,6 +40,18 @@
             {% endif %}
         </header>
 
+        {% if outcomes is not none and not extraction.error %}
+            {% set outcome = outcomes[loop.index0] if loop.index0 < outcomes|length else none %}
+            {% if outcome is not none and outcome.label %}
+                <p class="scraper__hint">Saved as {{ outcome.label }}</p>
+                {% if outcome.proposal %}
+                    <p class="scraper__hint">Proposed assignment: {{ outcome.proposal.kind }} “{{ outcome.proposal.name }}”</p>
+                {% endif %}
+            {% else %}
+                <p class="scraper__hint">Not saved.</p>
+            {% endif %}
+        {% endif %}
+
         {% if extraction.error %}
             <div class="scraper-result__error">
                 <strong>Extraction failed:</strong>
@@ -39,7 +61,7 @@
             <table class="scraper-result__findings">
                 <thead>
                     <tr>
-                        <th>Keyword</th>
+                        <th>Field</th>
                         <th>Value</th>
                         <th>Source</th>
                         <th>Confidence</th>
@@ -48,7 +70,7 @@
                 <tbody>
                     {% for finding in extraction.findings %}
                         <tr>
-                            <td>{{ finding.keyword.name }}</td>
+                            <td>{{ finding.label or finding.keyword.name }}</td>
                             <td>{{ finding.value or "—" }}</td>
                             <td>{{ finding.source or "—" }}</td>
                             <td>

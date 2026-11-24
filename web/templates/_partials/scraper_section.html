@@ -5,7 +5,7 @@
    HTMX fragment that mounts the SSE stream into ``#scraper-run``, or the
    dedup question (scraper_dedup.html) when a file was read before. The
    model is not submitted: it is resolved server-side per run, per tenant
-   (ADR-0123), and shown here read-only.
+   (ADR-0123), and named in a hint line below the button.
 
    The keyword editor starts empty (D-RD-1-1): the document type's fields
    are always read, and the editor holds only extra keywords.
@@ -37,7 +37,9 @@
               hx-post="/scraper/runs"
               hx-target="#scraper-run"
               hx-swap="innerHTML"
-              hx-encoding="multipart/form-data">
+              hx-encoding="multipart/form-data"
+              hx-disabled-elt="#scraper-extract"
+              hx-indicator="#scraper-busy">
             <input type="hidden" name="csrf_token"
                    value="{{ csrf_token }}">
 
@@ -109,21 +111,13 @@
             <input type="hidden" name="keywords_json"
                    id="scraper-keywords-json" value="">
 
-            <div class="scraper__field">
-                <span class="scraper__label">Model</span>
-                <p class="scraper__value">{{ scraper_model }}</p>
-                <span class="scraper__hint">
-                    Configured under Admin → Providers &amp; Credentials
-                    → OpenRouter → Report Scraper model. Only Anthropic
-                    models currently support PDF extraction.
-                </span>
-            </div>
-
             <div class="scraper__actions">
-                <button type="submit" class="btn btn--primary">
+                <button type="submit" id="scraper-extract" class="btn btn--primary">
                     Extract
                 </button>
+                <span id="scraper-busy" class="htmx-indicator scraper__busy" role="status"><span class="pf-spin" aria-hidden="true"></span> Uploading…</span>
             </div>
+            <p class="scraper__hint">Model: <code>{{ scraper_model }}</code>. Set under Admin → Providers &amp; Credentials → OpenRouter → Report Scraper model. Only Anthropic models currently support PDF extraction.</p>
         </form>
     {% endif %}
 

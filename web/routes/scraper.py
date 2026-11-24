@@ -60,7 +60,7 @@ from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import timezone
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -110,6 +110,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _RUNS_LIMIT = 32
+# Heartbeat for proxies with short idle timeouts; it also lets
+# ``scraper_run_stream`` notice a closed tab while a file is read.
+_KEEPALIVE_S = 15.0
 _MAX_UPLOAD_BYTES = 64 * 1024 * 1024  # Defence-in-depth cap on a single
 # multipart submission. The
 # capability map's per-file MB limit
@@ -738,13 +741,16 @@ async def scraper_run_confirm(
     Returns the run-mount fragment, on whose swap ``scraper.js`` opens the
     stream; the run then writes a new reading per file. Session-isolated:
     another session's run, a missing run and a run not awaiting
-    confirmation all answer 404.
+    confirmation all answer 404 with a notice fragment, which
+    ``scraper.js`` swaps into ``#scraper-run`` (a confirm from a second tab,
+    an evicted run).
     """
     run = _scraper_runs(request).get(run_id)
     if run is None or run.session_id != str(session.id) or not run.awaiting_confirmation:
-        raise HTTPException(
+        return HTMLResponse(
+            '<p class="scraper__form-error">This upload is no longer waiting to be read. '
+            "Upload the files again.</p>",
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Unknown scraper run.",
         )
     run.awaiting_confirmation = False
     return _render_run_mount(request, run, session.csrf_token)
@@ -838,15 +844,41 @@ def _render_results_fragment(
 
 
 def _render_progress_fragment(
-    request: Request, done: int, total: int, filename: str, csrf_token: str, run_id: str
+    request: Request,
+    *,
+    phase: Literal["reading", "finishing"],
+    current: int,
+    filename: str,
+    done: int,
+    total: int,
+    csrf_token: str,
+    run_id: str,
 ) -> str:
-    """Render the progress partial for a single SSE progress frame."""
+    """Render the progress partial for a single SSE progress frame.
+
+    Args:
+        request: The request whose app holds the templates.
+        phase: ``"reading"`` while a file is being read — the frame names
+            it and carries the Cancel button; ``"finishing"`` once every
+            file is read and the readings are being written — no Cancel.
+        current: The 1-based index of the file being read.
+        filename: The name of the file being read.
+        done: Files read so far; the bar stands at ``done / total``.
+        total: Files in the run.
+        csrf_token: For the Cancel button.
+        run_id: For the Cancel URL.
+
+    Returns:
+        The rendered ``scraper_progress.html`` fragment.
+    """
     templates = _templates(request)
     return templates.get_template("_partials/scraper_progress.html").render(
+        phase=phase,
+        current=current,
+        filename=filename,
         done=done,
         total=total,
-        filename=filename,
-        percent=round((done / total) * 100) if total else 0,
+        percent=round(done / total * 100) if total else 0,
         csrf_token=csrf_token,
         run_id=run_id,
     )
@@ -876,6 +908,18 @@ async def _drive_run(
     neither cancels the worker nor loses the readings already paid for: the
     cancel flag stops the run before its next file, and the completed prefix
     is written.
+
+    The frames name the file being read, not the one just finished: the
+    service reports a file after reading it, so the route takes the order
+    from ``run.attachments``. The first frame, sent once the worker is
+    registered, names the first file; each reported file names the next
+    one, and the report of the last file turns the frame to *finishing*
+    (the readings are being written).
+
+    While no event is queued, an SSE comment ``: keep-alive`` is sent every
+    ``_KEEPALIVE_S`` seconds. One pending ``queue.get()`` is held across the
+    heartbeats and never cancelled between them, so no event is lost; it is
+    cancelled when the stream closes, before the worker is awaited.
     """
     queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -967,20 +1011,58 @@ async def _drive_run(
     workers.add(worker)
     worker.add_done_callback(workers.discard)
 
+    getter: asyncio.Task[dict[str, str]] | None = None
     try:
+        if run.attachments:
+            yield _format_sse(
+                "progress",
+                _render_progress_fragment(
+                    request,
+                    phase="reading",
+                    current=1,
+                    filename=run.attachments[0].filename,
+                    done=0,
+                    total=len(run.attachments),
+                    csrf_token=csrf_token,
+                    run_id=run.run_id,
+                ),
+            )
         while True:
-            event = await queue.get()
+            if getter is None:
+                getter = asyncio.create_task(queue.get())
+            finished, _pending = await asyncio.wait({getter}, timeout=_KEEPALIVE_S)
+            if not finished:
+                yield ": keep-alive\n\n"
+                continue
+            event = getter.result()
+            getter = None
             kind = event["event"]
             if kind == "progress":
                 payload = json.loads(event["data"])
-                fragment = _render_progress_fragment(
-                    request,
-                    done=int(payload["done"]),
-                    total=int(payload["total"]),
-                    filename=str(payload["filename"]),
-                    csrf_token=csrf_token,
-                    run_id=run.run_id,
-                )
+                done = int(payload["done"])
+                total = int(payload["total"])
+                if done < total and done < len(run.attachments):
+                    fragment = _render_progress_fragment(
+                        request,
+                        phase="reading",
+                        current=done + 1,
+                        filename=run.attachments[done].filename,
+                        done=done,
+                        total=total,
+                        csrf_token=csrf_token,
+                        run_id=run.run_id,
+                    )
+                else:
+                    fragment = _render_progress_fragment(
+                        request,
+                        phase="finishing",
+                        current=done,
+                        filename=str(payload["filename"]),
+                        done=done,
+                        total=total,
+                        csrf_token=csrf_token,
+                        run_id=run.run_id,
+                    )
                 yield _format_sse("progress", fragment)
                 continue
             if kind == "done":
@@ -1005,6 +1087,8 @@ async def _drive_run(
                 return
             # Defensive: unknown event kinds are dropped silently.
     finally:
+        if getter is not None and not getter.done():
+            getter.cancel()
         if not worker.done():
             run.cancel_flag.set()
             # Shielded: cancelling this stream must not cancel the worker,
@@ -1023,7 +1107,10 @@ async def scraper_run_stream(
     Drives ``ScraperService.scrape_reports`` via ``asyncio.to_thread``
     so the uvicorn loop stays responsive (same hazard the chat
     surface's ``_TURN_LOCK`` work navigated — ADR-0031). The stream
-    closes after the ``result`` / ``error`` / ``cancelled`` event.
+    closes after the ``result`` / ``error`` / ``cancelled`` event. While a
+    file is read, :func:`_drive_run` sends a ``: keep-alive`` comment every
+    ``_KEEPALIVE_S`` seconds, so the disconnect check below also runs during
+    a long read.
 
     Resolves the run's LLM **again** here (ADR-0123): this second
     resolution is the authoritative one, and resolving it inside the

@@ -17,9 +17,10 @@ Coverage:
    with an inline 400 when no credential resolves or the resolved model
    cannot read PDFs, and stashes a pending run on success — with no
    ``model`` form field involved at all.
-4. SSE happy path — events arrive as ``progress`` × N then
-   ``result``; the ``result`` payload contains the rendered results
-   partial, and the service receives the run's ``ResolvedLLM``.
+4. SSE happy path — events arrive as ``progress`` × N + 1 (one
+   *reading* frame per file, then *finishing*) then ``result``; the
+   ``result`` payload contains the rendered results partial, and the
+   service receives the run's ``ResolvedLLM``.
 5. SSE cancel — POST /scraper/runs/<id>/cancel returns 204 and the
    stream then emits ``cancelled`` and closes.
 6. SSE service error — an UnsupportedModelError surfaces as an
@@ -336,9 +337,14 @@ async def test_get_section_renders_form_with_defaults(
     ):
         assert label in body, f"missing {label!r}"
 
-    # The resolved model is shown read-only, with the hint pointing at the
-    # Admin field that sets it — and there is no picker any more (ADR-0123).
+    # The resolved model is shown read-only, in a hint line naming the
+    # Admin field that sets it — and there is no picker any more (ADR-0123),
+    # nor an input-shaped value box (D-RD-1-10).
     assert _SUPPORTED_MODEL in body
+    assert re.search(
+        r'<p class="scraper__hint">Model: <code>' + re.escape(_SUPPORTED_MODEL) + "</code>", body
+    ), "the model hint line is missing"
+    assert "scraper__value" not in body
     assert not re.search(r'<select[^>]*name="model"', body), "the model picker is gone"
     assert 'name="model"' not in body
     assert "Report Scraper model" in body
@@ -349,6 +355,29 @@ async def test_get_section_renders_form_with_defaults(
     # The form posts to /scraper/runs as multipart.
     assert 'hx-post="/scraper/runs"' in body
     assert 'enctype="multipart/form-data"' in body
+
+
+async def test_section_marks_the_form_busy_while_uploading(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """While the upload posts, *Extract* is disabled and *Uploading…* shows (D-RD-1-12)."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    await _login_and_get_csrf(client, email, password)
+
+    response = await client.get("/scraper/section", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+
+    assert 'hx-disabled-elt="#scraper-extract"' in body
+    assert 'hx-indicator="#scraper-busy"' in body
+    assert re.search(r'<button type="submit" id="scraper-extract"', body)
+    assert re.search(
+        r'<span id="scraper-busy" class="htmx-indicator scraper__busy" role="status">'
+        r'<span class="pf-spin" aria-hidden="true"></span> Uploading…</span>',
+        body,
+    ), "the busy indicator is missing"
 
 
 async def test_scraper_model_outranks_shirley_model(
@@ -585,7 +614,9 @@ async def test_sse_happy_path(
     seeded_user: tuple[UUID, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two-file run — events arrive as ``progress`` × 2 then ``result``.
+    """Two-file run — events arrive as ``progress`` × N + 1 then ``result``.
+
+    One *reading* frame per file, then one *finishing* frame: three here.
 
     Also pins the seam ADR-0123 moved: the service is handed the run's
     ``ResolvedLLM``, carrying the tenant's key and the resolved model.
@@ -656,7 +687,7 @@ async def test_sse_happy_path(
     assert response.status_code == 200
     frames = _parse_sse_frames(response.text)
     events_seen = [e for e, _ in frames]
-    assert events_seen.count("progress") == 2
+    assert events_seen.count("progress") == 3
     assert events_seen[-1] == "result"
     # The result payload contains the rendered results partial.
     result_data = frames[-1][1]
@@ -1149,6 +1180,32 @@ async def test_one_reading_per_successful_file(
     assert readings[0].filename == "good.pdf"
 
 
+async def test_progress_names_the_file_being_read(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each frame names the file being read; the last one finishes (D-RD-1-13)."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+
+    frames = await _run_to_end(client, csrf, [("a.pdf", b"%PDF-1.4\nA"), ("b.pdf", b"%PDF-1.4\nB")])
+
+    assert [event for event, _data in frames] == ["progress", "progress", "progress", "result"]
+    first, second, last = (data for event, data in frames if event == "progress")
+    assert "Reading a.pdf" in first
+    assert "File 1 of 2" in first
+    assert "Reading b.pdf" in second
+    assert "File 2 of 2" in second
+    assert "Finishing…" in last
+    assert "2 of 2 read" in last
+    assert "data-pf-scraper-elapsed" in first
+    assert "data-pf-scraper-elapsed" in second
+    assert "data-pf-scraper-cancel" not in last
+
+
 async def test_cancelled_run_keeps_its_prefix(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
@@ -1243,6 +1300,25 @@ async def test_read_again_writes_a_new_reading(
     # A confirmed run is no longer held: a second confirm is refused.
     again = await client.post(f"/scraper/runs/{run_id}/confirm", headers={"X-CSRF-Token": csrf})
     assert again.status_code == 404
+
+
+async def test_confirm_of_a_run_no_longer_held_shows_a_notice(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """A confirm of a run no longer held answers 404 with a notice fragment (D-RD-1-14)."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+
+    confirm = await client.post(
+        f"/scraper/runs/{uuid4().hex}/confirm", headers={"X-CSRF-Token": csrf}
+    )
+
+    assert confirm.status_code == 404
+    assert "scraper__form-error" in confirm.text
+    assert "This upload is no longer waiting to be read." in confirm.text
+    assert '"detail"' not in confirm.text
 
 
 async def test_dont_read_drops_the_run(
@@ -1564,5 +1640,65 @@ async def test_cancelled_stream_does_not_cancel_the_writer(
             await consumer
 
     assert consumer.cancelled()
+    readings = await _readings(app)
+    assert [reading.filename for reading in readings] == ["a.pdf"]
+
+
+_KEEP_ALIVE_FRAME = ": keep-alive\n\n"
+
+
+async def test_stream_sends_keep_alive_while_a_file_is_read(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """While a file is read, an SSE comment frame keeps the stream alive (B-2)."""
+    user_id, _email, _password = seeded_user
+    _client, app = await web_client_factory()
+    monkeypatch.setattr("web.routes.scraper._KEEPALIVE_S", 0.05)
+    started, release = threading.Event(), threading.Event()
+    _install_blocking_reader(monkeypatch, started, release)
+    request, run = _direct_run(app, user_id, b"%PDF-1.4\nkeep-alive")
+
+    # A consumer task drives the stream into a queue, so a timed-out wait in
+    # the test never cancels the stream itself.
+    received: asyncio.Queue[str] = asyncio.Queue()
+
+    async def consume() -> None:
+        async for frame in _drive_run(request, run, "csrf", _LLM):
+            await received.put(frame)
+
+    consumer = asyncio.create_task(consume())
+    try:
+        event, data = _parse_sse_frames(await asyncio.wait_for(received.get(), 10))[0]
+        assert event == "progress"
+        assert "Reading a.pdf" in data
+
+        assert await asyncio.to_thread(started.wait, 10)
+        # Drop what arrived before the reader blocked: the heartbeat must
+        # arrive while the file is being read.
+        while not received.empty():
+            received.get_nowait()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 2
+        while True:
+            frame = await asyncio.wait_for(received.get(), max(deadline - loop.time(), 0))
+            if frame == _KEEP_ALIVE_FRAME:
+                break
+
+        release.set()
+        await asyncio.wait_for(consumer, 10)
+    finally:
+        release.set()
+        if not consumer.done():
+            consumer.cancel()
+        with suppress(asyncio.CancelledError):
+            await consumer
+
+    frames: list[str] = []
+    while not received.empty():
+        frames.append(received.get_nowait())
+    events = [_parse_sse_frames(frame)[0][0] for frame in frames if frame != _KEEP_ALIVE_FRAME]
+    assert events[-1] == "result"
     readings = await _readings(app)
     assert [reading.filename for reading in readings] == ["a.pdf"]

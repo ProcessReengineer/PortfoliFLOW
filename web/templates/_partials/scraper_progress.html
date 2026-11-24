@@ -1,37 +1,63 @@
 {# Scraper progress fragment — payload of each SSE ``progress`` event.
 
-   Renders a compact "Processing file N of M: <filename>" line with a
-   progress bar. Replaces the ``.scraper-progress`` block emitted by
-   the run-mount fragment so the user sees in-place updates rather
-   than appended lines.
+   Replaces the ``.scraper-progress`` block emitted by the run-mount
+   fragment so the user sees in-place updates rather than appended lines.
+   Two phases (web.routes.scraper._drive_run):
+
+     reading   — "Reading <file>", "File k of N · m:ss" (scraper.js ticks the
+                 elapsed time since this frame arrived), the bar, a hint
+                 that a long document takes minutes, and Cancel.
+     finishing — every file is read and the readings are being written:
+                 "Finishing…", "N of N read", the bar full, no Cancel.
+
+   The elapsed span is aria-hidden so the live region is not announced
+   every second.
 
    Required context:
-     done       — int — files completed so far
+     phase      — "reading" | "finishing"
+     current    — int — 1-based index of the file being read
+     filename   — str — the file being read
+     done       — int — files read so far
      total      — int — total files in the run
-     filename   — str — most recently completed filename
      percent    — int — ``done / total * 100`` (pre-computed)
      csrf_token — for the cancel button
      run_id     — for the cancel URL
 #}
 <div class="scraper-progress" aria-live="polite">
-    <div class="scraper-progress__line">
-        <span>Processed: {{ filename }}</span>
-        <span>{{ done }} / {{ total }}</span>
-    </div>
-    <div class="scraper-progress__bar"
-         role="progressbar"
-         aria-valuemin="0"
-         aria-valuemax="100"
-         aria-valuenow="{{ percent }}">
-        <div class="scraper-progress__bar-fill"
-             style="width: {{ percent }}%;"></div>
-    </div>
-    <div class="scraper-progress__actions">
-        <button type="button"
-                class="btn btn--ghost"
-                data-pf-scraper-cancel
-                data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">
-            Cancel
-        </button>
-    </div>
+    {% if phase == "reading" %}
+        <div class="scraper-progress__line">
+            <span class="scraper-progress__status"><span class="pf-spin" aria-hidden="true"></span> Reading {{ filename }}</span>
+            <span>File {{ current }} of {{ total }} · <span data-pf-scraper-elapsed aria-hidden="true">0:00</span></span>
+        </div>
+        <div class="scraper-progress__bar"
+             role="progressbar"
+             aria-valuemin="0"
+             aria-valuemax="100"
+             aria-valuenow="{{ percent }}">
+            <div class="scraper-progress__bar-fill"
+                 style="width: {{ percent }}%;"></div>
+        </div>
+        <p class="scraper__hint">A long document can take several minutes. Cancel stops the run after the file being read.</p>
+        <div class="scraper-progress__actions">
+            <button type="button"
+                    class="btn btn--ghost"
+                    data-pf-scraper-cancel
+                    data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">
+                Cancel
+            </button>
+        </div>
+    {% else %}
+        <div class="scraper-progress__line">
+            <span class="scraper-progress__status"><span class="pf-spin" aria-hidden="true"></span> Finishing…</span>
+            <span>{{ total }} of {{ total }} read</span>
+        </div>
+        <div class="scraper-progress__bar"
+             role="progressbar"
+             aria-valuemin="0"
+             aria-valuemax="100"
+             aria-valuenow="100">
+            <div class="scraper-progress__bar-fill"
+                 style="width: 100%;"></div>
+        </div>
+    {% endif %}
 </div>

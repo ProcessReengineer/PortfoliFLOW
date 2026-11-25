@@ -669,9 +669,9 @@ def test_the_reading_desk_partials_carry_no_scraper_class() -> None:
     """The Reading Desk is built on the vocabulary from its first prompt.
 
     P-RD-2b1 builds the frame, the Library and the reading on `pf-*` classes;
-    the run form it includes (`scraper_section.html`) is rebuilt by P-RD-2b2
-    and is not one of these partials. No `class` token here may start with
-    `scraper` — neither the BEM `scraper__*` family nor a `scraper-*` class.
+    the Read form it includes (`scraper_section.html`) was rebuilt by
+    P-RD-2b2a and is pinned by the test below. No `class` token here may start
+    with `scraper` — neither the BEM `scraper__*` family nor a `scraper-*` class.
     """
     partials = sorted(_RD_PARTIALS.glob("reading_desk_*.html"))
     assert partials, "no reading_desk_*.html partial found"
@@ -683,6 +683,32 @@ def test_the_reading_desk_partials_carry_no_scraper_class() -> None:
                 {
                     token
                     for value in _CLASS_ATTRIBUTE.findall(path.read_text(encoding="utf-8"))
+                    for token in value.split()
+                    if token.startswith("scraper")
+                }
+            )
+        )
+    }
+    assert offenders == {}, offenders
+
+
+def test_the_read_form_partials_carry_no_scraper_class() -> None:
+    """The Read form and the already-read notice are built on `pf-*` classes.
+
+    P-RD-2b2a rebuilds `scraper_section.html` and `scraper_dedup.html`; the
+    run mount, the progress frame and the results follow in P-RD-2b2b. As in
+    the test above, no `class` token may start with `scraper`.
+    """
+    offenders = {
+        name: tokens
+        for name in ("scraper_section.html", "scraper_dedup.html")
+        if (
+            tokens := sorted(
+                {
+                    token
+                    for value in _CLASS_ATTRIBUTE.findall(
+                        (_RD_PARTIALS / name).read_text(encoding="utf-8")
+                    )
                     for token in value.split()
                     if token.startswith("scraper")
                 }

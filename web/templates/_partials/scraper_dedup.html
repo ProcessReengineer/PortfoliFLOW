@@ -1,41 +1,40 @@
-{# Scraper dedup question — returned by POST /scraper/runs instead of the
-   run mount when a file of the upload already has a live reading in the
-   tenant (RD-D-9). No stream opens: the root carries no
-   data-pf-scraper-sse-url. The files stay in the run store, so
-   *Read again* needs no second upload; it posts to the confirm route,
-   whose answer is the run mount. *Don't read* drops the run.
+{# The already-read notice (RD-D-9, D-RD-2-5; M-RD-1 lines 3218–3235) —
+   returned by POST /scraper/runs instead of the run mount when a file of the
+   upload already has a live reading in the tenant. No stream opens: the root
+   carries no data-pf-scraper-sse-url. The files stay in the run store, so
+   neither answer needs a second upload. Three peer answers, none primary
+   (ui-standards §2.3.3): the two confirm posts differ in ``scope``; their
+   answer is the run mount. *Don't read* drops the run.
 
-   Required context (assembled by web.routes.scraper.scraper_run_start):
+   Context (web/routes/scraper.py::scraper_run_start):
      run_id     — the held run
-     csrf_token — for the two buttons
-     rows       — one dict per gated file: filename, read_on (YYYY-MM-DD,
-                  UTC date of the newest live reading), label (its R-nnnn),
-                  earlier (the count of older live readings)
+     csrf_token — for the three buttons
+     lead       — str — how many of the files are known
+     rows       — one dict per known file: filename, read_on (YYYY-MM-DD, UTC
+                  date of the newest live reading), label (its R-nnnn), number
+                  (its reading number), earlier (the count of older live
+                  readings)
+     repeated   — list[str] — one sentence per file attached more than once
+     offer_new  — bool — false when every file is known
 #}
-<div class="scraper-run-mount">
-    <p>Some of these files have been read before:</p>
-    <ul>
-        {% for row in rows %}
-            <li>{{ row.filename }} — already read on {{ row.read_on }} as {{ row.label }}{% if row.earlier %} (and {{ row.earlier }} earlier){% endif %}</li>
-        {% endfor %}
-    </ul>
-    <div class="scraper__actions">
-        <button type="button"
-                class="btn btn--primary"
-                hx-post="/scraper/runs/{{ run_id }}/confirm"
-                hx-target="#scraper-run"
-                hx-swap="innerHTML"
-                hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>
-            Read again
-        </button>
-        <button type="button"
-                class="btn btn--ghost"
-                hx-post="/scraper/runs/{{ run_id }}/discard"
-                hx-target="#scraper-run"
-                hx-swap="innerHTML"
-                hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>
-            Don't read
-        </button>
+<div class="pf-narrow" data-pf-rd="dedup">
+    <div class="pf-note pf-note--warn">{{ pf_icon("warn") }}
+        <p class="pf-note__lead">{{ lead }}</p><span></span>
+        <div class="pf-note__sub">
+            <ul style="margin:var(--ui-space-1) 0 var(--ui-space-2);padding-left:18px">
+                {% for row in rows %}
+                    <li data-pf-rd="dedup-file">{{ row.filename }} — read on {{ row.read_on }} as <a href="/assistants/readings/{{ row.number }}" hx-get="/api/reading-desk/readings/{{ row.number }}" hx-target="#rd-reading" hx-swap="innerHTML">{{ row.label }}</a>{% if row.earlier %} (and {{ row.earlier }} earlier){% endif %}</li>
+                {% endfor %}
+            </ul>
+            {% for line in repeated %}<span data-pf-rd="repeated">{{ line }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}
+        </div>
     </div>
-    <p class="scraper__hint">Read again reads every file of this upload and saves a new reading for each.</p>
+    <div class="pf-panel__foot">
+        {% if offer_new %}
+            <button type="button" class="pf-btn" hx-post="/scraper/runs/{{ run_id }}/confirm" hx-vals='{"scope": "new"}' hx-target="#scraper-run" hx-swap="innerHTML" hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>Read only the new files</button>
+        {% endif %}
+        <button type="button" class="pf-btn" hx-post="/scraper/runs/{{ run_id }}/confirm" hx-vals='{"scope": "all"}' hx-target="#scraper-run" hx-swap="innerHTML" hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>Read all again</button>
+        <button type="button" class="pf-btn pf-btn--quiet" hx-post="/scraper/runs/{{ run_id }}/discard" hx-target="#scraper-run" hx-swap="innerHTML" hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'>Don't read</button>
+    </div>
+    <p class="pf-hint" style="margin-top:var(--ui-space-2)">Read all again saves a new reading for each file; the earlier readings stay until they are removed.</p>
 </div>

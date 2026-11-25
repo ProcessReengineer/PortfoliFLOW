@@ -1,0 +1,14 @@
+{# A refusal of the Read view (ui-standards §2.9.4, M-RD-1 lines 3166–3174).
+   Shown in place of the form when the Reading Desk model cannot read PDF
+   documents or the document profiles do not load, and as the 400 / 404
+   answer swapped into #scraper-run (a refused upload, no credential, a run
+   no longer held).
+
+   Context: one dict ``refusal`` (web/routes/scraper.py::_refusal) — lead
+   (str), sub (str, may be empty), admin_link (bool; true only for an owner:
+   the way to Admin › Providers & Credentials). #}
+<div class="pf-note pf-note--block" role="alert" data-pf-rd="refusal">{{ pf_icon("block") }}
+    <p class="pf-note__lead">{{ refusal.lead }}</p>
+    {% if refusal.admin_link %}<a class="pf-btn pf-btn--quiet pf-btn--sm" href="/admin#providers-credentials">Open Providers &amp; Credentials</a>{% else %}<span></span>{% endif %}
+    {% if refusal.sub %}<p class="pf-note__sub">{{ refusal.sub }}</p>{% endif %}
+</div>

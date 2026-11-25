@@ -7,7 +7,7 @@
 Coverage:
 
 1. GET /scraper/section renders the form with defaults and the
-   read-only resolved-model line — never a model picker; the notice
+   read-only resolved-model line — never a model picker; a refusal
    replaces the form when the resolved model fails the capability gate.
 2. Model resolution, driven through the environment the way
    ``test_chat_llm_resolution.py`` drives the chat chain: ``SCRAPER_MODEL``
@@ -34,7 +34,8 @@ Coverage:
     B's run.
 11. Reading Desk (ADR-0139 §5, RD-D-9, RD-D-23): one reading per
     successful file, a cancelled run keeps its prefix, the dedup gate with
-    *Read again* / *Don't read*, per tenant, the bank-keyword refusal, the
+    *Read all again* / *Read only the new files* / *Don't read*, a file
+    attached twice, per tenant, the bank-keyword refusal, the
     empty keyword list, the document-type preselect, the escaped form
     error, a profile error at run time, no write without an engine, the
     proposal line, and the worker that outlives a closed or cancelled
@@ -321,13 +322,19 @@ async def test_get_section_renders_form_with_defaults(
     assert response.status_code == 200
     body = response.text
 
-    # The keyword editor starts empty (D-RD-1-1): no row, no default name.
-    assert 'class="scraper__keyword-row"' not in body
+    # The keyword editor starts empty (D-RD-1-1): no row, no default name —
+    # the one row is the template scraper.js clones from.
+    assert body.count('data-pf-rd="keyword"') == 1
+    assert body.index('data-pf-rd="keyword"') > body.index(
+        '<template id="scraper-keyword-template">'
+    )
     assert "Capital Distributed" not in body
     assert "Extra keywords" in body
+    assert 'Extra keywords <span class="pf-optional">(optional)</span>' in body
+    assert "Bank details are not read." in body
 
     # The document-type preselect: Auto first, then the four profile labels.
-    assert re.search(r'<select name="profile_id" class="scraper__select">', body)
+    assert '<select class="pf-select" name="profile_id">' in body
     assert '<option value="">Auto (the model decides)</option>' in body
     for label in (
         "Quarterly report",
@@ -341,17 +348,17 @@ async def test_get_section_renders_form_with_defaults(
     # Admin field that sets it — and there is no picker any more (ADR-0123),
     # nor an input-shaped value box (D-RD-1-10).
     assert _SUPPORTED_MODEL in body
-    assert re.search(
-        r'<p class="scraper__hint">Model: <code>' + re.escape(_SUPPORTED_MODEL) + "</code>", body
+    assert (
+        f"Read with <code>{_SUPPORTED_MODEL}</code> — set under Admin › Providers &amp; "
+        "Credentials › Reading Desk model." in body
     ), "the model hint line is missing"
-    assert "scraper__value" not in body
+    assert not re.search(r'class="[^"]*\bscraper', body)
     assert not re.search(r'<select[^>]*name="model"', body), "the model picker is gone"
     assert 'name="model"' not in body
     assert "Reading Desk model" in body
     assert "Report Scraper" not in body
-    assert re.search(r"Only Anthropic\s+models currently support PDF extraction\.", body), (
-        "operator hint missing"
-    )
+    # D-RD-2-4: the supported models are named in the refusal only.
+    assert "Only Anthropic" not in body
 
     # The form posts to /scraper/runs as multipart.
     assert 'hx-post="/scraper/runs"' in body
@@ -362,7 +369,7 @@ async def test_section_marks_the_form_busy_while_uploading(
     web_client_factory: Any,
     seeded_user: tuple[UUID, str, str],
 ) -> None:
-    """While the upload posts, *Extract* is disabled and *Uploading…* shows (D-RD-1-12)."""
+    """While the upload posts, *Read documents* is disabled and *Uploading…* shows (D-RD-1-12)."""
     _id, email, password = seeded_user
     client, _app = await web_client_factory()
     await _login_and_get_csrf(client, email, password)
@@ -373,12 +380,13 @@ async def test_section_marks_the_form_busy_while_uploading(
 
     assert 'hx-disabled-elt="#scraper-extract"' in body
     assert 'hx-indicator="#scraper-busy"' in body
-    assert re.search(r'<button type="submit" id="scraper-extract"', body)
-    assert re.search(
-        r'<span id="scraper-busy" class="htmx-indicator scraper__busy" role="status">'
-        r'<span class="pf-spin" aria-hidden="true"></span> Uploading…</span>',
-        body,
-    ), "the busy indicator is missing"
+    assert (
+        '<button type="submit" class="pf-btn pf-btn--primary" id="scraper-extract">'
+        "Read documents</button>" in body
+    )
+    assert '<span id="scraper-busy" class="pf-hint htmx-indicator" role="status">' in body
+    assert "Uploading…" in body
+    assert "Each file becomes one reading in the Library." in body
 
 
 async def test_scraper_model_outranks_shirley_model(
@@ -467,10 +475,50 @@ async def test_get_section_renders_notice_when_model_is_unsupported(
     assert response.status_code == 200
     body = response.text
     assert _UNSUPPORTED_MODEL in body
-    assert "does not support PDF extraction" in body
+    assert f"The model {_UNSUPPORTED_MODEL} cannot read PDF documents." in body
+    assert "Only Anthropic models currently support PDF extraction." in body
+    assert 'data-pf-rd="refusal"' in body
+    # The seeded user is an owner: the way to the Admin field is offered.
+    assert 'href="/admin#providers-credentials"' in body
     assert "Reading Desk model" in body
     assert "Report Scraper" not in body
     assert "scraper-form" not in body
+
+
+async def test_get_section_shows_the_profiles_refusal_in_place_of_the_form(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Profiles that do not load replace the form with a refusal; the path stays in the log."""
+
+    def boom() -> Any:
+        raise ProfileError("/srv/secret/path missing")
+
+    monkeypatch.setattr("web.routes.scraper.load_profiles", boom)
+
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    # Inline login: the refusal state has no form to read a token from.
+    get_response = await client.get("/login")
+    pre_csrf = get_response.cookies.get("portfoliflow_csrf_pre_session")
+    assert pre_csrf is not None
+    await client.post(
+        "/login",
+        data={"email": email, "password": password, "csrf_token": pre_csrf},
+        follow_redirects=False,
+    )
+
+    response = await client.get("/scraper/section", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-pf-rd="refusal"' in body
+    assert "The document profiles could not be loaded." in body
+    assert "Ask an administrator to check the server log." in body
+    assert "/srv/secret" not in body
+    assert "scraper-form" not in body
+    # Nothing an owner could set in Admin would help here.
+    assert 'href="/admin#providers-credentials"' not in body
 
 
 async def test_post_runs_validates_inputs(
@@ -581,7 +629,12 @@ async def test_post_runs_refuses_without_a_credential(
     assert "The Reading Desk has no API credential for this tenant." in body
     assert "a Reading Desk model there" in body
     assert "Report Scraper" not in body
-    assert "Admin → Providers &amp; Credentials" in body or "Providers" in body
+    assert "Admin › Providers &amp; Credentials" in body
+    assert (
+        '<p class="pf-note__lead">The Reading Desk has no API credential for this tenant.</p>'
+        in body
+    )
+    assert 'href="/admin#providers-credentials"' in body
     assert "OPENROUTER_API_KEY" in body
     # No restart is ever suggested: rows apply on the next run.
     assert "restart" not in body.lower()
@@ -610,7 +663,7 @@ async def test_post_runs_refuses_an_unsupported_model(
     )
     assert response.status_code == 400
     assert _UNSUPPORTED_MODEL in response.text
-    assert "does not support PDF extraction" in response.text
+    assert f"The model {_UNSUPPORTED_MODEL} cannot read PDF documents." in response.text
 
 
 async def test_sse_happy_path(
@@ -1265,7 +1318,14 @@ async def test_dedup_gate_holds_a_second_upload(
     assert post.status_code == 200
     first = (await _readings(app))[0]
     read_on = first.read_at.astimezone(timezone.utc).date().isoformat()
-    assert f"fund-again.pdf — already read on {read_on} as R-0001" in post.text
+    assert "This file has been read before." in post.text
+    assert f"fund-again.pdf — read on {read_on} as <a " in post.text
+    assert 'href="/assistants/readings/1"' in post.text
+    assert 'hx-get="/api/reading-desk/readings/1"' in post.text
+    assert ">R-0001</a>" in post.text
+    assert "Read only the new files" not in post.text
+    assert "Read all again" in post.text
+    assert "Don't read" in post.text
     assert "earlier)" not in post.text
     assert "data-pf-scraper-sse-url" not in post.text
     assert app.state.scraper_runs[run_id].awaiting_confirmation is True
@@ -1320,8 +1380,9 @@ async def test_confirm_of_a_run_no_longer_held_shows_a_notice(
     )
 
     assert confirm.status_code == 404
-    assert "scraper__form-error" in confirm.text
+    assert 'data-pf-rd="refusal"' in confirm.text
     assert "This upload is no longer waiting to be read." in confirm.text
+    assert "Upload the files again." in confirm.text
     assert '"detail"' not in confirm.text
 
 
@@ -1339,7 +1400,7 @@ async def test_dont_read_drops_the_run(
     discard = await client.post(f"/scraper/runs/{run_id}/discard", headers={"X-CSRF-Token": csrf})
 
     assert discard.status_code == 200
-    assert discard.text == '<p class="scraper__hint">Nothing was read.</p>'
+    assert discard.text == '<p class="pf-hint">Nothing was read.</p>'
     assert run_id not in app.state.scraper_runs
     assert len(await _readings(app)) == 1
     # The stream of a dropped run is gone with it.
@@ -1386,7 +1447,144 @@ async def test_dedup_is_per_tenant(
 
     assert post.status_code == 200
     assert _STREAM_URL.search(post.text) is not None
-    assert "already read on" not in post.text
+    assert "read before" not in post.text
+
+
+async def test_a_file_attached_twice_is_read_once(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same bytes under any name are read once, under the first name (D-RD-2-5)."""
+    _id, email, password = seeded_user
+    client, app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+    same = b"%PDF-1.4\nsame"
+    other = b"%PDF-1.4\nother"
+
+    thrice = await _post_run(client, csrf, [("x.pdf", same), ("x2.pdf", same), ("x3.pdf", same)])
+    assert thrice.status_code == 200
+    match = _STREAM_URL.search(thrice.text)
+    assert match is not None, thrice.text
+    assert "x.pdf is attached 3 times; it is read once." in thrice.text
+    assert [a.filename for a in app.state.scraper_runs[match.group(2)].attachments] == ["x.pdf"]
+
+    post = await _post_run(client, csrf, [("a.pdf", same), ("copy.pdf", same), ("b.pdf", other)])
+    assert post.status_code == 200
+    match = _STREAM_URL.search(post.text)
+    assert match is not None, post.text  # no gate: nothing has been read yet
+    assert (
+        '<span data-pf-rd="repeated">a.pdf is attached twice; it is read once.</span>' in post.text
+    )
+    assert "copy.pdf" not in post.text
+    run = app.state.scraper_runs[match.group(2)]
+    assert [a.filename for a in run.attachments] == ["a.pdf", "b.pdf"]
+
+    response = await client.get(match.group(1))
+    assert _parse_sse_frames(response.text)[-1][0] == "result"
+    assert len(await _readings(app)) == 2
+
+
+async def test_read_only_the_new_files_reads_the_new_ones(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """*Read only the new files* drops the known files from the held run."""
+    _id, email, password = seeded_user
+    client, app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+    known = b"%PDF-1.4\nknown"
+    new = b"%PDF-1.4\nnew"
+
+    await _run_to_end(client, csrf, [("fund.pdf", known)])
+    post = await _post_run(client, csrf, [("fund-again.pdf", known), ("new.pdf", new)])
+    assert post.status_code == 200
+    assert "data-pf-scraper-sse-url" not in post.text
+    assert "1 of these 2 files has been read before." in post.text
+    assert post.text.count('data-pf-rd="dedup-file"') == 1
+    assert "Read only the new files" in post.text
+    assert """hx-vals='{"scope": "new"}'""" in post.text
+    match = _CONFIRM_URL.search(post.text)
+    assert match is not None, post.text
+    run_id = match.group(1)
+
+    confirm = await client.post(
+        f"/scraper/runs/{run_id}/confirm", data={"scope": "new"}, headers={"X-CSRF-Token": csrf}
+    )
+    assert confirm.status_code == 200, confirm.text
+    stream = _STREAM_URL.search(confirm.text)
+    assert stream is not None, confirm.text
+    assert stream.group(2) == run_id
+    assert [a.filename for a in app.state.scraper_runs[run_id].attachments] == ["new.pdf"]
+
+    response = await client.get(stream.group(1))
+    assert _parse_sse_frames(response.text)[-1][0] == "result"
+    live = [r for r in await _readings(app) if r.removed_at is None]
+    assert len(live) == 2
+    known_sha256 = hashlib.sha256(known).hexdigest()
+    assert len([r for r in live if r.sha256 == known_sha256]) == 1
+
+
+async def test_read_only_the_new_files_is_not_offered_when_every_file_is_known(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every file known: no *Read only the new files*; a refused scope keeps the run held."""
+    _id, email, password = seeded_user
+    client, app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+    files = [("a.pdf", b"%PDF-1.4\nA"), ("b.pdf", b"%PDF-1.4\nB")]
+
+    await _run_to_end(client, csrf, files)
+    post = await _post_run(client, csrf, files)
+    assert post.status_code == 200
+    assert "All 2 files have been read before." in post.text
+    assert "Read only the new files" not in post.text
+    match = _CONFIRM_URL.search(post.text)
+    assert match is not None, post.text
+    run_id = match.group(1)
+    url = f"/scraper/runs/{run_id}/confirm"
+
+    nothing_new = await client.post(url, data={"scope": "new"}, headers={"X-CSRF-Token": csrf})
+    assert nothing_new.status_code == 400
+    assert "Every file of this upload has been read before." in nothing_new.text
+    assert app.state.scraper_runs[run_id].awaiting_confirmation is True
+
+    unknown = await client.post(url, data={"scope": "some"}, headers={"X-CSRF-Token": csrf})
+    assert unknown.status_code == 400
+    assert "Unknown choice." in unknown.text
+    assert app.state.scraper_runs[run_id].awaiting_confirmation is True
+
+    confirm = await client.post(url, headers={"X-CSRF-Token": csrf})
+    assert confirm.status_code == 200
+    assert _STREAM_URL.search(confirm.text) is not None
+
+
+async def test_the_already_read_notice_escapes_file_names(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file name in the notice and in the attached-twice sentence is escaped."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+    content = b"%PDF-1.4\nA"
+
+    await _run_to_end(client, csrf, [("fund.pdf", content)])
+    post = await _post_run(client, csrf, [("<script>alert(1).pdf", content), ("y.pdf", content)])
+
+    assert post.status_code == 200
+    assert 'data-pf-rd="dedup"' in post.text
+    assert "<script>alert(1)" not in post.text
+    assert "&lt;script&gt;alert(1).pdf — read on" in post.text
+    assert "&lt;script&gt;alert(1).pdf is attached twice; it is read once." in post.text
 
 
 async def test_bank_keyword_is_refused(
@@ -1460,6 +1658,7 @@ async def test_form_error_is_escaped(
     assert post.status_code == 400
     assert "&lt;b&gt;x&lt;/b&gt;" in post.text
     assert "<b>x</b>" not in post.text
+    assert 'data-pf-rd="refusal"' in post.text
 
 
 async def test_profile_error_at_run_time_hides_the_path(

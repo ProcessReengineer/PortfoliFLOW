@@ -9,11 +9,16 @@
      run_id      — newly allocated UUID hex
      csrf_token  — for the cancel button
      total_files — count of attached PDFs
+     repeated    — list[str] — one sentence per file attached more than
+                   once (empty after a confirm)
 #}
 <div class="scraper-run-mount"
      data-pf-scraper-sse-url="/scraper/runs/{{ run_id }}/stream"
      data-pf-scraper-run-id="{{ run_id }}"
      data-pf-csrf-token="{{ csrf_token }}">
+    {% if repeated %}
+        <p class="pf-hint">{% for line in repeated %}<span data-pf-rd="repeated">{{ line }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+    {% endif %}
     <div class="scraper-run-mount__progress">
         <div class="scraper-progress" aria-live="polite">
             <div class="scraper-progress__line">

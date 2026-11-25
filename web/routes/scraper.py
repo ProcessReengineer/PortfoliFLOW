@@ -25,14 +25,19 @@ lives.
 
 Endpoints:
 
-* ``GET  /scraper/section``              — section body (HTMX lazy load).
+* ``GET  /scraper/section``              — the Section's frame (tabs,
+                                            Read pane, Library pane, the
+                                            slot of a reading); HTMX lazy
+                                            load.
 * ``POST /scraper/runs``                 — accept multipart upload, stash
                                             a pending run, return the
                                             SSE-mount fragment, or the
-                                            dedup question when a file
-                                            was read before.
-* ``POST /scraper/runs/<run_id>/confirm``— *Read again*: release a run
-                                            held by the dedup gate.
+                                            already-read notice when a
+                                            file was read before.
+* ``POST /scraper/runs/<run_id>/confirm``— *Read all again* or *Read only
+                                            the new files* (``scope``):
+                                            release a run held by the
+                                            dedup gate.
 * ``POST /scraper/runs/<run_id>/discard``— *Don't read*: drop it.
 * ``GET  /scraper/runs/<run_id>/stream`` — SSE stream emitting
                                             ``progress`` / ``result`` /
@@ -50,7 +55,6 @@ equivalent (same migration trigger as ``chat_histories`` /
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import logging
 import threading
@@ -143,8 +147,10 @@ class _PendingRun:
     ``tenant_id`` and ``user_id`` are the session's, for the writer.
     ``profile_id`` is the document-type preselect, ``None`` for Auto.
     ``awaiting_confirmation`` is set while the dedup gate holds the run; the
-    stream refuses such a run. ``outcomes`` is set by the worker after the
-    write, one per extraction, and stays ``None`` when nothing was written.
+    stream refuses such a run. ``known_sha256s`` holds the hashes the gate
+    found a live reading for, so *Read only the new files* can drop them.
+    ``outcomes`` is set by the worker after the write, one per extraction,
+    and stays ``None`` when nothing was written.
     """
 
     run_id: str
@@ -161,6 +167,7 @@ class _PendingRun:
     user_id: UUID | None = None
     profile_id: str | None = None
     awaiting_confirmation: bool = False
+    known_sha256s: frozenset[str] = frozenset()
     outcomes: list[ReadingOutcome] | None = None
 
 
@@ -231,9 +238,9 @@ def _reading_engine(request: Request) -> AsyncEngine | None:
 
 
 #: Shown when the document profiles do not load; the server path stays in the log.
-_PROFILES_UNAVAILABLE_MESSAGE = (
-    "The document profiles could not be loaded. Ask an administrator to check the server log."
-)
+_PROFILES_UNAVAILABLE_LEAD = "The document profiles could not be loaded."
+_PROFILES_UNAVAILABLE_SUB = "Ask an administrator to check the server log."
+_PROFILES_UNAVAILABLE_MESSAGE = f"{_PROFILES_UNAVAILABLE_LEAD} {_PROFILES_UNAVAILABLE_SUB}"
 
 
 def _templates(request: Request) -> Jinja2Templates:
@@ -282,13 +289,62 @@ _DEFAULT_SCRAPER_MODEL = "anthropic/claude-sonnet-4.5"
 #: One operator-facing message for every "this run has no LLM" outcome. Points
 #: at both scopes it can be fixed in, and deliberately says nothing about
 #: restarting: tenant and user rows apply on the next run.
-_NO_SCRAPER_LLM_MESSAGE = (
-    "The Reading Desk has no API credential for this tenant. Set an "
-    "OpenRouter API key in Admin → Providers & Credentials, and a Reading "
+_NO_SCRAPER_LLM_LEAD = "The Reading Desk has no API credential for this tenant."
+_NO_SCRAPER_LLM_SUB = (
+    "Set an OpenRouter API key in Admin › Providers & Credentials, and a Reading "
     "Desk model there if you want one other than the default (both apply "
     "on your next run), or set OPENROUTER_API_KEY and SCRAPER_MODEL in .env "
     "for the whole application."
 )
+_NO_SCRAPER_LLM_MESSAGE = f"{_NO_SCRAPER_LLM_LEAD} {_NO_SCRAPER_LLM_SUB}"
+
+#: The second line of the refusal for a model outside the capability map
+#: (D-RD-2-4): the one place the Section names the supported models.
+_UNSUPPORTED_MODEL_SUB = (
+    "Only Anthropic models currently support PDF extraction. Set one under "
+    "Admin › Providers & Credentials › Reading Desk model."
+)
+
+
+# ---------------------------------------------------------------------------
+# Refusals (M-RD-1 lines 3166–3174, ui-standards §2.9.4)
+# ---------------------------------------------------------------------------
+
+
+def _refusal(lead: str, sub: str = "", *, admin_link: bool = False) -> dict[str, Any]:
+    """The context of ``reading_desk_refusal.html``.
+
+    Args:
+        lead: The refusal in one sentence.
+        sub: What to do about it, or ``""``.
+        admin_link: Whether the way to Admin › Providers & Credentials is
+            offered; the caller sets it for an owner only.
+    """
+    return {"lead": lead, "sub": sub, "admin_link": admin_link}
+
+
+def _model_refusal(model: str, *, is_owner: bool) -> dict[str, Any]:
+    """The refusal for a resolved model outside the capability map."""
+    return _refusal(
+        f"The model {model} cannot read PDF documents.",
+        _UNSUPPORTED_MODEL_SUB,
+        admin_link=is_owner,
+    )
+
+
+def _render_refusal(
+    request: Request, refusal: dict[str, Any], *, status_code: int = 400
+) -> HTMLResponse:
+    """Render a refusal for the run-mount target; autoescape guards its text."""
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/reading_desk_refusal.html",
+            {"refusal": refusal},
+            status_code=status_code,
+        ),
+    )
 
 
 class _ScraperUnconfiguredError(Exception):
@@ -444,13 +500,14 @@ async def scraper_section(
     For the Read pane it shows the model the next run will use — resolved
     through the config chain only, so a tenant with no credential yet still
     sees which model it would extract with — and runs the capability gate
-    on it. A model outside the map renders the notice in place of the form:
+    on it. A model outside the map renders a refusal in place of the form:
     submitting would fail on the first file anyway, and saying so before the
-    upload is the honest order.
+    upload is the honest order. The credential is not consulted here
+    (ADR-0123 §4); a tenant without one is refused on submit.
 
     The keyword editor starts empty (D-RD-1-1): the document type's fields
     are read anyway, and the editor holds only extra keywords. The document
-    profiles feed the type preselect; when they do not load, a notice
+    profiles feed the type preselect; when they do not load, a refusal
     replaces the form the same way, and the log names the exception type
     only (its text carries a server path). None of this is computed for a
     role without the Read pane.
@@ -464,29 +521,26 @@ async def scraper_section(
     }
     if can_read:
         model = await _resolve_scraper_model(request, session)
-        model_error: str | None = None
+        refusal: dict[str, Any] | None = None
         try:
             lookup_capability(model)
-        except UnsupportedModelError as exc:
-            model_error = str(exc)
+        except UnsupportedModelError:
+            refusal = _model_refusal(model, is_owner=user.has_role("owner"))
         profiles: list[tuple[str, str]] = []
-        profiles_error: str | None = None
         try:
             loaded = load_profiles()
         except ProfileError as exc:
             logger.error("scraper: document profiles not loaded (%s)", type(exc).__name__)
-            profiles_error = _PROFILES_UNAVAILABLE_MESSAGE
+            if refusal is None:
+                refusal = _refusal(_PROFILES_UNAVAILABLE_LEAD, _PROFILES_UNAVAILABLE_SUB)
         else:
             profiles = [(profile_id, loaded[profile_id].label) for profile_id in PROFILE_IDS]
         context.update(
             {
                 "csrf_token": session.csrf_token,
-                "keywords": [],
                 "scraper_model": model,
-                "model_supported": model_error is None,
-                "model_error": model_error,
                 "profiles": profiles,
-                "profiles_error": profiles_error,
+                "refusal": refusal,
             }
         )
     return cast(
@@ -554,18 +608,27 @@ def _parse_keywords_json(payload: str) -> list[Keyword]:
 
 
 def _render_form_error(request: Request, message: str) -> HTMLResponse:
-    """Render a small inline error fragment for the run-mount target.
+    """Render a refused submission for the run-mount target, as a 400.
 
-    The message is escaped: it can echo a submitted keyword name.
+    The message is escaped by the template: it can echo a submitted keyword
+    name.
     """
-    return HTMLResponse(
-        f'<p class="scraper__form-error">{html.escape(message)}</p>',
-        status_code=400,
-    )
+    return _render_refusal(request, _refusal(message))
 
 
-def _render_run_mount(request: Request, run: _PendingRun, csrf_token: str) -> HTMLResponse:
-    """Render the run-mount fragment whose stream URL ``scraper.js`` opens."""
+def _render_run_mount(
+    request: Request,
+    run: _PendingRun,
+    csrf_token: str,
+    *,
+    repeated: list[str] | None = None,
+) -> HTMLResponse:
+    """Render the run-mount fragment whose stream URL ``scraper.js`` opens.
+
+    ``repeated`` holds one sentence per file attached more than once; it is
+    passed when the mount is the upload's own answer, not after a confirm,
+    where the already-read notice has said it.
+    """
     return cast(
         HTMLResponse,
         _templates(request).TemplateResponse(
@@ -575,6 +638,7 @@ def _render_run_mount(request: Request, run: _PendingRun, csrf_token: str) -> HT
                 "run_id": run.run_id,
                 "csrf_token": csrf_token,
                 "total_files": len(run.attachments),
+                "repeated": repeated or [],
             },
         ),
     )
@@ -599,10 +663,37 @@ def _dedup_rows(
                 "filename": document.filename,
                 "read_on": newest.read_at.astimezone(timezone.utc).date().isoformat(),
                 "label": newest.label,
+                "number": newest.reading_number,
                 "earlier": len(readings) - 1,
             }
         )
     return rows
+
+
+def _dedup_lead(known: int, total: int) -> str:
+    """How many of an upload's files have been read before, as one sentence."""
+    if total == 1:
+        return "This file has been read before."
+    if known == total:
+        return f"All {total} files have been read before."
+    verb = "has" if known == 1 else "have"
+    return f"{known} of these {total} files {verb} been read before."
+
+
+def _repeated_lines(repeats: dict[str, int], documents: list[UploadedDocument]) -> list[str]:
+    """One sentence per file attached more than once, in upload order.
+
+    ``repeats`` maps a hash to the number of times its bytes were attached;
+    the sentence names the file by the name it is read under, the first one.
+    """
+    lines: list[str] = []
+    for document in documents:
+        times = repeats.get(document.sha256, 1)
+        if times < 2:
+            continue
+        count = "twice" if times == 2 else f"{times} times"
+        lines.append(f"{document.filename} is attached {count}; it is read once.")
+    return lines
 
 
 @router.post(
@@ -616,10 +707,11 @@ async def scraper_run_start(
     keywords_json: str = Form(...),
     profile_id: str = Form(""),
     session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
     """Accept the upload, validate, stash a pending run, return the
-    SSE-mount fragment — or the dedup question.
+    SSE-mount fragment — or the already-read notice.
 
     The fragment carries ``data-pf-scraper-sse-url`` and
     ``data-pf-scraper-run-id`` so ``scraper.js`` can open the
@@ -633,10 +725,13 @@ async def scraper_run_start(
 
     Dedup gate (RD-D-9): when a file of the upload already has a live
     reading in the tenant, the run is stashed awaiting confirmation and the
-    response asks whether to read again; the files stay in the run store, so
-    *Read again* needs no second upload. The gate is a courtesy: a failed
-    lookup is logged and the run proceeds without it. A file repeated inside
-    one upload is not gated (D-RD-1-3).
+    response asks what to read (D-RD-2-5); the files stay in the run store,
+    so neither answer needs a second upload. The gate is a courtesy: a failed
+    lookup is logged and the run proceeds without it.
+
+    A file attached more than once in one upload — the same bytes, under any
+    name — is read once, under its first name, and the answer says so
+    (D-RD-2-5, superseding D-RD-1-3).
     """
     if not pdf:
         return _render_form_error(request, "Please attach at least one PDF.")
@@ -654,20 +749,25 @@ async def scraper_run_start(
 
     # Resolve before the bodies are read: a tenant with no credential, or one
     # whose model cannot take PDF input, should not pay for the upload first.
+    is_owner = user.has_role("owner")
     try:
         llm = await _resolve_scraper_llm(request, session)
-    except _ScraperUnconfiguredError as exc:
-        return _render_form_error(request, str(exc))
+    except _ScraperUnconfiguredError:
+        return _render_refusal(
+            request,
+            _refusal(_NO_SCRAPER_LLM_LEAD, _NO_SCRAPER_LLM_SUB, admin_link=is_owner),
+        )
     try:
         lookup_capability(llm.model)
-    except UnsupportedModelError as exc:
-        return _render_form_error(request, str(exc))
+    except UnsupportedModelError:
+        return _render_refusal(request, _model_refusal(llm.model, is_owner=is_owner))
 
     # Read every upload body into memory. The scraper service is
     # synchronous and consumes bytes; we hold each file in a single
     # bytes object so the async loop is not blocked during the read.
     attachments: list[Attachment] = []
     documents: list[UploadedDocument] = []
+    repeats: dict[str, int] = {}
     total_bytes = 0
     for upload in pdf:
         data = await upload.read()
@@ -680,6 +780,10 @@ async def scraper_run_start(
         # One name for the run view and the reading: the sanitised one,
         # ``untitled.pdf`` when nothing is left of it.
         document = describe_upload(upload.filename or "", data)
+        repeats[document.sha256] = repeats.get(document.sha256, 0) + 1
+        if repeats[document.sha256] > 1:
+            # The same bytes again: read once, under the first name.
+            continue
         documents.append(document)
         attachments.append(
             Attachment(
@@ -703,6 +807,7 @@ async def scraper_run_start(
         profile_id=selected_profile,
     )
     _stash_run(request, run)
+    repeated = _repeated_lines(repeats, documents)
 
     engine = _reading_engine(request)
     if engine is not None:
@@ -722,6 +827,8 @@ async def scraper_run_start(
             earlier = {}
         if earlier:
             run.awaiting_confirmation = True
+            run.known_sha256s = frozenset(earlier)
+            rows = _dedup_rows(documents, earlier)
             return cast(
                 HTMLResponse,
                 _templates(request).TemplateResponse(
@@ -730,12 +837,15 @@ async def scraper_run_start(
                     {
                         "run_id": run_id,
                         "csrf_token": session.csrf_token,
-                        "rows": _dedup_rows(documents, earlier),
+                        "lead": _dedup_lead(len(rows), len(documents)),
+                        "rows": rows,
+                        "repeated": repeated,
+                        "offer_new": len(rows) < len(documents),
                     },
                 ),
             )
 
-    return _render_run_mount(request, run, session.csrf_token)
+    return _render_run_mount(request, run, session.csrf_token, repeated=repeated)
 
 
 # ---------------------------------------------------------------------------
@@ -751,25 +861,43 @@ async def scraper_run_start(
 async def scraper_run_confirm(
     run_id: str,
     request: Request,
+    scope: str = Form("all"),
     session: SessionDTO = Depends(require_session),
     _csrf: None = Depends(verify_csrf),
 ) -> HTMLResponse:
-    """*Read again*: release a run the dedup gate holds (RD-D-9).
+    """Release a run the dedup gate holds (RD-D-9, D-RD-2-5).
+
+    ``scope`` is ``all`` — *Read all again*: every file of the upload is
+    read and gets a new reading — or ``new`` — *Read only the new files*:
+    the files with a live reading are dropped from the run first. Any other
+    value, and ``new`` when every file is known, answer 400 and leave the
+    run held.
 
     Returns the run-mount fragment, on whose swap ``scraper.js`` opens the
-    stream; the run then writes a new reading per file. Session-isolated:
-    another session's run, a missing run and a run not awaiting
-    confirmation all answer 404 with a notice fragment, which
-    ``scraper.js`` swaps into ``#scraper-run`` (a confirm from a second tab,
-    an evicted run).
+    stream. Session-isolated: another session's run, a missing run and a
+    run not awaiting confirmation all answer 404 with a refusal fragment,
+    which ``scraper.js`` swaps into ``#scraper-run`` (a confirm from a
+    second tab, an evicted run).
     """
     run = _scraper_runs(request).get(run_id)
     if run is None or run.session_id != str(session.id) or not run.awaiting_confirmation:
-        return HTMLResponse(
-            '<p class="scraper__form-error">This upload is no longer waiting to be read. '
-            "Upload the files again.</p>",
+        return _render_refusal(
+            request,
+            _refusal("This upload is no longer waiting to be read.", "Upload the files again."),
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    if scope not in ("all", "new"):
+        return _render_form_error(request, "Unknown choice.")
+    if scope == "new":
+        kept = [
+            index
+            for index, document in enumerate(run.documents)
+            if document.sha256 not in run.known_sha256s
+        ]
+        if not kept:
+            return _render_form_error(request, "Every file of this upload has been read before.")
+        run.attachments = [run.attachments[index] for index in kept]
+        run.documents = [run.documents[index] for index in kept]
     run.awaiting_confirmation = False
     return _render_run_mount(request, run, session.csrf_token)
 
@@ -795,7 +923,7 @@ async def scraper_run_discard(
     if run is not None and run.session_id == str(session.id):
         del store[run_id]
         run.cancel_flag.set()
-    return HTMLResponse('<p class="scraper__hint">Nothing was read.</p>')
+    return HTMLResponse('<p class="pf-hint">Nothing was read.</p>')
 
 
 # ---------------------------------------------------------------------------

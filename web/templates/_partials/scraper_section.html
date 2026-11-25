@@ -1,129 +1,81 @@
-{# Reading Desk section body — embedded in /assistants#reading-desk.
+{# The Read pane of the Reading Desk (ADR-0139 §7, M-RD-1 lines 3166–3216).
+   Included by reading_desk_frame.html for owner and member.
 
-   The form posts to /scraper/runs as multipart/form-data with
-   csrf_token, profile_id, keywords_json, and pdf[]. The response is an
-   HTMX fragment that mounts the SSE stream into ``#scraper-run``, or the
-   dedup question (scraper_dedup.html) when a file was read before. The
-   model is not submitted: it is resolved server-side per run, per tenant
-   (ADR-0123), and named in a hint line below the button.
+   The form posts to /scraper/runs as multipart/form-data with csrf_token,
+   profile_id, keywords_json and pdf[]. The answer is swapped into
+   #scraper-run: the run mount, the already-read notice (scraper_dedup.html)
+   or a refusal (reading_desk_refusal.html). The model is not submitted: it
+   is resolved server-side per run, per tenant (ADR-0123 §4), and named in
+   the line under the action bar (D-RD-2-4).
 
-   The keyword editor starts empty (D-RD-1-1): the document type's fields
-   are always read, and the editor holds only extra keywords.
+   The keyword editor starts empty and folded (D-RD-2-9): the document
+   type's fields are always read. scraper.js clones a row from
+   #scraper-keyword-template and serialises the rows into keywords_json on
+   submit; a row's inputs carry no name and are not posted themselves.
 
-   Required context (assembled by web.routes.scraper.scraper_section):
-     csrf_token      — for the form
-     keywords        — list[Keyword] — initial rows (empty on load)
-     scraper_model   — str — the model the next run will use
-     model_supported — bool — whether it passes the capability gate
-     model_error     — Optional[str] — the UnsupportedModelError text
-     profiles        — list[(id, label)] — the document types, in
-                       PROFILE_IDS order, for the preselect
-     profiles_error  — Optional[str] — set when the profiles did not
-                       load; the notice then replaces the form
+   Context (web/routes/scraper.py::scraper_section):
+     refusal       — dict | None — set when the model cannot read PDF
+                     documents or the profiles do not load; it then replaces
+                     the form
+     csrf_token    — for the form
+     scraper_model — str — the model the next run will use
+     profiles      — list[(id, label)] — the document types, in PROFILE_IDS
+                     order
 #}
-<div class="scraper">
-    {% if not model_supported %}
-        <div class="scraper__no-models">
-            <p>{{ model_error }}</p>
-        </div>
-    {% elif profiles_error %}
-        <div class="scraper__no-models">
-            <p>{{ profiles_error }}</p>
-        </div>
-    {% else %}
-        <form id="scraper-form"
-              class="scraper__form"
-              enctype="multipart/form-data"
-              hx-post="/scraper/runs"
-              hx-target="#scraper-run"
-              hx-swap="innerHTML"
-              hx-encoding="multipart/form-data"
-              hx-disabled-elt="#scraper-extract"
-              hx-indicator="#scraper-busy">
-            <input type="hidden" name="csrf_token"
-                   value="{{ csrf_token }}">
-
-            <label class="scraper__field">
-                <span class="scraper__label">PDFs</span>
-                <input type="file"
-                       name="pdf"
-                       accept="application/pdf"
-                       multiple
-                       required
-                       class="scraper__input">
-                <span class="scraper__hint">
-                    One or more PDF files. Processed sequentially.
-                </span>
+{% if refusal %}
+    {% include "_partials/reading_desk_refusal.html" %}
+{% else %}
+    <form class="pf-narrow" id="scraper-form"
+          enctype="multipart/form-data"
+          hx-post="/scraper/runs"
+          hx-target="#scraper-run"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          hx-disabled-elt="#scraper-extract"
+          hx-indicator="#scraper-busy">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="pf-grid">
+            <label class="pf-field pf-field--wide">
+                <span class="pf-label">Documents</span>
+                <input class="pf-input" type="file" name="pdf" accept="application/pdf" multiple required>
+                <span class="pf-hint">One or more PDF files. They are read one after the other and are not kept — only what is read from them. Bank details are not read.</span>
             </label>
-
-            <label class="scraper__field">
-                <span class="scraper__label">Document type</span>
-                <select name="profile_id" class="scraper__select">
+            <label class="pf-field">
+                <span class="pf-label">Document type</span>
+                <select class="pf-select" name="profile_id">
                     <option value="">Auto (the model decides)</option>
                     {% for profile_id, profile_label in profiles %}
                         <option value="{{ profile_id }}">{{ profile_label }}</option>
                     {% endfor %}
                 </select>
-                <span class="scraper__hint">
-                    Auto lets the model classify each file. A choice here
-                    reads every file of the run as that type.
-                </span>
+                <span class="pf-hint">A choice here reads every file of this run as that type.</span>
             </label>
+        </div>
 
-            <fieldset class="scraper__keywords"
-                      id="scraper-keywords"
-                      aria-label="Keywords to extract">
-                <legend class="scraper__legend">Extra keywords</legend>
-                <span class="scraper__hint">
-                    Optional. Each keyword is read in addition to the fields
-                    of the document type.
-                </span>
-                {% for kw in keywords %}
-                    <div class="scraper__keyword-row" data-row>
-                        <input type="text"
-                               class="scraper__keyword-name"
-                               value="{{ kw.name }}"
-                               placeholder="Keyword name"
-                               aria-label="Keyword name">
-                        <select class="scraper__keyword-type"
-                                aria-label="Keyword type">
-                            {% for t in ["Number", "Percentage", "Date", "Text", "List"] %}
-                                <option value="{{ t }}"
-                                        {% if kw.type.value == t %}selected{% endif %}>
-                                    {{ t }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <button type="button"
-                                class="scraper__keyword-remove btn btn--ghost"
-                                aria-label="Remove keyword">
-                            ×
-                        </button>
-                    </div>
-                {% endfor %}
-                <button type="button"
-                        id="scraper-add-keyword"
-                        class="scraper__keyword-add btn btn--ghost">
-                    + Add keyword
-                </button>
-            </fieldset>
+        <details class="pf-more" style="margin-top:var(--ui-space-3)" id="scraper-keywords">
+            <summary>Extra keywords <span class="pf-optional">(optional)</span></summary>
+            <p>The fields of the document type are always read. Add a keyword for anything else you want looked up in these documents.</p>
+            <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" id="scraper-add-keyword" data-pf-rd="keyword-add" style="margin-top:var(--ui-space-2)">{{ pf_icon("new") }}Add keyword</button>
+            <template id="scraper-keyword-template">
+                <div class="pf-addline" data-pf-rd="keyword">
+                    <label class="pf-field pf-addline__main"><span class="pf-label">Keyword</span><input class="pf-input" type="text" data-pf-rd="keyword-name"></label>
+                    <label class="pf-field"><span class="pf-label">Read as</span><select class="pf-select" data-pf-rd="keyword-type">{% for keyword_type in ["Number", "Percentage", "Date", "Text", "List"] %}<option value="{{ keyword_type }}">{{ keyword_type }}</option>{% endfor %}</select></label>
+                    <button type="button" class="pf-btn pf-btn--quiet pf-btn--icon" data-pf-rd="keyword-remove" aria-label="Remove keyword" title="Remove keyword">{{ pf_icon("close") }}</button>
+                </div>
+            </template>
+        </details>
+        <input type="hidden" name="keywords_json" id="scraper-keywords-json" value="">
 
-            <input type="hidden" name="keywords_json"
-                   id="scraper-keywords-json" value="">
+        <div class="pf-actionbar">
+            <p class="pf-actionbar__hint">Each file becomes one reading in the Library.</p>
+            <span id="scraper-busy" class="pf-hint htmx-indicator" role="status"><span class="pf-spin" aria-hidden="true" style="display:inline-block;margin-right:8px"></span>Uploading…</span>
+            <button type="submit" class="pf-btn pf-btn--primary" id="scraper-extract">Read documents</button>
+        </div>
+        <p class="pf-hint" data-pf-rd="model">Read with <code>{{ scraper_model }}</code> — set under Admin › Providers &amp; Credentials › Reading Desk model.</p>
+    </form>
+{% endif %}
 
-            <div class="scraper__actions">
-                <button type="submit" id="scraper-extract" class="btn btn--primary">
-                    Extract
-                </button>
-                <span id="scraper-busy" class="htmx-indicator scraper__busy" role="status"><span class="pf-spin" aria-hidden="true"></span> Uploading…</span>
-            </div>
-            <p class="scraper__hint">Model: <code>{{ scraper_model }}</code>. Set under Admin → Providers &amp; Credentials → OpenRouter → Reading Desk model. Only Anthropic models currently support PDF extraction.</p>
-        </form>
-    {% endif %}
-
-    {# Mount point for the run-in-progress and results. POST /scraper/runs
-       returns a fragment whose root element carries data-pf-scraper-sse-url;
-       scraper.js opens an EventSource on that URL and routes events into
-       this container. #}
-    <div id="scraper-run" class="scraper__run"></div>
-</div>
+{# The run mount: the already-read notice, the run and its results, or a
+   refusal. POST /scraper/runs answers into it; scraper.js opens the stream
+   of a fragment whose root carries data-pf-scraper-sse-url. #}
+<div id="scraper-run" style="margin-top:var(--ui-space-5)"></div>

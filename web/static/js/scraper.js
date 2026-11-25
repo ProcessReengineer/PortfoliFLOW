@@ -5,7 +5,11 @@
 // reconnect storm are documented hazards we avoid).
 //
 // Responsibilities:
-//   1. Keyword editor — add / remove rows.
+//   1. Keyword editor — add a row cloned from
+//      ``#scraper-keyword-template``, remove a row. Delegated from
+//      ``document``: the form arrives lazily with the Section frame. The
+//      rows are found by their ``data-pf-rd`` hooks; this half reads and
+//      writes no class.
 //   2. On submit: serialise the rows to ``#scraper-keywords-json``
 //      so the server gets a single JSON payload (Option B from the
 //      design spec).
@@ -26,14 +30,12 @@
     "use strict";
 
     document.addEventListener("DOMContentLoaded", function () {
-        wireKeywordEditor(document);
         attachScraperSseListeners(document);
     });
 
     document.addEventListener("htmx:afterSwap", function (event) {
         const target = event.target;
         if (!target) return;
-        wireKeywordEditor(target);
         attachScraperSseListeners(target);
     });
 
@@ -69,75 +71,33 @@
 
     // ---- Keyword editor -------------------------------------------------
 
-    function wireKeywordEditor(scope) {
-        const addBtn = scope.querySelector
-            ? scope.querySelector("#scraper-add-keyword")
-            : null;
-        if (addBtn && !addBtn.dataset.pfWired) {
-            addBtn.dataset.pfWired = "1";
-            addBtn.addEventListener("click", function () {
-                const fieldset = document.getElementById("scraper-keywords");
-                if (!fieldset) return;
-                const row = makeKeywordRow("", "Number");
-                fieldset.insertBefore(row, addBtn);
-            });
+    document.addEventListener("click", function (event) {
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target) return;
+        const addBtn = target.closest('[data-pf-rd="keyword-add"]');
+        if (addBtn) {
+            const template = document.getElementById("scraper-keyword-template");
+            const row = template ? template.content.firstElementChild : null;
+            if (!row || !addBtn.parentNode) return;
+            const added = row.cloneNode(true);
+            addBtn.parentNode.insertBefore(added, addBtn);
+            const nameInput = added.querySelector('[data-pf-rd="keyword-name"]');
+            if (nameInput) nameInput.focus();
+            return;
         }
-        const fieldset =
-            scope.querySelector && scope.querySelector("#scraper-keywords");
-        if (fieldset && !fieldset.dataset.pfRemoveWired) {
-            fieldset.dataset.pfRemoveWired = "1";
-            fieldset.addEventListener("click", function (ev) {
-                const btn = ev.target.closest(".scraper__keyword-remove");
-                if (!btn) return;
-                const row = btn.closest(".scraper__keyword-row");
-                if (row) row.remove();
-            });
+        const removeBtn = target.closest('[data-pf-rd="keyword-remove"]');
+        if (removeBtn) {
+            const row = removeBtn.closest('[data-pf-rd="keyword"]');
+            if (row) row.remove();
         }
-    }
-
-    function makeKeywordRow(name, type) {
-        const row = document.createElement("div");
-        row.className = "scraper__keyword-row";
-        row.dataset.row = "";
-
-        const nameInput = document.createElement("input");
-        nameInput.type = "text";
-        nameInput.className = "scraper__keyword-name";
-        nameInput.placeholder = "Keyword name";
-        nameInput.value = name;
-        nameInput.setAttribute("aria-label", "Keyword name");
-        row.appendChild(nameInput);
-
-        const typeSelect = document.createElement("select");
-        typeSelect.className = "scraper__keyword-type";
-        typeSelect.setAttribute("aria-label", "Keyword type");
-        ["Number", "Percentage", "Date", "Text", "List"].forEach(function (t) {
-            const opt = document.createElement("option");
-            opt.value = t;
-            opt.textContent = t;
-            if (t === type) opt.selected = true;
-            typeSelect.appendChild(opt);
-        });
-        row.appendChild(typeSelect);
-
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "scraper__keyword-remove btn btn--ghost";
-        removeBtn.setAttribute("aria-label", "Remove keyword");
-        removeBtn.textContent = "×";
-        row.appendChild(removeBtn);
-
-        return row;
-    }
+    });
 
     function collectKeywordsJson() {
-        const rows = document.querySelectorAll(
-            "#scraper-keywords .scraper__keyword-row"
-        );
+        const rows = document.querySelectorAll('#scraper-keywords [data-pf-rd="keyword"]');
         const out = [];
         rows.forEach(function (row) {
-            const name = (row.querySelector(".scraper__keyword-name") || {}).value || "";
-            const type = (row.querySelector(".scraper__keyword-type") || {}).value || "Text";
+            const name = (row.querySelector('[data-pf-rd="keyword-name"]') || {}).value || "";
+            const type = (row.querySelector('[data-pf-rd="keyword-type"]') || {}).value || "Text";
             if (name.trim()) {
                 out.push({ name: name.trim(), type: type });
             }

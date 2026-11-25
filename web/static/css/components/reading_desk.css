@@ -9,6 +9,8 @@
 .pf-reading-desk .pf-state--low { --dot: var(--ui-semantic-confidence-low); color: var(--ui-text-secondary); }
 .pf-reading-desk .pf-state--removed, .pf-reading-desk .pf-state--unassigned { color: var(--ui-text-tertiary); }
 .pf-reading-desk .pf-state--removed::before, .pf-reading-desk .pf-state--unassigned::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+/* Q-UX-S-RD-3: a pf-input holding a file control (cf. the Transactions residue: a pf-field holding a control). */
+.pf-reading-desk .pf-input[type="file"] { height: auto; padding: 7px var(--ui-space-3); font-size: var(--ui-font-scale-sm); }
 /* Q-UX-S-RD-4: a pf-table of findings — prose in a cell keeps a reading measure; a quote and a list inside a cell. */
 .pf-reading-desk .pf-table td q { display: block; max-width: 64ch; color: var(--ui-text-secondary); font-style: italic; quotes: "“" "”"; }
 .pf-reading-desk .pf-table td ul { margin: 0; padding-left: 18px; max-width: 56ch; }

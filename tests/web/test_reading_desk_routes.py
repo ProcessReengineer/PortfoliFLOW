@@ -388,6 +388,30 @@ async def test_frame_for_a_reader_opens_on_read(web_client_factory: Any, role: s
     assert "Retention" not in body
 
 
+@pytest.mark.parametrize("role", ["owner", "member"])
+async def test_refusal_offers_the_admin_link_to_an_owner_only(
+    web_client_factory: Any, role: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model that cannot read PDFs replaces the form, inside the frame.
+
+    The way to Admin › Providers & Credentials is offered to an owner only:
+    a member cannot open it.
+    """
+    monkeypatch.setenv("SCRAPER_MODEL", "openai/gpt-4o")
+    client, _app = await web_client_factory(role)
+    response = await client.get("/scraper/section")
+    assert response.status_code == 200
+    body = response.text
+
+    assert 'id="rd-tab-read"' in body
+    assert "scraper-form" not in body
+    assert "The model openai/gpt-4o cannot read PDF documents." in body
+    if role == "owner":
+        assert 'href="/admin#providers-credentials"' in body
+    else:
+        assert 'href="/admin#providers-credentials"' not in body
+
+
 async def test_frame_for_an_auditor_opens_on_the_library(web_client_factory: Any) -> None:
     client, _app = await web_client_factory("auditor")
     response = await client.get("/scraper/section")

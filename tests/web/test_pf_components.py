@@ -692,23 +692,24 @@ def test_the_reading_desk_partials_carry_no_scraper_class() -> None:
     assert offenders == {}, offenders
 
 
-def test_the_read_form_partials_carry_no_scraper_class() -> None:
-    """The Read form and the already-read notice are built on `pf-*` classes.
+def test_the_read_pane_partials_carry_no_scraper_class() -> None:
+    """The whole Read pane is built on `pf-*` classes.
 
-    P-RD-2b2a rebuilds `scraper_section.html` and `scraper_dedup.html`; the
-    run mount, the progress frame and the results follow in P-RD-2b2b. As in
-    the test above, no `class` token may start with `scraper`.
+    P-RD-2b2a rebuilt the Read form and the already-read notice; P-RD-2b2b
+    rebuilt the run mount, the progress frame and the results, and removed
+    `scraper.css`. Every `scraper_*.html` partial is pinned: as in the test
+    above, no `class` token may start with `scraper`.
     """
+    partials = sorted(_RD_PARTIALS.glob("scraper_*.html"))
+    assert len(partials) >= 6, [path.name for path in partials]
     offenders = {
-        name: tokens
-        for name in ("scraper_section.html", "scraper_dedup.html")
+        path.name: tokens
+        for path in partials
         if (
             tokens := sorted(
                 {
                     token
-                    for value in _CLASS_ATTRIBUTE.findall(
-                        (_RD_PARTIALS / name).read_text(encoding="utf-8")
-                    )
+                    for value in _CLASS_ATTRIBUTE.findall(path.read_text(encoding="utf-8"))
                     for token in value.split()
                     if token.startswith("scraper")
                 }
@@ -716,6 +717,34 @@ def test_the_read_form_partials_carry_no_scraper_class() -> None:
         )
     }
     assert offenders == {}, offenders
+
+
+_RD_SCRIPTS = (
+    _REPO_ROOT / "web" / "static" / "js" / "scraper.js",
+    _REPO_ROOT / "web" / "static" / "js" / "reading_desk.js",
+)
+_INNER_HTML_LITERAL = re.compile(r"""innerHTML\s*=\s*['"]""")
+
+
+def test_the_reading_desk_scripts_read_and_write_no_class() -> None:
+    """The Reading Desk's scripts find elements by id and hook, never by class.
+
+    Neither reads nor writes a class, names the retired `scraper__*` family or
+    assigns markup from a string literal: a note is cloned from a server
+    `<template>` (P-RD-2b2b).
+    """
+    for path in _RD_SCRIPTS:
+        source = path.read_text(encoding="utf-8")
+        for token in ("classList", "className", "scraper__"):
+            assert token not in source, f"{path.name}: {token}"
+        offenders = [line for line in source.splitlines() if _INNER_HTML_LITERAL.search(line)]
+        assert offenders == [], f"{path.name}: {offenders}"
+
+
+def test_the_scraper_stylesheet_is_gone() -> None:
+    """`scraper.css` is deleted and `base.html` no longer links it (P-RD-2b2b)."""
+    assert not (_CSS_DIR / "components" / "scraper.css").exists()
+    assert "scraper.css" not in _BASE_HTML.read_text(encoding="utf-8")
 
 
 def test_the_reading_desk_stylesheet_is_scoped_residue() -> None:

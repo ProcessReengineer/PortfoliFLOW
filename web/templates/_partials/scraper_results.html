@@ -1,93 +1,68 @@
-{# Scraper results fragment — payload of the SSE ``result`` /
-   ``cancelled`` event.
+{# The results of a run (M-RD-1 lines 3256–3345; D-RD-2-6, -10) — the
+   payload of the SSE ``result`` / ``cancelled`` event.
 
-   Renders one ``<article>`` per ReportExtraction with filename, fund
-   name, period, the findings table (with colour-coded confidence
-   pills), and an error block when extraction.error is set. A
-   trailing line is rendered when the run was cancelled before all
-   files completed.
+   First the closing line of the run, then one block per file the run got
+   to. A result block is the reading's own body (D-RD-2-10): the findings
+   table and the note are the partials the reading's page renders, fed with
+   the same projection. Four states (web.routes.scraper._project_result):
 
-   When readings were written, each article names the reading its file
-   became (``Saved as R-nnnn`` or ``Not saved.``) and, for a saved
-   reading only, the proposed assignment as text. One caption marks the
-   values as the model's reading (RD-D-6).
+     saved   — "Saved as R-nnnn · <type> · <fund> · <period>", the way to
+               the reading, the proposed assignment as text (its actions
+               are P-RD-2c's), the findings, the note folded.
+     unsaved — read, but the reading could not be written: a warning, then
+               the findings and the note, shown this once.
+     read    — no database engine, nothing is written at all: the findings
+               and the note without a word about saving.
+     failed  — the file was not read: the reason, nothing else.
 
-   Required context:
-     extractions — list[ReportExtraction]
-     cancelled   — bool
-     outcomes    — Optional[list[ReadingOutcome]] — one per extraction,
-                   aligned by position, or None when nothing was written
+   Context:
+     closing — dict: lead, sub (may be empty), cancelled (bool)
+     results — list[dict]: state, filename, sub, and by state label,
+               number, proposal, findings, note, error
 #}
-{% if extractions %}
-    <p class="scraper__hint">Values are the model's reading of the documents and are not checked against them.</p>
-{% endif %}
-{% for extraction in extractions %}
-    <article class="scraper-result"
-             data-filename="{{ extraction.filename }}">
-        <header class="scraper-result__header">
-            <h4 class="scraper-result__filename">
-                {{ extraction.filename }}
-            </h4>
-            {% if extraction.fund_name %}
-                <span class="scraper-result__fund">
-                    {{ extraction.fund_name }}
-                </span>
+<div class="pf-note pf-note--info pf-narrow" data-pf-rd="closing">{{ pf_icon("info" if closing.cancelled else "done") }}
+    <p class="pf-note__lead">{{ closing.lead }}</p><span></span>
+    {% if closing.sub %}<p class="pf-note__sub">{{ closing.sub }}</p>{% endif %}
+</div>
+{% for result in results %}
+    <article class="pf-blk" data-pf-rd="result" data-pf-rd-state="{{ result.state }}">
+        <div class="pf-blk__head">
+            <h3 class="pf-blk__title">{{ result.filename }}</h3>
+            <span class="pf-blk__sub">{{ result.sub }}</span>
+            {% if result.number %}
+                <span class="pf-blk__tools"><a class="pf-btn pf-btn--sm" href="/assistants/readings/{{ result.number }}" hx-get="/api/reading-desk/readings/{{ result.number }}" hx-target="#rd-reading" hx-swap="innerHTML">Open {{ result.label }}</a></span>
             {% endif %}
-            {% if extraction.period %}
-                <span class="scraper-result__period">
-                    {{ extraction.period }}
-                </span>
-            {% endif %}
-        </header>
-
-        {% if outcomes is not none and not extraction.error %}
-            {% set outcome = outcomes[loop.index0] if loop.index0 < outcomes|length else none %}
-            {% if outcome is not none and outcome.label %}
-                <p class="scraper__hint">Saved as {{ outcome.label }}</p>
-                {% if outcome.proposal %}
-                    <p class="scraper__hint">Proposed assignment: {{ outcome.proposal.kind }} “{{ outcome.proposal.name }}”</p>
-                {% endif %}
-            {% else %}
-                <p class="scraper__hint">Not saved.</p>
-            {% endif %}
-        {% endif %}
-
-        {% if extraction.error %}
-            <div class="scraper-result__error">
-                <strong>Extraction failed:</strong>
-                {{ extraction.error }}
+        </div>
+        {% if result.state == "failed" %}
+            <div class="pf-note pf-note--block">{{ pf_icon("block") }}
+                <p class="pf-note__lead">This file was not read. <span class="pf-note__inline">{{ result.error }}</span></p><span></span>
+                <p class="pf-note__sub">Nothing was saved for it. Attach it again to retry.</p>
             </div>
         {% else %}
-            <table class="scraper-result__findings">
-                <thead>
-                    <tr>
-                        <th>Field</th>
-                        <th>Value</th>
-                        <th>Source</th>
-                        <th>Confidence</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for finding in extraction.findings %}
-                        <tr>
-                            <td>{{ finding.label or finding.keyword.name }}</td>
-                            <td>{{ finding.value or "—" }}</td>
-                            <td>{{ finding.source or "—" }}</td>
-                            <td>
-                                <span class="scraper-pill scraper-pill--{{ finding.confidence.value|lower }}">
-                                    {{ finding.confidence.value }}
-                                </span>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            {% if result.state == "unsaved" %}
+                <div class="pf-note pf-note--warn">{{ pf_icon("warn") }}
+                    <p class="pf-note__lead">This file was read, but its reading could not be saved.</p><span></span>
+                    <p class="pf-note__sub">What was read is shown here once and is not in the Library. Attach the file again to retry.</p>
+                </div>
+            {% endif %}
+            {% if result.proposal %}
+                {% with proposal = result.proposal %}
+                    {% include "_partials/reading_desk_proposal.html" %}
+                {% endwith %}
+            {% endif %}
+            {% if result.findings.total %}
+                {% with findings = result.findings %}
+                    {% include "_partials/reading_desk_findings_table.html" %}
+                {% endwith %}
+            {% endif %}
+            {% if not result.note.empty %}
+                <details class="pf-more" style="margin-top:var(--ui-space-3)" data-pf-rd="result-note">
+                    <summary>Reading note</summary>
+                    {% with note = result.note %}
+                        {% include "_partials/reading_desk_note.html" %}
+                    {% endwith %}
+                </details>
+            {% endif %}
         {% endif %}
     </article>
 {% endfor %}
-
-{% if cancelled %}
-    <p class="scraper-result__cancelled">
-        Run cancelled before all files were processed.
-    </p>
-{% endif %}

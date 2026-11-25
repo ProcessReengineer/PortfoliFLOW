@@ -1,47 +1,42 @@
-{# Scraper run mount fragment — returned by POST /scraper/runs.
+{# The run mount — returned by POST /scraper/runs and by a confirm.
 
-   HTMX swaps this into ``#scraper-run`` (innerHTML). scraper.js sees
-   the data-pf-scraper-sse-url attribute, opens an EventSource on it,
-   and routes the progress / result / error / cancelled events into
-   this container.
+   HTMX swaps it into #scraper-run (innerHTML). scraper.js sees
+   data-pf-scraper-sse-url, opens an EventSource on it and routes the
+   progress / result / error / cancelled events into the two containers.
+   The mount starts on the first file's progress frame, so nothing reads
+   "preparing". The two templates are the notes scraper.js clones when the
+   stream reports an error (its text becomes the first paragraph) or the
+   connection is lost; the script assembles no markup of its own.
 
-   Required context:
-     run_id      — newly allocated UUID hex
-     csrf_token  — for the cancel button
-     total_files — count of attached PDFs
-     repeated    — list[str] — one sentence per file attached more than
-                   once (empty after a confirm)
+   Context (web.routes.scraper._render_run_mount):
+     run_id     — the run
+     csrf_token — for the cancel button
+     filename   — the first file of the run
+     total      — files in the run
+     repeated   — list[str] — one sentence per file attached more than
+                  once (empty after a confirm)
 #}
-<div class="scraper-run-mount"
+<div data-pf-rd="run"
      data-pf-scraper-sse-url="/scraper/runs/{{ run_id }}/stream"
      data-pf-scraper-run-id="{{ run_id }}"
      data-pf-csrf-token="{{ csrf_token }}">
     {% if repeated %}
         <p class="pf-hint">{% for line in repeated %}<span data-pf-rd="repeated">{{ line }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
     {% endif %}
-    <div class="scraper-run-mount__progress">
-        <div class="scraper-progress" aria-live="polite">
-            <div class="scraper-progress__line">
-                <span>Preparing extraction…</span>
-                <span>0 / {{ total_files }}</span>
-            </div>
-            <div class="scraper-progress__bar"
-                 role="progressbar"
-                 aria-valuemin="0"
-                 aria-valuemax="100"
-                 aria-valuenow="0">
-                <div class="scraper-progress__bar-fill"
-                     style="width: 0%;"></div>
-            </div>
-            <div class="scraper-progress__actions">
-                <button type="button"
-                        class="btn btn--ghost"
-                        data-pf-scraper-cancel
-                        data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">
-                    Cancel
-                </button>
-            </div>
-        </div>
+    <div data-pf-rd="run-progress" aria-live="polite">
+        {% with phase = "reading", current = 1, percent = 0 %}
+            {% include "_partials/scraper_progress.html" %}
+        {% endwith %}
     </div>
-    <div class="scraper-run-mount__results"></div>
+    <div data-pf-rd="run-results"></div>
+    <template data-pf-rd="run-error">
+        {% with refusal = {"lead": "", "sub": "", "admin_link": false} %}
+            {% include "_partials/reading_desk_refusal.html" %}
+        {% endwith %}
+    </template>
+    <template data-pf-rd="run-lost">
+        {% with refusal = {"lead": "The connection to this run was lost.", "sub": "The run stops after the file being read. That file is still saved and is in the Library; the files after it are not read.", "admin_link": false} %}
+            {% include "_partials/reading_desk_refusal.html" %}
+        {% endwith %}
+    </template>
 </div>

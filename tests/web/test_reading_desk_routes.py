@@ -50,6 +50,7 @@ from core.repositories import (
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.password_hashing import hash_password
 from web.main import create_app
+from web.routes.reading_desk import project_findings
 from web.settings import WebSettings
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -894,7 +895,7 @@ async def test_live_reading(web_client_factory: Any, seeded_users: dict[str, UUI
     assert "4 of 6 fields found · values and quotes are the model's reading" in html.unescape(body)
     assert body.count('data-pf-rd="finding"') == 4
     assert (
-        '<span style="white-space:nowrap">41236000<span class="pf-table__unit">EUR</span></span>'
+        '<span style="white-space:nowrap">41,236,000<span class="pf-table__unit">EUR</span></span>'
     ) in body
     assert '<span style="white-space:nowrap">9.4%</span>' in body
     assert '<span class="pf-table__unit">%</span>' not in body
@@ -936,6 +937,30 @@ async def test_live_reading(web_client_factory: Any, seeded_users: dict[str, UUI
     ):
         assert fact in body, fact
     assert "decided by the model" not in body
+
+
+def test_plain_numbers_are_grouped_for_reading() -> None:
+    """A plain number's thousands are grouped for reading; nothing stored changes (D-RD-2-36).
+
+    Five and more integer digits always; four only for an amount, which
+    carries a currency code — a vintage year stays as read.
+    """
+    cases = [
+        ("Number", "41236000", "EUR", "41,236,000"),
+        ("Number", "9600", "EUR", "9,600"),
+        ("Number", "9600", "", "9600"),
+        ("Number", "2024", "", "2024"),
+        ("Number", "12500", "", "12,500"),
+        ("Number", "-1200000.50", "USD", "-1,200,000.50"),
+        ("Number", "1.25", "x", "1.25"),
+        ("Number", "41,236,000", "EUR", "41,236,000"),
+        ("Text", "41236000", "EUR", "41236000"),
+    ]
+    for field_type, value, unit, shown in cases:
+        finding = _finding(type=field_type, value=value, unit=unit)
+        [row] = project_findings([finding])["rows"]
+        assert row["value"] == shown, (field_type, value, unit)
+        assert finding["value"] == value
 
 
 async def test_sparse_readings(web_client_factory: Any, seeded_users: dict[str, UUID]) -> None:

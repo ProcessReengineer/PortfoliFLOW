@@ -136,6 +136,20 @@ def _note_dict(note: ReadingNote | None) -> dict[str, Any]:
     }
 
 
+def compose_findings(extraction: ReportExtraction) -> list[dict[str, Any]]:
+    """The findings of an extraction in the shape a reading stores them.
+
+    The run view renders a result from this shape, so a result block and the
+    stored reading show the same thing (D-RD-2-10).
+    """
+    return [_finding_dict(finding) for finding in extraction.findings]
+
+
+def compose_note(extraction: ReportExtraction) -> dict[str, Any]:
+    """The reading note of an extraction in the shape a reading stores it."""
+    return _note_dict(extraction.note)
+
+
 def compose_search_text(extraction: ReportExtraction, filename: str) -> str:
     """Compose the plain text the library search matches (ADR-0139 §2).
 
@@ -230,8 +244,8 @@ def compose_reading(
         "document_date": extraction.document_date,
         "period_label": _blank_to_none(extraction.period),
         "currency": _blank_to_none(extraction.currency),
-        "findings": [_finding_dict(finding) for finding in extraction.findings],
-        "note": _note_dict(extraction.note),
+        "findings": compose_findings(extraction),
+        "note": compose_note(extraction),
         "model": model,
         "prompt_version": prompt_version,
         "adhoc_keywords": [

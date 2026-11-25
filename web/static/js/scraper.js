@@ -1,33 +1,38 @@
-// Bespoke client logic for the Reading Desk section.
+// Bespoke client logic for the Read pane of the Reading Desk.
 //
-// Mirrors the structure of chat.js — plain JS, no framework, native
-// EventSource (the HTMX SSE extension's leading-space trim and
-// reconnect storm are documented hazards we avoid).
+// Plain JS, no framework, native EventSource (the HTMX SSE extension's
+// leading-space trim and reconnect storm are documented hazards we avoid).
+// Elements are found by id and by ``data-pf-rd`` / ``data-pf-scraper-*``
+// hooks; this file reads and writes no class and assembles no markup — a
+// note is cloned from a ``<template>`` the server rendered.
 //
 // Responsibilities:
 //   1. Keyword editor — add a row cloned from
 //      ``#scraper-keyword-template``, remove a row. Delegated from
-//      ``document``: the form arrives lazily with the Section frame. The
-//      rows are found by their ``data-pf-rd`` hooks; this half reads and
-//      writes no class.
+//      ``document``: the form arrives lazily with the Section frame.
 //   2. On submit: serialise the rows to ``#scraper-keywords-json``
-//      so the server gets a single JSON payload (Option B from the
-//      design spec).
-//   3. When HTMX swaps the run-mount fragment into ``#scraper-run``,
-//      open an EventSource on its ``data-pf-scraper-sse-url`` and
-//      route progress / result / error / cancelled events into the
-//      DOM. Close on terminal events.
+//      so the server gets a single JSON payload.
+//   3. When HTMX swaps the run mount into ``#scraper-run``, open an
+//      EventSource on its ``data-pf-scraper-sse-url`` and route progress /
+//      result / error / cancelled events into its two containers. Close on
+//      terminal events. A result is handed to ``htmx.process`` so its
+//      "Open R-nnnn" links open the reading in place.
 //   4. Cancel button: POST to ``/scraper/runs/<id>/cancel`` with the
-//      session CSRF token (matches the chat surface's "New chat"
-//      pattern).
+//      session CSRF token.
 //   5. Elapsed timer: after each ``progress`` swap, tick the time since
 //      that swap (``m:ss``) into ``[data-pf-scraper-elapsed]``; stopped
 //      on every terminal event and when the mount leaves the DOM.
 //   6. 400 / 404 answers aimed at ``#scraper-run`` (a refused keyword, a
 //      confirm of a run no longer held) are swapped in like a 200.
+//   7. One run at a time (D-RD-2-8): *Read documents* is disabled while a
+//      run streams and while the already-read notice waits for its answer;
+//      during a run the action bar's hint says so.
 
 (function () {
     "use strict";
+
+    // True from the moment a stream is opened until its terminal event.
+    let running = false;
 
     document.addEventListener("DOMContentLoaded", function () {
         attachScraperSseListeners(document);
@@ -37,7 +42,13 @@
         const target = event.target;
         if (!target) return;
         attachScraperSseListeners(target);
+        syncForm();
     });
+
+    // htmx lifts its own ``hx-disabled-elt`` lock when a request ends, which
+    // can be after the swap that started a run: state the button again.
+    document.addEventListener("htmx:afterRequest", syncForm);
+    document.addEventListener("htmx:afterSettle", syncForm);
 
     // htmx 1.9.12 does not swap error responses, so a 400 / 404 fragment
     // aimed at the run area (a refused keyword, a confirm of a run no
@@ -68,6 +79,25 @@
         const hidden = document.getElementById("scraper-keywords-json");
         if (hidden) hidden.value = json;
     });
+
+    // ---- One run at a time ----------------------------------------------
+
+    function syncForm() {
+        const button = document.getElementById("scraper-extract");
+        if (!button) return;
+        const mount = document.getElementById("scraper-run");
+        const held = !!(mount && mount.querySelector('[data-pf-rd="dedup"]'));
+        button.disabled = running || held;
+        const idle = document.querySelector('[data-pf-rd="hint-idle"]');
+        const busy = document.querySelector('[data-pf-rd="hint-running"]');
+        if (idle) idle.hidden = running;
+        if (busy) busy.hidden = !running;
+    }
+
+    function setRunning(value) {
+        running = value;
+        syncForm();
+    }
 
     // ---- Keyword editor -------------------------------------------------
 
@@ -123,11 +153,12 @@
         const url = el.dataset.pfScraperSseUrl;
         if (!url) return;
 
-        const progressContainer = el.querySelector(".scraper-run-mount__progress");
-        const resultsContainer = el.querySelector(".scraper-run-mount__results");
+        const progressContainer = el.querySelector('[data-pf-rd="run-progress"]');
+        const resultsContainer = el.querySelector('[data-pf-rd="run-results"]');
         if (!progressContainer || !resultsContainer) return;
 
         wireCancelButtons(el);
+        setRunning(true);
 
         const eventSource = new EventSource(url);
 
@@ -148,11 +179,39 @@
             const startedAt = Date.now();
             elapsedTimer = setInterval(function () {
                 if (!el.isConnected) {
-                    stopElapsed();
+                    // The mount left the DOM: the run ends for this view.
+                    finish();
                     return;
                 }
                 span.textContent = formatElapsed(Date.now() - startedAt);
             }, 1000);
+        }
+
+        // Ends the run in this view: the timer, the stream, the button.
+        function finish() {
+            stopElapsed();
+            eventSource.close();
+            setRunning(false);
+        }
+
+        function showResults(html) {
+            progressContainer.replaceChildren();
+            resultsContainer.innerHTML = html || "";
+            if (window.htmx) window.htmx.process(resultsContainer);
+        }
+
+        // Replaces the progress frame by a note cloned from one of the
+        // mount's templates; ``text`` becomes the note's first paragraph.
+        function showNote(hook, text) {
+            const template = el.querySelector('template[data-pf-rd="' + hook + '"]');
+            if (!template) {
+                progressContainer.textContent = text || "";
+                return;
+            }
+            const note = template.content.cloneNode(true);
+            const lead = note.querySelector("p");
+            if (lead && text) lead.textContent = text;
+            progressContainer.replaceChildren(note);
         }
 
         eventSource.addEventListener("progress", function (event) {
@@ -162,37 +221,29 @@
         });
 
         eventSource.addEventListener("result", function (event) {
-            stopElapsed();
-            progressContainer.innerHTML = "";
-            resultsContainer.innerHTML = event.data || "";
-            eventSource.close();
+            finish();
+            showResults(event.data);
         });
 
         eventSource.addEventListener("cancelled", function (event) {
-            stopElapsed();
-            progressContainer.innerHTML = "";
-            resultsContainer.innerHTML = event.data || "";
-            eventSource.close();
+            finish();
+            showResults(event.data);
         });
 
         eventSource.addEventListener("error", function (event) {
-            // Server-emitted ``error`` event — distinct from the
-            // transport-level ``onerror`` callback below.
-            stopElapsed();
-            const text = (event && event.data) || "An unknown error occurred.";
-            progressContainer.innerHTML =
-                '<p class="scraper__form-error">' + escapeHtml(text) + "</p>";
-            eventSource.close();
+            // Server-emitted ``error`` event — it carries data. The
+            // transport-level failure arrives on the same event name
+            // without data and is handled by ``onerror`` below.
+            if (!event || typeof event.data !== "string") return;
+            finish();
+            showNote("run-error", event.data || "An unknown error occurred.");
         });
 
         // Transport-level failure: render once and close, no retry.
         eventSource.onerror = function () {
-            stopElapsed();
             if (eventSource.readyState === EventSource.CLOSED) return;
-            progressContainer.innerHTML =
-                '<p class="scraper__form-error">' +
-                "Connection lost — please try again.</p>";
-            eventSource.close();
+            finish();
+            showNote("run-lost", "");
         };
     }
 
@@ -226,11 +277,5 @@
         const seconds = Math.floor(ms / 1000);
         const rest = seconds % 60;
         return Math.floor(seconds / 60) + ":" + (rest < 10 ? "0" : "") + rest;
-    }
-
-    function escapeHtml(text) {
-        return String(text).replace(/[&<>]/g, function (c) {
-            return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
-        });
     }
 })();

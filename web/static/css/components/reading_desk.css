@@ -15,6 +15,9 @@
 .pf-reading-desk .pf-table td q { display: block; max-width: 64ch; color: var(--ui-text-secondary); font-style: italic; quotes: "“" "”"; }
 .pf-reading-desk .pf-table td ul { margin: 0; padding-left: 18px; max-width: 56ch; }
 .pf-reading-desk .pf-table td .pf-kind { margin-left: var(--ui-space-2); }
+/* Q-UX-S-RD-5: pf-meter as the progress of a run — a neutral fill, no mark. */
+.pf-reading-desk .pf-meter[role="progressbar"] { margin: var(--ui-space-3) 0; }
+.pf-reading-desk .pf-meter[role="progressbar"] .pf-meter__fill { background: var(--ui-text-secondary); }
 /* Q-UX-S-RD-6: stack gaps and the reading measure of the reading's blocks (cf. Q-UX-S-A6-6, -31). */
 .pf-reading-desk .pf-blk { margin-top: var(--ui-space-6); }
 .pf-reading-desk .pf-blk ul, .pf-reading-desk .pf-blk > p { max-width: 78ch; margin: 0; color: var(--ui-text-primary); }

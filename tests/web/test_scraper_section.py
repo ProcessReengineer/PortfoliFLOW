@@ -19,14 +19,15 @@ Coverage:
    ``model`` form field involved at all.
 4. SSE happy path — events arrive as ``progress`` × N + 1 (one
    *reading* frame per file, then *finishing*) then ``result``; the
-   ``result`` payload contains the rendered results partial, and the
-   service receives the run's ``ResolvedLLM``.
+   ``result`` payload holds the run's closing line and one result block
+   per file — the reading's own body (D-RD-2-10) — and the service
+   receives the run's ``ResolvedLLM``.
 5. SSE cancel — POST /scraper/runs/<id>/cancel returns 204 and the
    stream then emits ``cancelled`` and closes.
 6. SSE service error — an UnsupportedModelError surfaces as an
    ``error`` event.
-7. Per-file error — an extraction with ``error`` set renders the
-   error block in the result partial.
+7. Per-file error — an extraction with ``error`` set gets a result block
+   that says "This file was not read." and why.
 8. Run-store LRU eviction — inserting beyond the cap evicts the
    oldest entry.
 9. Logout drops the session's in-flight runs.
@@ -80,7 +81,7 @@ from core.repositories import (
 from core.tenant_constants import SENTINEL_TENANT_ID
 from services.ai_service_core import ResolvedLLM
 from services.password_hashing import hash_password
-from services.reading_desk import compose_reading, describe_upload
+from services.reading_desk import ReadingOutcome, compose_reading, describe_upload
 from services.scraper.capabilities import UnsupportedModelError
 from services.scraper.models import (
     FINDING_ORIGIN_PROFILE,
@@ -89,6 +90,8 @@ from services.scraper.models import (
     Finding,
     Keyword,
     KeywordType,
+    NoteQuote,
+    ReadingNote,
     ReportExtraction,
     ScraperResult,
 )
@@ -746,9 +749,10 @@ async def test_sse_happy_path(
     events_seen = [e for e, _ in frames]
     assert events_seen.count("progress") == 3
     assert events_seen[-1] == "result"
-    # The result payload contains the rendered results partial.
+    # The result payload holds the closing line and one block per file.
     result_data = frames[-1][1]
-    assert "scraper-result__filename" in result_data
+    assert 'data-pf-rd="result"' in result_data
+    assert 'data-pf-rd="closing"' in result_data
     assert "a.pdf" in result_data
     assert "b.pdf" in result_data
 
@@ -804,7 +808,7 @@ async def test_per_file_error_renders_in_result(
     seeded_user: tuple[UUID, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An extraction with .error set renders the error block."""
+    """An extraction with .error set says the file was not read, and why."""
     _id, email, password = seeded_user
     client, _app = await web_client_factory()
     csrf = await _login_and_get_csrf(client, email, password)
@@ -850,10 +854,11 @@ async def test_per_file_error_renders_in_result(
     assert match is not None
     response = await client.get(match.group(1))
     body = response.text
-    assert "Extraction failed:" in body
+    assert "This file was not read." in body
+    assert "Nothing was saved for it. Attach it again to retry." in body
     assert "File too large" in body
     # The good file still renders normally.
-    assert "scraper-result__findings" in body
+    assert 'data-pf-rd="finding"' in body
 
 
 async def test_sse_cancel_path(
@@ -927,6 +932,7 @@ async def test_sse_cancel_path(
     frames = _parse_sse_frames(response.text)
     events_seen = [e for e, _ in frames]
     assert events_seen[-1] == "cancelled"
+    assert "Run cancelled. No file was read." in frames[-1][1]
 
     # And the cancel POST itself returns 204 cleanly.
     cancel = await client.post(
@@ -1227,8 +1233,11 @@ async def test_one_reading_per_successful_file(
     body = frames[-1][1]
     assert body.count("Saved as R-0001") == 1
     assert body.count("Saved as") == 1
-    assert "Not saved." not in body  # a failed file shows its error, no outcome line
-    assert "Extraction failed:" in body
+    assert body.count("Not saved") == 1  # the failed file's sub line
+    assert "This file was not read." in body
+    assert "The model returned no JSON." in body
+    assert "2 files read in " in body
+    assert " — 1 saved, 1 not read." in body
     readings = await _readings(app)
     assert len(readings) == 1
     assert readings[0].sha256 == hashlib.sha256(good).hexdigest()
@@ -1261,6 +1270,12 @@ async def test_progress_names_the_file_being_read(
     assert "data-pf-scraper-elapsed" in first
     assert "data-pf-scraper-elapsed" in second
     assert "data-pf-scraper-cancel" not in last
+    # What a long document and leaving mean, and what Cancel does (D-RD-2-7).
+    assert "You can open the Library meanwhile." in first
+    assert "That file is still saved; the files after it are not read." in first
+    assert "Cancel stops the run after the file being read." in first
+    assert 'role="progressbar"' in first
+    assert "You can open the Library meanwhile." not in last
 
 
 async def test_cancelled_run_keeps_its_prefix(
@@ -1288,6 +1303,7 @@ async def test_cancelled_run_keeps_its_prefix(
 
     assert frames[-1][0] == "cancelled"
     assert "Saved as R-0001" in frames[-1][1]
+    assert "Run cancelled. 1 of 3 files read in " in frames[-1][1]
     readings = await _readings(app)
     assert [reading.filename for reading in readings] == ["a.pdf"]
 
@@ -1701,7 +1717,8 @@ async def test_no_engine_writes_nothing_and_gates_nothing(
     for frames in (first, second):
         assert frames[-1][0] == "result"
         assert "Saved as" not in frames[-1][1]
-        assert "Not saved." not in frames[-1][1]
+        assert "Not saved" not in frames[-1][1]
+        assert 'data-pf-rd-state="read"' in frames[-1][1]
     assert await _readings(app) == []
 
 
@@ -1731,6 +1748,187 @@ async def test_proposal_is_shown_for_a_saved_reading(
     body = frames[-1][1]
     assert "Saved as R-0001" in body
     assert "Proposed assignment: investment “Test Fund”" in body
+    assert 'data-pf-rd="proposal"' in body
+    assert "Open R-0001" in body
+    assert 'hx-get="/api/reading-desk/readings/1"' in body
+
+
+# ---------------------------------------------------------------------------
+# The run view (P-RD-2b2b): the mount, the result blocks, the closing line
+# ---------------------------------------------------------------------------
+
+_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
+_VALUE_MARKUP = (
+    '<span style="white-space:nowrap">41,236,000<span class="pf-table__unit">EUR</span></span>'
+)
+_AS_READ = '<span class="pf-table__sub">as read, p. 7 · Capital account</span>'
+
+
+def _rich_extraction(filename: str, *, plant: str = "") -> ReportExtraction:
+    """A quarterly report with a full finding and a note; ``plant`` is appended to its texts."""
+    return ReportExtraction(
+        filename=filename,
+        fund_name=f"Test Fund{plant}",
+        period="Q3 2026",
+        findings=[
+            Finding(
+                keyword=_NAV,
+                value=f"41236000{plant}",
+                source="Capital account",
+                confidence=Confidence.HIGH,
+                key="nav",
+                label=f"Net asset value{plant}",
+                unit="EUR",
+                page=7,
+                quote=f"Capital account balance EUR 41,236,000{plant}",
+                origin=FINDING_ORIGIN_PROFILE,
+            )
+        ],
+        document_type="quarterly_report",
+        profile_version=1,
+        language="en",
+        currency="EUR",
+        note=ReadingNote(
+            highlights=[f"Two exits signed.{plant}"],
+            quotes=[NoteQuote(text="We expect two calls.", page=4)],
+        ),
+    )
+
+
+def _install_extractions(monkeypatch: pytest.MonkeyPatch, *extractions: ReportExtraction) -> None:
+    """Replace the service with a fake that returns ``extractions``, one per attached file."""
+
+    def fake_scrape(
+        self: Any,
+        *,
+        attachments: list[Attachment],
+        keywords: list[Keyword],
+        llm: Any,
+        progress_callback: Any = None,
+        cancel_check: Any = None,
+        profile_id: str | None = None,
+    ) -> ScraperResult:
+        result = ScraperResult(prompt_version="0f1e2d3c")
+        for idx, (att, extraction) in enumerate(zip(attachments, extractions, strict=True)):
+            result.extractions.append(extraction)
+            if progress_callback:
+                progress_callback(idx + 1, len(attachments), att.filename)
+        return result
+
+    monkeypatch.setattr(ScraperService, "scrape_reports", fake_scrape)
+
+
+async def test_run_mount_starts_on_the_first_file(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The mount opens on the first file's frame and carries its two notes (D-RD-2-6)."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+
+    post = await _post_run(client, csrf, [("a.pdf", b"%PDF-1.4\nA"), ("b.pdf", b"%PDF-1.4\nB")])
+
+    assert post.status_code == 200, post.text
+    body = post.text
+    progress = body[
+        body.index('data-pf-rd="run-progress"') : body.index('data-pf-rd="run-results"')
+    ]
+    assert "Reading a.pdf" in progress
+    assert "File 1 of 2" in progress
+    assert '<div data-pf-rd="run-results"></div>' in body
+    assert '<template data-pf-rd="run-error">' in body
+    assert '<template data-pf-rd="run-lost">' in body
+    assert "The connection to this run was lost." in body
+    assert "Preparing" not in body
+    tokens = {token for value in _CLASS_ATTRIBUTE.findall(body) for token in value.split()}
+    assert not [token for token in tokens if token.startswith("scraper")], tokens
+
+
+async def test_result_block_is_the_readings_own_body(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A result block and the reading's page render one body (D-RD-2-10, D-RD-2-36)."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_extractions(monkeypatch, _rich_extraction("a.pdf"))
+
+    frames = await _run_to_end(client, csrf, [("a.pdf", b"%PDF-1.4\nA")])
+
+    assert frames[-1][0] == "result"
+    body = frames[-1][1]
+    assert 'data-pf-rd-state="saved"' in body
+    assert "Saved as R-0001 · Quarterly report · Test Fund · Q3 2026" in body
+    assert _VALUE_MARKUP in body
+    assert "<q>Capital account balance EUR 41,236,000</q>" in body
+    assert _AS_READ in body
+    note = body[body.index('data-pf-rd="result-note"') :]
+    assert "<summary>Reading note</summary>" in note
+    assert '<h4 class="pf-block__title">Highlights</h4>' in note
+    assert "(English)" in note
+    assert "Open R-0001" in body
+    assert re.search(r"1 file read in \d+:\d\d — 1 saved\.", body), body
+
+    reading = await client.get("/api/reading-desk/readings/1")
+    assert reading.status_code == 200
+    assert _VALUE_MARKUP in reading.text
+    assert _AS_READ in reading.text
+
+
+async def test_result_text_is_escaped(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every text a result shows comes from a document or a model: autoescape only."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    plant = "<script>alert(1)</script>"
+    _install_extractions(
+        monkeypatch,
+        _rich_extraction("a.pdf", plant=plant),
+        ReportExtraction(filename="b.pdf", error=plant),
+    )
+
+    frames = await _run_to_end(client, csrf, [("a.pdf", b"%PDF-1.4\nA"), ("b.pdf", b"%PDF-1.4\nB")])
+
+    assert frames[-1][0] == "result"
+    body = frames[-1][1]
+    assert 'data-pf-rd-state="failed"' in body
+    assert "<script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+async def test_a_read_file_that_is_not_saved_says_so(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read, but the write failed: a warning, then the findings, shown this once."""
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory()
+    csrf = await _login_and_get_csrf(client, email, password)
+    _install_reader(monkeypatch)
+
+    async def unsaved(engine: Any, **kwargs: Any) -> list[ReadingOutcome]:
+        return [ReadingOutcome(filename="a.pdf", label=None, proposal=None)]
+
+    monkeypatch.setattr("web.routes.scraper.write_readings", unsaved)
+
+    frames = await _run_to_end(client, csrf, [("a.pdf", b"%PDF-1.4\nA")])
+
+    assert frames[-1][0] == "result"
+    body = frames[-1][1]
+    assert 'data-pf-rd-state="unsaved"' in body
+    assert "This file was read, but its reading could not be saved." in body
+    assert '<span class="pf-blk__sub">Not saved · ' in body
+    assert 'data-pf-rd="finding"' in body
+    assert "Open R-" not in body
+    assert " — 0 saved, 1 not saved." in body
 
 
 def _direct_run(app: Any, user_id: UUID, content: bytes) -> tuple[Request, _PendingRun]:

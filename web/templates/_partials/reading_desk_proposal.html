@@ -1,0 +1,10 @@
+{# A proposed assignment (ADR-0139 §6, D-RD-2-15; M-RD-1 lines 3271–3274).
+   One partial for its two hosts: a result block of a run (P-RD-2b2b) and
+   the reading's page (P-RD-2c). The proposal is text here; *Assign* and
+   "Choose another…" join it in the third column with P-RD-2c.
+
+   Context: one dict ``proposal`` — kind ("investment" | "manager"), name
+   (the stored investment name or manager name). #}
+<div class="pf-note pf-note--info" data-pf-rd="proposal">{{ pf_icon("info") }}
+    <p class="pf-note__lead">Proposed assignment: {{ proposal.kind }} “{{ proposal.name }}”</p><span></span>
+</div>

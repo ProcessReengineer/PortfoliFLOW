@@ -1,0 +1,22 @@
+{# The findings as a table, and the fields that were not found (D-RD-2-11;
+   M-RD-1 lines 3276–3294). Included by the reading's Findings block
+   (reading_desk_findings.html) and by a result block of a run
+   (scraper_results.html). Context: one dict ``findings`` from
+   web/routes/reading_desk.py::project_findings. A number's thousands are
+   grouped there (D-RD-2-36); the quote and its source are the model's
+   reading. Four columns: nothing is kept from here in RD-2. #}
+{% if findings.rows %}
+    <div class="pf-scroll-x"><table class="pf-table"><thead><tr><th>Field</th><th>Value</th><th>As read</th><th>Confidence</th></tr></thead><tbody>
+        {% for row in findings.rows %}
+            <tr data-pf-rd="finding">
+                <td>{{ row.label }}{% if row.adhoc %}<span class="pf-kind">extra keyword</span>{% endif %}</td>
+                <td>{% if row.kind == "list" %}<ul>{% for line in row.lines %}<li>{{ line }}</li>{% endfor %}</ul>{% elif row.kind == "number" %}<span style="white-space:nowrap">{{ row.value }}{% if row.unit %}<span class="pf-table__unit">{{ row.unit }}</span>{% endif %}</span>{% else %}<span>{{ row.value }}</span>{% if row.unit %}<span class="pf-table__unit">{{ row.unit }}</span>{% endif %}{% endif %}</td>
+                <td>{% if row.quote %}<q>{{ row.quote }}</q>{% endif %}<span class="pf-table__sub">{{ row.as_read }}</span></td>
+                <td><span class="pf-state pf-state--{{ row.confidence }}">{{ row.confidence_label }}</span></td>
+            </tr>
+        {% endfor %}
+    </tbody></table></div>
+{% endif %}
+{% if findings.not_found %}
+    <details class="pf-more" data-pf-rd="notfound"><summary>{{ findings.not_found_summary }}</summary><p>{{ findings.not_found | join(" · ") }}</p></details>
+{% endif %}

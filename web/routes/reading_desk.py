@@ -33,6 +33,7 @@ holds only its identity and removal fields (ADR-0140, D-RD-2-14).
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -93,6 +94,10 @@ _CONFIDENCES: dict[str, tuple[str, str]] = {
 }
 
 _NUMERIC_TYPES = frozenset({"Number", "Percentage"})
+
+#: A number as the model writes it: digits, at most one decimal point.
+_PLAIN_NUMBER = re.compile(r"([+-]?)(\d+)(\.\d+)?")
+_CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +161,7 @@ def language_name(code: str | None) -> str | None:
     return _LANGUAGES.get(code, code)
 
 
-def _type_labels() -> dict[str, str]:
+def document_type_labels() -> dict[str, str]:
     """The profile labels by id; the ids themselves when the profiles do not load."""
     try:
         loaded = load_profiles()
@@ -406,11 +411,29 @@ def _text(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _grouped(value: str, unit: str) -> str:
+    """A plain number with its thousands grouped by commas (D-RD-2-36).
+
+    Five and more integer digits are always grouped; four only for an amount,
+    which carries a currency code — a vintage year stays ``2024``. Anything
+    that is not digits with at most one decimal point is returned as stored.
+    """
+    match = _PLAIN_NUMBER.fullmatch(value.strip())
+    if match is None:
+        return value
+    sign, digits, fraction = match.group(1), match.group(2), match.group(3) or ""
+    if len(digits) < (4 if _CURRENCY_CODE.fullmatch(unit) else 5):
+        return value
+    return f"{sign}{int(digits):,}{fraction}"
+
+
 def project_findings(findings: Iterable[dict] | None) -> dict[str, Any]:
-    """The findings of a reading as plain values for ``reading_desk_findings.html``.
+    """The findings of a reading as plain values for ``reading_desk_findings_table.html``.
 
     A finding counts as found unless its confidence is ``Not_Found`` or its
-    value is blank. Values stay as stored (D-RD-2-12).
+    value is blank. Values stay as stored (D-RD-2-12), except that a plain
+    number's thousands are grouped for reading (D-RD-2-36). The projection
+    also feeds a result block of a run (``web/routes/scraper.py``).
 
     Args:
         findings: The stored findings, in stored order, or ``None``.
@@ -439,6 +462,7 @@ def project_findings(findings: Iterable[dict] | None) -> dict[str, Any]:
             kind = "list"
         elif field_type in _NUMERIC_TYPES:
             kind = "number"
+            value = _grouped(value, unit)
         else:
             kind = "text"
         state, state_label = _CONFIDENCES.get(confidence, ("low", "Low"))
@@ -695,7 +719,7 @@ async def reading_desk_library(
         if not rows_only:
             manager_names = await repo.list_manager_names()
     investments = {investment.id: investment.name for investment in investment_rows}
-    type_labels = _type_labels()
+    type_labels = document_type_labels()
     projected = [
         _project_row(
             reading,
@@ -798,7 +822,7 @@ async def reading_desk_reading(
                 reading,
                 people=people,
                 investments=investments,
-                type_labels=_type_labels(),
+                type_labels=document_type_labels(),
                 can_read=user.has_role("owner", "member"),
             ),
         ),

@@ -67,7 +67,8 @@
         <input type="hidden" name="keywords_json" id="scraper-keywords-json" value="">
 
         <div class="pf-actionbar">
-            <p class="pf-actionbar__hint">Each file becomes one reading in the Library.</p>
+            <p class="pf-actionbar__hint" data-pf-rd="hint-idle">Each file becomes one reading in the Library.</p>
+            <p class="pf-actionbar__hint" data-pf-rd="hint-running" hidden>A run is in progress — one run at a time.</p>
             <span id="scraper-busy" class="pf-hint htmx-indicator" role="status"><span class="pf-spin" aria-hidden="true" style="display:inline-block;margin-right:8px"></span>Uploading…</span>
             <button type="submit" class="pf-btn pf-btn--primary" id="scraper-extract">Read documents</button>
         </div>

@@ -1,63 +1,49 @@
-{# Scraper progress fragment — payload of each SSE ``progress`` event.
-
-   Replaces the ``.scraper-progress`` block emitted by the run-mount
-   fragment so the user sees in-place updates rather than appended lines.
-   Two phases (web.routes.scraper._drive_run):
+{# The run in progress (M-RD-1 lines 3238–3254; D-RD-2-6, -7) — the payload
+   of each SSE ``progress`` event, and the first content of the run mount.
+   scraper.js swaps it into [data-pf-rd="run-progress"], so the PM sees one
+   frame updating in place. Two phases (web.routes.scraper._drive_run):
 
      reading   — "Reading <file>", "File k of N · m:ss" (scraper.js ticks the
-                 elapsed time since this frame arrived), the bar, a hint
-                 that a long document takes minutes, and Cancel.
+                 elapsed time since this frame arrived), the meter, what a
+                 long document and leaving mean, and Cancel.
      finishing — every file is read and the readings are being written:
-                 "Finishing…", "N of N read", the bar full, no Cancel.
+                 "Finishing…", "N of N read", the meter full, no Cancel.
 
    The elapsed span is aria-hidden so the live region is not announced
    every second.
 
-   Required context:
+   Context:
      phase      — "reading" | "finishing"
      current    — int — 1-based index of the file being read
      filename   — str — the file being read
-     done       — int — files read so far
-     total      — int — total files in the run
-     percent    — int — ``done / total * 100`` (pre-computed)
-     csrf_token — for the cancel button
+     total      — int — files in the run
+     percent    — int — files read so far, as a share of total
      run_id     — for the cancel URL
 #}
-<div class="scraper-progress" aria-live="polite">
-    {% if phase == "reading" %}
-        <div class="scraper-progress__line">
-            <span class="scraper-progress__status"><span class="pf-spin" aria-hidden="true"></span> Reading {{ filename }}</span>
-            <span>File {{ current }} of {{ total }} · <span data-pf-scraper-elapsed aria-hidden="true">0:00</span></span>
-        </div>
-        <div class="scraper-progress__bar"
-             role="progressbar"
-             aria-valuemin="0"
-             aria-valuemax="100"
-             aria-valuenow="{{ percent }}">
-            <div class="scraper-progress__bar-fill"
-                 style="width: {{ percent }}%;"></div>
-        </div>
-        <p class="scraper__hint">A long document can take several minutes. Cancel stops the run after the file being read.</p>
-        <div class="scraper-progress__actions">
-            <button type="button"
-                    class="btn btn--ghost"
-                    data-pf-scraper-cancel
-                    data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">
-                Cancel
-            </button>
-        </div>
-    {% else %}
-        <div class="scraper-progress__line">
-            <span class="scraper-progress__status"><span class="pf-spin" aria-hidden="true"></span> Finishing…</span>
-            <span>{{ total }} of {{ total }} read</span>
-        </div>
-        <div class="scraper-progress__bar"
-             role="progressbar"
-             aria-valuemin="0"
-             aria-valuemax="100"
-             aria-valuenow="100">
-            <div class="scraper-progress__bar-fill"
-                 style="width: 100%;"></div>
-        </div>
-    {% endif %}
+<div class="pf-narrow" data-pf-rd="progress">
+    <div class="pf-panel">
+        {% if phase == "reading" %}
+            <div class="pf-panel__head">
+                <div class="pf-panel__titles">
+                    <h3 class="pf-panel__title"><span class="pf-spin" aria-hidden="true" style="display:inline-block;margin-right:8px"></span>Reading {{ filename }}</h3>
+                    <p class="pf-panel__sub">File {{ current }} of {{ total }} · <span data-pf-scraper-elapsed aria-hidden="true">0:00</span></p>
+                </div>
+            </div>
+            <span class="pf-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ percent }}"><span class="pf-meter__fill" style="width:{{ percent }}%"></span></span>
+            <p class="pf-panel__sub">A long document can take several minutes. You can open the Library meanwhile.</p>
+            <p class="pf-panel__sub" style="margin-top:var(--ui-space-2)">If you leave Assistants or close the tab, the run stops after the file being read. That file is still saved; the files after it are not read.</p>
+            <div class="pf-panel__foot">
+                <button type="button" class="pf-btn" data-pf-scraper-cancel data-pf-scraper-cancel-url="/scraper/runs/{{ run_id }}/cancel">Cancel</button>
+                <span class="pf-hint">Cancel stops the run after the file being read.</span>
+            </div>
+        {% else %}
+            <div class="pf-panel__head">
+                <div class="pf-panel__titles">
+                    <h3 class="pf-panel__title"><span class="pf-spin" aria-hidden="true" style="display:inline-block;margin-right:8px"></span>Finishing…</h3>
+                    <p class="pf-panel__sub">{{ total }} of {{ total }} read</p>
+                </div>
+            </div>
+            <span class="pf-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span class="pf-meter__fill" style="width:100%"></span></span>
+        {% endif %}
+    </div>
 </div>

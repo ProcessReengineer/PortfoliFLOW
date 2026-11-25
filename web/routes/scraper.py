@@ -8,8 +8,10 @@ synchronous. This module lifts it into the web layer with a multipart
 upload form, a keyword editor, a read-only line naming the model the next
 run will use, and an SSE stream that drives the synchronous service via
 ``asyncio.to_thread`` so the uvicorn loop stays responsive. The
-result is rendered inline, and every successfully read file becomes a
-stored reading (ADR-0139 §5) through ``services/reading_desk/``. The
+result is rendered inline — each file as the body of its reading, through
+the projection of ``web/routes/reading_desk.py`` (D-RD-2-10) — and every
+successfully read file becomes a stored reading (ADR-0139 §5) through
+``services/reading_desk/``. The
 writer runs when the extraction service returns, independent of the
 client connection (RD-D-23): a closed tab does not lose a paid reading.
 Without a database engine the run view works as before and nothing is
@@ -57,6 +59,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -85,6 +88,8 @@ from services.investments.credential_resolver import (
 from services.reading_desk import (
     ReadingOutcome,
     UploadedDocument,
+    compose_findings,
+    compose_note,
     describe_upload,
     find_earlier_readings,
     write_readings,
@@ -105,6 +110,12 @@ from services.scraper.profiles import PROFILE_IDS, ProfileError, load_profiles
 from services.scraper.service import ScraperService
 from web.auth import require_session, verify_csrf
 from web.permissions import get_authenticated_user, require_role
+from web.routes.reading_desk import (
+    document_type_labels,
+    language_name,
+    project_findings,
+    project_note,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -625,6 +636,7 @@ def _render_run_mount(
 ) -> HTMLResponse:
     """Render the run-mount fragment whose stream URL ``scraper.js`` opens.
 
+    The mount starts on the progress frame of the run's first file.
     ``repeated`` holds one sentence per file attached more than once; it is
     passed when the mount is the upload's own answer, not after a confirm,
     where the already-read notice has said it.
@@ -637,7 +649,8 @@ def _render_run_mount(
             {
                 "run_id": run.run_id,
                 "csrf_token": csrf_token,
-                "total_files": len(run.attachments),
+                "filename": run.attachments[0].filename if run.attachments else "",
+                "total": len(run.attachments),
                 "repeated": repeated or [],
             },
         ),
@@ -971,21 +984,156 @@ def _format_sse(event_name: str, data: str) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+_READING_LABEL = re.compile(r"R-(\d+)")
+
+_VALUES_NOT_CHECKED = (
+    "Values and quotes are the model's reading of the documents and are not checked against them."
+)
+
+
+def _format_elapsed(seconds: float) -> str:
+    """``m:ss`` — minutes unpadded, seconds two digits, as ``scraper.js`` ticks it."""
+    whole = max(0, int(seconds))
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+def _files(count: int) -> str:
+    return "1 file" if count == 1 else f"{count} files"
+
+
+def _project_result(
+    extraction: ReportExtraction,
+    outcome: ReadingOutcome | None,
+    *,
+    stored: bool,
+    labels: dict[str, str],
+) -> dict[str, Any]:
+    """One result block of ``scraper_results.html`` (D-RD-2-10).
+
+    Args:
+        extraction: What the service returned for the file.
+        outcome: What the writer made of it, or ``None``.
+        stored: Whether the run wrote readings at all (an engine exists).
+        labels: The document-type labels by profile id.
+
+    Returns:
+        ``state`` — ``failed`` (not read), ``saved``, ``unsaved`` (read, the
+        write failed) or ``read`` (nothing is written without an engine) —
+        with ``filename`` and ``sub``, and by state ``error``, or ``label``,
+        ``number``, ``proposal``, ``findings`` and ``note``.
+    """
+    if extraction.error:
+        return {
+            "state": "failed",
+            "filename": extraction.filename,
+            "sub": "Not saved",
+            "error": extraction.error,
+        }
+    label = outcome.label if outcome is not None else None
+    head = [
+        labels.get(extraction.document_type, extraction.document_type),
+        extraction.fund_name,
+        extraction.period,
+    ]
+    if label:
+        state = "saved"
+        head.insert(0, f"Saved as {label}")
+    elif stored:
+        state = "unsaved"
+        head.insert(0, "Not saved")
+    else:
+        state = "read"
+    number = _READING_LABEL.fullmatch(label) if label else None
+    proposal = outcome.proposal if outcome is not None and label else None
+    return {
+        "state": state,
+        "filename": extraction.filename,
+        "sub": " · ".join(part.strip() for part in head if part and part.strip()),
+        "label": label,
+        "number": int(number.group(1)) if number else None,
+        "proposal": {"kind": proposal.kind, "name": proposal.name} if proposal else None,
+        "findings": project_findings(compose_findings(extraction)),
+        "note": project_note(compose_note(extraction), language_name(extraction.language or None)),
+    }
+
+
+def _closing(
+    results: list[dict[str, Any]],
+    *,
+    total: int,
+    cancelled: bool,
+    elapsed: str,
+    stored: bool,
+) -> dict[str, Any]:
+    """The closing line of a run (D-RD-2-6): what was read, in what time, what became of it."""
+    states = [result["state"] for result in results]
+    failed = states.count("failed")
+    unsaved = states.count("unsaved")
+    parts: list[str] = []
+    if stored:
+        parts.append(f"{states.count('saved')} saved")
+    if failed:
+        parts.append(f"{failed} not read")
+    if unsaved:
+        parts.append(f"{unsaved} not saved")
+    if cancelled and not results:
+        lead = "Run cancelled. No file was read."
+    else:
+        counted = f"{len(results)} of {_files(total)}" if cancelled else _files(len(results))
+        lead = f"{counted} read in {elapsed}"
+        if parts:
+            lead += " — " + ", ".join(parts)
+        lead += "."
+        if cancelled:
+            lead = f"Run cancelled. {lead}"
+    return {
+        "lead": lead,
+        "sub": _VALUES_NOT_CHECKED if len(results) > failed else "",
+        "cancelled": cancelled,
+    }
+
+
 def _render_results_fragment(
     request: Request,
     result: ScraperResult | None,
     outcomes: list[ReadingOutcome] | None,
+    *,
+    total: int,
+    elapsed_s: float,
 ) -> str:
     """Render the results partial as a self-contained HTML fragment.
 
     ``outcomes`` is one :class:`~services.reading_desk.ReadingOutcome` per
     extraction, aligned by position, or ``None`` when nothing was written.
+    ``total`` is the number of files in the run and ``elapsed_s`` the time
+    since its worker started, for the closing line.
     """
-    templates = _templates(request)
     extractions: list[ReportExtraction] = list(result.extractions) if result is not None else []
     cancelled = bool(result.cancelled) if result is not None else False
-    return templates.get_template("_partials/scraper_results.html").render(
-        extractions=extractions, cancelled=cancelled, outcomes=outcomes
+    stored = outcomes is not None
+    labels = document_type_labels()
+    results = [
+        _project_result(
+            extraction,
+            outcomes[index] if outcomes is not None and index < len(outcomes) else None,
+            stored=stored,
+            labels=labels,
+        )
+        for index, extraction in enumerate(extractions)
+    ]
+    return (
+        _templates(request)
+        .get_template("_partials/scraper_results.html")
+        .render(
+            closing=_closing(
+                results,
+                total=total,
+                cancelled=cancelled,
+                elapsed=_format_elapsed(elapsed_s),
+                stored=stored,
+            ),
+            results=results,
+        )
     )
 
 
@@ -1152,6 +1300,7 @@ async def _drive_run(
                 },
             )
 
+    started = time.monotonic()
     worker = asyncio.create_task(_run_in_thread())
     workers = _scraper_workers(request)
     workers.add(worker)
@@ -1216,16 +1365,17 @@ async def _drive_run(
                 # "user pressed Cancel mid-run" (the service sets
                 # ``result.cancelled`` and returns early) and an
                 # ordinary completion.
+                fragment = _render_results_fragment(
+                    request,
+                    run.result,
+                    run.outcomes,
+                    total=len(run.attachments),
+                    elapsed_s=time.monotonic() - started,
+                )
                 if run.result is not None and run.result.cancelled:
-                    yield _format_sse(
-                        "cancelled",
-                        _render_results_fragment(request, run.result, run.outcomes),
-                    )
+                    yield _format_sse("cancelled", fragment)
                 else:
-                    yield _format_sse(
-                        "result",
-                        _render_results_fragment(request, run.result, run.outcomes),
-                    )
+                    yield _format_sse("result", fragment)
                 return
             if kind == "error":
                 payload = json.loads(event["data"])

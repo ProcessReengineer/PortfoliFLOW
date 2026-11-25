@@ -6,7 +6,7 @@
    not survive the swap. #}
 
 <div class="pf-section__lazy"
-     hx-get="/scraper/section"
+     hx-get="/scraper/section{% if rd_reading_number %}?reading={{ rd_reading_number }}{% endif %}"
      hx-trigger="intersect once"
      hx-target="this"
      hx-swap="outerHTML">

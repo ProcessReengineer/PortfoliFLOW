@@ -560,6 +560,7 @@ class DocumentReadingRepository(BaseRepository):
         document_date_to: date | None = None,
         include_removed: bool = False,
         limit: int | None = None,
+        offset: int = 0,
     ) -> list[DocumentReadingDTO]:
         """List the tenant's readings, newest read first (the library's filters).
 
@@ -576,13 +577,17 @@ class DocumentReadingRepository(BaseRepository):
                 reading without a document date drops out under either bound.
             include_removed: Include tombstones.
             limit: The most rows to return, or ``None`` for all.
+            offset: Rows to skip, in the list's own order.
 
         Returns:
             The readings, ``read_at`` descending, then number descending.
 
         Raises:
-            ReadingInvalid: If ``document_type`` is outside the vocabulary.
+            ReadingInvalid: If ``document_type`` is outside the vocabulary,
+                or ``offset`` is negative.
         """
+        if offset < 0:
+            raise ReadingInvalid("offset must not be negative.", field="offset")
         stmt = select(*_READING_COLUMNS)
         if document_type is not None:
             _validate_document_type(document_type)
@@ -620,7 +625,7 @@ class DocumentReadingRepository(BaseRepository):
             stmt = stmt.where(DocumentReading.document_date <= document_date_to)
         if not include_removed:
             stmt = stmt.where(_is_live())
-        return await self._fetch(stmt.order_by(*_NEWEST_FIRST).limit(limit))
+        return await self._fetch(stmt.order_by(*_NEWEST_FIRST).limit(limit).offset(offset))
 
     async def search(self, query: str, *, limit: int | None = None) -> list[DocumentReadingDTO]:
         """Search live readings by a substring of ``search_text`` (ADR-0139 §2).
@@ -860,6 +865,23 @@ class DocumentReadingRepository(BaseRepository):
             .order_by(_effective_date().desc(), DocumentReading.reading_number.desc())
         )
         return await self._fetch(stmt)
+
+    async def list_manager_names(self) -> list[str]:
+        """The manager names live readings are assigned to (ADR-0139 §6).
+
+        Returns:
+            The distinct ``manager_name`` values of live readings that are
+            assigned to a manager name, sorted case-insensitively.
+        """
+        name = DocumentReading.manager_name
+        stmt = (
+            select(name)
+            .where(_is_live(), name.is_not(None))
+            .group_by(name)
+            .order_by(func.lower(name), name)
+        )
+        result = await self._session.execute(stmt)
+        return [value for value in result.scalars().all() if value is not None]
 
     async def list_purges(self) -> list[ReadingPurgeDTO]:
         """Return the tenant's retention runs, newest first.

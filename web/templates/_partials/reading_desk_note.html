@@ -1,0 +1,22 @@
+{# A reading's note (ADR-0139 §2, M-RD-1 lines 3491–3497). Context: one dict
+   ``note`` from web/routes/reading_desk.py::project_note. Each part renders
+   only when it holds something. #}
+<section class="pf-blk" data-pf-rd="note">
+    <div class="pf-blk__head"><h3 class="pf-blk__title">Reading note</h3><span class="pf-blk__sub">{{ note.sub }}</span></div>
+    {% if note.highlights %}
+        <h4 class="pf-block__title">Highlights</h4>
+        <ul>{% for line in note.highlights %}<li>{{ line }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if note.quotes %}
+        <h4 class="pf-block__title">Quotes</h4>
+        <div>{% for quote in note.quotes %}<blockquote class="pf-quote">{{ quote.text }}<cite>{{ quote.cite }}</cite></blockquote>{% endfor %}</div>
+    {% endif %}
+    {% if note.events %}
+        <h4 class="pf-block__title">Events and risks</h4>
+        <ul>{% for line in note.events %}<li>{{ line }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if note.outlook %}
+        <h4 class="pf-block__title">Outlook</h4>
+        <p>{{ note.outlook }}</p>
+    {% endif %}
+</section>

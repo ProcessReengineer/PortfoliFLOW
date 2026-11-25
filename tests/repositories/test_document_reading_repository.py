@@ -17,7 +17,7 @@ Coverage
 * DR-03: ``get`` / ``get_by_number`` in any state; ``None`` for unknown and
   for another tenant's reading.
 * DR-04: ``list_readings``: each filter, two combined, tombstones, order,
-  limit.
+  limit; DR-04b: paging by ``offset``.
 * DR-05: ``search``: case-insensitive, literal wildcards, live only.
 * DR-06: the dedup lookup by hash.
 * DR-07: ``assign``: both targets, clearing, the refusals; deleting the
@@ -31,6 +31,7 @@ Coverage
   excluded list is the purged list.
 * DR-11: cross-tenant invisibility.
 * DR-12: an investment's reading list, in document chronology.
+* DR-13: the manager names live readings are assigned to.
 
 All dates are fixed; none derives from the day the suite runs.
 """
@@ -586,6 +587,57 @@ async def test_dr04_list_filters_order_and_limit(app_engine: AsyncEngine, seed_t
         assert excinfo.value.field == "document_type"
 
 
+async def test_dr04b_list_offset_pages_without_gap_or_repeat(
+    app_engine: AsyncEngine, seed_tenant
+) -> None:
+    tenant_id = await seed_tenant("DR-04b")
+    user_id = await _seed_user(app_engine, tenant_id, "pm@dr04b.example")
+    readings = [
+        await _create(
+            app_engine,
+            tenant_id,
+            user_id,
+            document_type="pitch_deck" if i % 2 else "quarterly_report",
+            now=_T0 + timedelta(hours=i),
+        )
+        for i in range(5)
+    ]
+    await _remove(app_engine, tenant_id, user_id, readings[2].id)
+
+    async with tenant_context(app_engine, tenant_id) as session:
+        repo = DocumentReadingRepository(session)
+
+        async def ids(**filters: Any) -> list[UUID]:
+            return [reading.id for reading in await repo.list_readings(**filters)]
+
+        for filters in (
+            {"include_removed": True},
+            {},
+            {"document_type": "quarterly_report", "include_removed": True},
+            {"document_type": "pitch_deck"},
+        ):
+            unpaged = await ids(**filters)
+            paged = [
+                reading_id
+                for offset in (0, 2, 4)
+                for reading_id in await ids(limit=2, offset=offset, **filters)
+            ]
+            assert paged == unpaged, filters
+
+        assert len(await ids(include_removed=True)) == 5
+        assert await ids(limit=2, offset=2, include_removed=True) == [
+            readings[2].id,
+            readings[1].id,
+        ]
+        assert await ids(offset=5, include_removed=True) == []
+        assert await ids(limit=2, offset=10) == []
+        assert await ids(document_type="pitch_deck", offset=1) == [readings[1].id]
+
+        with pytest.raises(ReadingInvalid) as excinfo:
+            await repo.list_readings(offset=-1)
+        assert excinfo.value.field == "offset"
+
+
 # ---------------------------------------------------------------------------
 # DR-05: search
 # ---------------------------------------------------------------------------
@@ -1028,3 +1080,37 @@ async def test_dr12_list_for_investment(app_engine: AsyncEngine, seed_tenant) ->
     async with tenant_context(app_engine, tenant_id) as session:
         listed = await DocumentReadingRepository(session).list_for_investment(fund)
     assert [reading.id for reading in listed] == [undated, june_second, june_first, march]
+
+
+# ---------------------------------------------------------------------------
+# DR-13: the manager names
+# ---------------------------------------------------------------------------
+
+
+async def test_dr13_list_manager_names(app_engine: AsyncEngine, seed_tenant) -> None:
+    tenant_a = await seed_tenant("DR-13 A")
+    tenant_b = await seed_tenant("DR-13 B")
+    user_a = await _seed_user(app_engine, tenant_a, "pm@dr13a.example")
+    user_b = await _seed_user(app_engine, tenant_b, "pm@dr13b.example")
+    [fund] = await _seed_investments(app_engine, tenant_a, user_a, 1)
+
+    async def assigned(tenant_id, user_id, **target: Any) -> DocumentReadingDTO:
+        reading = await _create(app_engine, tenant_id, user_id, manager_name_read="Read Only LLP")
+        return await _assign(app_engine, tenant_id, user_id, reading.id, **target)
+
+    await assigned(tenant_a, user_a, manager_name="beta Partners")
+    await assigned(tenant_a, user_a, manager_name="Alpha Capital")
+    await assigned(tenant_a, user_a, manager_name="Alpha Capital")
+    await assigned(tenant_a, user_a, manager_name="Zeta Advisors")
+    await assigned(tenant_a, user_a, investment_id=fund)
+    await _create(app_engine, tenant_a, user_a, manager_name_read="Unassigned Read GP")
+    gone = await assigned(tenant_a, user_a, manager_name="Gone GP")
+    await _remove(app_engine, tenant_a, user_a, gone.id)
+    await assigned(tenant_b, user_b, manager_name="Foreign GP")
+
+    async with tenant_context(app_engine, tenant_a) as session:
+        names = await DocumentReadingRepository(session).list_manager_names()
+    assert names == ["Alpha Capital", "beta Partners", "Zeta Advisors"]
+
+    async with tenant_context(app_engine, tenant_b) as session:
+        assert await DocumentReadingRepository(session).list_manager_names() == ["Foreign GP"]

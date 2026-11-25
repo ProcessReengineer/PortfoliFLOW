@@ -1,0 +1,5 @@
+{# The Reading Desk Section's plain head, both elements out of band
+   (GET /api/reading-desk/head). Called with hx-swap="none" by the crumb's way
+   back and by "Go to Read"; reading_desk.js moves the panes. #}
+<h2 class="pf-view__title" id="reading-desk-title" hx-swap-oob="outerHTML">Reading Desk</h2>
+<span class="pf-view__asof" id="reading-desk-asof" hx-swap-oob="outerHTML"></span>

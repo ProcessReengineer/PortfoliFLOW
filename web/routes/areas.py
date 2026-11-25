@@ -46,6 +46,7 @@ from fastapi.templating import Jinja2Templates
 
 from core.repositories._session import tenant_context
 from core.repositories.case_repository import CaseRepository
+from core.repositories.document_reading_repository import DocumentReadingRepository
 from core.repositories.tenant_repository import TenantRepository
 from core.repositories.user_repository import UserRepository
 from services.auth.session import SessionDTO, SessionRepository
@@ -492,6 +493,42 @@ async def investor_communication_view(
         user_email=user_email,
         csrf_token=session.csrf_token,
         htmx=htmx,
+    )
+
+
+@router.get("/assistants/readings/{reading_number}", response_class=HTMLResponse)
+async def reading_view(
+    request: Request,
+    reading_number: int,
+    session: SessionDTO = Depends(require_session),
+    htmx: bool = Depends(is_htmx_request),
+) -> HTMLResponse:
+    """Render the Assistants area opened on one reading (ADR-0139 §7, §11).
+
+    The page address of a reading, modelled on :func:`case_view`. The reading
+    is read once so an unknown or foreign-tenant number (``None`` under RLS)
+    is a 404 before any shell renders; a removed reading has an address too.
+    The shell then renders with the Reading Desk's lazy shell asking for
+    ``/scraper/section?reading=<n>``, whose frame loads the reading.
+
+    ``landing_section`` is overridden because the server cannot see a
+    fragment: this page must open on the Reading Desk, not on Shirley's
+    stage, so no ``shirley_state`` is passed either.
+    """
+    user_email = await _resolve_user_email(request, session)
+    engine = request.app.state.engine
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        reading = await DocumentReadingRepository(db).get_by_number(reading_number)
+    if reading is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reading not found.")
+    return _render_area(
+        request,
+        area_slug="assistants",
+        template_name="areas/assistants.html",
+        user_email=user_email,
+        csrf_token=session.csrf_token,
+        htmx=htmx,
+        extra_context={"landing_section": "reading-desk", "rd_reading_number": reading_number},
     )
 
 

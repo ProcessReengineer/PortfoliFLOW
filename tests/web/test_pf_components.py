@@ -654,3 +654,63 @@ def test_the_cases_stylesheet_is_scoped_residue() -> None:
     ]
     for selector in selectors:
         assert selector.startswith(".pf-cases"), selector
+
+
+# ---------------------------------------------------------------------------
+# The Reading Desk (strand RD-2)
+# ---------------------------------------------------------------------------
+
+
+_RD_PARTIALS = _REPO_ROOT / "web" / "templates" / "_partials"
+_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
+
+
+def test_the_reading_desk_partials_carry_no_scraper_class() -> None:
+    """The Reading Desk is built on the vocabulary from its first prompt.
+
+    P-RD-2b1 builds the frame, the Library and the reading on `pf-*` classes;
+    the run form it includes (`scraper_section.html`) is rebuilt by P-RD-2b2
+    and is not one of these partials. No `class` token here may start with
+    `scraper` — neither the BEM `scraper__*` family nor a `scraper-*` class.
+    """
+    partials = sorted(_RD_PARTIALS.glob("reading_desk_*.html"))
+    assert partials, "no reading_desk_*.html partial found"
+    offenders = {
+        path.name: tokens
+        for path in partials
+        if (
+            tokens := sorted(
+                {
+                    token
+                    for value in _CLASS_ATTRIBUTE.findall(path.read_text(encoding="utf-8"))
+                    for token in value.split()
+                    if token.startswith("scraper")
+                }
+            )
+        )
+    }
+    assert offenders == {}, offenders
+
+
+def test_the_reading_desk_stylesheet_is_scoped_residue() -> None:
+    """Its residue is scoped rules over shared families, and nothing else.
+
+    As for the Cases sheet: every rule is one line, `selector { declarations }`,
+    and every selector is scoped to the Section root `.pf-reading-desk`; the
+    groups' comments name the record question (`Q-UX-S-RD-n`) that retires
+    them. Comments are stripped first.
+    """
+    source = _CSS_DIR / "components" / "reading_desk.css"
+    stripped = re.sub(r"/\*.*?\*/", "", source.read_text(encoding="utf-8"), flags=re.S)
+    lines = [line for line in stripped.splitlines() if line.strip()]
+    assert lines, "the sheet declares nothing at all"
+    spread = [line for line in lines if not _ONE_LINE_RULE.fullmatch(line)]
+    assert not spread, f"not one rule per line: {spread}"
+    selectors = [
+        part.strip()
+        for group in re.findall(r"(?m)^([^{};]+?)\s*\{", stripped)
+        for part in group.split(",")
+    ]
+    assert selectors
+    for selector in selectors:
+        assert selector.startswith(".pf-reading-desk"), selector

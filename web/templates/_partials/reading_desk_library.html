@@ -1,0 +1,70 @@
+{# The Library pane (ADR-0139 §7, M-RD-1 lines 3348–3408). Swapped into
+   #rd-library by its first showing, by the filter form and by a refresh
+   when the tab is shown again. The next page is reading_desk_library_rows.html
+   alone.
+
+   Context (web/routes/reading_desk.py::reading_desk_library): filters (the
+   raw values each control is rendered with), type_options, investment_options,
+   manager_names, rows, older_href, any_set, can_read. #}
+<div data-pf-rd="library-body">
+    <form class="pf-filters" data-pf-rd="filters"
+          hx-get="/api/reading-desk/library"
+          hx-target="#rd-library"
+          hx-swap="innerHTML"
+          hx-trigger="change, submit, input changed delay:400ms from:[name='q']">
+        <label class="pf-filters__field"><span class="pf-label">Document type</span>
+            <select class="pf-select" name="type">
+                <option value=""{% if not filters.type %} selected{% endif %}>All types</option>
+                {% for value, label in type_options %}
+                    <option value="{{ value }}"{% if filters.type == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select></label>
+        <label class="pf-filters__field"><span class="pf-label">Assigned to</span>
+            <select class="pf-select" name="assigned">
+                <option value=""{% if not filters.assigned %} selected{% endif %}>Anything</option>
+                <option value="none"{% if filters.assigned == "none" %} selected{% endif %}>Unassigned</option>
+                {% if investment_options %}
+                    <optgroup label="Investments">
+                        {% for value, name in investment_options %}
+                            <option value="inv:{{ value }}"{% if filters.assigned == "inv:" ~ value %} selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                {% endif %}
+                {% if manager_names %}
+                    <optgroup label="Manager names">
+                        {% for name in manager_names %}
+                            <option value="mgr:{{ name }}"{% if filters.assigned == "mgr:" ~ name %} selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                {% endif %}
+            </select></label>
+        <label class="pf-filters__field"><span class="pf-label">Document date from</span><input class="pf-input" type="date" name="date_from" value="{{ filters.date_from }}"></label>
+        <label class="pf-filters__field"><span class="pf-label">to</span><input class="pf-input" type="date" name="date_to" value="{{ filters.date_to }}"></label>
+        <label class="pf-chip"><input type="checkbox" name="removed" value="1"{% if filters.removed %} checked{% endif %}> Show removed</label>
+        <div class="pf-filters__field pf-filters__field--wide"><span class="pf-sr">Search readings</span>
+            <input class="pf-input" type="search" name="q" value="{{ filters.q }}" placeholder="Fund, manager, finding or note contains …"></div>
+        <span class="pf-hint">Search reads what was captured from the documents — names, findings and notes. It does not search the documents themselves, which are not kept.</span>
+    </form>
+
+    {% if rows or older_href %}
+        <div class="pf-scroll-x"><table class="pf-table" data-pf-rd="table">
+            <thead><tr><th>Reading</th><th>Document</th><th>Type</th><th>Document date</th><th>Assigned to</th><th>Read</th></tr></thead>
+            <tbody>
+                {% include "_partials/reading_desk_library_rows.html" %}
+            </tbody>
+        </table></div>
+    {% elif any_set %}
+        <div class="pf-empty" data-pf-rd="empty">
+            <p class="pf-empty__lead">No reading matches.</p>
+        </div>
+    {% else %}
+        <div class="pf-empty" data-pf-rd="empty">
+            <p class="pf-empty__lead">Nothing has been read yet.</p>
+            {% if can_read %}
+                <p>Read a document on the <a href="#reading-desk" data-pf-rd="goto" data-pf-rd-tab="read">Read</a> tab; what is read from it is kept here, the document itself is not.</p>
+            {% else %}
+                <p>What the team reads from documents is kept here; the documents themselves are not.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>

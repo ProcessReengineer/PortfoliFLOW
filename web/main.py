@@ -84,6 +84,7 @@ from web.routes.planning_desk import router as planning_desk_router
 from web.routes.portfolio_analysis import router as portfolio_analysis_router
 from web.routes.portfolio_review import router as portfolio_review_router
 from web.routes.provider_credentials import router as provider_credentials_router
+from web.routes.reading_desk import router as reading_desk_router
 from web.routes.saa_section import router as saa_section_router
 from web.routes.scraper import router as scraper_router
 from web.routes.shell import router as shell_router
@@ -452,6 +453,7 @@ def create_app(settings: WebSettings | None = None) -> FastAPI:
     app.include_router(provider_credentials_router, tags=["providers-credentials"])
     app.include_router(tenant_users_router, tags=["tenant-users"])
     app.include_router(scraper_router, tags=["scraper"])
+    app.include_router(reading_desk_router, tags=["reading-desk"])
     app.include_router(shell_router, tags=["shell"])
     app.include_router(cmd_search_router, tags=["cmd-search"])
     app.include_router(super_admin_router)

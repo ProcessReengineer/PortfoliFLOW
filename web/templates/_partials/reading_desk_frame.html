@@ -1,0 +1,41 @@
+{# The Reading Desk Section's frame (ADR-0139 §7, M-RD-1 lines 3150–3162).
+   Returned by GET /scraper/section; the lazy shell swaps it in.
+
+   Tabs and panes are siblings that are only ever hidden, never swapped away:
+   a run streaming in the Read pane survives every move in this Section.
+   The tabs are buttons, not fragment links — a fragment in this shell is a
+   Section's address (shell.js). reading_desk.js moves between them; the
+   server renders the initial state.
+
+   The Read tab and pane render only for owner and member (D-RD-2-2); the
+   Section opens on Read for them and on Library for everyone else. Opened on
+   a reading (/assistants/readings/<n>), the tabs and panes are hidden and
+   #rd-reading loads the reading.
+
+   Context: can_read, initial_tab ("read" | "library"), reading_number
+   (int | None) and, for can_read, the keys of scraper_section.html. #}
+<div class="pf-reading-desk" data-pf-rd="root">
+    <div class="pf-tabs" role="tablist" aria-label="Reading Desk" data-pf-rd="tabs"{% if reading_number %} hidden{% endif %}>
+        {% if can_read %}
+            <button type="button" class="pf-tab" role="tab" id="rd-tab-read" aria-controls="rd-pane-read" aria-selected="{{ 'true' if initial_tab == 'read' else 'false' }}" data-pf-rd="tab" data-pf-rd-tab="read">Read</button>
+        {% endif %}
+        <button type="button" class="pf-tab" role="tab" id="rd-tab-library" aria-controls="rd-pane-library" aria-selected="{{ 'true' if initial_tab == 'library' else 'false' }}" data-pf-rd="tab" data-pf-rd-tab="library">Library</button>
+    </div>
+    {% if can_read %}
+        <div id="rd-pane-read" role="tabpanel" aria-labelledby="rd-tab-read" data-pf-rd="pane" data-pf-rd-pane="read"{% if reading_number or initial_tab != 'read' %} hidden{% endif %}>
+            {% include "_partials/scraper_section.html" %}
+        </div>
+    {% endif %}
+    <div id="rd-pane-library" role="tabpanel" aria-labelledby="rd-tab-library" data-pf-rd="pane" data-pf-rd-pane="library"{% if reading_number or initial_tab != 'library' %} hidden{% endif %}>
+        <div id="rd-library" data-pf-rd="library" hx-get="/api/reading-desk/library" hx-trigger="{{ 'load, rd:load' if initial_tab == 'library' and not reading_number else 'rd:load' }}" hx-swap="innerHTML">
+            <p class="pf-section__lazy-skeleton" aria-live="polite">Loading the Library&hellip;</p>
+        </div>
+    </div>
+    {% if reading_number %}
+        <div id="rd-reading" data-pf-rd="reading" hx-get="/api/reading-desk/readings/{{ reading_number }}" hx-trigger="load" hx-swap="innerHTML">
+            <p class="pf-section__lazy-skeleton" aria-live="polite">Loading the reading&hellip;</p>
+        </div>
+    {% else %}
+        <div id="rd-reading" data-pf-rd="reading" hidden></div>
+    {% endif %}
+</div>

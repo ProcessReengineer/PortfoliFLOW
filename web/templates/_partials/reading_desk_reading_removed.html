@@ -1,0 +1,36 @@
+{# A removed reading (ADR-0140, M-RD-1 lines 3576–3600): its identity and its
+   removal, nothing else (D-RD-2-14). The context is built by
+   web/routes/reading_desk.py::_removed_context and holds only these values,
+   so type, fund, manager, period, currency, language, model and assignment
+   cannot be rendered here. The crumb and the state go into the Section head
+   out of band. #}
+<h2 class="pf-view__title pf-crumb" id="reading-desk-title" hx-swap-oob="outerHTML" data-pf-rd="crumb">
+    <button type="button" class="pf-crumb__back" data-pf-rd="back" hx-get="/api/reading-desk/head" hx-swap="none">{{ pf_icon("back") }}Reading Desk</button>
+    <span class="pf-crumb__sep" aria-hidden="true">›</span>
+    <span class="pf-crumb__here">{{ head.crumb }}</span>
+</h2>
+<span class="pf-view__asof" id="reading-desk-asof" hx-swap-oob="outerHTML"><span class="pf-reading-desk"><span class="pf-state pf-state--removed">Removed</span></span></span>
+
+<div class="pf-narrow" data-pf-rd="file" data-pf-rd-state="removed" data-pf-rd-reading="{{ removed.label }}">
+    <div class="pf-note pf-note--info">{{ pf_icon("info") }}
+        <p class="pf-note__lead">This reading was removed.</p>
+        <p class="pf-note__sub">Its findings and its reading note are deleted and cannot be restored. To have them again, read the document again.</p>
+    </div>
+    <div class="pf-panel">
+        <div class="pf-panel__head"><div class="pf-panel__titles"><h3 class="pf-panel__title">Removal</h3></div></div>
+        <dl class="pf-facts">
+            <div><dt>Removed</dt><dd>{{ removed.removed }}</dd></div>
+            <div><dt>Reason</dt><dd>{{ removed.reason }}</dd></div>
+        </dl>
+    </div>
+    <div class="pf-panel">
+        <div class="pf-panel__head"><div class="pf-panel__titles"><h3 class="pf-panel__title">What was read</h3></div></div>
+        <dl class="pf-facts">
+            <div><dt>Reading</dt><dd>{{ removed.label }}</dd></div>
+            <div><dt>File</dt><dd>{{ removed.filename }}</dd></div>
+            <div><dt>Size</dt><dd>{{ removed.size }}</dd></div>
+            <div><dt>Read</dt><dd>{{ removed.read }}</dd></div>
+            <div><dt>Came in as</dt><dd>{{ removed.came_in_as }}</dd></div>
+        </dl>
+    </div>
+</div>

@@ -70,6 +70,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from core.repositories import DocumentReadingDTO
 from core.repositories._session import tenant_context
+from core.repositories.user_repository import UserDTO
 from services.ai_service_core import ResolvedLLM
 from services.auth.session import SessionDTO
 from services.investments.credential_resolver import (
@@ -99,7 +100,7 @@ from services.scraper.models import (
 from services.scraper.profiles import PROFILE_IDS, ProfileError, load_profiles
 from services.scraper.service import ScraperService
 from web.auth import require_session, verify_csrf
-from web.permissions import require_role
+from web.permissions import get_authenticated_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -426,44 +427,58 @@ async def _resolve_scraper_llm(request: Request, session: SessionDTO) -> Resolve
 @router.get("/scraper/section", response_class=HTMLResponse)
 async def scraper_section(
     request: Request,
+    reading: int | None = None,
     session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
 ) -> HTMLResponse:
-    """Return the Scraper section body for HTMX area-section loads.
+    """Return the Reading Desk Section's frame for HTMX area-section loads.
 
-    Shows the model the next run will use — resolved through the config
-    chain only, so a tenant with no credential yet still sees which model it
-    would extract with — and runs the capability gate on it. A model outside
-    the map renders the notice in place of the form: submitting would fail on
-    the first file anyway, and saying so before the upload is the honest
-    order.
+    The frame (``reading_desk_frame.html``, ADR-0139 §7) holds the tabs,
+    the Read pane with the run form, the Library pane, which loads through
+    ``web/routes/reading_desk.py``, and the slot a reading opens in. Every
+    role sees the frame; the Read tab and its pane are rendered for owner
+    and member only (D-RD-2-2), so the Section opens on Read for them and
+    on Library for everyone else. With ``reading`` set the frame opens on
+    that reading — the page address ``/assistants/readings/<n>``.
+
+    For the Read pane it shows the model the next run will use — resolved
+    through the config chain only, so a tenant with no credential yet still
+    sees which model it would extract with — and runs the capability gate
+    on it. A model outside the map renders the notice in place of the form:
+    submitting would fail on the first file anyway, and saying so before the
+    upload is the honest order.
 
     The keyword editor starts empty (D-RD-1-1): the document type's fields
     are read anyway, and the editor holds only extra keywords. The document
     profiles feed the type preselect; when they do not load, a notice
     replaces the form the same way, and the log names the exception type
-    only (its text carries a server path).
+    only (its text carries a server path). None of this is computed for a
+    role without the Read pane.
     """
     templates = _templates(request)
-    model = await _resolve_scraper_model(request, session)
-    model_error: str | None = None
-    try:
-        lookup_capability(model)
-    except UnsupportedModelError as exc:
-        model_error = str(exc)
-    profiles: list[tuple[str, str]] = []
-    profiles_error: str | None = None
-    try:
-        loaded = load_profiles()
-    except ProfileError as exc:
-        logger.error("scraper: document profiles not loaded (%s)", type(exc).__name__)
-        profiles_error = _PROFILES_UNAVAILABLE_MESSAGE
-    else:
-        profiles = [(profile_id, loaded[profile_id].label) for profile_id in PROFILE_IDS]
-    return cast(
-        HTMLResponse,
-        templates.TemplateResponse(
-            request,
-            "_partials/scraper_section.html",
+    can_read = user.has_role("owner", "member")
+    context: dict[str, Any] = {
+        "can_read": can_read,
+        "initial_tab": "read" if can_read else "library",
+        "reading_number": reading,
+    }
+    if can_read:
+        model = await _resolve_scraper_model(request, session)
+        model_error: str | None = None
+        try:
+            lookup_capability(model)
+        except UnsupportedModelError as exc:
+            model_error = str(exc)
+        profiles: list[tuple[str, str]] = []
+        profiles_error: str | None = None
+        try:
+            loaded = load_profiles()
+        except ProfileError as exc:
+            logger.error("scraper: document profiles not loaded (%s)", type(exc).__name__)
+            profiles_error = _PROFILES_UNAVAILABLE_MESSAGE
+        else:
+            profiles = [(profile_id, loaded[profile_id].label) for profile_id in PROFILE_IDS]
+        context.update(
             {
                 "csrf_token": session.csrf_token,
                 "keywords": [],
@@ -472,8 +487,11 @@ async def scraper_section(
                 "model_error": model_error,
                 "profiles": profiles,
                 "profiles_error": profiles_error,
-            },
-        ),
+            }
+        )
+    return cast(
+        HTMLResponse,
+        templates.TemplateResponse(request, "_partials/reading_desk_frame.html", context),
     )
 
 

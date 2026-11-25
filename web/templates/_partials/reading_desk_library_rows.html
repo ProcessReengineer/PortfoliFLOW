@@ -1,0 +1,30 @@
+{# The Library's rows plus its "Show older" row. Included by
+   reading_desk_library.html; the whole answer of GET
+   /api/reading-desk/library?…&rows=1. A removed row carries its identity and
+   removal only (D-RD-2-14). A row link pushes no history entry: a run may be
+   live in the Read pane, and a history restore would replace it.
+   Context: rows (projected by _project_row), older_href. #}
+{% for row in rows %}
+    {% if row.state == "removed" %}
+        <tr class="pf-table__row" data-pf-rd="row" data-pf-rd-state="removed" data-pf-rd-reading="{{ row.label }}">
+            <td><span class="pf-table__id">{{ row.label }}</span></td>
+            <td><a class="pf-table__link" href="{{ row.href }}" hx-get="{{ row.api_href }}" hx-target="#rd-reading" hx-swap="innerHTML">{{ row.filename }}</a></td>
+            <td colspan="3"><span class="pf-state pf-state--removed">{{ row.removed }}</span><span class="pf-table__sub">{{ row.reason }}</span></td>
+            <td><span class="pf-hint">{{ row.read }}</span></td>
+        </tr>
+    {% else %}
+        <tr class="pf-table__row" data-pf-rd="row" data-pf-rd-state="live" data-pf-rd-reading="{{ row.label }}">
+            <td><span class="pf-table__id">{{ row.label }}</span></td>
+            <td><a class="pf-table__link" href="{{ row.href }}" hx-get="{{ row.api_href }}" hx-target="#rd-reading" hx-swap="innerHTML">{{ row.filename }}</a>{% if row.sub %}<span class="pf-table__sub">{{ row.sub }}</span>{% endif %}</td>
+            <td>{{ row.type_label }}</td>
+            <td>{% if row.document_date %}{{ row.document_date }}{% else %}<span class="pf-hint">—</span>{% endif %}</td>
+            <td>{% if row.assignment %}{{ row.assignment.name }}<span class="pf-table__sub">{{ row.assignment.kind }}</span>{% else %}<span class="pf-state pf-state--unassigned">Unassigned</span>{% endif %}</td>
+            <td><span class="pf-hint">{{ row.read }}</span></td>
+        </tr>
+    {% endif %}
+{% endfor %}
+{% if older_href %}
+    <tr class="pf-table__older" data-pf-rd="older">
+        <td colspan="6"><button type="button" class="pf-btn pf-btn--quiet" hx-get="{{ older_href }}" hx-target="closest tr" hx-swap="outerHTML">Show older</button></td>
+    </tr>
+{% endif %}

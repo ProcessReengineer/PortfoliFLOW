@@ -1,0 +1,34 @@
+/* Reading Desk — scoped residue (ui-standards §4, §8 rule 2).
+ *
+ * No family of its own: every rule sits under .pf-reading-desk, is a shared
+ * family in a state the record does not name, and names the record question
+ * that retires it. One rule per line. */
+/* Q-UX-S-RD-1 (the question of Q-UX-S-A6-1 and -CS-1): pf-state for a finding's confidence and for a removed reading. */
+.pf-reading-desk .pf-state--high { --dot: var(--ui-semantic-positive); }
+.pf-reading-desk .pf-state--medium { --dot: var(--ui-semantic-warn); }
+.pf-reading-desk .pf-state--low { --dot: var(--ui-semantic-confidence-low); color: var(--ui-text-secondary); }
+.pf-reading-desk .pf-state--removed, .pf-reading-desk .pf-state--unassigned { color: var(--ui-text-tertiary); }
+.pf-reading-desk .pf-state--removed::before, .pf-reading-desk .pf-state--unassigned::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ui-text-tertiary); }
+/* Q-UX-S-RD-4: a pf-table of findings — prose in a cell keeps a reading measure; a quote and a list inside a cell. */
+.pf-reading-desk .pf-table td q { display: block; max-width: 64ch; color: var(--ui-text-secondary); font-style: italic; quotes: "“" "”"; }
+.pf-reading-desk .pf-table td ul { margin: 0; padding-left: 18px; max-width: 56ch; }
+.pf-reading-desk .pf-table td .pf-kind { margin-left: var(--ui-space-2); }
+/* Q-UX-S-RD-6: stack gaps and the reading measure of the reading's blocks (cf. Q-UX-S-A6-6, -31). */
+.pf-reading-desk .pf-blk { margin-top: var(--ui-space-6); }
+.pf-reading-desk .pf-blk ul, .pf-reading-desk .pf-blk > p { max-width: 78ch; margin: 0; color: var(--ui-text-primary); }
+.pf-reading-desk .pf-blk ul { padding-left: 18px; }
+.pf-reading-desk .pf-blk li + li { margin-top: 4px; }
+.pf-reading-desk .pf-blk .pf-block__title { margin: var(--ui-space-2) 0 0; font-size: var(--ui-font-scale-sm); }
+.pf-reading-desk .pf-blk > .pf-more > .pf-blk { margin-top: var(--ui-space-2); }
+.pf-reading-desk .pf-quote { max-width: 78ch; }
+.pf-reading-desk .pf-quote + .pf-quote { margin-top: var(--ui-space-2); }
+.pf-reading-desk .pf-panel { border-radius: var(--ui-radius-md); }
+.pf-reading-desk .pf-panel .pf-facts:last-child, .pf-reading-desk .pf-panel__head:last-child { margin-bottom: 0; }
+.pf-reading-desk .pf-panel + .pf-note, .pf-reading-desk .pf-note + .pf-panel, .pf-reading-desk .pf-panel + .pf-panel { margin-top: var(--ui-space-3); }
+/* Q-UX-S-RD-8: the wide field of a filter bar and the chip that holds a checkbox (Cases scopes the same two). */
+.pf-reading-desk .pf-filters { align-items: flex-end; }
+.pf-reading-desk .pf-filters__field--wide { flex: 1 1 320px; }
+.pf-reading-desk .pf-filters > .pf-hint { flex-basis: 100%; }
+.pf-reading-desk .pf-chip input { accent-color: var(--ui-text-primary); margin: 0; }
+/* Q-UX-S-RD-2: pf-tabs' first user. A family that sets display needs its own [hidden] guard (cf. .pf-blk[hidden]). */
+.pf-reading-desk .pf-tabs[hidden], .pf-reading-desk .pf-note[hidden], .pf-reading-desk .pf-panel[hidden] { display: none; }

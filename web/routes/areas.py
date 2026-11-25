@@ -531,7 +531,7 @@ async def assistants_view(
     to Assistants · Shirley comes to talk to her, and the Section is only
     her pointer. ``shell.js`` keeps the same rule on the client for HTMX
     swaps and fragments — showing this Section opens the stage, showing
-    any other leaves it. That is why ``/assistants#report-scraper``,
+    any other leaves it. That is why ``/assistants#reading-desk``,
     loaded directly, ends up closed rather than on the stage: the server
     cannot see the fragment.
     """

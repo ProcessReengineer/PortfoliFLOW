@@ -215,7 +215,7 @@ _CONSUMER_STATUS: dict[str, str] = {
 _PROVIDER_DESCRIPTIONS: dict[str, str] = {
     "openfigi": "Identifier resolution for market data (ISIN and ticker lookup).",
     "openrouter": (
-        "The LLM provider behind Shirley, the Report Scraper, web research and the "
+        "The LLM provider behind Shirley, the Reading Desk, web research and the "
         "Watch Desk monitoring notes."
     ),
     "provider_channel": (
@@ -260,7 +260,7 @@ _FIELD_LABELS: dict[str, str] = {
     "model": "Model",
     "provider": "Provider",
     "research_model": "Web research model",
-    "scraper_model": "Report Scraper model",
+    "scraper_model": "Reading Desk model",
     "voice": "Voice",
 }
 
@@ -280,7 +280,7 @@ _FIELD_HINTS: dict[tuple[str, str], str] = {
     ("openrouter", "irene_model"): "The model that writes the Watch Desk monitoring notes.",
     ("openrouter", "base_url"): "OpenAI-compatible endpoint. Leave empty for OpenRouter's default.",
     ("openrouter", "api_key"): (
-        "Used for every Shirley turn, Report Scraper run, web research query and "
+        "Used for every Shirley turn, Reading Desk run, web research query and "
         "Watch Desk beat in this tenant."
     ),
     ("openfigi", "api_key"): "Optional — without a key, lookups run keyless at a lower rate limit.",

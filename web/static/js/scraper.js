@@ -1,4 +1,4 @@
-// Bespoke client logic for the Report Scraper section.
+// Bespoke client logic for the Reading Desk section.
 //
 // Mirrors the structure of chat.js — plain JS, no framework, native
 // EventSource (the HTMX SSE extension's leading-space trim and

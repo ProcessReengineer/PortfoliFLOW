@@ -1,4 +1,4 @@
-{# Report Scraper section body — embedded in /assistants#report-scraper.
+{# Reading Desk section body — embedded in /assistants#reading-desk.
 
    The form posts to /scraper/runs as multipart/form-data with
    csrf_token, profile_id, keywords_json, and pdf[]. The response is an
@@ -117,7 +117,7 @@
                 </button>
                 <span id="scraper-busy" class="htmx-indicator scraper__busy" role="status"><span class="pf-spin" aria-hidden="true"></span> Uploading…</span>
             </div>
-            <p class="scraper__hint">Model: <code>{{ scraper_model }}</code>. Set under Admin → Providers &amp; Credentials → OpenRouter → Report Scraper model. Only Anthropic models currently support PDF extraction.</p>
+            <p class="scraper__hint">Model: <code>{{ scraper_model }}</code>. Set under Admin → Providers &amp; Credentials → OpenRouter → Reading Desk model. Only Anthropic models currently support PDF extraction.</p>
         </form>
     {% endif %}
 

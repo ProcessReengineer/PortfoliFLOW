@@ -96,5 +96,5 @@ def lookup_capability(
         f"Model '{model_id}' does not support PDF extraction. "
         f"Supported model patterns: {supported}. "
         f"Set a compatible model under Admin → Providers & Credentials → "
-        f"OpenRouter → Report Scraper model."
+        f"OpenRouter → Reading Desk model."
     )

@@ -24,6 +24,7 @@ Providers & Credentials.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -269,4 +270,38 @@ async def test_assistants_carries_no_providers_credentials_pointer(
     assert "/admin#providers-credentials" not in body
     # The two Sections that remain.
     assert 'data-pf-section="shirley"' in body
-    assert 'data-pf-section="report-scraper"' in body
+    assert 'data-pf-section="reading-desk"' in body
+
+
+async def test_assistants_reading_desk_section_carries_its_name(
+    web_client_factory: Any,
+    seeded_user: tuple[UUID, str, str],
+) -> None:
+    """The second Section is the Reading Desk: slug, heading, nav entry, copy.
+
+    The rename is user-visible only (ADR-0139 §11). Slug, title, the Area
+    subtitle and the loading line carry the new name; neither the old slug
+    nor the old name is left on the rendered page; the body still loads
+    from ``/scraper/section``, because routes keep their names.
+    """
+    _id, email, password = seeded_user
+    client, _app = await web_client_factory(model="fake/model")
+    await _login(client, email, password)
+
+    response = await client.get("/assistants", follow_redirects=False)
+    assert response.status_code == 200
+    body = response.text
+
+    assert 'id="reading-desk"' in body
+    assert '<h2 class="pf-view__title" id="reading-desk-title">Reading Desk</h2>' in body
+    assert 'data-pf-section-link="reading-desk"' in body
+    assert re.search(
+        r"Shirley \(the chat assistant\) and\s+the Reading Desk for documents from fund managers\.",
+        body,
+    )
+    assert "Loading Reading Desk" in body
+    assert 'hx-get="/scraper/section"' in body
+
+    assert "report-scraper" not in body
+    assert "Report Scraper" not in body
+    assert "report scraping" not in body

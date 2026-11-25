@@ -4,7 +4,7 @@
         <h1 class="pf-area__title">Assistants</h1>
         <p class="pf-area__subtitle">
             AI-powered automation — Shirley (the chat assistant) and
-            report scraping for GP quarterly reports.
+            the Reading Desk for documents from fund managers.
         </p>
     </header>
 
@@ -20,7 +20,7 @@
         {% include "areas/_section.html" %}
     {% endwith %}
 
-    {% with section_slug="report-scraper",
+    {% with section_slug="reading-desk",
             section_body_template="_partials/scraper_section_lazy.html" %}
         {% include "areas/_section.html" %}
     {% endwith %}

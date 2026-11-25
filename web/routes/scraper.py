@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Report Scraper web surface under ``/assistants#report-scraper``.
+"""Reading Desk web surface under ``/assistants#reading-desk``.
 
 The Report Scraper service (``services/scraper/``) is Qt-free and
 synchronous. This module lifts it into the web layer with a multipart
@@ -282,9 +282,9 @@ _DEFAULT_SCRAPER_MODEL = "anthropic/claude-sonnet-4.5"
 #: at both scopes it can be fixed in, and deliberately says nothing about
 #: restarting: tenant and user rows apply on the next run.
 _NO_SCRAPER_LLM_MESSAGE = (
-    "The Report Scraper has no API credential for this tenant. Set an "
-    "OpenRouter API key in Admin → Providers & Credentials, and a Report "
-    "Scraper model there if you want one other than the default (both apply "
+    "The Reading Desk has no API credential for this tenant. Set an "
+    "OpenRouter API key in Admin → Providers & Credentials, and a Reading "
+    "Desk model there if you want one other than the default (both apply "
     "on your next run), or set OPENROUTER_API_KEY and SCRAPER_MODEL in .env "
     "for the whole application."
 )

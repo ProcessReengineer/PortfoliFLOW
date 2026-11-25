@@ -537,7 +537,7 @@ async def test_cards_carry_purpose_copy_and_disambiguate_the_three_model_rows(
 
     # Purpose copy under the card title, and the per-field hint under the input.
     assert (
-        "The LLM provider behind Shirley, the Report Scraper, web research and the "
+        "The LLM provider behind Shirley, the Reading Desk, web research and the "
         "Watch Desk monitoring notes." in body
     )
     assert "The model Shirley uses." in body
@@ -552,13 +552,14 @@ async def test_cards_carry_purpose_copy_and_disambiguate_the_three_model_rows(
     )
     # The key hint names every surface the key is spent on.
     assert (
-        "Used for every Shirley turn, Report Scraper run, web research query and "
+        "Used for every Shirley turn, Reading Desk run, web research query and "
         "Watch Desk beat in this tenant." in body
     )
 
     # The four OpenRouter model rows no longer all read "Model"...
     assert "Watch Desk model" in body
-    assert "Report Scraper model" in body
+    assert "Reading Desk model" in body
+    assert "Report Scraper" not in body
     assert 'value="scraper_model"' in body
     assert "Web research model" in body
     assert 'value="research_model"' in body
@@ -1403,7 +1404,7 @@ async def test_scraper_model_saves_and_deletes_at_tenant_scope(
         follow_redirects=False,
     )
     assert saved.status_code == 200
-    assert "Report Scraper model saved." in saved.text
+    assert "Reading Desk model saved." in saved.text
     row = await _read_row(app_engine, scope="tenant", provider="openrouter", key="scraper_model")
     assert row is not None
     assert row.value_plain == "anthropic/claude-opus-4-7"

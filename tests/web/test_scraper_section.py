@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""Tests for the Report Scraper web surface under
-``/assistants#report-scraper`` (ADR-0053, ADR-0123).
+"""Tests for the Reading Desk web surface under
+``/assistants#reading-desk`` (ADR-0053, ADR-0123).
 
 Coverage:
 
@@ -347,7 +347,8 @@ async def test_get_section_renders_form_with_defaults(
     assert "scraper__value" not in body
     assert not re.search(r'<select[^>]*name="model"', body), "the model picker is gone"
     assert 'name="model"' not in body
-    assert "Report Scraper model" in body
+    assert "Reading Desk model" in body
+    assert "Report Scraper" not in body
     assert re.search(r"Only Anthropic\s+models currently support PDF extraction\.", body), (
         "operator hint missing"
     )
@@ -467,7 +468,8 @@ async def test_get_section_renders_notice_when_model_is_unsupported(
     body = response.text
     assert _UNSUPPORTED_MODEL in body
     assert "does not support PDF extraction" in body
-    assert "Report Scraper model" in body
+    assert "Reading Desk model" in body
+    assert "Report Scraper" not in body
     assert "scraper-form" not in body
 
 
@@ -576,7 +578,9 @@ async def test_post_runs_refuses_without_a_credential(
     )
     assert response.status_code == 400
     body = response.text
-    assert "no API credential" in body
+    assert "The Reading Desk has no API credential for this tenant." in body
+    assert "a Reading Desk model there" in body
+    assert "Report Scraper" not in body
     assert "Admin → Providers &amp; Credentials" in body or "Providers" in body
     assert "OPENROUTER_API_KEY" in body
     # No restart is ever suggested: rows apply on the next run.

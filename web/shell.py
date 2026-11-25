@@ -212,7 +212,7 @@ _SECTIONS_BY_AREA: dict[str, tuple[SectionMeta, ...]] = {
     "investor_communication": (SectionMeta(slug="portfolio-review", title="Portfolio Review"),),
     "assistants": (
         SectionMeta(slug="shirley", title="Shirley"),
-        SectionMeta(slug="report-scraper", title="Report Scraper"),
+        SectionMeta(slug="reading-desk", title="Reading Desk"),
     ),
 }
 

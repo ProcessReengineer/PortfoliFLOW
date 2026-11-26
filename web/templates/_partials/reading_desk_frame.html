@@ -17,15 +17,23 @@
    reading swapped into #rd-reading, on a result block that arrived over
    the run's stream — sends it without its partial knowing the token.
 
-   Context: can_read, initial_tab ("read" | "library"), reading_number
-   (int | None) and, for can_read, csrf_token and the keys of
-   scraper_section.html. #}
+   The Retention tab and pane render only for the owner (``can_retain``,
+   RD-D-17, D-RD-2-2). The pane is loaded each time the tab is shown
+   (reading_desk.js fires ``rd:load``), so it never shows a preview that
+   was left behind.
+
+   Context: can_read, can_retain, initial_tab ("read" | "library"),
+   reading_number (int | None) and, for can_read, csrf_token and the keys
+   of scraper_section.html. #}
 <div class="pf-reading-desk" data-pf-rd="root"{% if can_read %} hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'{% endif %}>
     <div class="pf-tabs" role="tablist" aria-label="Reading Desk" data-pf-rd="tabs"{% if reading_number %} hidden{% endif %}>
         {% if can_read %}
             <button type="button" class="pf-tab" role="tab" id="rd-tab-read" aria-controls="rd-pane-read" aria-selected="{{ 'true' if initial_tab == 'read' else 'false' }}" data-pf-rd="tab" data-pf-rd-tab="read">Read</button>
         {% endif %}
         <button type="button" class="pf-tab" role="tab" id="rd-tab-library" aria-controls="rd-pane-library" aria-selected="{{ 'true' if initial_tab == 'library' else 'false' }}" data-pf-rd="tab" data-pf-rd-tab="library">Library</button>
+        {% if can_retain %}
+            <button type="button" class="pf-tab" role="tab" id="rd-tab-retention" aria-controls="rd-pane-retention" aria-selected="false" data-pf-rd="tab" data-pf-rd-tab="retention">Retention</button>
+        {% endif %}
     </div>
     {% if can_read %}
         <div id="rd-pane-read" role="tabpanel" aria-labelledby="rd-tab-read" data-pf-rd="pane" data-pf-rd-pane="read"{% if reading_number or initial_tab != 'read' %} hidden{% endif %}>
@@ -37,6 +45,13 @@
             <p class="pf-section__lazy-skeleton" aria-live="polite">Loading the Library&hellip;</p>
         </div>
     </div>
+    {% if can_retain %}
+        <div id="rd-pane-retention" role="tabpanel" aria-labelledby="rd-tab-retention" data-pf-rd="pane" data-pf-rd-pane="retention" hidden>
+            <div id="rd-retention" data-pf-rd="retention" hx-get="/api/reading-desk/retention" hx-trigger="rd:load" hx-swap="innerHTML">
+                <p class="pf-section__lazy-skeleton" aria-live="polite">Loading Retention&hellip;</p>
+            </div>
+        </div>
+    {% endif %}
     {% if reading_number %}
         <div id="rd-reading" data-pf-rd="reading" hx-get="/api/reading-desk/readings/{{ reading_number }}" hx-trigger="load" hx-swap="innerHTML">
             <p class="pf-section__lazy-skeleton" aria-live="polite">Loading the reading&hellip;</p>

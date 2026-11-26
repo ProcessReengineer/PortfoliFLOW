@@ -788,3 +788,19 @@ def test_the_reading_desk_stylesheet_is_scoped_residue() -> None:
     assert selectors
     for selector in selectors:
         assert selector.startswith(".pf-reading-desk"), selector
+
+
+def test_the_reading_desk_swaps_only_html_refusals() -> None:
+    """A 400 / 409 is swapped only where a refusal lands, and only when it is HTML.
+
+    htmx 1.9.12 swaps no error response; `reading_desk.js` lets the two
+    statuses through for `#rd-reading`, a proposed assignment and the
+    Retention pane (P-RD-2c2) — and only for a `text/html` answer, so a JSON
+    error never lands in the page (F-RD-2-7).
+    """
+    source = (_REPO_ROOT / "web" / "static" / "js" / "reading_desk.js").read_text(encoding="utf-8")
+    start = source.index('"htmx:beforeSwap"')
+    handler = source[start : source.index("});", start)]
+    assert '"text/html"' in handler
+    for place in ('"rd-reading"', '"rd-retention"', """'[data-pf-rd="proposal"]'"""):
+        assert place in handler, place

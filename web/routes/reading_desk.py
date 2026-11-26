@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""The Reading Desk's Library routes (ADR-0139 §6, §7, §11).
+"""The Reading Desk's Library routes (ADR-0139 §5, §6, §7, §11).
 
 What every signed-in user of the tenant may see of the Reading Desk — the
 Library with its filters and search, one reading as the Section's
-sub-surface, the Section's plain head — and what owner and member may do to
-one reading: assign it and remove it. The run routes, and the Section frame
-itself (``GET /scraper/section``), stay in ``web/routes/scraper.py``.
+sub-surface, the Section's plain head — what owner and member may do to
+one reading: assign it and remove it — and the owner's retention run. The
+run routes, and the Section frame itself (``GET /scraper/section``), stay
+in ``web/routes/scraper.py``.
 
 Endpoints:
 
@@ -23,6 +24,10 @@ Endpoints:
                                                        assignment.
 * ``POST /api/reading-desk/readings/{reading_number}/remove`` — remove one
                                                        reading, with a reason.
+* ``GET /api/reading-desk/retention``               — the Retention pane;
+                                                       with ``years`` the
+                                                       preview of a run.
+* ``POST /api/reading-desk/retention/run``          — the retention run.
 
 The GET routes have no role gate: every role reads, ``auditor`` included
 (RD-D-16, RD-D-19), and row-level security keeps other tenants out — a
@@ -34,6 +39,12 @@ are gated to those roles and verify the CSRF token; everyone else gets 403.
 A write answers with the reading as it now stands. A refused write does
 too, with the reason first in the panel that caused it: 400 for an input
 the route cannot use, 409 when the reading was removed meanwhile.
+
+The two retention routes are the owner's alone (RD-D-17, RD-D-19) — the
+preview too, although it writes nothing: nobody else has the tab. The run
+verifies the CSRF token and removes only what the owner confirmed: it
+carries the previewed age, cutoff and count, and a preview that no longer
+holds is refused with 409 and shown again.
 
 A reading is untrusted text. Everything here projects it into plain values
 and the templates render them through Jinja's autoescape; no HTML is built
@@ -63,6 +74,7 @@ from core.repositories import (
     InvestmentDTO,
     InvestmentRepository,
     ReadingPurgeDTO,
+    ReadingPurgePreview,
     UserRepository,
 )
 from core.repositories._session import tenant_context
@@ -96,6 +108,11 @@ _MANAGER_TOO_LONG = "A manager name has at most 200 characters."
 _NO_PROPOSAL = "The proposal no longer applies."
 _REASON_REQUIRED = "A reason is required."
 _REASON_TOO_LONG = "A reason has at most 2,000 characters."
+
+#: The oldest age a retention run accepts, in calendar years.
+_RETENTION_YEARS_MAX = 100
+_BAD_YEARS = "Enter a whole number of years, from 1 to 100."
+_STALE_PREVIEW = "The preview is out of date. Check it again before you confirm."
 
 #: The stored ISO 639-1 code, shown by name; any other code is shown as stored.
 _LANGUAGES: dict[str, str] = {
@@ -1216,6 +1233,210 @@ async def reading_desk_remove(
             remove_reason=reason,
         )
     return await _render_reading(request, session, user, reading_number)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/reading-desk/retention · POST /api/reading-desk/retention/run
+# ---------------------------------------------------------------------------
+
+
+def _parse_years(value: str) -> int | None:
+    """The age a retention form names, or ``None`` for anything but 1 to 100."""
+    text = value.strip()
+    if not 1 <= len(text) <= 3 or not text.isascii() or not text.isdigit():
+        return None
+    years = int(text)
+    return years if 1 <= years <= _RETENTION_YEARS_MAX else None
+
+
+def _counted(count: int, noun: str) -> str:
+    """``1 reading``, ``14 readings``."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _retention_context(
+    *,
+    years: str,
+    runs: Sequence[ReadingPurgeDTO],
+    people: dict[UUID, str],
+    preview: ReadingPurgePreview | None = None,
+    done: ReadingPurgeDTO | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """The context of the Retention pane.
+
+    ``done`` (a run that was just recorded) comes before ``preview``; a
+    preview of nothing is the state ``zero``, which offers no confirmation.
+    """
+    state = "idle"
+    lead = sub = action = cutoff = ""
+    count = 0
+    if done is not None:
+        state = "done"
+        lead = f"{_counted(done.reading_count, 'reading')} removed."
+    elif preview is not None:
+        cutoff = preview.cutoff.isoformat()
+        count = preview.reading_count
+        if count == 0:
+            state = "zero"
+            lead = f"No reading has a document date before {cutoff}."
+        elif count == 1:
+            state = "preview"
+            lead = f"1 reading has a document date before {cutoff}."
+            sub = (
+                "Its findings and reading note will be deleted and cannot be restored. "
+                "The entry stays in the Library as removed and names this run. "
+                "Anything already kept into a case, and anything entered in the book, "
+                "is not touched."
+            )
+            action = "Remove 1 reading"
+        else:
+            state = "preview"
+            lead = f"{count} readings have a document date before {cutoff}."
+            sub = (
+                "Their findings and reading notes will be deleted and cannot be restored. "
+                f"The {count} entries stay in the Library as removed and name this run. "
+                "Anything already kept into a case, and anything entered in the book, "
+                "is not touched."
+            )
+            action = f"Remove {count} readings"
+    return {
+        "retention": {
+            "state": state,
+            "years": years,
+            "error": error,
+            "lead": lead,
+            "sub": sub,
+            "action": action,
+            "cutoff": cutoff,
+            "count": count,
+            "runs": [
+                {
+                    "run": _utc_minute(run.run_at),
+                    "by": people.get(run.run_by, _MISSING),
+                    "rule": f"Older than {_counted(run.years, 'year')}",
+                    "cutoff": run.cutoff.isoformat(),
+                    "count": run.reading_count,
+                }
+                for run in runs
+            ],
+        }
+    }
+
+
+def _render_retention(
+    request: Request, context: dict[str, Any], *, status_code: int = status.HTTP_200_OK
+) -> HTMLResponse:
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/reading_desk_retention.html",
+            context,
+            status_code=status_code,
+        ),
+    )
+
+
+@router.get(
+    "/api/reading-desk/retention",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def reading_desk_retention(
+    request: Request,
+    years: str | None = Query(None),
+    session: SessionDTO = Depends(require_session),
+) -> HTMLResponse:
+    """The Retention pane; with ``years`` the preview of a run (ADR-0139 §5).
+
+    A preview counts the live readings whose document date — the day they
+    were read where a document has none — is before today (UTC) minus
+    ``years`` calendar years. It writes nothing. An age that is not a whole
+    number from 1 to 100 answers 400 with the pane and the refusal.
+    """
+    parsed = _parse_years(years) if years is not None else None
+    refused = years is not None and parsed is None
+    engine = request.app.state.engine
+    preview: ReadingPurgePreview | None = None
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = DocumentReadingRepository(db)
+        if parsed is not None:
+            preview = await repo.preview_purge(years=parsed, today=_now().date())
+        runs = await repo.list_purges()
+        people = await _people(UserRepository(db))
+    return _render_retention(
+        request,
+        _retention_context(
+            years=years or "",
+            runs=runs,
+            people=people,
+            preview=preview,
+            error=_BAD_YEARS if refused else None,
+        ),
+        status_code=status.HTTP_400_BAD_REQUEST if refused else status.HTTP_200_OK,
+    )
+
+
+@router.post(
+    "/api/reading-desk/retention/run",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner"))],
+)
+async def reading_desk_retention_run(
+    request: Request,
+    years: str = Form(""),
+    cutoff: str = Form(""),
+    count: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Run retention as the owner confirmed it (ADR-0139 §5, RD-D-8, RD-D-17).
+
+    The confirmation carries what the preview showed: the age, the cutoff
+    and the count. The route previews again in the run's own transaction
+    and runs only if both still hold; otherwise nothing is removed and the
+    pane comes back with the preview as it now stands (409). Nothing to
+    remove is never a run — a run that matches nothing would still be
+    recorded — so it is answered the same way.
+
+    The run tombstones every matching reading and records one
+    ``reading_purges`` row; the pane comes back with the run heading the
+    past runs.
+    """
+    parsed = _parse_years(years)
+    engine = request.app.state.engine
+    preview: ReadingPurgePreview | None = None
+    done: ReadingPurgeDTO | None = None
+    error: str | None = None
+    status_code = status.HTTP_200_OK
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = DocumentReadingRepository(db)
+        if parsed is None:
+            error = _BAD_YEARS
+            status_code = status.HTTP_400_BAD_REQUEST
+        else:
+            now = _now()
+            preview = await repo.preview_purge(years=parsed, today=now.date())
+            confirmed = cutoff.strip() == preview.cutoff.isoformat() and count.strip() == str(
+                preview.reading_count
+            )
+            if preview.reading_count == 0 or not confirmed:
+                error = _STALE_PREVIEW
+                status_code = status.HTTP_409_CONFLICT
+            else:
+                done = await repo.run_purge(
+                    years=parsed, today=now.date(), run_by=session.user_id, now=now
+                )
+        runs = await repo.list_purges()
+        people = await _people(UserRepository(db))
+    return _render_retention(
+        request,
+        _retention_context(
+            years=years, runs=runs, people=people, preview=preview, done=done, error=error
+        ),
+        status_code=status_code,
+    )
 
 
 # ---------------------------------------------------------------------------

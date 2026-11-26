@@ -9,8 +9,10 @@
  *
  * A refused write on a reading (P-RD-2c1) answers 400 or 409 with the
  * fragment that says why; htmx 1.9.12 does not swap an error response, so
- * the two statuses are let through for exactly the two places such an
- * answer lands: #rd-reading and a proposed assignment.
+ * the two statuses are let through for exactly the places such an answer
+ * lands — #rd-reading, a proposed assignment and the Retention pane
+ * (P-RD-2c2) — and only when the answer is HTML: a JSON error stays out of
+ * the page.
  *
  * The panes are only ever hidden, never swapped away, so a run streaming in
  * the Read pane survives every move here. The frame arrives lazily, so
@@ -53,6 +55,10 @@
             } else {
                 window.htmx.trigger("#rd-library", "rd:load");
             }
+        }
+        if (wanted === "retention" && window.htmx) {
+            // Loaded afresh each time: a preview left behind is not shown again.
+            window.htmx.trigger("#rd-retention", "rd:load");
         }
     }
 
@@ -144,8 +150,13 @@
         if (!target || !detail.xhr) {
             return;
         }
-        const refusedWrite = target.id === "rd-reading" || target.matches('[data-pf-rd="proposal"]');
-        if (refusedWrite && (detail.xhr.status === 400 || detail.xhr.status === 409)) {
+        const refusal = detail.xhr.status === 400 || detail.xhr.status === 409;
+        const landsHere =
+            target.id === "rd-reading" ||
+            target.id === "rd-retention" ||
+            target.matches('[data-pf-rd="proposal"]');
+        const isHtml = (detail.xhr.getResponseHeader("Content-Type") || "").indexOf("text/html") === 0;
+        if (refusal && landsHere && isHtml) {
             detail.shouldSwap = true;
             detail.isError = false;
         }

@@ -21,10 +21,15 @@ What every signed-in user of the tenant may see of the Reading Desk:
    block — and ``POST /api/reading-desk/readings/<n>/remove`` with its
    reason; the refusals, the CSRF token the Section root carries, and the
    gates for the three roles.
+7. The owner's Retention tab (P-RD-2c2): ``GET /api/reading-desk/retention``
+   — the pane, and with ``years`` the preview of a run — and ``POST
+   /api/reading-desk/retention/run``; the past runs, a preview that no
+   longer holds, the refusals, the tenant, and the gate for the three roles.
 
 Assertions bind to ``data-pf-rd`` hooks, ids and copy, and to a class only
 where the class is the point. All dates are fixed, except the day a write
-stamps, which is today's in UTC.
+stamps, which is today's in UTC, and the retention cases', which count back
+from today's UTC date.
 """
 
 from __future__ import annotations
@@ -393,7 +398,10 @@ async def test_frame_for_a_reader_opens_on_read(web_client_factory: Any, role: s
     assert " hidden" in _element(body, r'<div id="rd-pane-library"[^>]*>')
     assert 'hx-trigger="rd:load"' in _element(body, r'<div id="rd-library"[^>]*>')
     assert " hidden" in _element(body, r'<div id="rd-reading"[^>]*>')
-    assert "Retention" not in body
+    if role == "owner":
+        _assert_retention_tab(body)
+    else:
+        assert "Retention" not in body
 
 
 @pytest.mark.parametrize("role", ["owner", "member"])
@@ -1830,3 +1838,445 @@ async def test_assign_panel_states(web_client_factory: Any, seeded_users: dict[s
         "beta partners",
         "Zeta Advisors",
     ]
+
+
+# ---------------------------------------------------------------------------
+# The Retention tab (P-RD-2c2)
+# ---------------------------------------------------------------------------
+
+_HIDDEN_INPUT = re.compile(r'<input type="hidden" name="(years|cutoff|count)" value="([^"]*)">')
+_RUN_ROW = re.compile(r'<tr data-pf-rd="retention-run">(.*?)</tr>', re.S)
+_STALE = "The preview is out of date. Check it again before you confirm."
+_BAD_YEARS = "Enter a whole number of years, from 1 to 100."
+
+
+def _assert_retention_tab(body: str) -> None:
+    """The owner's Retention tab and its hidden pane, as the frame renders them."""
+    tab = _element(body, r'<button[^>]*data-pf-rd-tab="retention"[^>]*>Retention</button>')
+    assert 'id="rd-tab-retention"' in tab
+    assert 'aria-selected="false"' in tab
+    assert 'aria-controls="rd-pane-retention"' in tab
+    pane = _element(body, r'<div id="rd-pane-retention"[^>]*>')
+    assert " hidden" in pane and 'data-pf-rd-pane="retention"' in pane
+    loader = _element(body, r'<div id="rd-retention"[^>]*>')
+    assert 'data-pf-rd="retention"' in loader
+    assert 'hx-get="/api/reading-desk/retention"' in loader
+    assert 'hx-trigger="rd:load"' in loader
+
+
+def _today_utc() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _cutoff(years: int, today: date | None = None) -> date:
+    """Today (UTC) minus ``years`` calendar years, 29 February falling to the 28th."""
+    day = today or _today_utc()
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)
+
+
+def _noon(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, 12, 0, tzinfo=timezone.utc)
+
+
+async def _seed_retention(engine: AsyncEngine, owner: UUID, member: UUID) -> None:
+    """Five readings around the 7-year cutoff; R-0001 and R-0002 are what it matches.
+
+    R-0001 is dated the day before the cutoff; R-0002 has no document date
+    and was read two years before it (so an 8-year cutoff still matches
+    it); R-0003 is dated on the cutoff day; R-0004 is recent; R-0005 is old
+    but already removed.
+    """
+    cutoff = _cutoff(7)
+    await _create(engine, owner, filename="before.pdf", document_date=cutoff - timedelta(1))
+    await _create(
+        engine,
+        owner,
+        filename="undated.pdf",
+        document_date=None,
+        now=_noon(cutoff - timedelta(730)),
+    )
+    await _create(engine, owner, filename="on-the-day.pdf", document_date=cutoff)
+    await _create(engine, owner, filename="recent.pdf", document_date=_today_utc() - timedelta(10))
+    removed = await _create(
+        engine, owner, filename="removed.pdf", document_date=cutoff - timedelta(3650)
+    )
+    await _remove(engine, member, removed.id, "Wrong file.", _T0)
+
+
+async def _readings(
+    engine: AsyncEngine, user_id: UUID, count: int, tenant_id: UUID = SENTINEL_TENANT_ID
+) -> list[DocumentReadingDTO]:
+    return [await _row(engine, user_id, number, tenant_id) for number in range(1, count + 1)]
+
+
+async def _purges(engine: AsyncEngine, user_id: UUID, tenant_id: UUID = SENTINEL_TENANT_ID):
+    async with tenant_context(engine, tenant_id, user_id=user_id) as session:
+        return await DocumentReadingRepository(session).list_purges()
+
+
+async def _retention(client: AsyncClient, **params: str) -> Any:
+    return await client.get("/api/reading-desk/retention", params=params, follow_redirects=False)
+
+
+async def _run(client: AsyncClient, token: str | None, **form: str) -> Any:
+    headers = {"X-CSRF-Token": token} if token is not None else {}
+    return await client.post(
+        "/api/reading-desk/retention/run", data=form, headers=headers, follow_redirects=False
+    )
+
+
+def _confirmation(body: str) -> dict[str, str]:
+    """The three values the preview's confirmation carries."""
+    values = dict(_HIDDEN_INPUT.findall(body))
+    assert set(values) == {"years", "cutoff", "count"}, values
+    return values
+
+
+def _state(body: str) -> str:
+    match = re.search(r'data-pf-rd="retention-body" data-pf-rd-state="([a-z]+)"', body)
+    assert match is not None, "no retention body"
+    return match.group(1)
+
+
+def _years_field(body: str) -> str:
+    return _element(body, r'<input[^>]*name="years"[^>]*>')
+
+
+@pytest.mark.parametrize("role", ["owner", "member", "auditor"])
+async def test_retention_tab_is_the_owners(web_client_factory: Any, role: str) -> None:
+    client, _app = await web_client_factory(role)
+    response = await client.get("/scraper/section")
+    assert response.status_code == 200
+    body = response.text
+
+    if role == "owner":
+        _assert_retention_tab(body)
+    else:
+        assert "rd-tab-retention" not in body
+        assert "rd-pane-retention" not in body
+        assert "Retention" not in body
+
+
+@pytest.mark.parametrize("role", ["owner", "member", "auditor"])
+async def test_retention_routes_are_owner_only(
+    web_client_factory: Any, seeded_users: dict[str, UUID], role: str
+) -> None:
+    client, app = await web_client_factory(role)
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, document_date=_cutoff(7) - timedelta(1))
+    token = await _page_token(client)
+
+    plain = await _retention(client)
+    preview = await _retention(client, years="7")
+    run = await _run(client, token, years="7", cutoff=_cutoff(7).isoformat(), count="1")
+    if role == "owner":
+        for response in (plain, preview, run):
+            assert response.status_code == 200, response.text
+        assert (await _row(engine, owner, 1)).is_removed
+        assert len(await _purges(engine, owner)) == 1
+    else:
+        for response in (plain, preview, run):
+            assert response.status_code == 403
+            assert response.json() == {"detail": "insufficient role"}
+        assert not (await _row(engine, owner, 1)).is_removed
+        assert await _purges(engine, owner) == []
+
+
+async def test_retention_pane_idle(web_client_factory: Any) -> None:
+    client, _app = await web_client_factory("owner")
+    response = await _retention(client)
+    assert response.status_code == 200
+    body = response.text
+
+    assert _state(body) == "idle"
+    assert (
+        "A retention run removes every reading whose document is older than the age you set. "
+        "The findings and notes of those readings are deleted; the entries stay in the Library "
+        "as removed."
+    ) in body
+    field = _years_field(body)
+    assert 'value=""' in field
+    assert 'inputmode="numeric"' in field
+    assert " required" in field
+    assert "aria-invalid" not in field
+    assert (
+        "The document date counts; where a document has none, the day it was read. "
+        "Nothing is removed before you confirm."
+    ) in body
+    assert 'data-pf-rd="retention-none"' in body
+    assert "No retention run so far." in body
+    assert "hx-post" not in body
+    assert 'data-pf-rd="retention-error"' not in body
+
+
+async def test_retention_preview_counts_by_document_date(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _seed_retention(engine, owner, seeded_users["member"])
+    before = await _readings(engine, owner, 5)
+    cutoff = _cutoff(7).isoformat()
+
+    response = await _retention(client, years="7")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert _state(body) == "preview"
+    assert 'data-pf-rd="retention-preview"' in body
+    assert f"2 readings have a document date before {cutoff}." in body
+    assert "The 2 entries stay in the Library as removed and name this run." in body
+    assert ">Remove 2 readings</button>" in body
+    assert _confirmation(body) == {"years": "7", "cutoff": cutoff, "count": "2"}
+    keep = _element(
+        body, r'<button[^>]*data-pf-rd-toggle="rd-retention-preview"[^>]*>Keep</button>'
+    )
+    assert 'type="button"' in keep
+    assert 'hx-post="/api/reading-desk/retention/run"' in body
+    assert 'value="7"' in _years_field(body)
+
+    narrowed = (await _retention(client, years="8")).text
+    assert _state(narrowed) == "preview"
+    assert f"1 reading has a document date before {_cutoff(8).isoformat()}." in narrowed
+    assert "Its findings and reading note will be deleted and cannot be restored." in narrowed
+    assert ">Remove 1 reading</button>" in narrowed
+    assert _confirmation(narrowed)["count"] == "1"
+
+    assert await _readings(engine, owner, 5) == before
+    assert await _purges(engine, owner) == []
+
+
+async def test_retention_preview_of_nothing_offers_no_confirmation(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, document_date=_cutoff(7))
+
+    response = await _retention(client, years="7")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert _state(body) == "zero"
+    assert 'data-pf-rd="retention-zero"' in body
+    assert f"No reading has a document date before {_cutoff(7).isoformat()}." in body
+    assert "There is nothing to remove." in body
+    assert "hx-post" not in body
+    assert "Keep" not in body
+    assert 'data-pf-rd="retention-preview"' not in body
+    assert await _purges(engine, owner) == []
+
+
+async def test_retention_run(web_client_factory: Any, seeded_users: dict[str, UUID]) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _seed_retention(engine, owner, seeded_users["member"])
+    before = await _readings(engine, owner, 5)
+    token = await _section_token(client)
+    cutoff = _cutoff(7).isoformat()
+
+    confirmation = _confirmation((await _retention(client, years="7")).text)
+    response = await _run(client, token, **confirmation)
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert _state(body) == "done"
+    assert 'data-pf-rd="retention-done"' in body
+    assert "2 readings removed." in body
+    assert "The run is recorded below." in body
+    assert "hx-post" not in body
+
+    [run] = await _purges(engine, owner)
+    assert run.reading_count == 2 and run.years == 7 and run.cutoff.isoformat() == cutoff
+    rows = _RUN_ROW.findall(body)
+    assert rows == [
+        f"<td>{run.run_at.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</td>"
+        f"<td>Olivia Owner</td><td>Older than 7 years</td><td>{cutoff}</td>"
+        '<td class="pf-num">2</td>'
+    ]
+    assert "No retention run so far." not in body
+
+    after = await _readings(engine, owner, 5)
+    for reading in after[:2]:
+        assert reading.is_removed
+        assert reading.purge_id == run.id
+        assert reading.removal_reason is None
+        assert reading.findings is None and reading.note is None
+        assert reading.search_text is None
+    assert after[2:] == before[2:]
+
+    run_day = run.run_at.astimezone(timezone.utc).date().isoformat()
+    removed_page = (await client.get("/api/reading-desk/readings/1")).text
+    assert (
+        f"Retention run of {run_day} — documents older than 7 years (before {cutoff})"
+    ) in removed_page
+    library = await _library(client, removed="1")
+    states = dict((label, state) for state, label in _ROW.findall(library))
+    assert states["R-0001"] == "removed" and states["R-0002"] == "removed"
+
+    now = datetime.now(timezone.utc)
+    await _purge(engine, owner, years=1, today=now.date(), now=now)
+    runs = _RUN_ROW.findall((await _retention(client)).text)
+    assert len(runs) == 2
+    assert "<td>Older than 1 year</td>" in runs[0]
+    assert "<td>Older than 7 years</td>" in runs[1]
+
+
+async def test_retention_run_refuses_a_preview_that_no_longer_holds(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _seed_retention(engine, owner, seeded_users["member"])
+    before = await _readings(engine, owner, 5)
+    token = await _section_token(client)
+    cutoff = _cutoff(7)
+
+    for form in (
+        {"years": "7", "cutoff": cutoff.isoformat(), "count": "1"},
+        {"years": "7", "cutoff": (cutoff - timedelta(1)).isoformat(), "count": "2"},
+    ):
+        response = await _run(client, token, **form)
+        assert response.status_code == 409, form
+        body = response.text
+        assert 'data-pf-rd="retention-error"' in body
+        assert _STALE in body
+        # The preview as it now stands.
+        assert _state(body) == "preview"
+        assert ">Remove 2 readings</button>" in body
+        assert _confirmation(body) == {"years": "7", "cutoff": cutoff.isoformat(), "count": "2"}
+
+    nothing = await _run(client, token, years="100", cutoff=_cutoff(100).isoformat(), count="0")
+    assert nothing.status_code == 409
+    assert _STALE in nothing.text
+    assert _state(nothing.text) == "zero"
+    assert "hx-post" not in nothing.text
+
+    assert await _readings(engine, owner, 5) == before
+    assert await _purges(engine, owner) == []
+
+
+async def test_retention_refuses_an_age_it_cannot_use(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, document_date=_cutoff(7) - timedelta(1))
+    token = await _section_token(client)
+
+    for years in ("", "abc", "0", "-1", "101", "7.5", "0007"):
+        response = await _retention(client, years=years)
+        assert response.status_code == 400, repr(years)
+        body = response.text
+        assert _BAD_YEARS in body, repr(years)
+        assert 'data-pf-rd="retention-error"' in body
+        assert 'aria-invalid="true"' in _years_field(body), repr(years)
+        assert 'data-pf-rd="retention-preview"' not in body
+        assert "hx-post" not in body
+
+    for years in ("100", " 7 "):
+        response = await _retention(client, years=years)
+        assert response.status_code == 200, repr(years)
+        assert _BAD_YEARS not in response.text
+    assert ">Remove 1 reading</button>" in (await _retention(client, years=" 7 ")).text
+
+    refused = await _run(client, token, years="abc", cutoff=_cutoff(7).isoformat(), count="1")
+    assert refused.status_code == 400
+    assert _BAD_YEARS in refused.text
+    assert not (await _row(engine, owner, 1)).is_removed
+    assert await _purges(engine, owner) == []
+
+
+async def test_retention_run_needs_the_csrf_token(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, document_date=_cutoff(7) - timedelta(1))
+
+    response = await _run(client, None, years="7", cutoff=_cutoff(7).isoformat(), count="1")
+    assert response.status_code == 403
+    assert response.json() == {"detail": "CSRF token missing or invalid."}
+    assert not (await _row(engine, owner, 1)).is_removed
+    assert await _purges(engine, owner) == []
+
+
+async def test_retention_keeps_to_the_tenant(
+    web_client_factory: Any,
+    seeded_users: dict[str, UUID],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    old = _cutoff(7) - timedelta(1)
+
+    other_tenant = uuid4()
+    other_owner = uuid4()
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO tenants (id, name, subdomain) VALUES (:id, 'Other', 'other-rd')"),
+            {"id": str(other_tenant)},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO users
+                    (id, tenant_id, email, display_name, password_hash, roles, is_active)
+                VALUES
+                    (:id, :tid, 'owner@other-rd.example', 'Otto Other', :hash,
+                     ARRAY['owner']::text[], TRUE)
+                """
+            ),
+            {"id": str(other_owner), "tid": str(other_tenant), "hash": hash_password(_PASSWORD)},
+        )
+    await _create(engine, other_owner, tenant_id=other_tenant, document_date=old)
+    await _create(engine, owner, document_date=old)
+    token = await _section_token(client)
+
+    preview = (await _retention(client, years="7")).text
+    assert "1 reading has a document date before" in preview
+    run = await _run(client, token, **_confirmation(preview))
+    assert run.status_code == 200, run.text
+    assert "1 reading removed." in run.text
+    assert (await _row(engine, owner, 1)).is_removed
+    assert not (await _row(engine, other_owner, 1, other_tenant)).is_removed
+    assert await _purges(engine, other_owner, other_tenant) == []
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://other-rd.localhost"
+    ) as other:
+        await _login(other, "owner@other-rd.example")
+        pane = await _retention(other)
+        assert pane.status_code == 200, pane.text
+        assert "No retention run so far." in pane.text
+        assert 'data-pf-rd="retention-run"' not in pane.text
+        assert "Olivia Owner" not in pane.text
+
+
+async def test_retention_without_a_session(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory(None)
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, document_date=_cutoff(7) - timedelta(1))
+    reference = await client.get("/scraper/section", follow_redirects=False)
+    assert reference.status_code in (303, 401)
+
+    for response in (
+        await _retention(client),
+        await _retention(client, years="7"),
+        await _run(client, "forged-token", years="7", cutoff=_cutoff(7).isoformat(), count="1"),
+    ):
+        assert response.status_code == reference.status_code
+        assert response.headers.get("location") == reference.headers.get("location")
+    assert not (await _row(engine, owner, 1)).is_removed
+    assert await _purges(engine, owner) == []

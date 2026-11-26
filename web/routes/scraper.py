@@ -527,6 +527,7 @@ async def scraper_section(
     can_read = user.has_role("owner", "member")
     context: dict[str, Any] = {
         "can_read": can_read,
+        "can_retain": user.has_role("owner"),
         "initial_tab": "read" if can_read else "library",
         "reading_number": reading,
     }

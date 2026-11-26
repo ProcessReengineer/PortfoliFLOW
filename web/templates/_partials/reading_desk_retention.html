@@ -1,0 +1,82 @@
+{# The Retention pane (ADR-0139 §5, RD-D-8, RD-D-17, D-RD-2-18; M-RD-1 lines
+   3602–3643): the owner sets an age, previews what a run would remove,
+   confirms, and sees the runs so far. Returned by GET
+   /api/reading-desk/retention (plain, or with ``years`` as the preview) and
+   by POST /api/reading-desk/retention/run; swapped into #rd-retention. The
+   tab, the pane and both routes exist for the owner only.
+
+   States (``retention.state``):
+
+     idle    — the form and the past runs.
+     preview — what a run would remove, then the danger button and *Keep*
+               (ui-standards R7). The confirmation carries the previewed
+               age, cutoff and count; the run refuses a preview that no
+               longer holds.
+     zero    — nothing is older than the cutoff. No confirmation is offered:
+               a run that matches nothing would still be recorded.
+     done    — a run removed readings; it heads the past runs.
+
+   ``retention.error`` is a refusal — an age the route cannot use (400), a
+   preview that is out of date (409); it stands first beneath the form. The
+   CSRF token travels in the ``hx-headers`` of the Section root.
+
+   Context: retention — dict: state, years (str, as typed), error
+   (str | None), lead, sub, action (str; preview), cutoff (str), count (int),
+   runs (list of dict: run, by, rule, cutoff, count). #}
+<div class="pf-narrow" data-pf-rd="retention-body" data-pf-rd-state="{{ retention.state }}">
+    <p style="max-width:78ch;margin:0 0 var(--ui-space-4)">A retention run removes every reading whose document is older than the age you set. The findings and notes of those readings are deleted; the entries stay in the Library as removed.</p>
+    <form class="pf-addline" data-pf-rd="retention-form" hx-get="/api/reading-desk/retention" hx-target="#rd-retention" hx-swap="innerHTML">
+        <label class="pf-field" style="flex:0 1 300px"><span class="pf-label">Remove readings whose document is older than</span>
+            <span class="pf-act__row"><input class="pf-input pf-input--num" type="text" inputmode="numeric" name="years" value="{{ retention.years }}" style="max-width:90px" maxlength="3" autocomplete="off" required aria-describedby="rd-retention-hint"{% if retention.error and retention.state == "idle" %} aria-invalid="true"{% endif %}><span style="align-self:center">years</span></span></label>
+        <button type="submit" class="pf-btn">Preview</button>
+    </form>
+    <p class="pf-hint" id="rd-retention-hint" style="margin-top:var(--ui-space-2)">The document date counts; where a document has none, the day it was read. Nothing is removed before you confirm.</p>
+
+    {% if retention.error %}
+        <div class="pf-note pf-note--block" role="alert" data-pf-rd="retention-error" style="margin-top:var(--ui-space-4)">{{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ retention.error }}</p><span></span>
+        </div>
+    {% endif %}
+
+    {% if retention.state == "preview" %}
+        <div id="rd-retention-preview" data-pf-rd="retention-preview">
+            <div class="pf-note pf-note--warn" style="margin-top:var(--ui-space-4)">{{ pf_icon("warn") }}
+                <p class="pf-note__lead">{{ retention.lead }}</p><span></span>
+                <p class="pf-note__sub">{{ retention.sub }}</p>
+            </div>
+            <form hx-post="/api/reading-desk/retention/run" hx-target="#rd-retention" hx-swap="innerHTML">
+                <input type="hidden" name="years" value="{{ retention.years }}">
+                <input type="hidden" name="cutoff" value="{{ retention.cutoff }}">
+                <input type="hidden" name="count" value="{{ retention.count }}">
+                <div class="pf-panel__foot">
+                    <button type="submit" class="pf-btn pf-btn--danger">{{ retention.action }}</button>
+                    <button type="button" class="pf-btn pf-btn--quiet" data-pf-rd-toggle="rd-retention-preview" aria-controls="rd-retention-preview">Keep</button>
+                </div>
+            </form>
+        </div>
+    {% elif retention.state == "zero" %}
+        <div class="pf-note pf-note--info" data-pf-rd="retention-zero" style="margin-top:var(--ui-space-4)">{{ pf_icon("info") }}
+            <p class="pf-note__lead">{{ retention.lead }} <span class="pf-note__inline">There is nothing to remove.</span></p><span></span>
+        </div>
+    {% elif retention.state == "done" %}
+        <div class="pf-note pf-note--info" role="status" data-pf-rd="retention-done" style="margin-top:var(--ui-space-4)">{{ pf_icon("done") }}
+            <p class="pf-note__lead">{{ retention.lead }} <span class="pf-note__inline">The run is recorded below.</span></p><span></span>
+        </div>
+    {% endif %}
+
+    <section class="pf-blk" data-pf-rd="retention-runs">
+        <div class="pf-blk__head"><h3 class="pf-blk__title">Past runs</h3></div>
+        {% if retention.runs %}
+            <div class="pf-scroll-x"><table class="pf-table">
+                <thead><tr><th>Run</th><th>By</th><th>Rule</th><th>Removed documents dated before</th><th class="pf-num">Readings removed</th></tr></thead>
+                <tbody>
+                    {% for run in retention.runs %}
+                        <tr data-pf-rd="retention-run"><td>{{ run.run }}</td><td>{{ run.by }}</td><td>{{ run.rule }}</td><td>{{ run.cutoff }}</td><td class="pf-num">{{ run.count }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table></div>
+        {% else %}
+            <p class="pf-hint" data-pf-rd="retention-none">No retention run so far.</p>
+        {% endif %}
+    </section>
+</div>

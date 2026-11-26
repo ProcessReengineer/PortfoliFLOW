@@ -1165,6 +1165,34 @@ async def test_removed_reading(web_client_factory: Any, seeded_users: dict[str, 
     assert "<dt>Size</dt><dd>120.6 KB · 1 page</dd>" in retention
 
 
+async def test_one_year_retention_reads_singular(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    """F-RD-2-9: a run of one year says "1 year" in the Library row and on the reading."""
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, filename="last-year.pdf", document_date=date(2024, 6, 30), now=_T0)
+    await _purge(
+        engine,
+        owner,
+        years=1,
+        today=date(2026, 11, 20),
+        now=datetime(2026, 11, 23, 8, 0, tzinfo=timezone.utc),
+    )
+
+    row = _row_html(await _library(client, removed="1"), "R-0001")
+    assert "Retention run: documents older than 1 year (before 2025-11-20)." in row
+
+    reading = (await client.get("/api/reading-desk/readings/1")).text
+    assert (
+        "<dt>Reason</dt><dd>Retention run of 2026-11-23 — documents older than 1 year "
+        "(before 2025-11-20)</dd>"
+    ) in reading
+    for body in (row, reading):
+        assert "1 years" not in body
+
+
 async def test_reading_not_found(
     web_client_factory: Any,
     seeded_users: dict[str, UUID],

@@ -411,7 +411,7 @@ def _retention_reason(purge: ReadingPurgeDTO | None) -> str:
     if purge is None:
         return _MISSING
     return (
-        f"Retention run: documents older than {purge.years} years "
+        f"Retention run: documents older than {_counted(purge.years, 'year')} "
         f"(before {purge.cutoff.isoformat()})."
     )
 
@@ -769,7 +769,7 @@ def _removed_context(
         purge = purges.get(reading.purge_id)
         reason = (
             f"Retention run of {_utc_date(purge.run_at)} — documents older than "
-            f"{purge.years} years (before {purge.cutoff.isoformat()})"
+            f"{_counted(purge.years, 'year')} (before {purge.cutoff.isoformat()})"
             if purge is not None
             else _MISSING
         )

@@ -25,6 +25,9 @@ What every signed-in user of the tenant may see of the Reading Desk:
    — the pane, and with ``years`` the preview of a run — and ``POST
    /api/reading-desk/retention/run``; the past runs, a preview that no
    longer holds, the refusals, the tenant, and the gate for the three roles.
+8. The "Documents read" section of ``GET /investments/<id>`` (P-RD-2d) —
+   the list, what "As read" shows per document type, the order, the roles,
+   the tenant, the escaping.
 
 Assertions bind to ``data-pf-rd`` hooks, ids and copy, and to a class only
 where the class is the point. All dates are fixed, except the day a write
@@ -2280,3 +2283,348 @@ async def test_retention_without_a_session(
         assert response.headers.get("location") == reference.headers.get("location")
     assert not (await _row(engine, owner, 1)).is_removed
     assert await _purges(engine, owner) == []
+
+
+# ---------------------------------------------------------------------------
+# The investment page (P-RD-2d)
+# ---------------------------------------------------------------------------
+
+_INV_ROW = re.compile(r'<tr data-inv-reading="(R-\d+)">(.*?)</tr>', re.S)
+_DASH = '<span class="pf-hint">—</span>'
+_FIGURES_SENTENCE = (
+    "Figures are as read from the documents by the Reading Desk; they are not book data "
+    "and are not checked against the documents."
+)
+
+
+async def _investment_page(client: AsyncClient, investment_id: UUID) -> str:
+    response = await client.get(f"/investments/{investment_id}")
+    assert response.status_code == 200, response.text
+    return response.text
+
+
+def _readings_section(body: str) -> str:
+    """The "Documents read" section of an investment page."""
+    start = body.index('<section class="inv-section" id="inv-readings"')
+    return body[start : body.index("</section>", start) + len("</section>")]
+
+
+def _inv_rows(section: str) -> list[str]:
+    return [label for label, _cells in _INV_ROW.findall(section)]
+
+
+def _inv_row(section: str, label: str) -> str:
+    rows = dict(_INV_ROW.findall(section))
+    assert label in rows, label
+    return rows[label]
+
+
+@pytest.mark.parametrize("role", ["owner", "member", "auditor"])
+async def test_investment_page_lists_its_readings(
+    web_client_factory: Any, seeded_users: dict[str, UUID], role: str
+) -> None:
+    client, app = await web_client_factory(role)
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    fund_x, fund_y = await _investments(engine, owner, "Fund X", "Fund Y")
+    assigned = [
+        await _create(
+            engine,
+            owner,
+            filename="fund-x-q2.pdf",
+            document_type="quarterly_report",
+            document_date=date(2026, 6, 30),
+        ),
+        await _create(
+            engine,
+            owner,
+            filename="fund-x-call-7.pdf",
+            document_type="capital_notice",
+            document_date=date(2026, 5, 6),
+        ),
+        await _create(
+            engine,
+            owner,
+            filename="fund-x-q3.pdf",
+            document_type="quarterly_report",
+            document_date=date(2026, 9, 30),
+            findings=[
+                _finding(key="nav_lp", label="NAV, investor's share", value="41236000", unit="EUR"),
+                _finding(key="tvpi", label="TVPI", value="1.25", unit="x"),
+                _finding(key="net_irr", label="Net IRR", value="9.4", type="Percentage", unit="%"),
+            ],
+        ),
+        await _create(
+            engine,
+            owner,
+            filename="fund-x-letter.pdf",
+            document_type="other",
+            document_date=date(2026, 10, 22),
+            findings=[],
+        ),
+    ]
+    for reading in assigned:
+        await _assign(engine, owner, reading.id, _T0, investment_id=fund_x)
+    to_fund_y = await _create(engine, owner, filename="fund-y-q3.pdf")
+    await _assign(engine, owner, to_fund_y.id, _T0, investment_id=fund_y)
+    await _create(engine, owner, filename="unassigned-q3.pdf")
+    to_manager = await _create(engine, owner, filename="manager-letter.pdf")
+    await _assign(engine, owner, to_manager.id, _T0, manager_name="Example Capital")
+    removed = await _create(engine, owner, filename="removed-q3.pdf")
+    await _assign(engine, owner, removed.id, _T0, investment_id=fund_x)
+    await _remove(engine, owner, removed.id, "Wrong file.", _T0 + timedelta(hours=1))
+
+    page = await _investment_page(client, fund_x)
+    section = _readings_section(page)
+    assert _inv_rows(section) == ["R-0004", "R-0003", "R-0001", "R-0002"]
+    assert (
+        page.index('id="cashflows-title"')
+        < page.index('id="readings-title"')
+        < page.index('id="identifiers-title"')
+    )
+    assert '<h2 id="readings-title" class="inv-section__title">Documents read</h2>' in section
+    assert (
+        '<a class="btn btn--ghost" href="/assistants#reading-desk">Open the Reading Desk</a>'
+    ) in section
+    assert (
+        "<th>Document date</th><th>Type</th><th>Document</th><th>As read</th><th>Reading</th>"
+    ) in section
+    assert _FIGURES_SENTENCE in section
+
+    q3 = _inv_row(section, "R-0003")
+    assert "<td>2026-09-30</td>" in q3
+    assert "<td>Quarterly report</td>" in q3
+    assert "<td>fund-x-q3.pdf</td>" in q3
+    assert (
+        "<td>NAV, investor's share 41,236,000 EUR · TVPI 1.25 x · Net IRR 9.4%</td>"
+    ) in html.unescape(q3)
+    assert '<a class="pf-table__link" href="/assistants/readings/3">R-0003</a>' in q3
+
+    letter = _inv_row(section, "R-0004")
+    assert "<td>Other document</td>" in letter
+    assert f"<td>{_DASH}</td>" in letter
+
+    for filename in (
+        "fund-y-q3.pdf",
+        "unassigned-q3.pdf",
+        "manager-letter.pdf",
+        "removed-q3.pdf",
+    ):
+        assert filename not in page, filename
+
+
+async def test_investment_page_without_readings_shows_no_section(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    fund_x, fund_y = await _investments(engine, owner, "Fund X", "Fund Y")
+    removed = await _create(engine, owner, filename="fund-y-q3.pdf")
+    await _assign(engine, owner, removed.id, _T0, investment_id=fund_y)
+    await _remove(engine, owner, removed.id, "Wrong file.", _T0 + timedelta(hours=1))
+    await _create(engine, owner, filename="unassigned-q3.pdf")
+
+    for fund in (fund_x, fund_y):
+        page = await _investment_page(client, fund)
+        for absent in (
+            "inv-readings",
+            "readings-title",
+            "Documents read",
+            "Open the Reading Desk",
+        ):
+            assert absent not in page, (fund, absent)
+
+
+async def test_investment_page_as_read_by_document_type(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _investments(engine, owner, "Fund X")
+    seeds: list[tuple[str, date, list[dict[str, Any]]]] = [
+        (
+            "pitch_deck",
+            date(2026, 1, 15),
+            [
+                _finding(
+                    key="target_return",
+                    label="Target return",
+                    value="15% net IRR",
+                    type="Text",
+                    unit="",
+                ),
+                _finding(
+                    key="fundraising_status",
+                    label="Fundraising status",
+                    value="first close held",
+                    type="Text",
+                    unit="",
+                ),
+                _finding(key="target_size", label="Target size", value="750000000", unit="USD"),
+            ],
+        ),
+        (
+            "capital_notice",
+            date(2026, 5, 6),
+            [
+                _finding(
+                    key="notice_kind", label="Kind of notice", value="call", type="Text", unit=""
+                ),
+                _finding(
+                    key="amount_lp",
+                    label="Amount, investor's share",
+                    value="1920000",
+                    unit="EUR",
+                ),
+                _finding(
+                    key="value_date",
+                    label="Value date",
+                    value="2026-05-20",
+                    type="Date",
+                    unit="",
+                ),
+            ],
+        ),
+        (
+            "quarterly_report",
+            date(2026, 6, 30),
+            [
+                _finding(
+                    key="nav_lp",
+                    label="NAV, investor's share",
+                    value="",
+                    confidence="Not_Found",
+                ),
+                _finding(key="tvpi", label="TVPI", value="   ", unit="x"),
+                _finding(key="net_irr", label="Net IRR", value="9.4%", type="Percentage", unit="%"),
+                _finding(key="net_irr", label="Net IRR", value="1.0", type="Percentage", unit="%"),
+                _finding(key="dpi", label="DPI", value="0.40", unit="x"),
+                _finding(
+                    key="adhoc_nav_lp",
+                    label="Ad-hoc NAV",
+                    value="41236000",
+                    origin="adhoc",
+                ),
+            ],
+        ),
+        (
+            "quarterly_report",
+            date(2026, 9, 30),
+            [_finding(key="dpi", label="DPI", value="0.40", unit="x")],
+        ),
+        (
+            "other",
+            date(2026, 10, 22),
+            [_finding(key="nav_lp", label="NAV, investor's share", value="41236000")],
+        ),
+    ]
+    for document_type, document_date, findings in seeds:
+        reading = await _create(
+            engine,
+            owner,
+            document_type=document_type,
+            document_date=document_date,
+            findings=findings,
+        )
+        await _assign(engine, owner, reading.id, _T0, investment_id=fund)
+
+    section = _readings_section(await _investment_page(client, fund))
+    assert _inv_rows(section) == ["R-0005", "R-0004", "R-0003", "R-0002", "R-0001"]
+
+    def as_read(label: str) -> str:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", _inv_row(section, label), re.S)
+        return html.unescape(cells[3])
+
+    assert as_read("R-0001") == (
+        "Target size 750,000,000 USD · Fundraising status first close held"
+        " · Target return 15% net IRR"
+    )
+    assert as_read("R-0002") == (
+        "Kind of notice call · Amount, investor's share 1,920,000 EUR · Value date 2026-05-20"
+    )
+    assert as_read("R-0003") == "Net IRR 9.4%"
+    quarter = _inv_row(section, "R-0003")
+    assert "DPI" not in quarter
+    assert "Ad-hoc NAV" not in quarter
+    assert as_read("R-0004") == _DASH
+    assert as_read("R-0005") == _DASH
+
+
+async def test_investment_page_orders_by_document_date(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _investments(engine, owner, "Fund X")
+    for document_date, now in (
+        (date(2026, 3, 31), _T0),
+        (None, datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)),
+        (date(2026, 9, 30), _T0),
+        (date(2026, 9, 30), _T0),
+    ):
+        reading = await _create(engine, owner, document_date=document_date, now=now)
+        await _assign(engine, owner, reading.id, _T0, investment_id=fund)
+
+    section = _readings_section(await _investment_page(client, fund))
+    assert _inv_rows(section) == ["R-0004", "R-0003", "R-0002", "R-0001"]
+    undated = _inv_row(section, "R-0002")
+    assert undated.lstrip().startswith(f"<td>{_DASH}</td>")
+    assert "2026-07-01" not in undated
+
+
+async def test_investment_page_escapes_what_a_document_says(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _investments(engine, owner, "Fund X")
+    reading = await _create(
+        engine,
+        owner,
+        filename=f"{_SCRIPT}.pdf",
+        findings=[
+            _finding(
+                key="nav_lp", label=_SCRIPT, value="<b>value</b>", type="Text", unit="<i>unit</i>"
+            )
+        ],
+    )
+    await _assign(engine, owner, reading.id, _T0, investment_id=fund)
+
+    section = _readings_section(await _investment_page(client, fund))
+    assert _SCRIPT not in section
+    assert "<script" not in section
+    assert "<b>value" not in section
+    assert "<i>unit" not in section
+    assert section.count(_SCRIPT_ESCAPED) == 2
+    assert "&lt;b&gt;value&lt;/b&gt; &lt;i&gt;unit&lt;/i&gt;" in section
+
+
+async def test_investment_page_keeps_to_the_tenant(
+    web_client_factory: Any,
+    seeded_users: dict[str, UUID],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _investments(engine, owner, "Fund X")
+    reading = await _create(engine, owner, filename="fund-x-q3.pdf")
+    await _assign(engine, owner, reading.id, _T0, investment_id=fund)
+    await _other_tenant_reading(fresh_superuser_engine, engine)
+    async with fresh_superuser_engine.begin() as conn:
+        result = await conn.execute(
+            text(
+                "UPDATE document_readings SET investment_id = :investment_id "
+                "WHERE filename = 'foreign-0.pdf'"
+            ),
+            {"investment_id": str(fund)},
+        )
+    assert result.rowcount == 1
+
+    page = await _investment_page(client, fund)
+    assert _inv_rows(_readings_section(page)) == ["R-0001"]
+    assert "foreign-0.pdf" not in page

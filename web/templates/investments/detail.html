@@ -105,6 +105,13 @@
         <div id="cashflows-table" aria-label="Cashflows"></div>
     </section>
 
+    {# Documents read (ADR-0139 §11, D-RD-2-19): the Reading Desk's live
+       readings assigned to this investment. An investment without one
+       renders no section, so its page is unchanged. #}
+    {% if readings %}
+    {% include "investments/_readings_section.html" %}
+    {% endif %}
+
     <section class="inv-section" aria-labelledby="identifiers-title">
         <header class="inv-section__header">
             <h2 id="identifiers-title" class="inv-section__title">Security Identifiers</h2>

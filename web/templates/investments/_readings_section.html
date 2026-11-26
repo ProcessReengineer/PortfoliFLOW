@@ -1,0 +1,34 @@
+{# "Documents read" on the investment page (ADR-0139 §11, RD-D-14; D-RD-2-19;
+   M-RD-1 lines 3665–3682). Included by investments/detail.html after
+   Cashflows, and only for an investment that has live readings: one without
+   renders no section. Context: readings, the rows of
+   web/routes/investments.py::_reading_rows, newest document first; a removed
+   reading is not among them. Every signed-in role sees the list (RD-D-16).
+
+   This page is not inside .pf-reading-desk, so nothing here leans on a rule
+   of reading_desk.css; the classes are the page's own inv-section, base.css's
+   btn and the pf-* families of pf_components.css, which base.html links.
+   File name, type and findings are untrusted text and reach the page through
+   autoescape alone. The figures are the model's reading — the sentence under
+   the table says so. The two inline styles are the mockup's (D-RD-2-35). #}
+<section class="inv-section" id="inv-readings" aria-labelledby="readings-title">
+    <header class="inv-section__header">
+        <h2 id="readings-title" class="inv-section__title">Documents read</h2>
+        <a class="btn btn--ghost" href="/assistants#reading-desk">Open the Reading Desk</a>
+    </header>
+    <div class="pf-scroll-x"><table class="pf-table">
+        <thead><tr><th>Document date</th><th>Type</th><th>Document</th><th>As read</th><th>Reading</th></tr></thead>
+        <tbody>
+            {% for row in readings %}
+            <tr data-inv-reading="{{ row.label }}">
+                <td>{% if row.document_date %}{{ row.document_date }}{% else %}<span class="pf-hint">—</span>{% endif %}</td>
+                <td>{{ row.type_label }}</td>
+                <td>{{ row.filename }}</td>
+                <td>{% if row.as_read %}{{ row.as_read | join(" · ") }}{% else %}<span class="pf-hint">—</span>{% endif %}</td>
+                <td style="white-space:nowrap"><a class="pf-table__link" href="{{ row.href }}">{{ row.label }}</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table></div>
+    <p class="pf-hint" style="margin-top:8px">Figures are as read from the documents by the Reading Desk; they are not book data and are not checked against the documents.</p>
+</section>

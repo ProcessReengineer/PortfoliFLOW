@@ -46,6 +46,7 @@ tenant is itself an information leak).
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date as _date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import cast
@@ -68,6 +69,10 @@ from core.exceptions import (
 from core.models.investment_identifier import IDENTIFIER_SCHEMES
 from core.repositories._session import tenant_context
 from core.repositories.asset_class_repository import AssetClassRepository
+from core.repositories.document_reading_repository import (
+    DocumentReadingDTO,
+    DocumentReadingRepository,
+)
 from core.repositories.instrument_price_repository import (
     InstrumentPriceRepository,
 )
@@ -102,6 +107,7 @@ from services.chart_specs import (
 from services.investments import InvestmentService
 from web.auth import require_session, verify_csrf
 from web.permissions import require_role
+from web.routes.reading_desk import document_type_labels, project_findings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -151,6 +157,13 @@ _VALID_TXN_TYPES: frozenset[str] = frozenset({"opening", "buy", "sell", "transfe
 #: ``opening`` (Excel-synthesised, price derived at materialisation) and a
 #: ``transfer`` (in-kind, no trade price) may omit it.
 _TXN_TYPES_REQUIRING_PRICE: frozenset[str] = frozenset({"buy", "sell"})
+#: The findings a "Documents read" row shows, by document type and in this
+#: order (D-RD-2-19). A type that is not named here shows none.
+_READING_KEY_FINDINGS: dict[str, tuple[str, ...]] = {
+    "quarterly_report": ("nav_lp", "tvpi", "net_irr"),
+    "capital_notice": ("notice_kind", "amount_lp", "value_date"),
+    "pitch_deck": ("target_size", "fundraising_status", "target_return"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +449,57 @@ def _position_summary_payload(summary) -> dict:
         "can_flip": summary.can_flip,
         "flip_blocked_reason": summary.flip_blocked_reason,
     }
+
+
+def _finding_text(row: dict) -> str:
+    """One projected finding as ``label value unit``; a percent sign joins its number."""
+    value = row["value"]
+    unit = row["unit"]
+    if unit == "%":
+        value = f"{value}%"
+    elif unit:
+        value = f"{value} {unit}"
+    return f"{row['label']} {value}"
+
+
+def _reading_rows(readings: Sequence[DocumentReadingDTO]) -> list[dict]:
+    """Shape an investment's readings for the "Documents read" section.
+
+    One row per reading, in the order given — the repository's: live readings
+    only, newest document first. ``as_read`` holds up to three findings,
+    picked by key for the reading's document type (D-RD-2-19); a key the
+    reading does not hold, or holds as not found, is left out. The values
+    pass through the Reading Desk's own projection, so a number reads here
+    as it does on the reading (D-RD-2-36).
+
+    A reading is untrusted text: the rows are plain strings and the template
+    renders them through autoescape.
+    """
+    if not readings:
+        return []
+    type_labels = document_type_labels()
+    rows: list[dict] = []
+    for reading in readings:
+        wanted = _READING_KEY_FINDINGS.get(reading.document_type, ())
+        by_key: dict[str, dict] = {}
+        for finding in reading.findings or ():
+            key = finding.get("key")
+            if isinstance(key, str) and key in wanted and key not in by_key:
+                by_key[key] = finding
+        picked = [by_key[key] for key in wanted if key in by_key]
+        rows.append(
+            {
+                "label": reading.label,
+                "href": f"/assistants/readings/{reading.reading_number}",
+                "filename": reading.filename,
+                "type_label": type_labels.get(reading.document_type, reading.document_type),
+                "document_date": (
+                    reading.document_date.isoformat() if reading.document_date else None
+                ),
+                "as_read": [_finding_text(row) for row in project_findings(picked)["rows"]],
+            }
+        )
+    return rows
 
 
 def _validate_txn_rules(
@@ -733,6 +797,10 @@ async def investments_detail_view(
     meaningful — an unitised investment, a unitisable type, or one that
     already carries ledger rows. The private-markets majority renders
     exactly as it did before the position model landed.
+
+    A "Documents read" section (ADR-0139 §11, D-RD-2-19) follows Cashflows
+    where the Reading Desk holds live readings assigned to this investment;
+    an investment without one renders exactly as before.
     """
     engine = _engine(request)
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db_session:
@@ -751,6 +819,10 @@ async def investments_detail_view(
         # every non-cash investment and for a cash position at zero or above,
         # so the private-markets majority renders exactly as before.
         negative_cash = await service.negative_cash_for(investment_id, on=_date.today())
+        # The Reading Desk's readings assigned to this investment (ADR-0139
+        # §11): live ones only, newest document first. Row-level security
+        # keeps another tenant's readings out.
+        readings = await DocumentReadingRepository(db_session).list_for_investment(investment_id)
         ac = await AssetClassRepository(db_session).get_by_id(detail.investment.asset_class_id)
         user = await UserRepository(db_session).get_by_id(session.user_id)
         # Load region and sector weights for the read-only allocation
@@ -858,6 +930,7 @@ async def investments_detail_view(
                 "negative_cash": _negative_cash_payload(negative_cash),
                 "region_allocation": region_allocation_rows,
                 "sector_allocation": sector_allocation_rows,
+                "readings": _reading_rows(readings),
             },
         ),
     )

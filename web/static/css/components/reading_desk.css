@@ -30,6 +30,8 @@
 .pf-reading-desk .pf-panel { border-radius: var(--ui-radius-md); }
 .pf-reading-desk .pf-panel .pf-facts:last-child, .pf-reading-desk .pf-panel__head:last-child { margin-bottom: 0; }
 .pf-reading-desk .pf-panel + .pf-note, .pf-reading-desk .pf-note + .pf-panel, .pf-reading-desk .pf-panel + .pf-panel { margin-top: var(--ui-space-3); }
+/* Q-UX-S-RD-7: a pf-note carrying two acts in its third column (cf. Q-UX-S-A6-22). */
+.pf-reading-desk .pf-note > .pf-acts-inline { display: flex; gap: var(--ui-space-2); align-items: center; }
 /* Q-UX-S-RD-8: the wide field of a filter bar and the chip that holds a checkbox (Cases scopes the same two). */
 .pf-reading-desk .pf-filters { align-items: flex-end; }
 .pf-reading-desk .pf-filters__field--wide { flex: 1 1 320px; }

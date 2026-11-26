@@ -1,12 +1,22 @@
-{# A live reading as the Section's sub-surface (ADR-0139 §7, M-RD-1 lines
-   3410–3441 and 3469–3510). Swapped into #rd-reading; writes the crumb into
+{# A live reading as the Section's sub-surface (ADR-0139 §6, §7; M-RD-1 lines
+   3410–3510 and 3512–3575). Swapped into #rd-reading; writes the crumb into
    #reading-desk-title and the read stamp into #reading-desk-asof out of band
    (the Cases idiom, cases_file.html). The way back and "Go to Read" restore
    the plain head through GET /api/reading-desk/head.
 
-   Read side only: no assignment change, no removal, no proposal (P-RD-2c).
+   For owner and member (``can_read``) it carries the write side of one
+   reading (P-RD-2c1): "Read again…"; the menu with "Remove reading…" and
+   its panel (reading_desk_remove.html); the proposed assignment of an
+   unassigned reading (reading_desk_proposal.html); and the panel that
+   assigns by hand (reading_desk_assign.html), open beneath a proposal and
+   otherwise behind "Change…" / "Assign…". An auditor gets none of them:
+   what a role cannot use is not rendered (D-RD-2-2), and the routes answer
+   403. The answer to every write is this partial again, or the removed
+   reading.
+
    Context (web/routes/reading_desk.py::_reading_context): head, reading,
-   findings, note, can_read. #}
+   findings, note, can_read and, for can_read, proposal (dict | None),
+   assign and remove. #}
 <h2 class="pf-view__title pf-crumb" id="reading-desk-title" hx-swap-oob="outerHTML" data-pf-rd="crumb">
     <button type="button" class="pf-crumb__back" data-pf-rd="back" hx-get="/api/reading-desk/head" hx-swap="none">{{ pf_icon("back") }}Reading Desk</button>
     <span class="pf-crumb__sep" aria-hidden="true">›</span>
@@ -23,6 +33,12 @@
             </div>
             {% if can_read %}
                 <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-rd-toggle="rd-again" aria-controls="rd-again" aria-expanded="false">Read again…</button>
+                <details class="pf-menu" data-pf-rd="menu">
+                    <summary class="pf-btn pf-btn--quiet pf-btn--sm pf-btn--icon">{{ pf_icon("more", "More actions for " ~ reading.label) }}</summary>
+                    <div class="pf-menu__list">
+                        <button type="button" class="pf-menu__item pf-menu__item--danger" data-pf-rd-toggle="rd-remove" aria-controls="rd-remove" aria-expanded="{{ 'true' if remove.open else 'false' }}" hx-on:click="this.closest('details').removeAttribute('open')">Remove reading…</button>
+                    </div>
+                </details>
             {% endif %}
         </div>
         <dl class="pf-facts">
@@ -32,7 +48,7 @@
             <div><dt>Language</dt><dd>{{ reading.language }}</dd></div>
             <div><dt>Pages</dt><dd>{% if reading.pages is not none %}{{ reading.pages }} <span class="pf-hint">as reported by the model</span>{% else %}—{% endif %}</dd></div>
             <div><dt>Read</dt><dd>{{ reading.read }}</dd></div>
-            <div><dt>Assigned to</dt><dd>{% if reading.assignment %}{{ reading.assignment.name }} <span class="pf-hint">{{ reading.assignment.hint }}</span>{% else %}<span class="pf-state pf-state--unassigned">Unassigned</span>{% endif %}</dd></div>
+            <div><dt>Assigned to</dt><dd>{% if reading.assignment %}{{ reading.assignment.name }} <span class="pf-hint">{{ reading.assignment.hint }}</span>{% else %}<span class="pf-state pf-state--unassigned">Unassigned</span>{% endif %}{% if can_read and assign.closable %} <button type="button" class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-rd-toggle="rd-assign" aria-controls="rd-assign" aria-expanded="{{ 'true' if assign.open else 'false' }}">{{ "Change…" if reading.assignment else "Assign…" }}</button>{% endif %}</dd></div>
         </dl>
     </div>
 
@@ -42,6 +58,13 @@
             <button type="button" class="pf-btn pf-btn--sm" data-pf-rd="back" data-pf-rd-tab="read" hx-get="/api/reading-desk/head" hx-swap="none">Go to Read</button>
             <p class="pf-note__sub">Attach it on the Read tab. If this reading has the wrong document type, choose the right one there. The new reading gets its own number; this one stays until it is removed.</p>
         </div>
+        {% if proposal %}
+            {% with proposal_number = reading.number, proposal_host = "reading" %}
+                {% include "_partials/reading_desk_proposal.html" %}
+            {% endwith %}
+        {% endif %}
+        {% include "_partials/reading_desk_assign.html" %}
+        {% include "_partials/reading_desk_remove.html" %}
     {% endif %}
 
     {% if findings.total %}

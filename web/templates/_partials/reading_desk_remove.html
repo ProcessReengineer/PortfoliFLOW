@@ -1,0 +1,33 @@
+{# Removing one reading (RD-D-8, RD-D-17, D-RD-2-16; M-RD-1 lines 3459–3467):
+   the confirmation is inline and verbatim, asks for a reason, and offers
+   the danger button, then the quiet way out (ui-standards R7). Included by
+   reading_desk_reading.html for owner and member only; it opens from
+   "Remove reading…" in the head panel's menu (``data-pf-rd-toggle``).
+
+   POST /api/reading-desk/readings/<n>/remove answers with the removed
+   reading, into #rd-reading. A missing reason comes back first in this
+   panel, the panel open. The CSRF token travels in the ``hx-headers`` of
+   the Section root.
+
+   Context: reading.number, reading.label; remove — dict: open, error
+   (str | None), reason (str, what was sent). #}
+<div class="pf-panel" id="rd-remove" data-pf-rd="remove"{% if not remove.open %} hidden{% endif %}>
+    <div class="pf-panel__head"><div class="pf-panel__titles">
+        <h3 class="pf-panel__title">Remove reading {{ reading.label }}?</h3>
+        <p class="pf-panel__sub">Its findings and its reading note are deleted and cannot be restored. The entry stays in the Library as removed, with your reason. Anything already kept into a case, and anything entered in the book, is not touched.</p>
+    </div></div>
+    {% if remove.error %}
+        <div class="pf-note pf-note--block" role="alert" data-pf-rd="remove-error">{{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ remove.error }}</p><span></span>
+        </div>
+    {% endif %}
+    <form hx-post="/api/reading-desk/readings/{{ reading.number }}/remove" hx-target="#rd-reading" hx-swap="innerHTML">
+        <label class="pf-field" style="max-width:640px"><span class="pf-label">Reason</span>
+            <textarea class="pf-textarea" name="reason" rows="2" placeholder="Why is this reading removed?" maxlength="2000" required{% if remove.error %} aria-invalid="true"{% endif %}>{{ remove.reason }}</textarea>
+            <span class="pf-hint">Required. It is shown with the removed entry and recorded in the audit log.</span></label>
+        <div class="pf-panel__foot">
+            <button type="submit" class="pf-btn pf-btn--danger">Remove reading</button>
+            <button type="button" class="pf-btn pf-btn--quiet" data-pf-rd-toggle="rd-remove" aria-controls="rd-remove">Keep</button>
+        </div>
+    </form>
+</div>

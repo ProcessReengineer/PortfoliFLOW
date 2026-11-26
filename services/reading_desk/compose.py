@@ -261,32 +261,51 @@ def _fold(value: str | None) -> str:
     return (value or "").strip().casefold()
 
 
+def propose_for_names(
+    fund_name: str | None,
+    manager_name: str | None,
+    investments: Sequence[tuple[str, str | None]],
+) -> AssignmentProposal | None:
+    """Propose an assignment from a fund name and a manager name (ADR-0139 §6).
+
+    The one matching rule, for a fresh extraction and for a stored reading
+    alike. Both sides are compared after stripping and case folding; a blank
+    name never matches. A fund name matching an investment name comes first,
+    then a manager name matching a known manager name. With several equal
+    matches the first in the given order wins.
+
+    Args:
+        fund_name: The fund name as read, or ``None``.
+        manager_name: The manager name as read, or ``None``.
+        investments: ``(name, manager_name)`` of the tenant's investments.
+
+    Returns:
+        The proposal with the stored spelling, or ``None`` without a match.
+    """
+    fund = _fold(fund_name)
+    if fund:
+        for name, _ in investments:
+            if _fold(name) == fund:
+                return AssignmentProposal(kind="investment", name=name)
+    manager = _fold(manager_name)
+    if manager:
+        for _, known_manager in investments:
+            if known_manager is not None and _fold(known_manager) == manager:
+                return AssignmentProposal(kind="manager", name=known_manager)
+    return None
+
+
 def propose_assignment(
     extraction: ReportExtraction,
     investments: Sequence[tuple[str, str | None]],
 ) -> AssignmentProposal | None:
-    """Propose an assignment from the names as read (ADR-0139 §6).
-
-    Both sides are compared after stripping and case folding; a blank name
-    never matches. A fund name matching an investment name comes first, then
-    a manager name matching a known manager name. With several equal matches
-    the first in the given order wins.
+    """Propose an assignment from the names an extraction read (ADR-0139 §6).
 
     Args:
         extraction: The extraction whose fund and manager names are compared.
         investments: ``(name, manager_name)`` of the tenant's investments.
 
     Returns:
-        The proposal with the stored spelling, or ``None`` without a match.
+        The proposal of :func:`propose_for_names` for the extraction's names.
     """
-    fund = _fold(extraction.fund_name)
-    if fund:
-        for name, _ in investments:
-            if _fold(name) == fund:
-                return AssignmentProposal(kind="investment", name=name)
-    manager = _fold(extraction.manager_name)
-    if manager:
-        for _, manager_name in investments:
-            if manager_name is not None and _fold(manager_name) == manager:
-                return AssignmentProposal(kind="manager", name=manager_name)
-    return None
+    return propose_for_names(extraction.fund_name, extraction.manager_name, investments)

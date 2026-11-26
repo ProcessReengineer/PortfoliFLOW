@@ -1,10 +1,30 @@
-{# A proposed assignment (ADR-0139 §6, D-RD-2-15; M-RD-1 lines 3271–3274).
-   One partial for its two hosts: a result block of a run (P-RD-2b2b) and
-   the reading's page (P-RD-2c). The proposal is text here; *Assign* and
-   "Choose another…" join it in the third column with P-RD-2c.
+{# A proposed assignment (ADR-0139 §6, D-RD-2-15; M-RD-1 lines 3271–3274 and
+   3534–3537). One partial for its two hosts, both of which render it for
+   owner and member only:
 
-   Context: one dict ``proposal`` — kind ("investment" | "manager"), name
-   (the stored investment name or manager name). #}
+     result  — a result block of a run. *Assign* answers with
+               reading_desk_assigned.html in this note's place;
+               "Choose another…" opens the reading, where the panel is.
+     reading — the reading's page. *Assign* answers with the reading; the
+               panel "Or assign it yourself" stands open beneath, so there
+               is no "Choose another…".
+
+   The proposal is not stored: *Assign* sends ``to=proposal`` and the server
+   works the proposal out again from the names the reading holds. The CSRF
+   token travels in the ``hx-headers`` of the Section root
+   (reading_desk_frame.html).
+
+   Context: proposal — dict: kind ("investment" | "manager"), name (the
+   stored investment name or manager name); proposal_number (int, the
+   reading's number); proposal_host ("result" | "reading"). #}
 <div class="pf-note pf-note--info" data-pf-rd="proposal">{{ pf_icon("info") }}
-    <p class="pf-note__lead">Proposed assignment: {{ proposal.kind }} “{{ proposal.name }}”</p><span></span>
+    <p class="pf-note__lead">Proposed assignment: {{ proposal.kind }} “{{ proposal.name }}” <span class="pf-note__inline">— {% if proposal.kind == "investment" %}the fund name as read matches this investment.{% else %}the manager as read is the manager of one of your investments.{% endif %}</span></p>
+    <span class="pf-acts-inline">
+        {% if proposal_host == "result" %}
+            <button type="button" class="pf-btn pf-btn--sm" data-pf-rd="proposal-assign" hx-post="/api/reading-desk/readings/{{ proposal_number }}/assign" hx-vals='{"to": "proposal", "view": "result"}' hx-target="closest [data-pf-rd=proposal]" hx-swap="outerHTML" hx-disabled-elt="this">Assign</button>
+            <a class="pf-btn pf-btn--quiet pf-btn--sm" data-pf-rd="proposal-other" href="/assistants/readings/{{ proposal_number }}" hx-get="/api/reading-desk/readings/{{ proposal_number }}" hx-target="#rd-reading" hx-swap="innerHTML">Choose another…</a>
+        {% else %}
+            <button type="button" class="pf-btn pf-btn--sm" data-pf-rd="proposal-assign" hx-post="/api/reading-desk/readings/{{ proposal_number }}/assign" hx-vals='{"to": "proposal"}' hx-target="#rd-reading" hx-swap="innerHTML" hx-disabled-elt="this">Assign</button>
+        {% endif %}
+    </span>
 </div>

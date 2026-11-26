@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2025-2026 Sönke Pinkernelle
 
-"""The Reading Desk's Library routes (ADR-0139 §7, §11).
+"""The Reading Desk's Library routes (ADR-0139 §6, §7, §11).
 
-What every signed-in user of the tenant may see of the Reading Desk: the
+What every signed-in user of the tenant may see of the Reading Desk — the
 Library with its filters and search, one reading as the Section's
-sub-surface, and the Section's plain head. The run routes, and the Section
-frame itself (``GET /scraper/section``), stay in ``web/routes/scraper.py``.
+sub-surface, the Section's plain head — and what owner and member may do to
+one reading: assign it and remove it. The run routes, and the Section frame
+itself (``GET /scraper/section``), stay in ``web/routes/scraper.py``.
 
 Endpoints:
 
@@ -17,12 +18,22 @@ Endpoints:
                                                        crumb out of band.
 * ``GET /api/reading-desk/head``                    — the plain Section head,
                                                        out of band.
+* ``POST /api/reading-desk/readings/{reading_number}/assign`` — assign a
+                                                       reading or clear its
+                                                       assignment.
+* ``POST /api/reading-desk/readings/{reading_number}/remove`` — remove one
+                                                       reading, with a reason.
 
-There is no role gate: every role reads, ``auditor`` included (RD-D-16,
-RD-D-19), and row-level security keeps other tenants out — a reading of
-another tenant is simply not found. What a role cannot *use* is not
-rendered (D-RD-2-2); ``can_read`` (owner or member) decides the Read tab's
-pointers.
+The GET routes have no role gate: every role reads, ``auditor`` included
+(RD-D-16, RD-D-19), and row-level security keeps other tenants out — a
+reading of another tenant is simply not found. What a role cannot *use* is
+not rendered (D-RD-2-2); ``can_read`` (owner or member — the roles that
+start a run, assign and remove, RD-D-19) decides it. The two POST routes
+are gated to those roles and verify the CSRF token; everyone else gets 403.
+
+A write answers with the reading as it now stands. A refused write does
+too, with the reason first in the panel that caused it: 400 for an input
+the route cannot use, 409 when the reading was removed meanwhile.
 
 A reading is untrusted text. Everything here projects it into plain values
 and the templates render them through Jinja's autoescape; no HTML is built
@@ -34,20 +45,22 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from core.exceptions import ReadingInvalid, ReadingRemoved
 from core.repositories import (
     DocumentReadingDTO,
     DocumentReadingRepository,
+    InvestmentDTO,
     InvestmentRepository,
     ReadingPurgeDTO,
     UserRepository,
@@ -55,9 +68,10 @@ from core.repositories import (
 from core.repositories._session import tenant_context
 from core.repositories.user_repository import UserDTO
 from services.auth.session import SessionDTO
+from services.reading_desk import propose_for_names
 from services.scraper.profiles import PROFILE_IDS, ProfileError, load_profiles
-from web.auth import require_session
-from web.permissions import get_authenticated_user
+from web.auth import require_session, verify_csrf
+from web.permissions import get_authenticated_user, require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,6 +82,20 @@ PAGE_SIZE = 50
 _UNKNOWN_FILTER = "Unknown filter value."
 _NOT_FOUND = "Reading not found."
 _MISSING = "—"
+
+#: What ``to`` may name on an assignment, and where its answer lands.
+_ASSIGN_TARGETS = frozenset({"proposal", "investment", "manager", "none"})
+_ASSIGN_VIEWS = frozenset({"reading", "result"})
+_UNKNOWN_ASSIGNMENT = "Unknown assignment."
+_MANAGER_NAME_MAX = 200
+_REASON_MAX = 2000
+
+_CHOOSE_INVESTMENT = "Choose an investment from the list."
+_ENTER_MANAGER = "Enter a manager name."
+_MANAGER_TOO_LONG = "A manager name has at most 200 characters."
+_NO_PROPOSAL = "The proposal no longer applies."
+_REASON_REQUIRED = "A reason is required."
+_REASON_TOO_LONG = "A reason has at most 2,000 characters."
 
 #: The stored ISO 639-1 code, shown by name; any other code is shown as stored.
 _LANGUAGES: dict[str, str] = {
@@ -185,6 +213,29 @@ async def _people(repo: UserRepository) -> dict[UUID, str]:
 
 def _fold(value: str | None) -> str:
     return (value or "").strip().casefold()
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _name_pairs(investments: Sequence[InvestmentDTO]) -> list[tuple[str, str | None]]:
+    """``(name, manager_name)`` of the investments, the shape the proposal rule reads."""
+    return [(investment.name, investment.manager_name) for investment in investments]
+
+
+def _manager_suggestions(investments: Sequence[InvestmentDTO], used: Iterable[str]) -> list[str]:
+    """The manager names to suggest: those of the investments and those already used.
+
+    One spelling per name — the first met, the investments' first — sorted
+    without regard to case.
+    """
+    seen: dict[str, str] = {}
+    for name in [*(investment.manager_name for investment in investments), *used]:
+        key = _fold(name)
+        if name is not None and key and key not in seen:
+            seen[key] = name.strip()
+    return sorted(seen.values(), key=str.casefold)
 
 
 # ---------------------------------------------------------------------------
@@ -543,21 +594,87 @@ def project_note(note: dict | None, language: str | None) -> dict[str, Any]:
     }
 
 
+def _write_side(
+    reading: DocumentReadingDTO,
+    *,
+    investments: Sequence[InvestmentDTO],
+    manager_names: Sequence[str],
+    assign_error: str | None,
+    remove_error: str | None,
+    remove_reason: str,
+) -> dict[str, Any]:
+    """What owner and member get on a live reading beyond its content.
+
+    ``proposal`` is worked out again from the names the reading holds — it
+    is not stored — and only while the reading is unassigned. Beneath a
+    proposal the panel that assigns by hand stands open and has no foot;
+    otherwise it is closed, unless a refused assignment comes back in it.
+    """
+    assigned = reading.investment_id is not None or reading.manager_name is not None
+    proposed = (
+        None
+        if assigned
+        else propose_for_names(
+            reading.fund_name_read, reading.manager_name_read, _name_pairs(investments)
+        )
+    )
+    if reading.manager_name is not None:
+        manager_value = reading.manager_name
+    elif assigned:
+        manager_value = ""
+    elif proposed is not None and proposed.kind == "manager":
+        manager_value = proposed.name
+    else:
+        manager_value = reading.manager_name_read or ""
+    return {
+        "proposal": (
+            {"kind": proposed.kind, "name": proposed.name} if proposed is not None else None
+        ),
+        "assign": {
+            "title": "Or assign it yourself" if proposed is not None else "Assign this reading",
+            "open": proposed is not None or assign_error is not None,
+            "closable": proposed is None,
+            "assigned": assigned,
+            "error": assign_error,
+            "investments": [
+                {
+                    "id": str(investment.id),
+                    "name": investment.name,
+                    "selected": investment.id == reading.investment_id,
+                }
+                for investment in investments
+            ],
+            "manager_value": manager_value,
+            "manager_names": _manager_suggestions(investments, manager_names),
+        },
+        "remove": {
+            "open": remove_error is not None,
+            "error": remove_error,
+            "reason": remove_reason,
+        },
+    }
+
+
 def _reading_context(
     reading: DocumentReadingDTO,
     *,
     people: dict[UUID, str],
-    investments: dict[UUID, str],
+    investments: Sequence[InvestmentDTO],
+    manager_names: Sequence[str],
     type_labels: dict[str, str],
     can_read: bool,
+    assign_error: str | None = None,
+    remove_error: str | None = None,
+    remove_reason: str = "",
 ) -> dict[str, Any]:
-    """The context of a live reading."""
+    """The context of a live reading; for ``can_read`` with its write side."""
     type_label = type_labels.get(reading.document_type, reading.document_type)
     language = language_name(reading.language)
+    investment_names = {investment.id: investment.name for investment in investments}
     assignment: dict[str, str] | None = None
     if reading.investment_id is not None or reading.manager_name is not None:
         if reading.investment_id is not None:
-            name = investments.get(reading.investment_id, _MISSING)
+            name = investment_names.get(reading.investment_id, _MISSING)
             kind = "investment"
         else:
             name = reading.manager_name or _MISSING
@@ -572,13 +689,14 @@ def _reading_context(
         for keyword in reading.adhoc_keywords
         if isinstance(keyword, dict) and _text(keyword.get("name"))
     ]
-    return {
+    context: dict[str, Any] = {
         "head": {
             "crumb": f"{reading.label} · {type_label}",
             "asof": f"Read {_utc_minute(reading.read_at)}",
         },
         "reading": {
             "label": reading.label,
+            "number": reading.reading_number,
             "title": _joined(reading.fund_name_read, reading.period_label) or reading.filename,
             "sub": f"{type_label} · as read from {reading.filename}",
             "document_date": (
@@ -603,6 +721,18 @@ def _reading_context(
         "note": project_note(reading.note, language),
         "can_read": can_read,
     }
+    if can_read:
+        context.update(
+            _write_side(
+                reading,
+                investments=investments,
+                manager_names=manager_names,
+                assign_error=assign_error,
+                remove_error=remove_error,
+                remove_reason=remove_reason,
+            )
+        )
+    return context
 
 
 def _removed_context(
@@ -783,7 +913,44 @@ async def reading_desk_reading(
     Raises:
         HTTPException: 404 for a number the tenant does not have.
     """
+    return await _render_reading(request, session, user, reading_number)
+
+
+async def _render_reading(
+    request: Request,
+    session: SessionDTO,
+    user: UserDTO,
+    reading_number: int,
+    *,
+    status_code: int = status.HTTP_200_OK,
+    assign_error: str | None = None,
+    remove_error: str | None = None,
+    remove_reason: str = "",
+) -> HTMLResponse:
+    """A reading as it stands now — the answer to the GET and to every write.
+
+    Reads in a transaction of its own, so after a write it shows what was
+    committed. The investments are read for a live reading that is assigned
+    to one, and for owner and member, whose panel lists them; the names
+    already used on readings are read for owner and member only.
+
+    Args:
+        request: The request.
+        session: The session; its tenant and user scope the read.
+        user: The signed-in user; the role decides the write side.
+        reading_number: The reading's number in the tenant.
+        status_code: 200, or the status of the refused write this answers.
+        assign_error: The refusal of an assignment, shown in its panel.
+        remove_error: The refusal of a removal, shown in its panel.
+        remove_reason: The reason that was sent with a refused removal.
+
+    Raises:
+        HTTPException: 404 for a number the tenant does not have.
+    """
+    can_read = user.has_role("owner", "member")
     engine = request.app.state.engine
+    investments: list[InvestmentDTO] = []
+    manager_names: list[str] = []
     async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
         repo = DocumentReadingRepository(db)
         reading = await repo.get_by_number(reading_number)
@@ -795,14 +962,11 @@ async def reading_desk_reading(
             if reading.purge_id is not None
             else {}
         )
-        investments = (
-            {
-                investment.id: investment.name
-                for investment in await InvestmentRepository(db).list_all()
-            }
-            if reading.investment_id is not None and not reading.is_removed
-            else {}
-        )
+        if not reading.is_removed:
+            if can_read or reading.investment_id is not None:
+                investments = await InvestmentRepository(db).list_all()
+            if can_read:
+                manager_names = await repo.list_manager_names()
     templates = _templates(request)
     if reading.is_removed:
         return cast(
@@ -811,6 +975,7 @@ async def reading_desk_reading(
                 request,
                 "_partials/reading_desk_reading_removed.html",
                 _removed_context(reading, people=people, purges=purges),
+                status_code=status_code,
             ),
         )
     return cast(
@@ -822,11 +987,235 @@ async def reading_desk_reading(
                 reading,
                 people=people,
                 investments=investments,
+                manager_names=manager_names,
                 type_labels=document_type_labels(),
-                can_read=user.has_role("owner", "member"),
+                can_read=can_read,
+                assign_error=assign_error,
+                remove_error=remove_error,
+                remove_reason=remove_reason,
             ),
+            status_code=status_code,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/reading-desk/readings/{reading_number}/assign
+# ---------------------------------------------------------------------------
+
+
+def _answer(state: str, lead: str, sub: str = "") -> dict[str, str]:
+    """The context of ``reading_desk_assigned.html``."""
+    return {"state": state, "lead": lead, "sub": sub}
+
+
+def _chosen_investment(value: str, investments: Sequence[InvestmentDTO]) -> InvestmentDTO | None:
+    """The tenant's investment a submitted id names, or ``None``."""
+    try:
+        chosen = UUID(value.strip())
+    except ValueError:
+        return None
+    return next((investment for investment in investments if investment.id == chosen), None)
+
+
+@router.post(
+    "/api/reading-desk/readings/{reading_number}/assign",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def reading_desk_assign(
+    request: Request,
+    reading_number: int,
+    to: str = Form(""),
+    investment_id: str = Form(""),
+    manager_name: str = Form(""),
+    view: str = Form("reading"),
+    session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Assign a reading, or clear its assignment (ADR-0139 §6, RD-D-7, RD-D-19).
+
+    ``to`` names the target: ``investment`` (with ``investment_id``),
+    ``manager`` (with ``manager_name``), ``none`` (unassign), or
+    ``proposal`` — the proposal is not stored, so it is worked out again
+    from the names the reading holds and assigned if it still applies.
+
+    ``view`` names where the answer lands. ``reading`` (the reading's page)
+    answers with the reading as it now stands; a refusal comes back in the
+    panel, with 400. ``result`` (a result block of a run) answers with one
+    note in the proposal's place. A reading removed meanwhile answers 409
+    in either view.
+
+    Raises:
+        HTTPException: 400 for a ``to`` or ``view`` outside the vocabulary,
+            404 for a number the tenant does not have.
+    """
+    if to not in _ASSIGN_TARGETS or view not in _ASSIGN_VIEWS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _UNKNOWN_ASSIGNMENT)
+    engine = request.app.state.engine
+    removed = False
+    refusal: str | None = None
+    target_investment: InvestmentDTO | None = None
+    target_manager: str | None = None
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = DocumentReadingRepository(db)
+        reading = await repo.get_by_number(reading_number)
+        if reading is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
+        label = reading.label
+        if reading.is_removed:
+            removed = True
+        else:
+            investments = (
+                await InvestmentRepository(db).list_all()
+                if to in ("proposal", "investment")
+                else []
+            )
+            if to == "proposal":
+                proposed = propose_for_names(
+                    reading.fund_name_read, reading.manager_name_read, _name_pairs(investments)
+                )
+                if proposed is None:
+                    refusal = _NO_PROPOSAL
+                elif proposed.kind == "investment":
+                    target_investment = next(
+                        investment for investment in investments if investment.name == proposed.name
+                    )
+                else:
+                    target_manager = proposed.name
+            elif to == "investment":
+                target_investment = _chosen_investment(investment_id, investments)
+                if target_investment is None:
+                    refusal = _CHOOSE_INVESTMENT
+            elif to == "manager":
+                target_manager = manager_name.strip() or None
+                if target_manager is None:
+                    refusal = _ENTER_MANAGER
+                elif len(target_manager) > _MANAGER_NAME_MAX:
+                    refusal = _MANAGER_TOO_LONG
+            if refusal is None:
+                try:
+                    await repo.assign(
+                        reading.id,
+                        investment_id=target_investment.id if target_investment else None,
+                        manager_name=target_manager,
+                        assigned_by=session.user_id,
+                        now=_now(),
+                    )
+                except ReadingRemoved:
+                    removed = True
+                except ReadingInvalid:
+                    # The route has checked what the repository checks; a
+                    # refusal here is a target that vanished in between.
+                    refusal = _CHOOSE_INVESTMENT if to == "investment" else _NO_PROPOSAL
+    if view == "reading":
+        if removed:
+            return await _render_reading(
+                request, session, user, reading_number, status_code=status.HTTP_409_CONFLICT
+            )
+        if refusal is not None:
+            return await _render_reading(
+                request,
+                session,
+                user,
+                reading_number,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                assign_error=refusal,
+            )
+        return await _render_reading(request, session, user, reading_number)
+    if removed:
+        answer = _answer("refused", f"{label} was removed.", "Nothing was assigned.")
+        status_code = status.HTTP_409_CONFLICT
+    elif refusal is not None:
+        answer = _answer("refused", refusal, f"Open {label} to assign it yourself.")
+        status_code = status.HTTP_400_BAD_REQUEST
+    else:
+        if target_investment is not None:
+            lead = f"Assigned to investment “{target_investment.name}”."
+        elif target_manager is not None:
+            lead = f"Assigned to manager “{target_manager}”."
+        else:
+            lead = "Unassigned."
+        answer = _answer("done", lead)
+        status_code = status.HTTP_200_OK
+    return cast(
+        HTMLResponse,
+        _templates(request).TemplateResponse(
+            request,
+            "_partials/reading_desk_assigned.html",
+            {"answer": answer},
+            status_code=status_code,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/reading-desk/readings/{reading_number}/remove
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/api/reading-desk/readings/{reading_number}/remove",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_role("owner", "member"))],
+)
+async def reading_desk_remove(
+    request: Request,
+    reading_number: int,
+    reason: str = Form(""),
+    session: SessionDTO = Depends(require_session),
+    user: UserDTO = Depends(get_authenticated_user),
+    _csrf: None = Depends(verify_csrf),
+) -> HTMLResponse:
+    """Remove one reading, with a reason (RD-D-8, RD-D-17, RD-D-19).
+
+    The reading becomes a tombstone: its findings, its note and its search
+    text are deleted, its entry stays with the reason. The answer is the
+    removed reading. Without a reason nothing is removed and the reading
+    comes back with the refusal in the panel (400); a reading that already
+    is removed answers 409 with the removed reading.
+
+    Raises:
+        HTTPException: 404 for a number the tenant does not have.
+    """
+    engine = request.app.state.engine
+    removed_already = False
+    refusal: str | None = None
+    stripped = reason.strip()
+    async with tenant_context(engine, session.tenant_id, user_id=session.user_id) as db:
+        repo = DocumentReadingRepository(db)
+        reading = await repo.get_by_number(reading_number)
+        if reading is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _NOT_FOUND)
+        if reading.is_removed:
+            removed_already = True
+        elif not stripped:
+            refusal = _REASON_REQUIRED
+        elif len(stripped) > _REASON_MAX:
+            refusal = _REASON_TOO_LONG
+        else:
+            try:
+                await repo.remove(
+                    reading.id, reason=stripped, removed_by=session.user_id, now=_now()
+                )
+            except ReadingRemoved:
+                removed_already = True
+    if removed_already:
+        return await _render_reading(
+            request, session, user, reading_number, status_code=status.HTTP_409_CONFLICT
+        )
+    if refusal is not None:
+        return await _render_reading(
+            request,
+            session,
+            user,
+            reading_number,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            remove_error=refusal,
+            remove_reason=reason,
+        )
+    return await _render_reading(request, session, user, reading_number)
 
 
 # ---------------------------------------------------------------------------

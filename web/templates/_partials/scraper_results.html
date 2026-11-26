@@ -7,8 +7,8 @@
    the same projection. Four states (web.routes.scraper._project_result):
 
      saved   — "Saved as R-nnnn · <type> · <fund> · <period>", the way to
-               the reading, the proposed assignment as text (its actions
-               are P-RD-2c's), the findings, the note folded.
+               the reading, the proposed assignment with *Assign* and
+               "Choose another…" (P-RD-2c1), the findings, the note folded.
      unsaved — read, but the reading could not be written: a warning, then
                the findings and the note, shown this once.
      read    — no database engine, nothing is written at all: the findings
@@ -46,7 +46,7 @@
                 </div>
             {% endif %}
             {% if result.proposal %}
-                {% with proposal = result.proposal %}
+                {% with proposal = result.proposal, proposal_number = result.number, proposal_host = "result" %}
                     {% include "_partials/reading_desk_proposal.html" %}
                 {% endwith %}
             {% endif %}

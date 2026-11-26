@@ -741,6 +741,25 @@ def test_the_reading_desk_scripts_read_and_write_no_class() -> None:
         assert offenders == [], f"{path.name}: {offenders}"
 
 
+def test_the_reading_desk_confirms_inline() -> None:
+    """A confirmation on the Reading Desk is inline, never a browser dialog (ui-standards R7).
+
+    Removing a reading asks in its own panel (P-RD-2c1). No `reading_desk_*`
+    or `scraper_*` partial carries `hx-confirm`, and neither script calls
+    `confirm(` or `alert(`.
+    """
+    partials = sorted(
+        [*_RD_PARTIALS.glob("reading_desk_*.html"), *_RD_PARTIALS.glob("scraper_*.html")]
+    )
+    assert partials
+    offenders = [path.name for path in partials if "hx-confirm" in path.read_text(encoding="utf-8")]
+    assert offenders == [], offenders
+    for path in _RD_SCRIPTS:
+        source = path.read_text(encoding="utf-8")
+        for token in ("confirm(", "alert("):
+            assert token not in source, f"{path.name}: {token}"
+
+
 def test_the_scraper_stylesheet_is_gone() -> None:
     """`scraper.css` is deleted and `base.html` no longer links it (P-RD-2b2b)."""
     assert not (_CSS_DIR / "components" / "scraper.css").exists()

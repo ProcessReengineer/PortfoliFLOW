@@ -26,6 +26,7 @@ from services.reading_desk.compose import (
     compose_search_text,
     describe_upload,
     propose_assignment,
+    propose_for_names,
     sanitise_text,
 )
 from services.reading_desk.writer import ReadingOutcome, find_earlier_readings, write_readings
@@ -42,6 +43,7 @@ __all__ = [
     "describe_upload",
     "find_earlier_readings",
     "propose_assignment",
+    "propose_for_names",
     "sanitise_text",
     "write_readings",
 ]

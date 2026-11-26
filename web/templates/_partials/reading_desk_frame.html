@@ -12,9 +12,15 @@
    a reading (/assistants/readings/<n>), the tabs and panes are hidden and
    #rd-reading loads the reading.
 
+   For owner and member the root carries the CSRF token as ``hx-headers``:
+   htmx inherits the attribute, so every write inside the Section — on a
+   reading swapped into #rd-reading, on a result block that arrived over
+   the run's stream — sends it without its partial knowing the token.
+
    Context: can_read, initial_tab ("read" | "library"), reading_number
-   (int | None) and, for can_read, the keys of scraper_section.html. #}
-<div class="pf-reading-desk" data-pf-rd="root">
+   (int | None) and, for can_read, csrf_token and the keys of
+   scraper_section.html. #}
+<div class="pf-reading-desk" data-pf-rd="root"{% if can_read %} hx-headers='{{ {"X-CSRF-Token": csrf_token}|tojson }}'{% endif %}>
     <div class="pf-tabs" role="tablist" aria-label="Reading Desk" data-pf-rd="tabs"{% if reading_number %} hidden{% endif %}>
         {% if can_read %}
             <button type="button" class="pf-tab" role="tab" id="rd-tab-read" aria-controls="rd-pane-read" aria-selected="{{ 'true' if initial_tab == 'read' else 'false' }}" data-pf-rd="tab" data-pf-rd-tab="read">Read</button>

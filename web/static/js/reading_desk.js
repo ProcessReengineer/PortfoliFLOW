@@ -7,6 +7,11 @@
  * asks htmx to fire the loader or the filter form the server rendered, and
  * the Section head is restored by the way back's own ``hx-get``.
  *
+ * A refused write on a reading (P-RD-2c1) answers 400 or 409 with the
+ * fragment that says why; htmx 1.9.12 does not swap an error response, so
+ * the two statuses are let through for exactly the two places such an
+ * answer lands: #rd-reading and a proposed assignment.
+ *
  * The panes are only ever hidden, never swapped away, so a run streaming in
  * the Read pane survives every move here. The frame arrives lazily, so
  * every handler is delegated from ``document`` and looks its elements up
@@ -118,11 +123,31 @@
         }
         const toggle = target.closest("[data-pf-rd-toggle]");
         if (toggle) {
-            const panel = document.getElementById(toggle.getAttribute("data-pf-rd-toggle"));
+            const id = toggle.getAttribute("data-pf-rd-toggle");
+            const panel = document.getElementById(id);
             if (panel) {
                 panel.hidden = !panel.hidden;
-                toggle.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+                // A panel can have an opener and a way out; only the opener
+                // carries the state.
+                document
+                    .querySelectorAll('[data-pf-rd-toggle="' + id + '"][aria-expanded]')
+                    .forEach(function (opener) {
+                        opener.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+                    });
             }
+        }
+    });
+
+    document.addEventListener("htmx:beforeSwap", function (event) {
+        const detail = event.detail;
+        const target = detail && detail.target;
+        if (!target || !detail.xhr) {
+            return;
+        }
+        const refusedWrite = target.id === "rd-reading" || target.matches('[data-pf-rd="proposal"]');
+        if (refusedWrite && (detail.xhr.status === 400 || detail.xhr.status === 409)) {
+            detail.shouldSwap = true;
+            detail.isError = false;
         }
     });
 

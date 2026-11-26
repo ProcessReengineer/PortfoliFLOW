@@ -28,6 +28,7 @@ from services.reading_desk import (
     compose_search_text,
     describe_upload,
     propose_assignment,
+    propose_for_names,
     sanitise_text,
 )
 from services.scraper import bank_filter
@@ -381,3 +382,34 @@ def test_propose_assignment_without_a_match() -> None:
     investments = [("Fund Y", "Other Capital"), ("Fund Z", None)]
     assert propose_assignment(_extraction(), investments) is None
     assert propose_assignment(_extraction(), []) is None
+
+
+def test_propose_for_names_is_the_rule_of_propose_assignment() -> None:
+    """One matching rule for a fresh extraction and a stored reading (P-RD-2c1).
+
+    For each case above, ``propose_for_names`` on the extraction's two names
+    gives what ``propose_assignment`` gives; a ``None`` name never matches.
+    """
+    cases: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = [
+        ({"fund_name": "fund x ii"}, [("Other Fund", None), ("  Fund X II ", "Example Capital")]),
+        ({}, [("Earlier Fund", "Example Capital"), ("Fund X", "Someone Else")]),
+        (
+            {"manager_name": " example CAPITAL"},
+            [("Fund I", None), ("Fund II", "EXAMPLE capital "), ("Fund III", "Example Capital")],
+        ),
+        ({"fund_name": " ", "manager_name": ""}, [(" ", " "), ("", "")]),
+        ({}, [("Fund Y", "Other Capital"), ("Fund Z", None)]),
+        ({}, []),
+    ]
+    for overrides, investments in cases:
+        extraction = _extraction(**overrides)
+        assert propose_for_names(
+            extraction.fund_name, extraction.manager_name, investments
+        ) == propose_assignment(extraction, investments), overrides
+    assert propose_for_names(None, None, [("Fund X", "Example Capital")]) is None
+    assert propose_for_names(None, "Example Capital", [("Fund X", "Example Capital")]) == (
+        AssignmentProposal(kind="manager", name="Example Capital")
+    )
+    assert propose_for_names("Fund X", None, [("Fund X", None)]) == AssignmentProposal(
+        kind="investment", name="Fund X"
+    )

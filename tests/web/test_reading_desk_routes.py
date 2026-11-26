@@ -15,9 +15,16 @@ What every signed-in user of the tenant may see of the Reading Desk:
    removal only), the roles, the escaping of untrusted text.
 4. ``GET /api/reading-desk/head`` — the plain head, out of band.
 5. ``GET /assistants/readings/<n>`` — the page address of a reading.
+6. The write side of one reading (P-RD-2c1): ``POST
+   /api/reading-desk/readings/<n>/assign`` — to an investment, to a manager
+   name, unassign, the proposal, on the reading's page and from a result
+   block — and ``POST /api/reading-desk/readings/<n>/remove`` with its
+   reason; the refusals, the CSRF token the Section root carries, and the
+   gates for the three roles.
 
 Assertions bind to ``data-pf-rd`` hooks, ids and copy, and to a class only
-where the class is the point. All dates are fixed.
+where the class is the point. All dates are fixed, except the day a write
+stamps, which is today's in UTC.
 """
 
 from __future__ import annotations
@@ -887,9 +894,12 @@ async def test_live_reading(web_client_factory: Any, seeded_users: dict[str, UUI
         '<dt>Pages</dt><dd>24 <span class="pf-hint">as reported by the model</span></dd>',
         "<dt>Read</dt><dd>2026-11-20 · Olivia Owner</dd>",
         "<dt>Assigned to</dt><dd>Nordlicht Infrastructure II "
-        '<span class="pf-hint">investment · Olivia Owner, 2026-11-21</span></dd>',
+        '<span class="pf-hint">investment · Olivia Owner, 2026-11-21</span>',
     ):
         assert fact in body, fact
+    # The owner's page continues the fact with the opener of the assign panel.
+    opener = _element(body, r'<button[^>]*data-pf-rd-toggle="rd-assign"[^>]*>Change…</button>')
+    assert 'aria-expanded="false"' in opener
 
     # The findings.
     assert "4 of 6 fields found · values and quotes are the model's reading" in html.unescape(body)
@@ -975,10 +985,10 @@ async def test_sparse_readings(web_client_factory: Any, seeded_users: dict[str, 
         "<dt>Currency</dt><dd>—</dd>",
         "<dt>Language</dt><dd>xx</dd>",
         "<dt>Pages</dt><dd>—</dd>",
-        '<dt>Assigned to</dt><dd><span class="pf-state pf-state--unassigned">'
-        "Unassigned</span></dd>",
+        '<dt>Assigned to</dt><dd><span class="pf-state pf-state--unassigned">Unassigned</span>',
     ):
         assert fact in sparse, fact
+    _element(sparse, r'<button[^>]*data-pf-rd-toggle="rd-assign"[^>]*>Assign…</button>')
     assert "1 of 2 fields found" in sparse
     assert "<summary>1 field was not found in the document</summary>" in sparse
     assert 'data-pf-rd="note"' not in sparse
@@ -1015,8 +1025,48 @@ async def test_reading_actions_per_role(
         assert "The document is not kept, so reading it again needs the file." in body
         go = _element(body, r'<button[^>]*data-pf-rd-tab="read"[^>]*>')
         assert 'data-pf-rd="back"' in go and 'hx-get="/api/reading-desk/head"' in go
-    for absent in ("Remove reading", "Change…", "Proposed assignment", "Keep"):
-        assert absent not in body, absent
+
+    if role == "auditor":
+        for absent in (
+            "Remove reading",
+            "Change…",
+            "Assign…",
+            "Proposed assignment",
+            "Keep",
+            'id="rd-assign"',
+            'id="rd-remove"',
+            'data-pf-rd="menu"',
+            "hx-post",
+        ):
+            assert absent not in body, absent
+        return
+
+    # The menu in the head panel and its one item.
+    assert 'data-pf-rd="menu"' in _element(body, r'<details class="pf-menu"[^>]*>')
+    assert 'aria-label="More actions for R-0001"' in body
+    item = _element(
+        body, r'<button[^>]*data-pf-rd-toggle="rd-remove"[^>]*>Remove reading…</button>'
+    )
+    assert 'aria-expanded="false"' in item and "pf-menu__item--danger" in item
+    # The remove panel, closed.
+    remove = _element(body, r'<div class="pf-panel" id="rd-remove"[^>]*>')
+    assert " hidden" in remove
+    panel = body[body.index('id="rd-remove"') :]
+    assert "Remove reading R-0001?</h3>" in panel
+    assert "Required. It is shown with the removed entry and recorded in the audit log." in panel
+    textarea = _element(panel, r'<textarea[^>]*name="reason"[^>]*>')
+    assert " required" in textarea
+    assert 'hx-post="/api/reading-desk/readings/1/remove"' in panel
+    assert ">Remove reading</button>" in panel and ">Keep</button>" in panel
+    # The assign panel, closed; R-0001 is assigned to its investment.
+    assign = _element(body, r'<div class="pf-panel" id="rd-assign"[^>]*>')
+    assert " hidden" in assign
+    panel = body[body.index('id="rd-assign"') : body.index('id="rd-remove"')]
+    assert '<h3 class="pf-panel__title">Assign this reading</h3>' in panel
+    assert ">Unassign</button>" in panel and ">Close</button>" in panel
+    assert panel.count('hx-post="/api/reading-desk/readings/1/assign"') == 3
+    assert re.search(r'<option value="[0-9a-f-]{36}" selected>Nordlicht Infrastructure II<', panel)
+    assert "Proposed assignment" not in body
 
 
 async def test_untrusted_text_is_escaped(
@@ -1169,3 +1219,614 @@ async def test_reading_page_address(
     plain = (await client.get("/assistants")).text
     assert 'hx-get="/scraper/section"' in plain
     assert "/scraper/section?reading" not in plain
+
+
+# ---------------------------------------------------------------------------
+# The write side of one reading (P-RD-2c1)
+# ---------------------------------------------------------------------------
+
+_ROOT_TAG = re.compile(r'<div class="pf-reading-desk" data-pf-rd="root"[^>]*>')
+_ROOT_TOKEN = re.compile(r"""hx-headers='\{"X-CSRF-Token": "([^"]+)"\}'""")
+_META_TOKEN = re.compile(r'<meta name="csrf-token" content="([^"]+)">')
+
+
+async def _section_token(client: AsyncClient) -> str:
+    """The token the Section root carries for owner and member."""
+    body = (await client.get("/scraper/section")).text
+    match = _ROOT_TOKEN.search(_element(body, _ROOT_TAG.pattern))
+    assert match is not None, "the Section root carries no token"
+    return match.group(1)
+
+
+async def _page_token(client: AsyncClient) -> str:
+    """The session's token as any signed-in page gives it, auditor included."""
+    body = (await client.get("/assistants")).text
+    match = _META_TOKEN.search(body)
+    assert match is not None, "the page carries no csrf-token meta"
+    return match.group(1)
+
+
+def _today() -> str:
+    """The day a write made now is stamped with, in UTC."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+async def _post(
+    client: AsyncClient, number: int, action: str, token: str | None, **form: str
+) -> Any:
+    headers = {"X-CSRF-Token": token} if token is not None else {}
+    return await client.post(
+        f"/api/reading-desk/readings/{number}/{action}",
+        data=form,
+        headers=headers,
+        follow_redirects=False,
+    )
+
+
+async def _row(
+    engine: AsyncEngine, user_id: UUID, number: int, tenant_id: UUID = SENTINEL_TENANT_ID
+) -> DocumentReadingDTO:
+    async with tenant_context(engine, tenant_id, user_id=user_id) as session:
+        reading = await DocumentReadingRepository(session).get_by_number(number)
+    assert reading is not None, number
+    return reading
+
+
+async def _held(
+    engine: AsyncEngine,
+    user_id: UUID,
+    pairs: list[tuple[str, str | None]],
+    tenant_id: UUID = SENTINEL_TENANT_ID,
+) -> list[UUID]:
+    """Investments ``(name, manager_name)`` under one asset class."""
+    async with tenant_context(engine, tenant_id, user_id=user_id) as session:
+        asset_class = await AssetClassRepository(session).create(
+            code="rd_held", display_name="RD Held"
+        )
+        repo = InvestmentRepository(session)
+        return [
+            (
+                await repo.create(
+                    name=name,
+                    investment_type="private_equity",
+                    asset_class_id=asset_class.id,
+                    currency="EUR",
+                    created_by=user_id,
+                    manager_name=manager,
+                )
+            ).id
+            for name, manager in pairs
+        ]
+
+
+async def _other_tenant(
+    fresh_superuser_engine: AsyncEngine, engine: AsyncEngine
+) -> tuple[UUID, UUID]:
+    """A second tenant and a user of it: ``(tenant_id, user_id)``."""
+    other_tenant = uuid4()
+    async with fresh_superuser_engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO tenants (id, name, subdomain) VALUES (:id, 'Other', 'other-rd')"),
+            {"id": str(other_tenant)},
+        )
+    async with tenant_context(engine, other_tenant) as session:
+        other_user = await UserRepository(session).create(
+            email="pm@other-rd.example", password_hash="x" * 8
+        )
+    return other_tenant, other_user.id
+
+
+def _assign_panel(body: str) -> str:
+    start = body.index('id="rd-assign"')
+    return body[start : body.index('id="rd-remove"', start)]
+
+
+def _unassigned(reading: DocumentReadingDTO) -> bool:
+    return (
+        reading.investment_id is None
+        and reading.manager_name is None
+        and reading.assigned_by is None
+        and reading.assigned_at is None
+    )
+
+
+@pytest.mark.parametrize("role", ["owner", "member", "auditor"])
+async def test_frame_root_carries_the_csrf_token_for_writers_only(
+    web_client_factory: Any, role: str
+) -> None:
+    client, _app = await web_client_factory(role)
+    body = (await client.get("/scraper/section")).text
+    root = _element(body, _ROOT_TAG.pattern)
+    if role == "auditor":
+        assert "hx-headers" not in root
+        assert "X-CSRF-Token" not in body
+        return
+    match = _ROOT_TOKEN.search(root)
+    assert match is not None, root
+    assert match.group(1) == await _page_token(client)
+
+
+async def test_assign_to_an_investment(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    _alpha, fund = await _held(engine, owner, [("Alpha Fund", None), ("Nordlicht II", None)])
+    await _create(engine, owner)
+    token = await _section_token(client)
+
+    response = await _post(client, 1, "assign", token, to="investment", investment_id=str(fund))
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert 'data-pf-rd="file" data-pf-rd-state="live" data-pf-rd-reading="R-0001"' in body
+    assert (
+        "<dt>Assigned to</dt><dd>Nordlicht II "
+        f'<span class="pf-hint">investment · Olivia Owner, {_today()}</span>'
+    ) in body
+    assert f'<option value="{fund}" selected>Nordlicht II</option>' in body
+    assert ">Unassign</button>" in body
+
+    row = await _row(engine, owner, 1)
+    assert row.investment_id == fund
+    assert row.manager_name is None
+    assert row.assigned_by == owner
+
+
+async def test_assign_to_a_manager_name(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("member")
+    engine = app.state.engine
+    member = seeded_users["member"]
+    await _create(engine, seeded_users["owner"], fund_name_read="Successor Fund")
+    token = await _section_token(client)
+
+    response = await _post(client, 1, "assign", token, to="manager", manager_name="  Gamma LLP ")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert (
+        "<dt>Assigned to</dt><dd>Gamma LLP "
+        f'<span class="pf-hint">manager name · Mark Member, {_today()}</span>'
+    ) in body
+    manager_field = _element(body, r'<input[^>]*id="rd-assign-manager"[^>]*>')
+    assert 'value="Gamma LLP"' in manager_field
+
+    row = await _row(engine, member, 1)
+    assert row.manager_name == "Gamma LLP"
+    assert row.investment_id is None
+    assert row.assigned_by == member
+
+
+async def test_unassign(web_client_factory: Any, seeded_users: dict[str, UUID]) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    reading = await _create(engine, owner)
+    await _assign(engine, owner, reading.id, _T0, manager_name="Gamma Capital")
+    token = await _section_token(client)
+
+    response = await _post(client, 1, "assign", token, to="none")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert (
+        '<dt>Assigned to</dt><dd><span class="pf-state pf-state--unassigned">Unassigned</span>'
+    ) in body
+    _element(body, r'<button[^>]*data-pf-rd-toggle="rd-assign"[^>]*>Assign…</button>')
+    assert ">Unassign</button>" not in body
+    assert 'data-pf-rd="unassign"' not in body
+
+    row = await _row(engine, owner, 1)
+    assert row.investment_id is None
+    assert row.manager_name is None
+
+
+@pytest.mark.parametrize("kind", ["investment", "manager"])
+async def test_assign_the_proposal(
+    web_client_factory: Any, seeded_users: dict[str, UUID], kind: str
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _held(
+        engine, owner, [("Nordlicht Infrastructure II", "Nordlicht Capital Partners")]
+    )
+    if kind == "investment":
+        await _create(engine, owner, fund_name_read="  nordlicht INFRASTRUCTURE ii ")
+        lead = "Proposed assignment: investment “Nordlicht Infrastructure II”"
+        why = "— the fund name as read matches this investment."
+    else:
+        await _create(
+            engine,
+            owner,
+            fund_name_read="Unheld Fund",
+            manager_name_read="NORDLICHT capital partners",
+        )
+        lead = "Proposed assignment: manager “Nordlicht Capital Partners”"
+        why = "— the manager as read is the manager of one of your investments."
+
+    page = (await client.get("/api/reading-desk/readings/1")).text
+    assert 'data-pf-rd="proposal"' in page
+    assert lead in page and why in page
+    button = _element(page, r'<button[^>]*data-pf-rd="proposal-assign"[^>]*>')
+    assert 'hx-post="/api/reading-desk/readings/1/assign"' in button
+    assert 'hx-target="#rd-reading"' in button
+    assert 'data-pf-rd="proposal-other"' not in page
+    assert " hidden" not in _element(page, r'<div class="pf-panel" id="rd-assign"[^>]*>')
+    panel = _assign_panel(page)
+    assert '<h3 class="pf-panel__title">Or assign it yourself</h3>' in panel
+    assert ">Close</button>" not in panel
+    assert ">Unassign</button>" not in panel
+    assert 'data-pf-rd-toggle="rd-assign"' not in page
+
+    token = await _section_token(client)
+    response = await _post(client, 1, "assign", token, to="proposal")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert 'data-pf-rd="proposal"' not in body
+    assert "Proposed assignment" not in body
+    row = await _row(engine, owner, 1)
+    if kind == "investment":
+        assert row.investment_id == fund and row.manager_name is None
+        assert "<dt>Assigned to</dt><dd>Nordlicht Infrastructure II " in body
+    else:
+        assert row.manager_name == "Nordlicht Capital Partners" and row.investment_id is None
+        assert "<dt>Assigned to</dt><dd>Nordlicht Capital Partners " in body
+
+
+async def test_assign_from_a_result_block(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    [fund] = await _held(engine, owner, [("Test Fund", None)])
+    await _create(engine, owner, fund_name_read="Test Fund")
+    await _create(engine, owner, fund_name_read="Nobody's Fund", manager_name_read="Nobody LLP")
+    gone = await _create(engine, owner, fund_name_read="Test Fund")
+    await _remove(engine, owner, gone.id, "Wrong file.", _T0 + timedelta(1))
+    token = await _section_token(client)
+
+    done = await _post(client, 1, "assign", token, to="proposal", view="result")
+    assert done.status_code == 200, done.text
+    assert 'data-pf-rd="assigned" data-pf-rd-state="done"' in done.text
+    assert "Assigned to investment “Test Fund”." in done.text
+    assert done.text.count('data-pf-rd="assigned"') == 1
+    assert 'data-pf-rd="file"' not in done.text
+    assert (await _row(engine, owner, 1)).investment_id == fund
+
+    stale = await _post(client, 2, "assign", token, to="proposal", view="result")
+    assert stale.status_code == 400
+    assert 'data-pf-rd="assigned" data-pf-rd-state="refused"' in stale.text
+    assert "The proposal no longer applies." in stale.text
+    assert "Open R-0002 to assign it yourself." in stale.text
+    assert 'data-pf-rd="file"' not in stale.text
+    assert _unassigned(await _row(engine, owner, 2))
+
+    removed = await _post(client, 3, "assign", token, to="proposal", view="result")
+    assert removed.status_code == 409
+    assert 'data-pf-rd="assigned" data-pf-rd-state="refused"' in removed.text
+    assert "R-0003 was removed." in removed.text
+    assert "Nothing was assigned." in removed.text
+    assert 'data-pf-rd="file"' not in removed.text
+
+
+async def test_assign_refusals_come_back_in_the_panel(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _held(engine, owner, [("Alpha Fund", None)])
+    await _create(engine, owner)
+    token = await _section_token(client)
+
+    refusals: list[tuple[dict[str, str], str]] = [
+        ({"to": "investment"}, "Choose an investment from the list."),
+        (
+            {"to": "investment", "investment_id": "not-a-uuid"},
+            "Choose an investment from the list.",
+        ),
+        (
+            {"to": "investment", "investment_id": str(uuid4())},
+            "Choose an investment from the list.",
+        ),
+        ({"to": "manager", "manager_name": "   "}, "Enter a manager name."),
+        (
+            {"to": "manager", "manager_name": "M" * 201},
+            "A manager name has at most 200 characters.",
+        ),
+        ({"to": "proposal"}, "The proposal no longer applies."),
+    ]
+    for form, refusal in refusals:
+        response = await _post(client, 1, "assign", token, **form)
+        assert response.status_code == 400, form
+        body = response.text
+        assert 'data-pf-rd="file" data-pf-rd-state="live"' in body, form
+        error = body[body.index('data-pf-rd="assign-error"') :]
+        assert f'<p class="pf-note__lead">{refusal}</p>' in error, form
+        assert " hidden" not in _element(body, r'<div class="pf-panel" id="rd-assign"[^>]*>'), form
+        assert _unassigned(await _row(engine, owner, 1)), form
+
+    accepted = await _post(client, 1, "assign", token, to="manager", manager_name="M" * 200)
+    assert accepted.status_code == 200
+    assert 'data-pf-rd="assign-error"' not in accepted.text
+    assert (await _row(engine, owner, 1)).manager_name == "M" * 200
+
+
+async def test_assign_keeps_to_the_tenant(
+    web_client_factory: Any,
+    seeded_users: dict[str, UUID],
+    fresh_superuser_engine: AsyncEngine,
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    other_tenant, other_user = await _other_tenant(fresh_superuser_engine, engine)
+    [foreign_fund] = await _held(engine, other_user, [("Foreign Fund", None)], other_tenant)
+    for i in range(2):
+        await _create(engine, other_user, tenant_id=other_tenant, filename=f"foreign-{i}.pdf")
+    await _create(engine, owner)
+    token = await _section_token(client)
+
+    response = await _post(
+        client, 1, "assign", token, to="investment", investment_id=str(foreign_fund)
+    )
+    assert response.status_code == 400
+    assert "Choose an investment from the list." in response.text
+    assert "Foreign Fund" not in response.text
+    assert _unassigned(await _row(engine, owner, 1))
+
+    for action, form in (
+        ("assign", {"to": "manager", "manager_name": "Gamma"}),
+        ("remove", {"reason": "Wrong file."}),
+    ):
+        missing = await _post(client, 2, action, token, **form)
+        assert missing.status_code == 404, action
+        assert missing.json() == {"detail": "Reading not found."}, action
+
+    for number in (1, 2):
+        foreign = await _row(engine, other_user, number, other_tenant)
+        assert _unassigned(foreign) and not foreign.is_removed, number
+
+
+async def test_assign_unknown_vocabulary(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    reading = await _create(engine, owner)
+    await _assign(engine, owner, reading.id, _T0, manager_name="Gamma Capital")
+    before = await _row(engine, owner, 1)
+    token = await _section_token(client)
+
+    for form in ({"to": "everything"}, {"to": "none", "view": "page"}):
+        response = await _post(client, 1, "assign", token, **form)
+        assert response.status_code == 400, form
+        assert response.json() == {"detail": "Unknown assignment."}, form
+
+    after = await _row(engine, owner, 1)
+    assert after.manager_name == "Gamma Capital"
+    assert after.assigned_at == before.assigned_at
+
+
+async def test_remove_a_reading(web_client_factory: Any, seeded_users: dict[str, UUID]) -> None:
+    client, app = await web_client_factory("member")
+    engine = app.state.engine
+    member = seeded_users["member"]
+    await _create(engine, seeded_users["owner"])
+    token = await _section_token(client)
+
+    response = await _post(client, 1, "remove", token, reason="  Wrong file, superseded.  ")
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert 'data-pf-rd="file" data-pf-rd-state="removed" data-pf-rd-reading="R-0001"' in body
+    assert "This reading was removed." in body
+    assert "<dt>Reason</dt><dd>Wrong file, superseded.</dd>" in body
+    assert f"<dt>Removed</dt><dd>{_today()} · Mark Member</dd>" in body
+    assert "Fund X" not in body
+    assert "Quarterly report" not in body
+
+    row = await _row(engine, member, 1)
+    assert row.is_removed
+    assert row.removed_by == member
+    assert row.removal_reason == "Wrong file, superseded."
+    assert row.findings is None and row.note is None and row.search_text is None
+
+    library = await _library(client, removed="1")
+    assert _ROW.findall(library) == [("removed", "R-0001")]
+
+
+async def test_remove_needs_a_reason(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner)
+    token = await _section_token(client)
+
+    too_long = "x" * 2001
+    for reason, refusal in (
+        ("", "A reason is required."),
+        ("   ", "A reason is required."),
+        (too_long, "A reason has at most 2,000 characters."),
+    ):
+        response = await _post(client, 1, "remove", token, reason=reason)
+        assert response.status_code == 400, refusal
+        body = response.text
+        assert 'data-pf-rd="file" data-pf-rd-state="live"' in body
+        error = body[body.index('data-pf-rd="remove-error"') :]
+        assert f'<p class="pf-note__lead">{refusal}</p>' in error
+        assert " hidden" not in _element(body, r'<div class="pf-panel" id="rd-remove"[^>]*>')
+        textarea = _element(body, r'<textarea[^>]*name="reason"[^>]*>')
+        assert 'aria-invalid="true"' in textarea
+        if reason == too_long:
+            assert f">{too_long}</textarea>" in body
+        assert not (await _row(engine, owner, 1)).is_removed
+
+
+async def test_writes_on_a_removed_reading_answer_409(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    gone = await _create(engine, owner)
+    await _remove(engine, owner, gone.id, "Draft superseded.", _T0 + timedelta(1))
+    before = await _row(engine, owner, 1)
+    token = await _section_token(client)
+
+    for action, form in (
+        ("assign", {"to": "manager", "manager_name": "Gamma Capital"}),
+        ("remove", {"reason": "Again."}),
+    ):
+        response = await _post(client, 1, action, token, **form)
+        assert response.status_code == 409, action
+        assert 'data-pf-rd="file" data-pf-rd-state="removed"' in response.text, action
+        assert "<dt>Reason</dt><dd>Draft superseded.</dd>" in response.text, action
+
+    assert await _row(engine, owner, 1) == before
+
+
+@pytest.mark.parametrize("role", ["owner", "member", "auditor"])
+async def test_write_gates_per_role(
+    web_client_factory: Any, seeded_users: dict[str, UUID], role: str
+) -> None:
+    client, app = await web_client_factory(role)
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner)
+    await _create(engine, owner, now=_T0 + timedelta(1))
+    token = await _page_token(client)
+
+    assign = await _post(client, 1, "assign", token, to="manager", manager_name="Gamma Capital")
+    remove = await _post(client, 2, "remove", token, reason="Wrong file.")
+    if role == "auditor":
+        for response in (assign, remove):
+            assert response.status_code == 403
+            assert response.json() == {"detail": "insufficient role"}
+        assert _unassigned(await _row(engine, owner, 1))
+        assert not (await _row(engine, owner, 2)).is_removed
+    else:
+        assert assign.status_code == 200, assign.text
+        assert remove.status_code == 200, remove.text
+        assert (await _row(engine, owner, 1)).manager_name == "Gamma Capital"
+        assert (await _row(engine, owner, 2)).is_removed
+
+
+async def test_writes_need_the_csrf_token(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner)
+
+    assign = await _post(client, 1, "assign", None, to="manager", manager_name="Gamma Capital")
+    remove = await _post(client, 1, "remove", None, reason="Wrong file.")
+    for response in (assign, remove):
+        assert response.status_code == 403
+        assert response.json() == {"detail": "CSRF token missing or invalid."}
+    row = await _row(engine, owner, 1)
+    assert _unassigned(row) and not row.is_removed
+
+
+async def test_writes_without_a_session(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory(None)
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner)
+    reference = await client.get("/scraper/section", follow_redirects=False)
+    assert reference.status_code in (303, 401)
+
+    for action, form in (
+        ("assign", {"to": "manager", "manager_name": "Gamma Capital"}),
+        ("remove", {"reason": "Wrong file."}),
+    ):
+        response = await _post(client, 1, action, "forged-token", **form)
+        assert response.status_code == reference.status_code, action
+        assert response.headers.get("location") == reference.headers.get("location"), action
+    row = await _row(engine, owner, 1)
+    assert _unassigned(row) and not row.is_removed
+
+
+async def test_write_side_text_is_escaped(
+    web_client_factory: Any, seeded_users: dict[str, UUID]
+) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _held(engine, owner, [(_SCRIPT, f"{_SCRIPT} Partners")])
+    await _create(engine, owner, fund_name_read=_SCRIPT, manager_name_read=_SCRIPT)
+    await _create(engine, owner, fund_name_read="Plain Fund", manager_name_read=None)
+    token = await _section_token(client)
+
+    # An assigned manager name, through the route.
+    assigned = await _post(client, 2, "assign", token, to="manager", manager_name=_SCRIPT)
+    assert assigned.status_code == 200
+    # The reading with the proposal: picker option, suggestions, field value, proposal.
+    page = (await client.get("/api/reading-desk/readings/1")).text
+    assert "Proposed assignment: investment “" + _SCRIPT_ESCAPED + "”" in page
+    assert f">{_SCRIPT_ESCAPED}</option>" in page
+    assert f'<option value="{_SCRIPT_ESCAPED} Partners"></option>' in page
+    assert f'<option value="{_SCRIPT_ESCAPED}"></option>' in page
+    assert f'value="{_SCRIPT_ESCAPED}" placeholder' in page
+    answer = await _post(client, 1, "assign", token, to="proposal", view="result")
+    assert answer.status_code == 200
+    assert f"Assigned to investment “{_SCRIPT_ESCAPED}”." in answer.text
+    removed = await _post(client, 2, "remove", token, reason=_SCRIPT)
+    assert removed.status_code == 200
+    assert f"<dt>Reason</dt><dd>{_SCRIPT_ESCAPED}</dd>" in removed.text
+
+    for body in (assigned.text, page, answer.text, removed.text):
+        assert _SCRIPT_ESCAPED in body
+        assert _SCRIPT not in body
+
+
+async def test_assign_panel_states(web_client_factory: Any, seeded_users: dict[str, UUID]) -> None:
+    client, app = await web_client_factory("owner")
+    engine = app.state.engine
+    owner = seeded_users["owner"]
+    await _create(engine, owner, fund_name_read="Nothing Fund", manager_name_read="Nobody LLP")
+
+    # A tenant without investments gets the manager name only.
+    bare = (await client.get("/api/reading-desk/readings/1")).text
+    assert 'data-pf-rd="assign-investment"' not in bare
+    assert 'data-pf-rd="assign-manager"' in bare
+
+    await _held(
+        engine,
+        owner,
+        [
+            ("Alpha Fund", "beta partners"),
+            ("Gamma Fund", "Beta Partners"),
+            ("Delta Fund", None),
+            ("Epsilon Fund", "alpha capital"),
+        ],
+    )
+    used = await _create(engine, owner, fund_name_read=None, now=_T0 + timedelta(1))
+    await _assign(engine, owner, used.id, _T0, manager_name="Zeta Advisors")
+    again = await _create(engine, owner, fund_name_read=None, now=_T0 + timedelta(2))
+    await _assign(engine, owner, again.id, _T0, manager_name="ALPHA CAPITAL")
+
+    body = (await client.get("/api/reading-desk/readings/1")).text
+    assert "Proposed assignment" not in body
+    opener = _element(body, r'<button[^>]*data-pf-rd-toggle="rd-assign"[^>]*>Assign…</button>')
+    assert 'aria-expanded="false"' in opener
+    assert " hidden" in _element(body, r'<div class="pf-panel" id="rd-assign"[^>]*>')
+    panel = _assign_panel(body)
+    assert '<h3 class="pf-panel__title">Assign this reading</h3>' in panel
+    assert ">Close</button>" in panel
+    assert ">Unassign</button>" not in panel
+    assert 'data-pf-rd="assign-investment"' in panel
+    assert 'value="Nobody LLP"' in _element(panel, r'<input[^>]*id="rd-assign-manager"[^>]*>')
+    datalist = panel[panel.index('<datalist id="rd-assign-managers">') : panel.index("</datalist>")]
+    assert re.findall(r'<option value="([^"]*)">', datalist) == [
+        "alpha capital",
+        "beta partners",
+        "Zeta Advisors",
+    ]

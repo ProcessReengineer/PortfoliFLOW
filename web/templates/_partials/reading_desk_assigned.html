@@ -1,0 +1,15 @@
+{# The answer to *Assign* on a proposal in a result block (D-RD-2-15; M-RD-1
+   lines 3275–3277). It takes the proposal's place: POST
+   /api/reading-desk/readings/<n>/assign with ``view=result`` returns it, and
+   the button swaps it over the note it sits in.
+
+   Done, it says what the reading is assigned to. Refused, it says why —
+   the reading was removed meanwhile (409), or the names no longer match
+   anything (400); reading_desk.js lets htmx swap those two answers.
+
+   Context: answer — dict: state ("done" | "refused"), lead (str), sub (str,
+   may be empty). #}
+<div class="pf-note {{ 'pf-note--info' if answer.state == 'done' else 'pf-note--block' }}"{% if answer.state != "done" %} role="alert"{% endif %} data-pf-rd="assigned" data-pf-rd-state="{{ answer.state }}">{{ pf_icon("done" if answer.state == "done" else "block") }}
+    <p class="pf-note__lead">{{ answer.lead }}</p><span></span>
+    {% if answer.sub %}<p class="pf-note__sub">{{ answer.sub }}</p>{% endif %}
+</div>

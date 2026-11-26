@@ -1748,9 +1748,18 @@ async def test_proposal_is_shown_for_a_saved_reading(
     body = frames[-1][1]
     assert "Saved as R-0001" in body
     assert "Proposed assignment: investment “Test Fund”" in body
+    assert "— the fund name as read matches this investment." in body
     assert 'data-pf-rd="proposal"' in body
     assert "Open R-0001" in body
     assert 'hx-get="/api/reading-desk/readings/1"' in body
+    # P-RD-2c1: the proposal's two acts.
+    assign = re.search(r'<button[^>]*data-pf-rd="proposal-assign"[^>]*>', body)
+    assert assign is not None
+    assert 'hx-post="/api/reading-desk/readings/1/assign"' in assign.group(0)
+    assert '"view": "result"' in assign.group(0)
+    other = re.search(r'<a[^>]*data-pf-rd="proposal-other"[^>]*>Choose another…</a>', body)
+    assert other is not None
+    assert 'hx-get="/api/reading-desk/readings/1"' in other.group(0)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,69 @@
+{# Assigning a reading by hand (ADR-0139 §6, D-RD-2-15; M-RD-1 lines
+   3443–3457 and 3538–3547): one panel with two action groups — to an
+   investment, or to a manager name — and, for a reading that is assigned,
+   *Unassign* in the foot. Included by reading_desk_reading.html for owner
+   and member only.
+
+   Each group is its own form and posts to
+   /api/reading-desk/readings/<n>/assign with ``to`` naming the target; the
+   answer is the reading again, into #rd-reading. A refusal comes back first
+   in this panel, the panel open (ui-standards §2.5.5). The CSRF token
+   travels in the ``hx-headers`` of the Section root.
+
+   Beneath a proposal the panel stands open as "Or assign it yourself" and
+   has no foot; otherwise it opens from "Change…" / "Assign…" in the head
+   panel (``data-pf-rd-toggle``, reading_desk.js) and closes from its foot.
+
+   Context: reading.number; assign — dict: title, open, closable, assigned,
+   error (str | None), investments (list of dict: id, name, selected; may be
+   empty), manager_value (str), manager_names (list[str]). #}
+<div class="pf-panel" id="rd-assign" data-pf-rd="assign"{% if not assign.open %} hidden{% endif %}>
+    <div class="pf-panel__head"><div class="pf-panel__titles">
+        <h3 class="pf-panel__title">{{ assign.title }}</h3>
+        <p class="pf-panel__sub">To an investment if the fund is held; otherwise to a manager name — a successor fund, a fund we follow.</p>
+    </div></div>
+    {% if assign.error %}
+        <div class="pf-note pf-note--block" role="alert" data-pf-rd="assign-error">{{ pf_icon("block") }}
+            <p class="pf-note__lead">{{ assign.error }}</p><span></span>
+        </div>
+    {% endif %}
+    <div class="pf-acts">
+        {% if assign.investments %}
+            <form class="pf-act" data-pf-rd="assign-investment" hx-post="/api/reading-desk/readings/{{ reading.number }}/assign" hx-target="#rd-reading" hx-swap="innerHTML">
+                <input type="hidden" name="to" value="investment">
+                <label class="pf-label" for="rd-assign-investment">Investment</label>
+                <div class="pf-act__row">
+                    <select class="pf-select" id="rd-assign-investment" name="investment_id" required>
+                        <option value="">Choose an investment…</option>
+                        {% for investment in assign.investments %}
+                            <option value="{{ investment.id }}"{% if investment.selected %} selected{% endif %}>{{ investment.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="pf-btn">Assign</button>
+                </div>
+            </form>
+        {% endif %}
+        <form class="pf-act" data-pf-rd="assign-manager" hx-post="/api/reading-desk/readings/{{ reading.number }}/assign" hx-target="#rd-reading" hx-swap="innerHTML">
+            <input type="hidden" name="to" value="manager">
+            <label class="pf-label" for="rd-assign-manager">Manager name</label>
+            <div class="pf-act__row">
+                <input class="pf-input" id="rd-assign-manager" type="text" name="manager_name" list="rd-assign-managers" value="{{ assign.manager_value }}" placeholder="Type or pick a name" maxlength="200" autocomplete="off" required>
+                <button type="submit" class="pf-btn">Assign</button>
+            </div>
+            <datalist id="rd-assign-managers">
+                {% for name in assign.manager_names %}
+                    <option value="{{ name }}"></option>
+                {% endfor %}
+            </datalist>
+            <p class="pf-act__text">Suggestions are the managers of your investments and the names already used on readings.</p>
+        </form>
+    </div>
+    {% if assign.closable %}
+        <div class="pf-panel__foot">
+            {% if assign.assigned %}
+                <button type="button" class="pf-btn" data-pf-rd="unassign" hx-post="/api/reading-desk/readings/{{ reading.number }}/assign" hx-vals='{"to": "none"}' hx-target="#rd-reading" hx-swap="innerHTML" hx-disabled-elt="this">Unassign</button>
+            {% endif %}
+            <button type="button" class="pf-btn pf-btn--quiet" data-pf-rd-toggle="rd-assign" aria-controls="rd-assign">Close</button>
+        </div>
+    {% endif %}
+</div>

@@ -11,7 +11,7 @@ Layers, mirroring ``tests/assistants/test_case_tools.py``:
    waiting case takes the write and stays waiting (CA-07), another tenant's
    case is unknown (CA-08).
 2. **No database** — the ADR-0022 lock on the real tool (CA-09), the
-   registry at twenty with the description carrying the behaviour (CA-10),
+   registry at twenty-three with the description carrying the behaviour (CA-10),
    and the core's ``case_write`` side channel (CA-11).
 
 The DB fixtures are defined locally (not imported from
@@ -585,11 +585,13 @@ def test_ca09_the_real_tool_is_locked_after_an_untrusted_fetch() -> None:
     assert ToolClass.WRITE_INTERNAL in _LOCKED_AFTER_UNTRUSTED_FETCH
 
 
-def test_ca10_a_bare_core_registers_twenty_and_the_description_carries_the_behaviour() -> None:
-    """CA-10 (D-CS-B-119): twenty tools; additive, correctable, the number, never on her own."""
+def test_ca10_a_bare_core_registers_twenty_three_and_the_description_carries_the_behaviour() -> (
+    None
+):
+    """CA-10 (D-CS-B-119): twenty-three tools; additive, correctable, the number, never on her own."""
     AIServiceCore()
     registry = get_tool_registry()
-    assert len(registry.list_tools()) == 20
+    assert len(registry.list_tools()) == 23
     definition = next(
         d["function"]
         for d in registry.get_tool_definitions()

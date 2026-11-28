@@ -94,6 +94,13 @@ CALL_CAPABILITIES: tuple[CallCapability, ...] = (
         ("generate_chart", "render_chart"),
     ),
     CallCapability(
+        "The documents read at the Reading Desk — quarterly reports, capital notices, pitch "
+        "decks and others: which have been read, what was found in each, with page and quote, "
+        "and where a word or phrase appears in them. A reading is what was read from the "
+        "document, not a checked figure.",
+        ("list_readings", "get_reading", "search_readings"),
+    ),
+    CallCapability(
         "Current news and press coverage from vetted sources such as regulators, "
         "central banks and the financial press.",
         ("web_research",),

@@ -32,14 +32,17 @@ CALL_TOOL_ALLOWLIST: frozenset[str] = frozenset(
         "get_limit_coverage",
         "get_portfolio_overview",
         "get_portfolio_statistics",
+        "get_reading",
         "get_saa_configuration",
         "get_saa_hypothetical_comparison",
         "list_analysis_results",
         "list_cases",
         "list_datasets",
         "list_investments",
+        "list_readings",
         "render_chart",
         "search_cases",
+        "search_readings",
         "web_research",
     }
 )

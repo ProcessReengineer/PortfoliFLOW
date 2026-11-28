@@ -129,7 +129,7 @@ def test_call_prompt_is_soul_block_addendum_block_and_capabilities() -> None:
 def test_call_prompt_hash_is_pinned() -> None:
     """An edit to either prompt file or a capability line is a conscious change."""
     digest = hashlib.sha256(load_call_prompt().encode("utf-8")).hexdigest()
-    assert digest == "79c10f09e7fd97bcc1f1c3dca673524243557de3c560b221bc11e4279273b219"
+    assert digest == "8c03cb39edededa1f99342c2172d8890232824f6f4a463a752700207ca5dac0d"
 
 
 def test_call_addendum_rule_4_allows_the_one_announced_write() -> None:

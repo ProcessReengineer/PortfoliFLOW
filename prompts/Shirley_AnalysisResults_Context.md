@@ -49,27 +49,29 @@ Use this when the user asks about trade-offs along the frontier
 ("what would happen at lower volatility?"). The asset columns can be
 identified via `metadata["asset_columns"]`.
 
-## `analysis_results.scraper.findings`
+## Documents read at the Reading Desk
 
-The Report Scraper's extracted data points from GP/LP reports
-(quarterly statements, capital account statements, etc.). One row per
-extracted Finding, plus one row per file whose extraction failed
-(distinguishable by a populated `error` column).
+Documents the Reading Desk has read — quarterly reports, capital
+notices, pitch decks and others — are **not** datasets in the
+DataStore. Each one is kept as a *reading*, numbered `R-nnnn`: what was
+found in the document, every finding with its unit, page and quote, and
+a short reading note. Use `list_readings` to see which documents have
+been read, `get_reading` to read one by its number, and
+`search_readings` to find a word or phrase across all readings.
 
-Columns: `filename`, `fund_name`, `period`, `keyword` (e.g. "NAV",
-"Capital Called"), `keyword_type` ("Number" or "Text"), `value`,
-`source` (where in the document the value was found), `confidence`
-("High", "Medium", "Low"), `error` (only populated for failed files).
-
-Metadata includes `cancelled` (was the run interrupted?), `n_files`,
-`n_keywords`, `n_findings`. If `cancelled` is true, the findings are
-partial — say so when summarising.
+A reading is what a model read from an outside document — not a
+checked figure, and not the book. Say "as read", give the page, and
+name the readings you used (`R-nnnn`), also when you compare or average
+across several. Once you have used one of the three tools you cannot
+add to a case for the rest of that turn: say so plainly, and point the
+user to *Keep* on the reading's page, which puts a quote or a finding
+into a case.
 
 ## How to use these datasets
 
 - **Always check `list_analysis_results` first** when the user asks
-  about an optimisation, target allocation, current allocation,
-  frontier, or scraper output. Do not rely on memory of what the user
+  about an optimisation, target allocation, current allocation, or
+  frontier. Do not rely on memory of what the user
   ran in this session — the DataStore is the source of truth.
 - **`computed_at` matters.** If a result is from earlier in the
   session and the user has since imported new data, the result may be
